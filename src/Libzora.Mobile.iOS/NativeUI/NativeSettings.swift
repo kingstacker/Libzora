@@ -129,14 +129,19 @@ struct NativeProfilePage: View {
     }
 
     @ViewBuilder private var themeRow: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        HStack(spacing: 10) {
             Text("外观").font(NativeTheme.font())
+            Spacer(minLength: 8)
             Picker("主题", selection: Binding(get: { store.preferences.themeMode }, set: { mode in
                 var value = store.preferences; value.themeMode = mode
                 store.setPreferences(value)
             })) {
                 Text("跟随系统").tag(0); Text("浅色").tag(1); Text("深色").tag(2)
-            }.pickerStyle(.segmented).accessibilityIdentifier("profile.theme")
+            }
+            .pickerStyle(.segmented)
+            .controlSize(.small)
+            .frame(width: 200)
+            .accessibilityIdentifier("profile.theme")
         }.padding(.vertical, 12)
     }
 

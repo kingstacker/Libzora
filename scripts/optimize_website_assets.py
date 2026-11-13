@@ -75,8 +75,9 @@ def main() -> None:
 
     # A distinct crop for the "local library" feature, so the page does not
     # show the same full screenshot twice and the alt text ("grid view") matches.
+    # The 1294px-wide screenshot has a 236px sidebar; crop it away.
     library = Image.open(ROOT / "library.png").convert("RGB")
-    grid = library.crop((288, 0, library.width, library.height))
+    grid = library.crop((237, 0, library.width, library.height))
     grid.save(ROOT / "library-grid.png", "PNG", optimize=True, compress_level=9)
     save_webp(grid, ROOT / "library-grid.webp")
     build_responsive("library-grid", grid)

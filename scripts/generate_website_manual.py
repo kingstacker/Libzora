@@ -246,7 +246,7 @@ def render_page(slug: str, title: str, source_file: str, index: int) -> str:
   <body>
     <a class="skip-link" href="#content">跳到正文</a>
     <header class="manual-header">
-      <a class="brand" href="index.html"><span class="brand-mark">K</span><span>Libzora 使用手册</span></a>
+      <a class="brand" href="index.html"><span class="brand-mark">L</span><span>Libzora 使用手册</span></a>
       <a class="home-link" href="../index.html">返回官网 ↗</a>
     </header>
     <div class="manual-layout">

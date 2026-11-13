@@ -13,6 +13,12 @@ public sealed class WikipediaLookupService
     private const int MaximumQueryLength = 120;
     private const int ExtractCharacterLimit = 420;
     private static readonly HttpClient SharedHttpClient = CreateHttpClient();
+    private readonly HttpClient _httpClient;
+
+    public WikipediaLookupService(HttpClient? httpClient = null)
+    {
+        _httpClient = httpClient ?? SharedHttpClient;
+    }
 
     public async Task<WikipediaArticle?> LookupAsync(
         string term,
@@ -35,7 +41,7 @@ public sealed class WikipediaLookupService
             .ConfigureAwait(false);
     }
 
-    private static async Task<WikipediaArticle?> LookupInLanguageAsync(
+    private async Task<WikipediaArticle?> LookupInLanguageAsync(
         string query,
         string language,
         CancellationToken cancellationToken)
@@ -62,7 +68,7 @@ public sealed class WikipediaLookupService
                 $"{Uri.EscapeDataString(pair.Key)}={Uri.EscapeDataString(pair.Value)}"));
         var requestUri = new Uri($"https://{language}.wikipedia.org/w/api.php?{queryString}");
 
-        using var response = await SharedHttpClient.GetAsync(
+        using var response = await _httpClient.GetAsync(
                 requestUri,
                 HttpCompletionOption.ResponseHeadersRead,
                 cancellationToken)

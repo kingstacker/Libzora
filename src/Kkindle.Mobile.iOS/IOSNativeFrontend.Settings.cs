@@ -11,11 +11,14 @@ internal sealed partial class IOSNativeFrontend
 {
     private S3SyncSettings? _syncDraft;
     private static readonly SemaphoreSlim DictionaryGate = new(1, 1);
+    private static readonly WikipediaLookupService WikipediaLookup = new();
 
     private async Task<object> DispatchSettingsAsync(string command, JsonElement args, CancellationToken token)
     {
         using var operation = BeginOperation();
         var modules = _shell.Modules;
+        if (command == "dictionary.wikipedia")
+            return await DispatchDictionaryAsync(command, args, token);
         if (command.StartsWith("dictionary.", StringComparison.Ordinal))
         {
             await DictionaryGate.WaitAsync(token);
@@ -232,6 +235,14 @@ internal sealed partial class IOSNativeFrontend
         {
             case "dictionary.get": return (await dictionary.ListAsync(token)).ToArray();
             case "dictionary.lookup": return (await dictionary.LookupAsync(Text(args, "term").Trim(), token)).ToArray();
+            case "dictionary.wikipedia":
+                var wikipediaArticle = await WikipediaLookup.LookupAsync(
+                    Text(args, "term").Trim(),
+                    UiText.CurrentLanguage,
+                    token);
+                return wikipediaArticle is null
+                    ? Array.Empty<WikipediaArticle>()
+                    : new[] { wikipediaArticle };
             case "dictionary.toggle": await dictionary.SetEnabledAsync(Text(args, "id"), Flag(args, "enabled"), token); break;
             case "dictionary.remove":
                 if (await ConfirmAsync("移除词典", "移除后可以重新导入。", "移除")) await dictionary.RemoveAsync(Text(args, "id"), token);

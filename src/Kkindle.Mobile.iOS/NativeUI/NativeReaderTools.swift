@@ -6,18 +6,60 @@ struct NativeDictionary: View {
     @State private var term: String
     @State private var entries: [DictionaryEntry] = []
     @State private var dictionaries: [DictionaryRecord] = []
-    @State private var busy = false
-    @State private var status = ""
+    @State private var wikipedia: WikipediaArticle?
+    @State private var localBusy = false
+    @State private var wikipediaBusy = false
+    @State private var managementBusy = false
+    @State private var localStatus = ""
+    @State private var wikipediaStatus = ""
+    @State private var lookupRevision = 0
     init(store: NativeStore, initialTerm: String) { self.store = store; _term = State(initialValue: initialTerm) }
     var body: some View {
         NativeForm {
             Section {
-                HStack { TextField("查询词语", text: $term).onSubmit { lookup() }; Button("查询") { lookup() }.buttonStyle(.borderless) }
-                if busy { ProgressView() }
-                if !status.isEmpty { Text(status).font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary) }
+                HStack {
+                    TextField("查询词语", text: $term)
+                        .onSubmit { lookup() }
+                        .accessibilityIdentifier("reader.dictionary.query")
+                    if !term.isEmpty {
+                        Button(action: clearLookup) {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(NativeTheme.muted)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("清空查询")
+                        .accessibilityIdentifier("reader.dictionary.clear")
+                    }
+                    Button("查询") { lookup() }.buttonStyle(.borderless)
+                }
+                if localBusy { ProgressView("正在查本地词典…") }
+                if !localStatus.isEmpty { Text(localStatus).font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary) }
             }
             ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
                 Section(entry.term + " · " + entry.dictionaryName) { Text(entry.definition).textSelection(.enabled) }
+            }
+            Section {
+                if wikipediaBusy {
+                    ProgressView("正在查询维基百科…")
+                } else if let wikipedia {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(wikipedia.title).font(NativeTheme.font(17, relativeTo: .headline)).foregroundStyle(NativeTheme.ink)
+                        Text(wikipedia.extract).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                        Link(destination: wikipedia.url) {
+                            Label("在维基百科中打开", systemImage: "arrow.up.right.square")
+                        }
+                        .accessibilityIdentifier("reader.dictionary.wikipedia.open")
+                        Text("来源：维基百科 · CC BY-SA 4.0")
+                            .font(NativeTheme.font(11, relativeTo: .caption2))
+                            .foregroundStyle(NativeTheme.muted)
+                    }
+                    .accessibilityIdentifier("reader.dictionary.wikipedia.result")
+                } else if !wikipediaStatus.isEmpty {
+                    Text(wikipediaStatus).font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary)
+                }
+            } header: {
+                Label("维基百科", systemImage: "globe")
+                    .accessibilityIdentifier("reader.dictionary.wikipedia")
             }
             Section("词典管理") {
                 ForEach(dictionaries) { dictionary in
@@ -29,16 +71,69 @@ struct NativeDictionary: View {
                 if dictionaries.isEmpty { Text("尚未导入词典").foregroundStyle(NativeTheme.secondary) }
                 Button("导入词典") { action("import") }
             }
-        }.disabled(busy).navigationTitle("本地词典").navigationBarTitleDisplayMode(.inline).navigationBarHidden(false).modifier(NativeKeyboardDone()).modifier(NativeHideTabBar())
-            .task { do { dictionaries = try await store.request("dictionary.get"); if !term.isEmpty { entries = try await store.request("dictionary.lookup", ["term": term]) } } catch { if !Task.isCancelled { status = error.localizedDescription } } }
+            .disabled(managementBusy)
+        }.navigationTitle("词典与维基百科").navigationBarTitleDisplayMode(.inline).navigationBarHidden(false).modifier(NativeKeyboardDone()).modifier(NativeHideTabBar())
+            .task {
+                do { dictionaries = try await store.request("dictionary.get") }
+                catch { if !Task.isCancelled { localStatus = error.localizedDescription } }
+                if !term.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { lookup() }
+            }
     }
     private func lookup() {
-        guard !term.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }; busy = true
-        store.perform { defer { busy = false }; entries = try await store.request("dictionary.lookup", ["term": term]); status = entries.isEmpty ? "没有找到释义，请检查词典是否已导入并启用。" : "找到 \(entries.count) 条释义" }
+        let query = term.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty, !managementBusy else { return }
+        lookupRevision += 1
+        let revision = lookupRevision
+        entries = []
+        wikipedia = nil
+        localBusy = true
+        wikipediaBusy = true
+        localStatus = "正在查本地词典…"
+        wikipediaStatus = "正在查询维基百科…"
+        Task { @MainActor in
+            do {
+                let value: [DictionaryEntry] = try await store.request("dictionary.lookup", ["term": query])
+                guard revision == lookupRevision else { return }
+                entries = value
+                localStatus = value.isEmpty ? "没有找到本地释义。请先在词典管理中导入词典。" : ""
+            } catch {
+                guard !Task.isCancelled, revision == lookupRevision else { return }
+                localStatus = "本地词典查询失败：\(error.localizedDescription)"
+            }
+            if revision == lookupRevision { localBusy = false }
+        }
+        Task { @MainActor in
+            do {
+                let value: [WikipediaArticle] = try await store.request("dictionary.wikipedia", ["term": query])
+                guard revision == lookupRevision else { return }
+                wikipedia = value.first
+                wikipediaStatus = value.isEmpty ? "没有找到同名维基百科条目。普通词义请查本地词典。" : ""
+            } catch {
+                guard !Task.isCancelled, revision == lookupRevision else { return }
+                wikipediaStatus = "维基百科查询失败：\(error.localizedDescription)"
+            }
+            if revision == lookupRevision { wikipediaBusy = false }
+        }
+    }
+    private func clearLookup() {
+        lookupRevision += 1
+        term = ""
+        entries = []
+        wikipedia = nil
+        localBusy = false
+        wikipediaBusy = false
+        localStatus = ""
+        wikipediaStatus = ""
     }
     private func action(_ command: String, _ args: [String: Any] = [:]) {
-        busy = true
-        store.perform { defer { busy = false }; try await store.command("dictionary.\(command)", args); dictionaries = try await store.request("dictionary.get"); if !term.isEmpty { entries = try await store.request("dictionary.lookup", ["term": term]) } }
+        guard !managementBusy else { return }
+        managementBusy = true
+        store.perform {
+            defer { managementBusy = false }
+            try await store.command("dictionary.\(command)", args)
+            dictionaries = try await store.request("dictionary.get")
+            if !term.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { lookup() }
+        }
     }
 }
 

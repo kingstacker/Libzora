@@ -306,6 +306,7 @@ struct SpeechForm: Decodable { var voice: String; var speed: Double; var autoAdv
 struct SpeechSnapshot: Decodable { let settings: SpeechForm; let voices: [SpeechVoice] }
 struct DictionaryRecord: Decodable, Identifiable { let id: String; let name: String; let entryCount: Int; let enabled: Bool }
 struct DictionaryEntry: Decodable { let term: String; let definition: String; let dictionaryName: String }
+struct WikipediaArticle: Decodable { let title: String; let extract: String; let url: URL; let language: String }
 struct TxtReview: Decodable, Identifiable { let id: Int64; let name: String }
 struct TxtRules: Codable, Equatable { var encoding = 0; var headingPreset = 0; var customHeadingPattern = ""; var recognizeVolumes = true }
 struct TxtChapter: Decodable, Identifiable { let number: Int; let title: String; let isVolume: Bool; var id: Int { number } }

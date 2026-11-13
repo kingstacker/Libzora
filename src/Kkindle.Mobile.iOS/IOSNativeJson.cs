@@ -58,6 +58,8 @@ internal sealed record NativeMaterial(string Id, Guid BookId, string BookTitle, 
 [JsonSerializable(typeof(TtsVoiceInfo[]))]
 [JsonSerializable(typeof(DictionaryDefinition[]))]
 [JsonSerializable(typeof(DictionaryEntry[]))]
+[JsonSerializable(typeof(WikipediaArticle))]
+[JsonSerializable(typeof(WikipediaArticle[]))]
 [JsonSerializable(typeof(TxtImportRules))]
 [JsonSerializable(typeof(TxtChapterPreviewItem[]))]
 internal partial class IOSNativeJsonContext : JsonSerializerContext;

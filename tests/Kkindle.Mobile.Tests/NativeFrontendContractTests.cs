@@ -174,6 +174,9 @@ public sealed class NativeFrontendContractTests
             Data(("settings", new TtsSettings()), ("voices", new TtsVoiceInfo[] { new("voice", "中文", "zh-CN") })),
             new DictionaryDefinition[] { new("dictionary", "测试词典", "dict.json", 1, now) },
             new DictionaryEntry[] { new("word", "释义", "测试词典") },
+            new WikipediaArticle[] { new("量子纠缠", "量子力学中的一种现象。",
+                new Uri("https://zh.wikipedia.org/wiki/%E9%87%8F%E5%AD%90%E7%BA%A0%E7%BC%A0"), "zh") },
+            Array.Empty<WikipediaArticle>(),
             Data(("chapterCount", 1), ("detectedEncoding", "Utf8"),
                 ("chapters", new TxtChapterPreviewItem[] { new(1, 1, "第一章", false, 20) }), ("hasNextPage", false))
         ];

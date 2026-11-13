@@ -15,6 +15,9 @@ public partial class DictionarySheet : UserControl, IFullHeightSheet
     private static readonly SemaphoreSlim DictionaryGate = new(1, 1);
     private readonly MobileServices? _services;
     private readonly DictionaryService? _dictionary;
+    private readonly WikipediaLookupService _wikipedia = new();
+    private CancellationTokenSource? _lookupCancellation;
+    private WikipediaArticle? _wikipediaArticle;
     private bool _busy;
     private string? _pendingRemoval;
 
@@ -27,6 +30,7 @@ public partial class DictionarySheet : UserControl, IFullHeightSheet
         InitializeComponent();
         QueryBox.Text = term;
         Loaded += OnLoaded;
+        DetachedFromVisualTree += (_, _) => _lookupCancellation?.Cancel();
     }
 
     public bool FillsHeight => true;
@@ -54,21 +58,98 @@ public partial class DictionarySheet : UserControl, IFullHeightSheet
     private async Task LookupAsync()
     {
         var term = QueryBox.Text?.Trim();
+        _lookupCancellation?.Cancel();
+        var cancellation = new CancellationTokenSource();
+        _lookupCancellation = cancellation;
         Results.Children.Clear();
+        WikipediaResults.Children.Clear();
+        WikipediaStatusText.Text = string.Empty;
+        _wikipediaArticle = null;
         if (string.IsNullOrEmpty(term))
         {
             StatusText.Text = "请输入要查询的词语。";
             return;
         }
         StatusText.Text = "正在查询本地词典…";
-        var entries = await _dictionary!.LookupAsync(term);
-        StatusText.Text = entries.Count == 0 ? "没有找到释义，请检查词典是否已导入并启用。" : $"找到 {entries.Count} 条释义";
-        foreach (var entry in entries)
+        WikipediaStatusText.Text = "正在查询维基百科…";
+        var localTask = _dictionary!.LookupAsync(term, cancellation.Token);
+        var wikipediaTask = _wikipedia.LookupAsync(term, UiText.CurrentLanguage, cancellation.Token);
+        try
         {
-            var section = new StackPanel { Spacing = 5 };
-            section.Children.Add(new TextBlock { Text = $"{entry.Term} · {entry.DictionaryName}", FontWeight = FontWeight.SemiBold, TextWrapping = TextWrapping.Wrap });
-            section.Children.Add(new SelectableTextBlock { Text = entry.Definition, TextWrapping = TextWrapping.Wrap, LineHeight = 23 });
-            Results.Children.Add(section);
+            try
+            {
+                var entries = await localTask;
+                if (!ReferenceEquals(_lookupCancellation, cancellation)) return;
+                StatusText.Text = entries.Count == 0 ? "没有找到本地释义。请先在词典管理中导入词典。" : string.Empty;
+                foreach (var entry in entries)
+                {
+                    var section = new StackPanel { Spacing = 5 };
+                    section.Children.Add(new TextBlock { Text = $"{entry.Term} · {entry.DictionaryName}", FontWeight = FontWeight.SemiBold, TextWrapping = TextWrapping.Wrap });
+                    section.Children.Add(new SelectableTextBlock { Text = entry.Definition, TextWrapping = TextWrapping.Wrap, LineHeight = 23 });
+                    Results.Children.Add(section);
+                }
+            }
+            catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { return; }
+            catch (Exception exception) when (exception is not OutOfMemoryException)
+            {
+                if (!ReferenceEquals(_lookupCancellation, cancellation)) return;
+                StatusText.Text = "本地词典查询失败：" + UiText.Localize(exception.Message);
+            }
+
+            try
+            {
+                var article = await wikipediaTask;
+                if (!ReferenceEquals(_lookupCancellation, cancellation)) return;
+                if (article is null)
+                {
+                    WikipediaStatusText.Text = "没有找到同名维基百科条目。普通词义请查本地词典。";
+                    return;
+                }
+
+                _wikipediaArticle = article;
+                WikipediaStatusText.Text = string.Empty;
+                WikipediaResults.Children.Add(new TextBlock
+                {
+                    Text = article.Title,
+                    FontWeight = FontWeight.SemiBold,
+                    TextWrapping = TextWrapping.Wrap
+                });
+                WikipediaResults.Children.Add(new SelectableTextBlock
+                {
+                    Text = article.Extract,
+                    TextWrapping = TextWrapping.Wrap,
+                    LineHeight = 23
+                });
+                var open = new Button { Content = "在维基百科中打开" };
+                open.Classes.Add("secondary");
+                open.Click += async (_, _) =>
+                {
+                    if (TopLevel.GetTopLevel(this)?.Launcher is { } launcher)
+                        await launcher.LaunchUriAsync(article.Url);
+                };
+                WikipediaResults.Children.Add(open);
+                WikipediaResults.Children.Add(new TextBlock
+                {
+                    Text = "来源：维基百科 · CC BY-SA 4.0",
+                    Classes = { "muted" },
+                    FontSize = 11,
+                    TextWrapping = TextWrapping.Wrap
+                });
+            }
+            catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+            catch (Exception exception) when (exception is not OutOfMemoryException)
+            {
+                if (!ReferenceEquals(_lookupCancellation, cancellation)) return;
+                WikipediaStatusText.Text = "维基百科查询失败：" + UiText.Localize(exception.Message);
+            }
+        }
+        finally
+        {
+            if (ReferenceEquals(_lookupCancellation, cancellation))
+            {
+                _lookupCancellation = null;
+                cancellation.Dispose();
+            }
         }
     }
 

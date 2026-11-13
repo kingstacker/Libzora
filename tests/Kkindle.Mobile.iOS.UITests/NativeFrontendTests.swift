@@ -1691,6 +1691,31 @@ final class NativeFrontendTests: XCTestCase {
         }
     }
 
+    func testReaderDictionaryIncludesWikipediaLookup() throws {
+        try openBook(containing: "Native UI EPUB")
+        selectText()
+        app.buttons["reader.词典"].tap()
+        XCTAssertTrue(app.navigationBars["词典与维基百科"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.descendants(matching: .any)["reader.dictionary.wikipedia"].waitForExistence(timeout: 10))
+        let result = app.descendants(matching: .any)["reader.dictionary.wikipedia.result"]
+        let noResult = app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS '没有找到同名维基百科条目'")).firstMatch
+        XCTAssertTrue(waitUntil { result.exists || noResult.exists },
+                      "Wikipedia lookup must resolve to an article or an explicit no-result state.")
+        XCTAssertFalse(app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS '维基百科查询失败'")).firstMatch.exists)
+        let query = app.textFields["reader.dictionary.query"]
+        XCTAssertTrue(query.exists && query.isHittable)
+        app.buttons["reader.dictionary.clear"].tap()
+        query.tap()
+        query.typeText("Quantum entanglement")
+        app.buttons["查询"].tap()
+        XCTAssertTrue(result.waitForExistence(timeout: 15),
+                      "An existing English article must render after Chinese lookup falls back.")
+        XCTAssertTrue(app.buttons["在维基百科中打开"].exists)
+        attachScreenshot("选中文字-本地词典与维基百科")
+    }
+
     func testReaderTapOutsideSelectionDismissesItWithoutOpeningToolbar() throws {
         try openBook(containing: "Native UI EPUB")
         let typography = app.buttons["reader.排版"]

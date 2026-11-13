@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using HarfBuzzSharp;
 using Kkindle.Core;
 using SkiaSharp;
@@ -19,12 +20,6 @@ public sealed class TypesetFontLibrary : IDisposable
         public required Font Font { get; init; }
         public required SKTypeface Typeface { get; init; }
         public required int Upem { get; init; }
-        /// <summary>
-        /// Backing stream for a face extracted from the platform font manager.
-        /// HarfBuzzSharp may reference the stream instead of copying it, so it
-        /// must stay alive for as long as the face does.
-        /// </summary>
-        public Stream? SourceStream { get; init; }
 
         public void Dispose()
         {
@@ -32,7 +27,6 @@ public sealed class TypesetFontLibrary : IDisposable
             Face.Dispose();
             Blob.Dispose();
             Typeface.Dispose();
-            SourceStream?.Dispose();
         }
     }
 
@@ -63,11 +57,16 @@ public sealed class TypesetFontLibrary : IDisposable
     /// <summary>
     /// Marks a composition in progress. Releasing platform faces is deferred
     /// while a composer still holds them, so a font switch cannot dispose
-    /// bytes needed by a background layout or table preview.
+    /// bytes needed by a background layout or table preview. The counter is
+    /// guarded by the face registry lock so a new composition can never start
+    /// between the final decrement and a deferred release.
     /// </summary>
     public IDisposable BeginComposition()
     {
-        Interlocked.Increment(ref _activeCompositions);
+        lock (_faces)
+        {
+            _activeCompositions++;
+        }
         return new CompositionScope(this);
     }
 
@@ -86,14 +85,14 @@ public sealed class TypesetFontLibrary : IDisposable
 
     private void EndComposition()
     {
-        if (Interlocked.Decrement(ref _activeCompositions) > 0)
-        {
-            return;
-        }
-
         List<FontFaceEntry> released = [];
         lock (_faces)
         {
+            if (--_activeCompositions > 0)
+            {
+                return;
+            }
+
             if (_deferredReleaseKeys is { Count: > 0 } keys)
             {
                 CollectReleasedLocked(keys, MainFontPath, released);
@@ -371,21 +370,43 @@ public sealed class TypesetFontLibrary : IDisposable
                 return null;
             }
 
-            var memory = new MemoryStream(bytes, writable: false);
-            var blob = HarfBuzzSharp.Blob.FromStream(memory);
-            var face = new Face(blob, ttcIndex);
-            var font = new Font(face);
-            font.SetScale(upem, upem);
-            return new FontFaceEntry
+            // HarfBuzzSharp's Blob.FromStream pins the managed array only for
+            // the duration of that call, then hands HarfBuzz a pointer the GC
+            // may move. Copy the face into unmanaged memory that the blob owns
+            // and frees when the face is disposed.
+            var data = Marshal.AllocHGlobal(length);
+            HarfBuzzSharp.Blob? blob = null;
+            try
             {
-                Path = SystemFontKey(family),
-                Blob = blob,
-                Face = face,
-                Font = font,
-                Typeface = typeface,
-                Upem = upem,
-                SourceStream = memory,
-            };
+                Marshal.Copy(bytes, 0, data, length);
+                blob = new HarfBuzzSharp.Blob(
+                    data, length, MemoryMode.ReadOnly, () => Marshal.FreeHGlobal(data));
+                var face = new Face(blob, ttcIndex);
+                var font = new Font(face);
+                font.SetScale(upem, upem);
+                return new FontFaceEntry
+                {
+                    Path = SystemFontKey(family),
+                    Blob = blob,
+                    Face = face,
+                    Font = font,
+                    Typeface = typeface,
+                    Upem = upem,
+                };
+            }
+            catch
+            {
+                if (blob is null)
+                {
+                    Marshal.FreeHGlobal(data);
+                }
+                else
+                {
+                    blob.Dispose();
+                }
+
+                throw;
+            }
         }
         catch
         {

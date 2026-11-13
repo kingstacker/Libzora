@@ -2556,6 +2556,10 @@ public sealed class KkindleLayoutEngineTests : IDisposable
         Assert.NotNull(library.GetTypeface(key));
         Assert.True(library.GetUpem(key) > 0);
 
+        // The face bytes must live outside the managed heap: a compacting GC
+        // between registration and shaping used to leave HarfBuzz reading a
+        // moved array, crashing inside its layout-table lookup.
+        GC.Collect(2, GCCollectionMode.Forced, blocking: true, compacting: true);
         var shaper = new GlyphShaper(library);
         var shaped = shaper.Shape("阅读测试", 0, 4, key, 16f);
         Assert.False(shaped.ContainsNotdef);

@@ -37,12 +37,17 @@ public partial class ReaderPage
 
     private string ChapterPosition(string pages)
     {
+        var selected = CurrentTocIndex();
         if (_isPdf)
         {
-            var selected = CurrentTocIndex();
             return _hasPdfOutline && selected >= 0
                 ? $"第 {selected + 1} / {_tocEntries.Count} 章" : pages;
         }
+        // Count the entries the table of contents actually shows. Navigation
+        // can merge or split spine files, so spine indices would disagree
+        // with the chapters listed in the TOC sheet.
+        if (_tocEntries.Count > 0 && selected >= 0)
+            return $"第 {selected + 1} / {_tocEntries.Count} 章";
         return _epubDocument is { } document
             ? $"第 {_chapterIndex + 1} / {document.Chapters.Count} 章" : pages;
     }
@@ -64,7 +69,7 @@ public partial class ReaderPage
         var measured = Math.Clamp(stats.ProgressPercent, PaceLearningProgress, 100);
         var secondsPerPercent = stats.CumulativeSeconds / measured;
         var seconds = secondsPerPercent * Math.Max(0, 100 - progress);
-        return $"全书剩余约 {ReaderReadingTimeEstimate.FormatDuration(seconds)}";
+        return $"剩余约 {ReaderReadingTimeEstimate.FormatDuration(seconds)}";
     }
 
     private void EnsureReadingStatsLoaded(bool force = false)

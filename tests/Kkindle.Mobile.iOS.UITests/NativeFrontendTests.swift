@@ -658,8 +658,12 @@ final class NativeFrontendTests: XCTestCase {
     /// Run on a fresh isolated preview seed, which has no sync key or credentials.
     func testBackupEncryptionKeyPrompt() {
         app.tabBars.buttons["我的"].tap()
+        let entry = app.buttons["profile.backup"]
+        XCTAssertTrue(entry.waitForExistence(timeout: 15))
+        reveal(entry); entry.tap()
         for identifier in ["profile.backup.export", "profile.backup.restore"] {
             let button = app.buttons[identifier]
+            XCTAssertTrue(button.waitForExistence(timeout: 10))
             reveal(button); button.tap()
             let prompt = app.alerts["操作失败"]
             XCTAssertTrue(prompt.waitForExistence(timeout: 15))
@@ -1356,7 +1360,7 @@ final class NativeFrontendTests: XCTestCase {
         typography.tap()
         reveal(picker)
         let original = picker.buttons.allElementsBoundByIndex.first(where: { $0.isSelected })?.label ?? "页码"
-        for mode in ["页码", "章节", "全书剩余"] {
+        for mode in ["页码", "章节", "剩余时间"] {
             XCTAssertTrue(picker.buttons[mode].isHittable)
             picker.buttons[mode].tap()
             XCTAssertTrue(picker.buttons[mode].isSelected)
@@ -1371,8 +1375,8 @@ final class NativeFrontendTests: XCTestCase {
                 case "章节": return text.hasPrefix("第 ") && text.contains(" 章")
                 // The footer learns the reader's own pace; until enough time
                 // has been recorded it must say so instead of guessing.
-                case "全书剩余":
-                    return text.hasPrefix("全书剩余约 ") || text.hasPrefix("阅读速度估计中")
+                case "剩余时间":
+                    return text.hasPrefix("剩余约 ") || text.hasPrefix("阅读速度估计中")
                 default: return text.range(of: "^[0-9]+ / [0-9]+", options: .regularExpression) != nil
                 }
             }, "Footer must apply \(mode) immediately: \(position.label)")
@@ -1391,7 +1395,7 @@ final class NativeFrontendTests: XCTestCase {
         try openBook(containing: "银河系漫游指南")
         typography.tap()
         reveal(picker)
-        XCTAssertTrue(picker.buttons["全书剩余"].isSelected, "Progress display must survive an app restart.")
+        XCTAssertTrue(picker.buttons["剩余时间"].isSelected, "Progress display must survive an app restart.")
         picker.buttons[original].tap()
         app.buttons["typography.done"].tap()
         app.buttons["reader.close"].tap()
@@ -1531,12 +1535,12 @@ final class NativeFrontendTests: XCTestCase {
                       "Font did not change: before=\(initialScale)% expected=\(expectedScale)% actual=\(fontScale.label); \(fontButton.debugDescription)")
         attachScreenshot("阅读设置")
 
-        let indent = app.switches["typography.indent"]
+        let indent = app.segmentedControls["typography.indent"]
         reveal(indent)
         XCTAssertTrue(indent.isHittable)
-        let newIndent = indent.value as? String == "1" ? "0" : "1"
-        indent.tap()
-        XCTAssertTrue(waitUntil { indent.value as? String == newIndent }, "Switch did not change: \(indent.debugDescription)")
+        let newIndent = indent.buttons["开"].isSelected ? "关" : "开"
+        indent.buttons[newIndent].tap()
+        XCTAssertTrue(indent.buttons[newIndent].isSelected, "Segmented control did not change: \(indent.debugDescription)")
         let vertical = app.segmentedControls["typography.direction"].buttons["竖排"]
         reveal(vertical)
         let newDirection = vertical.isSelected ? "横排" : "竖排"
@@ -1553,8 +1557,8 @@ final class NativeFrontendTests: XCTestCase {
         app.buttons["reader.排版"].tap()
         XCTAssertTrue(app.segmentedControls["typography.paper"].buttons[newPaper].isSelected)
         XCTAssertEqual(app.staticTexts["typography.fontScale"].label, "\(expectedScale)%")
-        reveal(app.switches["typography.indent"])
-        XCTAssertTrue(waitUntil { self.app.switches["typography.indent"].value as? String == newIndent })
+        reveal(app.segmentedControls["typography.indent"])
+        XCTAssertTrue(waitUntil { self.app.segmentedControls["typography.indent"].buttons[newIndent].isSelected })
         let savedDirection = app.segmentedControls["typography.direction"].buttons[newDirection]
         reveal(savedDirection)
         XCTAssertTrue(savedDirection.isSelected)
@@ -1587,8 +1591,8 @@ final class NativeFrontendTests: XCTestCase {
         XCTAssertTrue(app.segmentedControls["typography.paper"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.segmentedControls["typography.paper"].buttons["米"].isSelected)
         XCTAssertEqual(app.staticTexts["typography.fontScale"].label, "125%")
-        reveal(app.switches["typography.indent"])
-        XCTAssertEqual(app.switches["typography.indent"].value as? String, "1")
+        reveal(app.segmentedControls["typography.indent"])
+        XCTAssertTrue(app.segmentedControls["typography.indent"].buttons["开"].isSelected)
         attachScreenshot("覆盖安装后保留阅读设置")
     }
 
@@ -1849,7 +1853,7 @@ final class NativeFrontendTests: XCTestCase {
         app.buttons["typography.done"].tap()
         XCTAssertTrue(waitUntil { !paper.exists })
         app.buttons["reader.目录"].tap()
-        let navigation = app.navigationBars["目录"]
+        let navigation = app.navigationBars["Native UI EPUB"]
         XCTAssertTrue(navigation.waitForExistence(timeout: 10))
         let toggle = app.buttons["reader.toc.toggleAll"]
         guard toggle.waitForExistence(timeout: 5) else {
@@ -1878,7 +1882,7 @@ final class NativeFrontendTests: XCTestCase {
     func testReaderTocExpandsAndCollapsesSubchapters() throws {
         try openBook(containing: "Native UI EPUB")
         app.buttons["reader.目录"].tap()
-        XCTAssertTrue(app.navigationBars["目录"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.navigationBars["Native UI EPUB"].waitForExistence(timeout: 10))
         guard app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'reader.toc.' AND label CONTAINS '第一部'")).firstMatch.exists else {
             throw XCTSkip("需要包含第一部、第一章和第一节的隔离 EPUB 测试数据")
         }
@@ -1900,7 +1904,7 @@ final class NativeFrontendTests: XCTestCase {
         childToggle.tap()
         XCTAssertTrue(grandchild.waitForExistence(timeout: 10))
         grandchild.tap()
-        XCTAssertTrue(waitUntil { !self.app.navigationBars["目录"].exists })
+        XCTAssertTrue(waitUntil { !self.app.navigationBars["Native UI EPUB"].exists })
     }
 
     func testReaderTocOpensAtTheCurrentChapter() throws {
@@ -1914,13 +1918,13 @@ final class NativeFrontendTests: XCTestCase {
         progress.adjust(toNormalizedSliderPosition: percent >= 50 ? 0.15 : 0.95)
         XCTAssertTrue(waitUntil { progress.value as? String != before })
         toc.tap()
-        XCTAssertTrue(app.navigationBars["目录"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.navigationBars["Native UI EPUB"].waitForExistence(timeout: 10))
         attachScreenshot("目录打开位置")
         let current = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'reader.toc.' AND selected == true")).firstMatch
         XCTAssertTrue(current.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertTrue(waitUntil { current.isHittable }, "The table of contents should open with the current chapter visible.")
         current.tap()
-        XCTAssertTrue(waitUntil { !self.app.navigationBars["目录"].exists })
+        XCTAssertTrue(waitUntil { !self.app.navigationBars["Native UI EPUB"].exists })
     }
 
     private func openLibrarySettings() {

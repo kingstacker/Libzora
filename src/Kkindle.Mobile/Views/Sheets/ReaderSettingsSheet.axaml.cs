@@ -45,7 +45,6 @@ public partial class ReaderSettingsSheet : UserControl
         ProgressPages.Classes.Set("on", current.ReaderProgressDisplay == MobileReaderProgressDisplay.Pages);
         ProgressChapters.Classes.Set("on", current.ReaderProgressDisplay == MobileReaderProgressDisplay.Chapters);
         ProgressBookTime.Classes.Set("on", current.ReaderProgressDisplay == MobileReaderProgressDisplay.BookTimeRemaining);
-        ProgressTimeHint.IsVisible = current.ReaderProgressDisplay == MobileReaderProgressDisplay.BookTimeRemaining;
         ZoomPage.Classes.Set("on", current.PdfZoom <= 1);
         ZoomMedium.Classes.Set("on", current.PdfZoom is > 1 and < 2);
         ZoomLarge.Classes.Set("on", current.PdfZoom >= 2);

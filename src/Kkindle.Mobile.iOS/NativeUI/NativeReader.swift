@@ -41,10 +41,17 @@ struct NativeReaderPage: View {
     @State private var jumpingToSearch = false
     @State private var speechExpanded = true
     @State private var footnoteCardHeight: CGFloat = 140
+    /// PostScript name of the body font, so the reading footer matches the page.
+    @State private var bodyFontName = "KingHwaOldSong"
     private let chromeSideInset: CGFloat = 8
     private let footerHeight: CGFloat = 24
     private var reader: ReaderSnapshot { session.state }
     private var speechActive: Bool { reader.speechState != 0 && reader.speechState != 4 }
+    private var footerFont: Font {
+        reader.isPdf
+            ? NativeTheme.font(11.5, relativeTo: .caption2)
+            : .custom(bodyFontName, size: 11.5, relativeTo: .caption2)
+    }
     /// The footer is drawn over the bottom of the reader surface. The page
     /// already keeps its own bottom margin, so only the part of the footer
     /// strip that the margin does not cover has to be reserved. Reserving the
@@ -121,7 +128,7 @@ struct NativeReaderPage: View {
                 } else {
                     NavigationView {
                         panelContent(panel)
-                            .navigationTitle(panel.title).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
+                            .navigationTitle(panel == .toc ? book.title : panel.title).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
                             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("完成") { self.panel = nil } } }
                     }.navigationViewStyle(.stack)
                         .modifier(NativeReaderTocSheetBackground(
@@ -147,6 +154,7 @@ struct NativeReaderPage: View {
             .preferredColorScheme(readerColorScheme)
         }
         .onAppear { seekProgress = reader.progress; syncAppAppearance() }
+        .task(id: store.preferences.readerFontFamily) { await loadBodyFont() }
         .onChange(of: appColorScheme) { _ in syncAppAppearance() }
         .onChange(of: readerColorEnvironment) { _ in
             if store.preferences.readerThemeFollowsAppearance { syncAppAppearance() }
@@ -181,6 +189,19 @@ struct NativeReaderPage: View {
                                    "dark": currentAppColorScheme == .dark]
         Task { try? await store.command("reader.appearance", args) }
     }
+    /// Resolves the reading font to the PostScript name CoreText needs. The
+    /// footer sits outside the rendered page, so without this it would always
+    /// use the app's default face instead of the book's body font.
+    private func loadBodyFont() async {
+        guard !reader.isPdf else { return }
+        guard let list: ReaderFontList = try? await store.request("reader.fonts") else { return }
+        for option in list.fonts where option.kind == "download" && option.installed {
+            guard let path = option.path, FileManager.default.fileExists(atPath: path) else { continue }
+            CTFontManagerRegisterFontsForURL(URL(fileURLWithPath: path) as CFURL, .process, nil)
+        }
+        let name = list.fonts.first(where: { $0.key == store.preferences.readerFontFamily })?.previewName ?? ""
+        bodyFontName = name.isEmpty ? "KingHwaOldSong" : name
+    }
     private var readerContent: some View {
         ZStack {
             paper.ignoresSafeArea()
@@ -208,7 +229,7 @@ struct NativeReaderPage: View {
                         Spacer(minLength: 12)
                         Text(reader.position).monospacedDigit().lineLimit(1).minimumScaleFactor(0.85)
                             .layoutPriority(1).accessibilityIdentifier("reader.position")
-                    }.font(NativeTheme.font(11.5, relativeTo: .caption2)).foregroundStyle(NativeTheme.muted).padding(.horizontal, 24).frame(height: footerHeight)
+                    }.font(footerFont).foregroundStyle(NativeTheme.muted).padding(.horizontal, 24).frame(height: footerHeight)
                         .background(paper).allowsHitTesting(false)
                 }
             }
@@ -462,18 +483,12 @@ struct NativeTypography: View {
                 row("翻页动画") {
                     Picker("翻页动画", selection: preference(\.readerPageAnimation)) { Text("无").tag(0); Text("淡入").tag(1); Text("滑动").tag(2); Text("墨水").tag(3) }.pickerStyle(.segmented)
                 }
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("底部进度").font(NativeTheme.font(13)).foregroundStyle(NativeTheme.secondary)
+                row("底部进度") {
                     Picker("底部进度", selection: preference(\.readerProgressDisplay)) {
                         Text("页码").tag(0); Text("章节").tag(1)
-                        Text("全书剩余").tag(3)
+                        Text("剩余时间").tag(3)
                     }.pickerStyle(.segmented).accessibilityIdentifier("typography.progressDisplay")
-                    if store.preferences.readerProgressDisplay >= 2 {
-                        Text("全书剩余按你的阅读速度估算")
-                            .font(NativeTheme.font(11, relativeTo: .caption))
-                            .foregroundStyle(NativeTheme.muted)
-                    }
-                }.padding(.vertical, 10)
+                }
                 if isPdf {
                     row("缩放") {
                         Picker("缩放", selection: preference(\.pdfZoom)) { Text("整页").tag(1.0); Text("1.5 倍").tag(1.5); Text("2 倍").tag(2.0) }.pickerStyle(.segmented)
@@ -515,7 +530,11 @@ struct NativeTypography: View {
                     row("页边距") {
                         Picker("页边距", selection: preference(\.readerBodyPadding)) { Text("窄").tag(16.0); Text("标准").tag(24.0); Text("宽").tag(36.0) }.pickerStyle(.segmented)
                     }
-                    NativeToggle(title: "首行缩进", isOn: preference(\.readerParagraphIndent), identifier: "typography.indent")
+                    row("首行缩进") {
+                        Picker("首行缩进", selection: preference(\.readerParagraphIndent)) {
+                            Text("关").tag(false); Text("开").tag(true)
+                        }.pickerStyle(.segmented).accessibilityIdentifier("typography.indent")
+                    }
                     row("排版方向") {
                         Picker("排版方向", selection: preference(\.readerVerticalWriting)) { Text("横排").tag(false); Text("竖排").tag(true) }
                             .pickerStyle(.segmented).accessibilityIdentifier("typography.direction")

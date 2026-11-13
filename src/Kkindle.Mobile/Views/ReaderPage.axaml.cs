@@ -1209,7 +1209,7 @@ public partial class ReaderPage : UserControl
         var items = _tocEntries
             .Select((entry, index) => new ChoiceItem(entry.Title, null, index == selected, entry.Level, entry))
             .ToList();
-        _shell.ShowSheet("目录", new ChoiceSheet(items, choice =>
+        _shell.ShowSheet(_book.Title, new ChoiceSheet(items, choice =>
         {
             if (choice.Tag is TocEntry entry) _ = JumpToAsync(entry);
         }), ThemeScope.RequestedThemeVariant);

@@ -15,75 +15,245 @@ struct NativeKeyboardDone: ViewModifier {
 struct NativeProfilePage: View {
     @ObservedObject var store: NativeStore
     @State private var summary: ProfileSummary?
-    @State private var busy = false
-    @State private var developer = false
-    @State private var versionTaps = 0
-    @State private var firstVersionTap = Date.distantPast
+    @State private var membership: AccountMembership?
+
+    private var account: AccountStatus? { store.account ?? summary?.account }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 Text("我的").font(NativeTheme.pageTitleFont).accessibilityIdentifier("page.profile")
-                    .padding(.bottom, 16)
-                NavigationLink { NativeAccountPage(store: store) } label: {
-                    NativeSettingsRow(title: (store.account ?? summary?.account)?.user?.username ?? "登录 / 注册",
-                        value: (store.account ?? summary?.account)?.regionName ?? "用户账号")
-                }.accessibilityIdentifier("profile.account")
-                NavigationLink { NativeSyncSettings(store: store) } label: { NativeSettingsRow(title: "云同步", value: summary?.sync ?? "") }
-                    .accessibilityIdentifier("profile.sync")
-                NavigationLink { NativeAiSettings(store: store) } label: { NativeSettingsRow(title: "AI 助手", value: summary?.ai ?? "") }
-                NavigationLink { NativeEmailSettings(store: store) } label: { NativeSettingsRow(title: "发送到 Kindle", value: summary?.kindle ?? "") }
+                    .padding(.bottom, 18)
 
-                NavigationLink { NativeLibrarySettings(store: store) } label: { NativeSettingsRow(title: "书库设置") }
-                    .accessibilityIdentifier("profile.librarySettings")
+                accountCard
 
-                sectionLabel("外观", top: 28).padding(.bottom, 10)
-                Picker("主题", selection: Binding(get: { store.preferences.themeMode }, set: { mode in
-                    var value = store.preferences; value.themeMode = mode
-                    store.setPreferences(value)
-                })) {
-                    Text("跟随系统").tag(0); Text("浅色").tag(1); Text("深色").tag(2)
-                }.pickerStyle(.segmented).accessibilityIdentifier("profile.theme")
-
-                sectionLabel("数据", top: 32).padding(.bottom, 4)
-                NativeSettingsRow(title: "书籍占用", value: summary?.storage ?? "—", chevron: false)
-                Button { runBackup(false) } label: { NativeSettingsRow(title: "导出备份") }
-                    .disabled(busy).accessibilityIdentifier("profile.backup.export")
-                Button { runBackup(true) } label: { NativeSettingsRow(title: "恢复备份") }
-                    .disabled(busy).accessibilityIdentifier("profile.backup.restore")
-                NavigationLink { NativeTrash(store: store) } label: { NativeSettingsRow(title: "回收站") }
-                NavigationLink { NativeDictionary(store: store, initialTerm: "").nativeBackButton() } label: { NativeSettingsRow(title: "本地词典") }
-
-                sectionLabel("关于", top: 24).padding(.bottom, 4)
-                NavigationLink { NativeFeedbackPage(store: store) } label: { NativeSettingsRow(title: "问题反馈") }
-                    .accessibilityIdentifier("profile.feedback")
-                Button { UIPasteboard.general.string = "1109898894"; store.showToast("群号已复制到剪贴板") } label: {
-                    NativeSettingsRow(title: "QQ 交流群", value: "1109898894", chevron: false)
+                groupLabel("阅读与外观")
+                groupCard {
+                    themeRow
+                    rowDivider
+                    NavigationLink { NativeLibrarySettings(store: store) } label: {
+                        NativeSettingsRow(title: "书库设置")
+                    }.accessibilityIdentifier("profile.librarySettings")
+                    rowDivider
+                    NavigationLink { NativeDictionary(store: store, initialTerm: "").nativeBackButton() } label: {
+                        NativeSettingsRow(title: "本地词典")
+                    }.accessibilityIdentifier("profile.dictionary")
                 }
-                Button { tapVersion() } label: { NativeSettingsRow(title: "版本", value: summary?.version ?? "", chevron: false) }
-            }.padding(.horizontal, 24).padding(.top, 20).padding(.bottom, 32).buttonStyle(.plain)
+
+                groupLabel("服务与扩展")
+                groupCard {
+                    NavigationLink { NativeAiSettings(store: store) } label: {
+                        NativeSettingsRow(title: "AI 助手", value: summary?.ai ?? "")
+                    }.accessibilityIdentifier("profile.ai")
+                    rowDivider
+                    NavigationLink { NativeEmailSettings(store: store) } label: {
+                        NativeSettingsRow(title: "发送到 Kindle", value: summary?.kindle ?? "")
+                    }.accessibilityIdentifier("profile.kindle")
+                }
+
+                groupLabel("数据与存储")
+                groupCard {
+                    NativeSettingsRow(title: "书籍占用", value: summary?.storage ?? "—", chevron: false)
+                    rowDivider
+                    NavigationLink { NativeBackupPage(store: store) } label: {
+                        NativeSettingsRow(title: "备份与恢复")
+                    }.accessibilityIdentifier("profile.backup")
+                    rowDivider
+                    NavigationLink { NativeTrash(store: store) } label: {
+                        NativeSettingsRow(title: "回收站")
+                    }.accessibilityIdentifier("profile.trash")
+                }
+
+                groupLabel("支持与关于")
+                groupCard {
+                    NavigationLink { NativeFeedbackPage(store: store) } label: {
+                        NativeSettingsRow(title: "问题反馈")
+                    }.accessibilityIdentifier("profile.feedback")
+                    rowDivider
+                    Button {
+                        UIPasteboard.general.string = "1109898894"
+                        store.showToast("群号已复制到剪贴板")
+                    } label: {
+                        NativeSettingsRow(title: "QQ 交流群", value: "1109898894", chevron: false)
+                    }
+                    rowDivider
+                    NavigationLink { NativeAboutPage(store: store, version: summary?.version ?? "") } label: {
+                        NativeSettingsRow(title: "关于 Kkindle", value: summary?.version ?? "")
+                    }.accessibilityIdentifier("profile.about")
+                }
+            }.padding(.horizontal, 20).padding(.top, 20).padding(.bottom, 120).buttonStyle(.plain)
         }.background(NativeAmbientBackground()).navigationBarHidden(true)
             .overlay(alignment: .top) { NativeStatusBarGlass() }
-            .sheet(isPresented: $developer) {
-                NativeNameSheet(store: store, title: "开发者模式", initial: "", button: "进入", isSecure: true) { password in
-                    try await store.command("settings.developer.toggle", ["password": password])
-                }
-            }
             .task {
                 do {
                     let result: ProfileSummary = try await store.request("settings.profile")
                     summary = result; store.account = result.account
                 }
                 catch { if !Task.isCancelled { store.failure = error.localizedDescription } }
+                if !Task.isCancelled { await loadMembership() }
             }
     }
-    private func sectionLabel(_ title: String, top: CGFloat) -> some View {
-        Text(title).font(NativeTheme.font(13, relativeTo: .caption)).foregroundStyle(NativeTheme.muted).padding(.top, top)
+
+    /// Identity and cloud sync share one card: both belong to the account and
+    /// keep the first screen from opening with a one-row section.
+    @ViewBuilder private var accountCard: some View {
+        let signedIn = account?.isLoggedIn == true
+        let name = signedIn ? (account?.user?.username ?? "已登录") : "登录 / 注册"
+        VStack(spacing: 0) {
+            NavigationLink { NativeAccountPage(store: store) } label: {
+                HStack(spacing: 14) {
+                    avatar(signedIn: signedIn, name: name)
+                    VStack(alignment: .leading, spacing: 5) {
+                        HStack(spacing: 8) {
+                            Text(name).font(NativeTheme.font(17, relativeTo: .headline).weight(.semibold))
+                                .lineLimit(1).minimumScaleFactor(0.8)
+                            if signedIn, let membership, membership.plan != "free" {
+                                NativePlanBadge(text: membership.planName,
+                                                accent: NativeTheme.planAccent(membership.plan))
+                            }
+                        }
+                        Text(accountSubtitle)
+                            .font(NativeTheme.font(12, relativeTo: .caption))
+                            .foregroundStyle(NativeTheme.muted).lineLimit(2)
+                    }
+                    Spacer(minLength: 8)
+                    Image(systemName: "chevron.right").font(.system(size: 12, weight: .regular))
+                        .foregroundStyle(NativeTheme.muted)
+                }.padding(.vertical, 16).contentShape(Rectangle())
+            }.accessibilityIdentifier("profile.account")
+            rowDivider
+            NavigationLink { NativeSyncSettings(store: store) } label: {
+                NativeSettingsRow(title: "云同步", value: summary?.sync ?? "")
+            }.accessibilityIdentifier("profile.sync")
+        }.padding(.horizontal, 16).background { cardBackground }
     }
-    private func runBackup(_ restore: Bool) {
+
+    @ViewBuilder private var themeRow: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("外观").font(NativeTheme.font())
+            Picker("主题", selection: Binding(get: { store.preferences.themeMode }, set: { mode in
+                var value = store.preferences; value.themeMode = mode
+                store.setPreferences(value)
+            })) {
+                Text("跟随系统").tag(0); Text("浅色").tag(1); Text("深色").tag(2)
+            }.pickerStyle(.segmented).accessibilityIdentifier("profile.theme")
+        }.padding(.vertical, 12)
+    }
+
+    @ViewBuilder private var cardBackground: some View {
+        if store.preferences.colorfulMode {
+            RoundedRectangle(cornerRadius: 18, style: .continuous).fill(.ultraThinMaterial)
+        } else {
+            RoundedRectangle(cornerRadius: 18, style: .continuous).fill(NativeTheme.sunk)
+        }
+    }
+
+    private var rowDivider: some View { NativeTheme.divider.frame(height: 1) }
+
+    private func groupLabel(_ title: String) -> some View {
+        Text(title).font(NativeTheme.font(13, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary)
+            .padding(.top, 28).padding(.bottom, 8).padding(.leading, 2)
+    }
+
+    private func groupCard<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        VStack(spacing: 0) { content() }.padding(.horizontal, 16).background { cardBackground }
+    }
+
+    private func avatar(signedIn: Bool, name: String) -> some View {
+        ZStack {
+            Circle().fill(NativeTheme.strong)
+            if signedIn {
+                Text(String(name.prefix(1))).font(NativeTheme.font(19, relativeTo: .headline))
+                    .foregroundStyle(NativeTheme.secondary)
+            } else {
+                Image(systemName: "person").font(.system(size: 18, weight: .regular))
+                    .foregroundStyle(NativeTheme.secondary)
+            }
+        }.frame(width: 46, height: 46).accessibilityHidden(true)
+    }
+
+    private var accountSubtitle: String {
+        let region = account?.regionName ?? "中国区"
+        guard account?.isLoggedIn == true else { return region + " · 登录后同步书籍与阅读进度" }
+        guard let membership else { return region }
+        switch membership.plan {
+        case "plus": return region + " · " + membership.planExpiryText
+        case "lifetime": return region + " · 功能解锁 · 永久有效"
+        default: return membership.isPlusExpired ? region + " · Plus 已到期" : region + " · 免费账户"
+        }
+    }
+
+    private func loadMembership() async {
+        guard store.account?.isLoggedIn == true else { membership = nil; return }
+        let value: DeviceFeatureStatus? = try? await store.request("settings.membership.get")
+        if !Task.isCancelled { membership = value?.membership }
+    }
+}
+
+/// Rare, consequential actions live one level down so the profile page stays a
+/// directory of destinations instead of a list of buttons that act immediately.
+struct NativeBackupPage: View {
+    @ObservedObject var store: NativeStore
+    @State private var busy = false
+
+    var body: some View {
+        NativeForm {
+            Section {
+                Button("导出备份") { run(false) }
+                    .disabled(busy).accessibilityIdentifier("profile.backup.export")
+                Button("恢复备份") { run(true) }
+                    .disabled(busy).accessibilityIdentifier("profile.backup.restore")
+                if busy { HStack(spacing: 10) { ProgressView().controlSize(.small); Text("正在处理…").foregroundStyle(NativeTheme.secondary) } }
+            }
+            Section {
+                Text("备份包含书库、阅读进度、书签与批注。导出与恢复都需要同步密钥；密钥不会写入备份。")
+                    .font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary)
+            }
+        }
+        .navigationTitle("备份与恢复").navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
+        .nativeBackButton()
+        .modifier(NativeHideTabBar())
+    }
+
+    private func run(_ restore: Bool) {
         busy = true
         store.perform { defer { busy = false }; try await store.command(restore ? "backup.restore" : "backup.export") }
     }
+}
+
+struct NativeAboutPage: View {
+    @ObservedObject var store: NativeStore
+    let version: String
+    @State private var developer = false
+    @State private var versionTaps = 0
+    @State private var firstVersionTap = Date.distantPast
+
+    var body: some View {
+        NativeForm {
+            Section {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Kkindle").font(NativeTheme.font(22, relativeTo: .title2).weight(.semibold))
+                    Text("本地优先的电子书阅读器").font(NativeTheme.font(12, relativeTo: .caption))
+                        .foregroundStyle(NativeTheme.secondary)
+                }
+            }
+            Section {
+                Button { tapVersion() } label: {
+                    NativeSettingsRow(title: "版本", value: version, chevron: false)
+                }.buttonStyle(.plain).accessibilityIdentifier("profile.about.version")
+                NativeSettingsRow(title: "开发者", value: "kingstacker", chevron: false)
+            }
+        }
+        .navigationTitle("关于").navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
+        .nativeBackButton()
+        .modifier(NativeHideTabBar())
+        .sheet(isPresented: $developer) {
+            NativeNameSheet(store: store, title: "开发者模式", initial: "", button: "进入", isSecure: true) { password in
+                try await store.command("settings.developer.toggle", ["password": password])
+            }
+        }
+    }
+
     private func tapVersion() {
         let now = Date()
         if versionTaps == 0 || now.timeIntervalSince(firstVersionTap) > 3 { versionTaps = 0; firstVersionTap = now }

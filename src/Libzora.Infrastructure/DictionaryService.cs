@@ -1,0 +1,521 @@
+using System.IO.Compression;
+using System.Net;
+using System.Text;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using HtmlAgilityPack;
+using Libzora.Core;
+using MdxParser;
+
+namespace Libzora.Infrastructure;
+
+public sealed record DictionaryImportProgress(string Stage, int EntryCount = 0, double? Percent = null, string? Detail = null);
+
+public sealed partial class DictionaryService
+{
+    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
+    private static readonly HashSet<string> BlockElements = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "address", "article", "blockquote", "dd", "div", "dl", "dt", "figcaption", "footer",
+        "h1", "h2", "h3", "h4", "h5", "h6", "header", "li", "main", "p", "section", "table", "tr"
+    };
+    private readonly AppPaths _paths;
+    private readonly IBookFormatConverter? _formatConverter;
+
+    static DictionaryService() => Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+
+    public DictionaryService(AppPaths paths, IBookFormatConverter? formatConverter = null)
+    {
+        _paths = paths;
+        _formatConverter = formatConverter;
+    }
+
+    private string ManifestPath => Path.Combine(_paths.Dictionaries, "manifest.json");
+
+    public async Task<IReadOnlyList<DictionaryDefinition>> ListAsync(CancellationToken cancellationToken = default)
+    {
+        _paths.EnsureDirectories();
+        if (!File.Exists(ManifestPath)) return [];
+        try
+        {
+            await using var stream = File.OpenRead(ManifestPath);
+            return await JsonSerializer.DeserializeAsync<List<DictionaryDefinition>>(stream, JsonOptions, cancellationToken) ?? [];
+        }
+        catch (JsonException) { return []; }
+    }
+
+    public async Task<DictionaryDefinition> ImportAsync(string sourcePath, string? name = null, CancellationToken cancellationToken = default, IProgress<DictionaryImportProgress>? progress = null)
+    {
+        if (!File.Exists(sourcePath)) throw new FileNotFoundException("词典文件不存在。", sourcePath);
+        var extension = Path.GetExtension(sourcePath).ToLowerInvariant();
+        progress?.Report(new("读取词典"));
+        var richEntries = extension == ".mdx" ? new Dictionary<string, string>(StringComparer.CurrentCultureIgnoreCase) : null;
+        var entries = extension switch
+        {
+            ".mdx" => await ParseMdxAsync(sourcePath, cancellationToken, progress, richEntries),
+            ".azw" or ".mobi" or ".prc" => await ParseKindleDictionaryAsync(sourcePath, cancellationToken, progress),
+            ".txt" or ".tsv" or ".csv" => await ParseAsync(sourcePath, cancellationToken, progress),
+            _ => throw new NotSupportedException("支持 MDX、AZW、AZW3、MOBI、PRC、KFX、TXT、TSV 和 CSV 词典。")
+        };
+        if (entries.Count == 0)
+            throw new InvalidDataException(extension is ".azw" or ".mobi" or ".prc"
+                ? "转换后的 Kindle 词典中没有识别到词条。请确认文件是未受 DRM 保护的 Kindle 词典。"
+                : "词典中没有识别到可用词条。");
+        _paths.EnsureDirectories();
+        var displayName = string.IsNullOrWhiteSpace(name) ? Path.GetFileNameWithoutExtension(sourcePath) : name.Trim();
+        progress?.Report(new("检查重复词典", entries.Count));
+        var manifest = (await ListAsync(cancellationToken)).ToList();
+        var sameName = manifest
+            .Where(item => string.Equals(item.Name.Trim(), displayName, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        if (sameName.Length > 0)
+        {
+            var exactDuplicates = new List<DictionaryDefinition>();
+            var staleEntries = new List<DictionaryDefinition>();
+            foreach (var existing in sameName)
+            {
+                var existingEntries = await ReadEntriesAsync(existing, cancellationToken);
+                if (existingEntries is null)
+                {
+                    // A removed or damaged data file must not leave a manifest
+                    // row that permanently blocks importing this dictionary again.
+                    staleEntries.Add(existing);
+                    continue;
+                }
+                if (DictionaryEntriesEqual(entries, existingEntries))
+                    exactDuplicates.Add(existing);
+            }
+
+            if (staleEntries.Count > 0)
+            {
+                var staleIds = staleEntries.Select(item => item.Id).ToHashSet(StringComparer.Ordinal);
+                manifest.RemoveAll(item => staleIds.Contains(item.Id));
+                await SaveManifestAsync(manifest, cancellationToken);
+            }
+
+            var activeSameName = sameName.Except(staleEntries).ToArray();
+            if (activeSameName.Length > 0 && exactDuplicates.Count == activeSameName.Length)
+            {
+                // Older versions allowed repeated imports. Keep the first
+                // matching entry in the manifest and drop exact duplicates.
+                var existing = exactDuplicates[0];
+                if (exactDuplicates.Count > 1)
+                {
+                    var duplicateIds = exactDuplicates.Skip(1).Select(item => item.Id).ToHashSet(StringComparer.Ordinal);
+                    manifest.RemoveAll(item => duplicateIds.Contains(item.Id));
+                    await SaveManifestAsync(manifest, cancellationToken);
+                    foreach (var duplicate in exactDuplicates.Skip(1))
+                    {
+                        var duplicatePath = ResolveSafePath(duplicate.RelativePath);
+                        try { if (File.Exists(duplicatePath)) File.Delete(duplicatePath); File.Delete(Path.ChangeExtension(duplicatePath, "rich.db")); File.Delete(Path.ChangeExtension(duplicatePath, "lookup.db")); }
+                        catch (IOException) { }
+                        catch (UnauthorizedAccessException) { }
+                    }
+                }
+                await SaveRichEntriesAsync(ResolveSafePath(existing.RelativePath), richEntries, sourcePath, cancellationToken);
+                await LookupIndexedAsync(ResolveSafePath(existing.RelativePath), "", cancellationToken);
+                progress?.Report(new("导入完成", entries.Count, 100));
+                return existing;
+            }
+
+            throw new InvalidDataException("已存在同名词典，请先移除旧词典后再导入。");
+        }
+
+        progress?.Report(new("保存词条", entries.Count));
+        var id = Guid.NewGuid().ToString("N");
+        var relativePath = $"{id}.json";
+        await using (var stream = File.Create(Path.Combine(_paths.Dictionaries, relativePath)))
+            await JsonSerializer.SerializeAsync(stream, entries, JsonOptions, cancellationToken);
+        var definition = new DictionaryDefinition(id, displayName, relativePath, entries.Count, DateTimeOffset.UtcNow, SourceFormat: extension.TrimStart('.').ToUpperInvariant());
+        await SaveRichEntriesAsync(ResolveSafePath(relativePath), richEntries, sourcePath, cancellationToken);
+        await LookupIndexedAsync(ResolveSafePath(relativePath), "", cancellationToken);
+        progress?.Report(new("保存词典目录", entries.Count));
+        manifest.Add(definition);
+        await SaveManifestAsync(manifest, cancellationToken);
+        progress?.Report(new("导入完成", entries.Count, 100));
+        return definition;
+    }
+
+    public async Task SetEnabledAsync(string id, bool enabled, CancellationToken cancellationToken = default)
+    {
+        var manifest = (await ListAsync(cancellationToken)).ToList();
+        var index = manifest.FindIndex(item => item.Id == id);
+        if (index < 0) return;
+        manifest[index] = manifest[index] with { Enabled = enabled };
+        await SaveManifestAsync(manifest, cancellationToken);
+    }
+
+    public async Task RemoveAsync(string id, CancellationToken cancellationToken = default)
+    {
+        var manifest = (await ListAsync(cancellationToken)).ToList();
+        var item = manifest.FirstOrDefault(entry => entry.Id == id);
+        if (item is null) return;
+        var selectedEntries = await ReadEntriesAsync(item, cancellationToken);
+        var toRemove = new List<DictionaryDefinition> { item };
+        foreach (var candidate in manifest)
+        {
+            if (candidate.Id == item.Id
+                || !string.Equals(candidate.Name.Trim(), item.Name.Trim(), StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var candidateEntries = await ReadEntriesAsync(candidate, cancellationToken);
+            if (candidateEntries is null
+                || (selectedEntries is not null && DictionaryEntriesEqual(selectedEntries, candidateEntries)))
+                toRemove.Add(candidate);
+        }
+
+        var removedIds = toRemove.Select(entry => entry.Id).ToHashSet(StringComparer.Ordinal);
+        var paths = toRemove.Select(entry => ResolveSafePath(entry.RelativePath))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        manifest.RemoveAll(entry => removedIds.Contains(entry.Id));
+        await SaveManifestAsync(manifest, cancellationToken);
+
+        // The manifest is authoritative. A locked orphaned file should not
+        // prevent the removed dictionary from being imported again.
+        foreach (var path in paths)
+        {
+            try { if (File.Exists(path)) File.Delete(path); File.Delete(Path.ChangeExtension(path, "rich.db")); File.Delete(Path.ChangeExtension(path, "lookup.db")); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
+    private async Task<Dictionary<string, string>?> ReadEntriesAsync(
+        DictionaryDefinition definition,
+        CancellationToken cancellationToken)
+    {
+        var path = ResolveSafePath(definition.RelativePath);
+        if (!File.Exists(path)) return null;
+        try
+        {
+            await using var stream = File.OpenRead(path);
+            return await JsonSerializer.DeserializeAsync<Dictionary<string, string>>(
+                stream, JsonOptions, cancellationToken);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    public async Task<IReadOnlyList<DictionaryEntry>> LookupAsync(string term, CancellationToken cancellationToken = default)
+    {
+        var normalized = term.Trim();
+        if (normalized.Length == 0) return [];
+        var result = new List<DictionaryEntry>();
+        foreach (var dictionary in (await ListAsync(cancellationToken)).Where(item => item.Enabled))
+        {
+            var path = ResolveSafePath(dictionary.RelativePath);
+            if (!File.Exists(path)) continue;
+            var match = await LookupIndexedAsync(path, normalized, cancellationToken).ConfigureAwait(false);
+            if (match is not null)
+            {
+                var rich = await ReadRichEntryAsync(path, match.Value.Term, cancellationToken).ConfigureAwait(false);
+                result.Add(new DictionaryEntry(match.Value.Term, match.Value.Definition, dictionary.Name, rich.Html, rich.Css));
+            }
+            if (result.Count >= 8) break;
+        }
+        return result;
+    }
+
+    internal static async Task<Dictionary<string, string>> ParseAsync(string path, CancellationToken cancellationToken = default, IProgress<DictionaryImportProgress>? progress = null)
+    {
+        var result = new Dictionary<string, string>(StringComparer.CurrentCultureIgnoreCase);
+        using var reader = new StreamReader(path, Encoding.UTF8, true);
+        var lines = 0;
+        while (await reader.ReadLineAsync(cancellationToken) is { } line)
+        {
+            if (++lines % 512 == 0) progress?.Report(new("解析词条", result.Count, Math.Min(99, reader.BaseStream.Position * 100.0 / Math.Max(1, reader.BaseStream.Length))));
+            if (string.IsNullOrWhiteSpace(line) || line.TrimStart().StartsWith('#')) continue;
+            var separator = line.IndexOf('\t');
+            if (separator <= 0) separator = line.IndexOf('=');
+            if (separator <= 0) continue;
+            var term = line[..separator].Trim();
+            var definition = line[(separator + 1)..].Trim();
+            if (term.Length > 0 && definition.Length > 0) result[term] = definition;
+        }
+        return result;
+    }
+
+    internal static async Task<Dictionary<string, string>> ParseMdxAsync(
+        string path,
+        CancellationToken cancellationToken = default,
+        IProgress<DictionaryImportProgress>? progress = null,
+        Dictionary<string, string>? richEntries = null)
+    {
+        try
+        {
+            return await Task.Run(() =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var result = new Dictionary<string, string>(StringComparer.CurrentCultureIgnoreCase);
+                using var stream = File.OpenRead(path);
+                progress?.Report(new("读取 MDX 索引"));
+                var document = new MdxDocument(stream);
+                var records = 0;
+                foreach (var record in document.RecordDatas)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (++records % 256 == 0) progress?.Report(new("解析 MDX 词条", result.Count));
+                    if (!record.IsBinary)
+                    {
+                        AddEntry(result, record.Key, ToReadableText(record.Text));
+                        if (richEntries is not null) AddEntry(richEntries, record.Key, record.Text);
+                    }
+                }
+                return result;
+            }, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            throw new InvalidDataException("无法解析 MDX 词典，请确认文件完整且未加密。", exception);
+        }
+    }
+
+    private async Task<Dictionary<string, string>> ParseKindleDictionaryAsync(
+        string path,
+        CancellationToken cancellationToken,
+        IProgress<DictionaryImportProgress>? progress)
+    {
+        var nativeHtml = new FileInfo(path).Length <= 512L * 1024 * 1024
+            ? await Task.Run(() => MobiDictionaryReader.Read(File.ReadAllBytes(path), cancellationToken, progress), cancellationToken)
+            : null;
+        if (nativeHtml is not null)
+        {
+            var nativeEntries = new Dictionary<string, string>(StringComparer.CurrentCultureIgnoreCase);
+            progress?.Report(new("解析 Kindle 词条"));
+            ExtractKindleEntries(nativeHtml, nativeEntries);
+            if (nativeEntries.Count > 0)
+            {
+                progress?.Report(new("解析 Kindle 词条", nativeEntries.Count, 100));
+                return nativeEntries;
+            }
+        }
+        if (_formatConverter is null)
+            throw new InvalidOperationException("导入 Kindle 词典需要 Calibre。请先在设置中配置 ebook-convert 路径。");
+
+        var workDirectory = Path.Combine(
+            Path.GetTempPath(),
+            "Libzora",
+            "dictionary-import",
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(workDirectory);
+        var epubPath = Path.Combine(workDirectory, "dictionary.epub");
+        try
+        {
+            progress?.Report(new("转换 Kindle 词典"));
+            await _formatConverter.ConvertAsync(path, epubPath,
+                progress: new ConversionProgressAdapter(progress), cancellationToken: cancellationToken);
+            return await ParseKindleEpubAsync(epubPath, cancellationToken, progress);
+        }
+        finally
+        {
+            TryDeleteDirectory(workDirectory);
+        }
+    }
+
+    internal static async Task<Dictionary<string, string>> ParseKindleEpubAsync(
+        string path,
+        CancellationToken cancellationToken = default,
+        IProgress<DictionaryImportProgress>? progress = null)
+    {
+        var result = new Dictionary<string, string>(StringComparer.CurrentCultureIgnoreCase);
+        using var archive = ZipFile.OpenRead(path);
+        var htmlEntries = archive.Entries
+            .Where(entry => Path.GetExtension(entry.FullName).ToLowerInvariant() is ".html" or ".htm" or ".xhtml")
+            .OrderBy(entry => entry.FullName, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (htmlEntries.Length > 10000)
+            throw new InvalidDataException("转换后的 Kindle 词典包含过多内容文件。");
+
+        var completed = 0;
+        foreach (var entry in htmlEntries)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (entry.Length > 32L * 1024 * 1024) continue;
+            await using var stream = entry.Open();
+            using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+            var html = await reader.ReadToEndAsync(cancellationToken);
+            ExtractKindleEntries(html, result);
+            progress?.Report(new("解析 Kindle 词条", result.Count, ++completed * 100.0 / htmlEntries.Length));
+        }
+        return result;
+    }
+
+    internal static void ExtractKindleEntries(string html, IDictionary<string, string> result)
+    {
+        var document = new HtmlDocument();
+        document.LoadHtml(html);
+
+        foreach (var entry in document.DocumentNode.Descendants()
+                     .Where(node => LocalName(node.Name).Equals("entry", StringComparison.OrdinalIgnoreCase)))
+        {
+            var orth = entry.Descendants()
+                .FirstOrDefault(node => LocalName(node.Name).Equals("orth", StringComparison.OrdinalIgnoreCase));
+            var term = orth?.GetAttributeValue("value", string.Empty);
+            if (string.IsNullOrWhiteSpace(term)) term = orth?.InnerText;
+            AddEntry(result, term, RemoveTermPrefix(ToReadableText(entry.InnerHtml), term));
+        }
+
+        foreach (var termNode in document.DocumentNode.Descendants("dt"))
+        {
+            var definitionNode = termNode.SelectSingleNode("following-sibling::dd[1]");
+            if (definitionNode is not null)
+                AddEntry(result, ToReadableText(termNode.InnerHtml), ToReadableText(definitionNode.InnerHtml));
+        }
+
+        foreach (var node in document.DocumentNode.Descendants())
+        {
+            var term = node.GetAttributeValue("data-headword", string.Empty);
+            if (string.IsNullOrWhiteSpace(term)) term = node.GetAttributeValue("data-term", string.Empty);
+            if (string.IsNullOrWhiteSpace(term)) term = node.GetAttributeValue("data-word", string.Empty);
+            if (!string.IsNullOrWhiteSpace(term))
+                AddEntry(result, term, RemoveTermPrefix(ToReadableText(node.InnerHtml), term));
+        }
+
+        ExtractSeparatedKindleEntries(html, result);
+    }
+
+    // Older MOBI dictionaries lose their index markup during EPUB conversion,
+    // but retain a bold headword followed by a definition and an <hr> boundary.
+    private static void ExtractSeparatedKindleEntries(string html, IDictionary<string, string> result)
+    {
+        var sections = Regex.Split(html, @"<(?:hr|mbp:frameset)\b[^>]*>", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        if (sections.Length < 3) return;
+        foreach (var section in sections)
+        {
+            var fragment = new HtmlDocument();
+            fragment.LoadHtml(section);
+            var headword = fragment.DocumentNode.Descendants().FirstOrDefault(node =>
+                node.Name is "b" or "strong"
+                || (node.Name == "span" && node.GetAttributeValue("class", "")
+                    .Split(' ', StringSplitOptions.RemoveEmptyEntries).Contains("bold", StringComparer.OrdinalIgnoreCase)));
+            if (headword is null) continue;
+
+            // Text before a headword is a continuation or front matter, not a new entry.
+            var firstText = fragment.DocumentNode.Descendants().FirstOrDefault(node =>
+                node.NodeType == HtmlNodeType.Text && !string.IsNullOrWhiteSpace(WebUtility.HtmlDecode(node.InnerText))
+                && !node.Ancestors().Any(parent => parent.Name is "head" or "style" or "script"));
+            if (firstText is null || !firstText.Ancestors().Contains(headword)) continue;
+
+            // Pronunciation lives in a nested span; it is not part of the lookup key.
+            var term = ToReadableText(string.Concat(headword.ChildNodes
+                .Where(node => node.Name is not "span").Select(node => node.OuterHtml)));
+            if (term.Length == 0 || term.Length > 128 || !term.Any(char.IsLetter)) continue;
+            headword.Remove();
+            AddEntry(result, term, ToReadableText(fragment.DocumentNode.InnerHtml));
+        }
+    }
+
+
+    private static void AddEntry(IDictionary<string, string> entries, string? term, string? definition)
+    {
+        term = WebUtility.HtmlDecode(term ?? string.Empty).Trim().Trim('\0');
+        definition = definition?.Trim();
+        if (term.Length == 0 || string.IsNullOrWhiteSpace(definition)) return;
+        if (entries.TryGetValue(term, out var existing)
+            && !existing.Contains(definition, StringComparison.CurrentCultureIgnoreCase))
+            entries[term] = existing + Environment.NewLine + Environment.NewLine + definition;
+        else
+            entries[term] = definition;
+    }
+
+    private static bool DictionaryEntriesEqual(
+        IReadOnlyDictionary<string, string> left,
+        IReadOnlyDictionary<string, string> right)
+    {
+        if (left.Count != right.Count) return false;
+        return left.All(pair => right.TryGetValue(pair.Key, out var definition)
+            && string.Equals(pair.Value, definition, StringComparison.Ordinal));
+    }
+
+    private static string RemoveTermPrefix(string definition, string? term)
+    {
+        term = WebUtility.HtmlDecode(term ?? string.Empty).Trim();
+        if (term.Length == 0 || definition.Length <= term.Length
+            || !definition.StartsWith(term, StringComparison.CurrentCultureIgnoreCase))
+            return definition;
+        var boundary = definition[term.Length];
+        if (!char.IsWhiteSpace(boundary) && boundary is not ':' and not '：' and not '-' and not '—')
+            return definition;
+        return definition[term.Length..].TrimStart(' ', '\t', '\r', '\n', ':', '：', '-', '—');
+    }
+
+    private static string ToReadableText(string? html)
+    {
+        if (string.IsNullOrWhiteSpace(html)) return string.Empty;
+        var document = new HtmlDocument();
+        document.LoadHtml(html);
+        var builder = new StringBuilder();
+        AppendReadableText(document.DocumentNode, builder);
+        var decoded = WebUtility.HtmlDecode(builder.ToString()).Replace('\u00A0', ' ');
+        var lines = decoded.Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace('\r', '\n')
+            .Split('\n')
+            .Select(line => string.Join(' ', line.Split([' ', '\t'], StringSplitOptions.RemoveEmptyEntries)))
+            .Where(line => line.Length > 0);
+        return string.Join(Environment.NewLine, lines);
+    }
+
+    private static void AppendReadableText(HtmlNode node, StringBuilder builder)
+    {
+        var name = LocalName(node.Name);
+        if (name.Equals("head", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("script", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("style", StringComparison.OrdinalIgnoreCase))
+            return;
+        if (name.Equals("br", StringComparison.OrdinalIgnoreCase))
+        {
+            builder.AppendLine();
+            return;
+        }
+
+        var isBlock = BlockElements.Contains(name);
+        if (isBlock && builder.Length > 0) builder.AppendLine();
+        if (node.NodeType == HtmlNodeType.Text) builder.Append(node.InnerText);
+        else
+            foreach (var child in node.ChildNodes) AppendReadableText(child, builder);
+        if (isBlock) builder.AppendLine();
+    }
+
+    private static string LocalName(string name)
+    {
+        var separator = name.LastIndexOf(':');
+        return separator >= 0 ? name[(separator + 1)..] : name;
+    }
+
+    private sealed class ConversionProgressAdapter(IProgress<DictionaryImportProgress>? progress)
+        : IProgress<FormatConversionProgress>
+    {
+        public void Report(FormatConversionProgress value) =>
+            progress?.Report(new("转换 Kindle 词典", Percent: value.Percentage, Detail: value.Message));
+    }
+
+    private static void TryDeleteDirectory(string path)
+    {
+        try { if (Directory.Exists(path)) Directory.Delete(path, recursive: true); }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+    }
+
+    private string ResolveSafePath(string relativePath)
+    {
+        var root = Path.GetFullPath(_paths.Dictionaries) + Path.DirectorySeparatorChar;
+        var path = Path.GetFullPath(Path.Combine(_paths.Dictionaries, relativePath));
+        if (!path.StartsWith(root, StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("词典路径无效。");
+        return path;
+    }
+
+    private async Task SaveManifestAsync(IReadOnlyList<DictionaryDefinition> items, CancellationToken cancellationToken)
+    {
+        var temporary = ManifestPath + ".tmp";
+        await using (var stream = File.Create(temporary))
+            await JsonSerializer.SerializeAsync(stream, items, JsonOptions, cancellationToken);
+        File.Move(temporary, ManifestPath, true);
+    }
+}

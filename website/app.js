@@ -1,4 +1,4 @@
-const REPOSITORY = "kingstacker/Kkindle";
+const REPOSITORY = "kingstacker/Libzora";
 const RELEASE_PAGE = `https://github.com/${REPOSITORY}/releases/latest`;
 const RELEASE_API = `https://api.github.com/repos/${REPOSITORY}/releases/latest`;
 const SITE_RELEASE_JSON = "_release.json";
@@ -17,8 +17,8 @@ const translations = {
     headerGitHub: "GitHub",
     heroKicker: "KINDLE, WITHOUT THE FRICTION.",
     heroTitle: "把书库、阅读与 Kindle 连接起来。",
-    heroLead: "Kkindle 是一款安静、跨平台的电子书书库与 Kindle 工作台。整理你的书，专注地读，然后把它们带到真正的阅读设备上。",
-    heroDownload: "下载 Kkindle",
+    heroLead: "Libzora 是一款安静、跨平台的电子书书库与 Kindle 工作台。整理你的书，专注地读，然后把它们带到真正的阅读设备上。",
+    heroDownload: "下载 Libzora",
     heroSource: "查看源码",
     heroPlatformsLabel: "按平台下载",
     heroPlatformWindowsNote: "安装版",
@@ -60,7 +60,7 @@ const translations = {
     aiTag3: "阅读数据",
     membershipKicker: "MEMBERSHIP",
     membershipTitle: "选择适合你的阅读方式。",
-    membershipLead: "会员绑定 Kkindle 账号。中国区与国际区的账号、会员和同步数据相互独立，不互通。",
+    membershipLead: "会员绑定 Libzora 账号。中国区与国际区的账号、会员和同步数据相互独立，不互通。",
     membershipRegionLabel: "服务器区域",
     regionChina: "中国区",
     regionInternational: "国际区",
@@ -116,9 +116,9 @@ const translations = {
     compareTraffic: "官方云下载流量",
     compareTrafficValue: "50GB/年",
     compareNote: "功能解锁用户使用自备 S3，同步存储与流量费用自行承担。Plus 的自备 S3 / WebDAV 仅在订阅期内可用，到期后收回；已购功能解锁永久有效。未开通过 Plus 的账号可领取一次 7 天免费试用，试用到期后云端数据保留 7 天，正式 Plus 到期后云端数据保留一个月。USB Kindle 双向批注同步的兼容范围因设备型号和书籍格式而异。",
-    aboutKicker: "About Kkindle",
+    aboutKicker: "About Libzora",
     aboutTitle: "面向个人阅读的开源桌面工作台。",
-    aboutBody: "Kkindle 是一款面向 Windows、Linux、macOS、Android 和 iOS 的开源电子书书库与 Kindle 管理工具。它将书库整理、阅读、批注和设备传输放在同一个本地优先的工作流中。",
+    aboutBody: "Libzora 是一款面向 Windows、Linux、macOS、Android 和 iOS 的开源电子书书库与 Kindle 管理工具。它将书库整理、阅读、批注和设备传输放在同一个本地优先的工作流中。",
     aboutPoint1: "Windows / Linux / macOS / Android / iOS",
     aboutPoint2: "EPUB / PDF / MOBI / AZW3",
     aboutPoint3: "GPL-3.0 开源许可",
@@ -127,7 +127,7 @@ const translations = {
     qqGroupCopied: "已复制群号 1109898894",
     qqGroupCopyFailed: "复制失败，请手动记录群号 1109898894。",
     qqGroupButtonLabel: "复制 QQ 用户群号 1109898894",
-    downloadKicker: "DOWNLOAD Kkindle",
+    downloadKicker: "DOWNLOAD Libzora",
     downloadTitle: "选一个平台，开始建立你的书库。",
     downloadLead: "下载区会自动选择最新稳定版，安装包优先通过本站镜像下载；也可通过百度网盘下载。",
     baiduKicker: "备用下载",
@@ -183,7 +183,7 @@ const translations = {
     changelogPerformance: "性能",
     faqKicker: "BEFORE YOU START",
     faqTitle: "下载前，先知道这几件事。",
-    faq1Question: "Kkindle 支持哪些文件格式？",
+    faq1Question: "Libzora 支持哪些文件格式？",
     faq1Answer: "可以导入和阅读 EPUB、PDF、MOBI 与 AZW3。格式转换依赖用户自行安装的 Calibre。",
     faq2Question: "我的书和 API Key 会上传吗？",
     faq2Answer: "书籍、封面、阅读记录默认保存在本机。AI 请求只发送相关片段，API Key 使用系统安全存储。",
@@ -195,12 +195,12 @@ const translations = {
     footerGitHub: "GitHub",
     footerChangelog: "更新日志",
     footerLicense: "GPL-3.0 License",
-    footerNote: "官网与镜像下载由 kkindle.stacker.beauty 提供。",
-    libraryAlt: "Kkindle 电脑书库界面",
-    libraryGridAlt: "Kkindle 书库网格视图",
+    footerNote: "官网与镜像下载由 libzora.stacker.beauty 提供。",
+    libraryAlt: "Libzora 电脑书库界面",
+    libraryGridAlt: "Libzora 书库网格视图",
     readerAlt: "Kreader 阅读器界面",
     kindleAlt: "Kindle 设备书库管理界面",
-    aiAlt: "Kkindle AI 阅读助手"
+    aiAlt: "Libzora AI 阅读助手"
   },
   en: {
     skipToContent: "Skip to content",
@@ -215,8 +215,8 @@ const translations = {
     headerGitHub: "GitHub",
     heroKicker: "KINDLE, WITHOUT THE FRICTION.",
     heroTitle: "Bring your library, reading, and Kindle together.",
-    heroLead: "Kkindle is a quiet, cross-platform ebook library and Kindle workspace. Organize your books, read with focus, and move them to the device you actually read on.",
-    heroDownload: "Download Kkindle",
+    heroLead: "Libzora is a quiet, cross-platform ebook library and Kindle workspace. Organize your books, read with focus, and move them to the device you actually read on.",
+    heroDownload: "Download Libzora",
     heroSource: "View source",
     heroPlatformsLabel: "Download by platform",
     heroPlatformWindowsNote: "Installer",
@@ -258,7 +258,7 @@ const translations = {
     aiTag3: "Reading data",
     membershipKicker: "MEMBERSHIP",
     membershipTitle: "Choose the way you read.",
-    membershipLead: "Memberships belong to your Kkindle account. Accounts, memberships and synced data are kept separate between the China and International regions.",
+    membershipLead: "Memberships belong to your Libzora account. Accounts, memberships and synced data are kept separate between the China and International regions.",
     membershipRegionLabel: "Server region",
     regionChina: "China",
     regionInternational: "International",
@@ -314,9 +314,9 @@ const translations = {
     compareTraffic: "Official cloud downloads",
     compareTrafficValue: "50 GB / year",
     compareNote: "Feature Unlock uses your own S3 storage; you cover its storage and traffic costs. Plus includes your own S3 / WebDAV only while subscribed; this access is revoked on expiry, while a purchased Feature Unlock remains permanent. Accounts that never had Plus can claim one 7-day free trial; trial cloud data is retained for 7 days after it ends, while paid Plus data is retained for one month. Two-way USB Kindle annotation sync support varies by device model and book format.",
-    aboutKicker: "About Kkindle",
+    aboutKicker: "About Libzora",
     aboutTitle: "An open-source desktop workspace for personal reading.",
-    aboutBody: "Kkindle is an open-source ebook library and Kindle management tool for Windows, Linux, macOS, Android, and iOS. It brings library organization, reading, annotations, and device transfer into one local-first workflow.",
+    aboutBody: "Libzora is an open-source ebook library and Kindle management tool for Windows, Linux, macOS, Android, and iOS. It brings library organization, reading, annotations, and device transfer into one local-first workflow.",
     aboutPoint1: "Windows / Linux / macOS / Android / iOS",
     aboutPoint2: "EPUB / PDF / MOBI / AZW3",
     aboutPoint3: "GPL-3.0 License",
@@ -325,7 +325,7 @@ const translations = {
     qqGroupCopied: "Copied QQ group number 1109898894",
     qqGroupCopyFailed: "Copy failed. Please note group number 1109898894 manually.",
     qqGroupButtonLabel: "Copy QQ user group number 1109898894",
-    downloadKicker: "DOWNLOAD Kkindle",
+    downloadKicker: "DOWNLOAD Libzora",
     downloadTitle: "Choose a platform. Start your library.",
     downloadLead: "The download area selects the latest stable version automatically, with installers served primarily from this site's mirror. You can also download via Baidu Netdisk.",
     baiduKicker: "Alternative download",
@@ -381,7 +381,7 @@ const translations = {
     changelogPerformance: "Perf.",
     faqKicker: "BEFORE YOU START",
     faqTitle: "A few things to know before downloading.",
-    faq1Question: "Which file formats does Kkindle support?",
+    faq1Question: "Which file formats does Libzora support?",
     faq1Answer: "You can import and read EPUB, PDF, MOBI, and AZW3. Format conversion requires Calibre to be installed separately.",
     faq2Question: "Are my books or API keys uploaded?",
     faq2Answer: "Books, covers, and reading records stay local by default. AI requests include relevant excerpts only, and API keys use secure system storage.",
@@ -393,12 +393,12 @@ const translations = {
     footerGitHub: "GitHub",
     footerChangelog: "Changelog",
     footerLicense: "GPL-3.0 License",
-    footerNote: "The official site and mirror downloads are provided by kkindle.stacker.beauty.",
-    libraryAlt: "Kkindle desktop library",
-    libraryGridAlt: "Kkindle library grid view",
+    footerNote: "The official site and mirror downloads are provided by libzora.stacker.beauty.",
+    libraryAlt: "Libzora desktop library",
+    libraryGridAlt: "Libzora library grid view",
     readerAlt: "Kreader reading view",
     kindleAlt: "Kindle library management view",
-    aiAlt: "Kkindle AI reading assistant"
+    aiAlt: "Libzora AI reading assistant"
   }
 };
 
@@ -421,7 +421,7 @@ let releaseFailed = false;
 
 function getStoredLanguage() {
   try {
-    const stored = window.localStorage.getItem("kkindle-site-language");
+    const stored = window.localStorage.getItem("libzora-site-language");
     if (stored === "zh" || stored === "en") return stored;
   } catch {
     // Local storage is optional.
@@ -444,8 +444,8 @@ function applyChangelogLanguage() {
 
   document.querySelectorAll("[data-changelog-link]").forEach((link) => {
     link.href = currentLanguage === "en"
-      ? "https://github.com/kingstacker/Kkindle/blob/master/CHANGELOG.en.md"
-      : "https://github.com/kingstacker/Kkindle/blob/master/CHANGELOG.md";
+      ? "https://github.com/kingstacker/Libzora/blob/master/CHANGELOG.en.md"
+      : "https://github.com/kingstacker/Libzora/blob/master/CHANGELOG.md";
   });
 }
 
@@ -479,11 +479,11 @@ function applyLanguage(language) {
   }
 
   document.title = currentLanguage === "en"
-    ? "Kkindle — Personal ebook & Kindle workspace"
-    : "Kkindle — 个人电子书与 Kindle 工作台";
+    ? "Libzora — Personal ebook & Kindle workspace"
+    : "Libzora — 个人电子书与 Kindle 工作台";
 
   try {
-    window.localStorage.setItem("kkindle-site-language", currentLanguage);
+    window.localStorage.setItem("libzora-site-language", currentLanguage);
   } catch {
     // Local storage is optional.
   }

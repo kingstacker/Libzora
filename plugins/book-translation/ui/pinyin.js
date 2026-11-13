@@ -1,6 +1,6 @@
 (function () {
   'use strict';
-  const kk = window.kkindle;
+  const kk = window.libzora;
   const zh = !(kk.context.language || 'zh-CN').toLowerCase().startsWith('en');
   const text = zh ? {
     lead: '为整本书的中文正文生成拼音注音，生成的文件会自动加入书库；重新生成会替换已有的注音版。注音进度保存在本机，中断后可继续。',

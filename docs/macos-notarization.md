@@ -1,13 +1,13 @@
 # macOS 签名与 Apple 公证
 
-Kkindle 的 macOS 发布流程已经包含 Developer ID 签名、公证（notarization）和
+Libzora 的 macOS 发布流程已经包含 Developer ID 签名、公证（notarization）和
 stapling。需要准备的只有 Apple Developer 账号和一组 CI secrets。
 
 ## 1. 前提
 
 - 加入 [Apple Developer Program](https://developer.apple.com/programs/)（个人或公司账号）。
 - 在开发者账号的 **Certificates, Identifiers & Profiles** 中确认 App ID
-  `io.github.kingstacker.kkindle`（或你自定义的 Bundle ID）已存在。
+  `io.github.kingstacker.libzora`（或你自定义的 Bundle ID）已存在。
 - 公证需要能联网访问 Apple 服务，CI runner 必须能访问
   `appstoreconnect.apple.com` 和 `notarytool` 端点。
 
@@ -68,13 +68,13 @@ gh secret set APPLE_CERTIFICATE_PASSWORD
 本机也要先有 Developer ID 证书和公证 profile：
 
 ```sh
-xcrun notarytool store-credentials "kkindle-notary" \
+xcrun notarytool store-credentials "libzora-notary" \
   --apple-id "you@example.com" \
   --team-id "TEAMID" \
   --password "app-specific-password"
 
 APPLE_SIGNING_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
-APPLE_NOTARY_PROFILE=kkindle-notary \
+APPLE_NOTARY_PROFILE=libzora-notary \
   bash scripts/build-macos-release.sh 1.1.3 artifacts/macos osx-arm64
 ```
 
@@ -90,15 +90,15 @@ APPLE_NOTARY_PROFILE=kkindle-notary \
 ## 6. 验证结果
 
 ```sh
-spctl -a -vvv -t exec /Applications/Kkindle.app
+spctl -a -vvv -t exec /Applications/Libzora.app
 # accepted
 # source=Notarized Developer ID
 
-spctl -a -vvv -t open --context context:primary-signature Kkindle-1.1.3-osx-arm64.dmg
-xcrun stapler validate Kkindle-1.1.3-osx-arm64.dmg
+spctl -a -vvv -t open --context context:primary-signature Libzora-1.1.3-osx-arm64.dmg
+xcrun stapler validate Libzora-1.1.3-osx-arm64.dmg
 ```
 
-在未安装过 Kkindle 的干净 Mac 上首次双击 DMG 并拖入“应用程序”，应该不再出现
+在未安装过 Libzora 的干净 Mac 上首次双击 DMG 并拖入“应用程序”，应该不再出现
 “无法验证开发者”的提示。
 
 ## 7. 常见失败原因

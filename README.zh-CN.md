@@ -1,14 +1,14 @@
-# Kkindle
+# Libzora
 
-[![Release](https://github.com/kingstacker/Kkindle/actions/workflows/release.yml/badge.svg)](https://github.com/kingstacker/Kkindle/actions/workflows/release.yml) [![最新版本](https://img.shields.io/github/v/release/kingstacker/Kkindle)](https://github.com/kingstacker/Kkindle/releases/latest)
+[![Release](https://github.com/kingstacker/Libzora/actions/workflows/release.yml/badge.svg)](https://github.com/kingstacker/Libzora/actions/workflows/release.yml) [![最新版本](https://img.shields.io/github/v/release/kingstacker/Libzora)](https://github.com/kingstacker/Libzora/releases/latest)
 
-[官方网站](https://kkindle.stacker.beauty) · [软件使用手册](https://kkindle.stacker.beauty/manual/)
+[官方网站](https://libzora.stacker.beauty) · [软件使用手册](https://libzora.stacker.beauty/manual/)
 
 **简体中文** · [English](README.md)
 
-Kkindle 是一款基于 Avalonia 的跨平台电子书与 Kindle 管理器。它将本地书库、阅读、批注、AI 助手、格式转换和 Kindle 传输集中在一个简洁的桌面应用中。
+Libzora 是一款基于 Avalonia 的跨平台电子书与 Kindle 管理器。它将本地书库、阅读、批注、AI 助手、格式转换和 Kindle 传输集中在一个简洁的桌面应用中。
 
-![Kkindle 书库主界面](docs/images/主界面.png?v=20261004)
+![Libzora 书库主界面](docs/images/主界面.png?v=20261004)
 
 ## 平台开发状态
 
@@ -24,7 +24,7 @@ Kkindle 是一款基于 Avalonia 的跨平台电子书与 Kindle 管理器。它
 
 | macOS | iOS | Android |
 | :---: | :---: | :---: |
-| <img src="website/assets/macos-library.webp?v=20261106" alt="Kkindle macOS 书库主界面" width="460"> | <img src="website/assets/ios-library.webp?v=20261106" alt="Kkindle iOS 书库主界面" width="190"> | <img src="website/assets/android-library.webp?v=20261106" alt="Kkindle Android 书库主界面" width="190"> |
+| <img src="website/assets/macos-library.webp?v=20261106" alt="Libzora macOS 书库主界面" width="460"> | <img src="website/assets/ios-library.webp?v=20261106" alt="Libzora iOS 书库主界面" width="190"> | <img src="website/assets/android-library.webp?v=20261106" alt="Libzora Android 书库主界面" width="190"> |
 | 书库 | 书库 | 书库 |
 
 ## 主要功能
@@ -38,9 +38,9 @@ Kkindle 是一款基于 Avalonia 的跨平台电子书与 Kindle 管理器。它
 
 ## 下载
 
-通过[官网下载页](https://kkindle.stacker.beauty/#downloads)获取 Windows、Linux 或 macOS 安装包；页面会自动选择最新稳定版。
+通过[官网下载页](https://libzora.stacker.beauty/#downloads)获取 Windows、Linux 或 macOS 安装包；页面会自动选择最新稳定版。
 
-备用下载：[GitHub Releases](https://github.com/kingstacker/Kkindle/releases)。
+备用下载：[GitHub Releases](https://github.com/kingstacker/Libzora/releases)。
 
 格式转换需要另行安装 Calibre。GitHub 官方 Release 提供 Windows、Linux 和 macOS 包。macOS 包支持 macOS 12+ 的 Intel 与 Apple Silicon；未配置 Apple 发布凭据时使用临时签名，并在压缩包中附带 `MACOS-README.md` 说明 Gatekeeper 放行步骤。
 
@@ -52,11 +52,11 @@ Kkindle 是一款基于 Avalonia 的跨平台电子书与 Kindle 管理器。它
 
 使用 **S3** 或 **WebDAV** 时，在“设置 → 数据与同步 → 云端同步”中选择方式，填写连接信息后点击“保存设置”。两种方式的地址和凭据分别保留；立即同步、启动/退出时同步和定时同步均使用当前保存的方式。
 
-WebDAV 服务地址应指向已存在的目录，例如 `https://dav.example.com/dav/`。需要认证时填写用户名和密码（部分服务使用应用密码）。程序会自动创建同步子目录，默认名为 `kkindle`，可在高级选项中修改；测试连接会验证读写能力并清理测试文件。支持标准 WebDAV 的 PROPFIND、MKCOL、GET、PUT、MOVE、DELETE 操作；文件上传完毕后通过 MOVE 发布，避免中断上传覆盖已有快照。
+WebDAV 服务地址应指向已存在的目录，例如 `https://dav.example.com/dav/`。需要认证时填写用户名和密码（部分服务使用应用密码）。程序会自动创建同步子目录，默认名为 `libzora`，可在高级选项中修改；测试连接会验证读写能力并清理测试文件。支持标准 WebDAV 的 PROPFIND、MKCOL、GET、PUT、MOVE、DELETE 操作；文件上传完毕后通过 MOVE 发布，避免中断上传覆盖已有快照。
 
-同一区域内，各同步方式共用同步子目录、加密密钥、同步间隔和传输选项。跨设备同步同一目录时应使用相同的加密密钥；更换密钥请使用新的同步子目录。独立连接参数文件只导出所选方式的凭据，兼容原来的 `.kkindle-s3.json`，WebDAV 使用 `.kkindle-webdav.json`。
+同一区域内，各同步方式共用同步子目录、加密密钥、同步间隔和传输选项。跨设备同步同一目录时应使用相同的加密密钥；更换密钥请使用新的同步子目录。独立连接参数文件只导出所选方式的凭据，兼容原来的 `.libzora-s3.json`，WebDAV 使用 `.libzora-webdav.json`。
 
-**所有 `.kkindle` 数据备份都使用本机的同步密钥加密**，覆盖书籍、阅读记录和书库信息。未设置密钥时，导入、导出会先提示设置，即使未启用云同步也必须设置。换设备恢复时，先设置原来的密钥，再导入备份。备份不包含连接密码、账号会话或密钥本身。**密钥由用户自行牢记，不上传服务器，不提供找回；遗忘后无法解密已有数据，设置新密钥也不能解开旧备份。** 旧版明文备份不再允许导入。详见[加密备份说明](docs/backup-encryption.md)。
+**所有 `.libzora` 数据备份都使用本机的同步密钥加密**，覆盖书籍、阅读记录和书库信息。未设置密钥时，导入、导出会先提示设置，即使未启用云同步也必须设置。换设备恢复时，先设置原来的密钥，再导入备份。备份不包含连接密码、账号会话或密钥本身。**密钥由用户自行牢记，不上传服务器，不提供找回；遗忘后无法解密已有数据，设置新密钥也不能解开旧备份。** 旧版明文备份不再允许导入。详见[加密备份说明](docs/backup-encryption.md)。
 
 ## 从源码运行
 
@@ -65,23 +65,23 @@ WebDAV 服务地址应指向已存在的目录，例如 `https://dav.example.com
 Windows（PowerShell）：
 
 ```powershell
-dotnet restore Kkindle.sln -p:Platform=x64
-dotnet build Kkindle.sln -p:Platform=x64
-dotnet test Kkindle.sln --no-build -p:Platform=x64
+dotnet restore Libzora.sln -p:Platform=x64
+dotnet build Libzora.sln -p:Platform=x64
+dotnet test Libzora.sln --no-build -p:Platform=x64
 # 发布前需要完整回归时再显式加入慢测试
-dotnet test Kkindle.sln --no-build -p:Platform=x64 -p:RunSlowTests=true
-dotnet run --project src\Kkindle.Desktop.Windows\Kkindle.Desktop.Windows.csproj -p:Platform=x64
+dotnet test Libzora.sln --no-build -p:Platform=x64 -p:RunSlowTests=true
+dotnet run --project src\Libzora.Desktop.Windows\Libzora.Desktop.Windows.csproj -p:Platform=x64
 ```
 
 macOS：
 
 ```bash
-dotnet build src/Kkindle.Desktop.MacOS/Kkindle.Desktop.MacOS.csproj
-dotnet test tests/Kkindle.Tests/Kkindle.Tests.csproj
-dotnet run --project src/Kkindle.Desktop.MacOS/Kkindle.Desktop.MacOS.csproj
+dotnet build src/Libzora.Desktop.MacOS/Libzora.Desktop.MacOS.csproj
+dotnet test tests/Libzora.Tests/Libzora.Tests.csproj
+dotnet run --project src/Libzora.Desktop.MacOS/Libzora.Desktop.MacOS.csproj
 ```
 
-Linux 使用相同命令，把 `Kkindle.Desktop.MacOS` 换成 `Kkindle.Desktop.Linux`。
+Linux 使用相同命令，把 `Libzora.Desktop.MacOS` 换成 `Libzora.Desktop.Linux`。
 
 构建 macOS 应用包：
 
@@ -96,11 +96,11 @@ bash scripts/build-macos-release.sh 1.1.3 artifacts/macos osx-universal
 
 这些命令在任一架构的 Mac 上都能执行：随包分发的 libmtp 和 libusb 会按目标架构从源码构建（与主机架构不同时用 macOS SDK 交叉编译），所以 Intel Mac 也能打出 arm64 包，反之亦然。CI 仍分别使用 `macos-15` 和 `macos-15-intel`，只是为了加快构建。
 
-`osx-universal` 生成的单个 `Kkindle.app` 可以在 Intel 和 Apple Silicon 上原生启动。.NET 自包含发布包含按架构编译的原生库和 ReadyToRun 程序集，无法合并成同一套文件，因此包里同时携带两份完整负载（`Contents/MacOS/x86_64` 与 `Contents/MacOS/arm64`），由通用启动器选择对应架构。体积约为单架构包的 2 倍。
+`osx-universal` 生成的单个 `Libzora.app` 可以在 Intel 和 Apple Silicon 上原生启动。.NET 自包含发布包含按架构编译的原生库和 ReadyToRun 程序集，无法合并成同一套文件，因此包里同时携带两份完整负载（`Contents/MacOS/x86_64` 与 `Contents/MacOS/arm64`），由通用启动器选择对应架构。体积约为单架构包的 2 倍。
 
 默认测试会跳过耗时的 UI/渲染/GC 压力用例，只保留核心、平台、设备和少量 UI 冒烟回归；这些用例仍保留在仓库中，可用 `RunSlowTests=true` 手动开启。
 
-Linux 还需要 WebKitGTK 和 Secret Service。平台打包和签名细节见[跨平台说明](docs/cross-platform.md)。移动端位于 `Kkindle.Mobile.sln`，工作负载和模拟器命令见[移动端说明](docs/mobile-skeleton.md)。
+Linux 还需要 WebKitGTK 和 Secret Service。平台打包和签名细节见[跨平台说明](docs/cross-platform.md)。移动端位于 `Libzora.Mobile.sln`，工作负载和模拟器命令见[移动端说明](docs/mobile-skeleton.md)。
 
 ## 技术参考
 

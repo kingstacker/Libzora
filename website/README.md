@@ -1,4 +1,4 @@
-# Kkindle 官网
+# Libzora 官网
 
 纯静态站点，无构建依赖即可预览；发布前用脚本重新生成手册、更新日志和版本快照。
 
@@ -24,7 +24,7 @@ python3 -m http.server -d website 8765
 3. 把最新更新日志写入 `website/index.html`；
 4. 输出可部署目录 `artifacts/website/`（不包含 `dev/` 调试页）。
 
-把 `artifacts/website/` 部署到 `kkindle.stacker.beauty` 即可。`_release.json` 必须一并部署：页面优先读取这份同源快照，避免 GitHub API 的未认证限流（60 次/小时/IP），并在后台向 GitHub 复核版本。
+把 `artifacts/website/` 部署到 `libzora.stacker.beauty` 即可。`_release.json` 必须一并部署：页面优先读取这份同源快照，避免 GitHub API 的未认证限流（60 次/小时/IP），并在后台向 GitHub 复核版本。
 
 ## 图片资源
 

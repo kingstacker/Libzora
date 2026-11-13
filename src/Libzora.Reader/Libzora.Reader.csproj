@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Shared reading surfaces (EPUB self-drawn typography and PDFium raster)
+         used by the desktop window and the mobile shell. Plain net10.0: the
+         controls must stay framework-neutral in the same way Libzora.App is,
+         so no head-specific API can leak into a platform without it. -->
+    <TargetFramework>net10.0</TargetFramework>
+    <!-- Keeps the historical Libzora namespace so existing XAML (xmlns:local)
+         and MainWindow code continue to resolve the controls unchanged. -->
+    <RootNamespace>Libzora</RootNamespace>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Reader chrome helpers (appearance resources, scroll-bar auto-hide,
+         annotation tracing) are shared with the desktop shell's MainWindow and
+         with the headless tests; they are implementation details, not part of
+         the control API a second shell should build on. -->
+    <InternalsVisibleTo Include="Libzora.App" />
+    <InternalsVisibleTo Include="Libzora.App.Tests" />
+    <InternalsVisibleTo Include="Libzora.Tests" />
+    <ProjectReference Include="..\Libzora.Core\Libzora.Core.csproj" />
+    <ProjectReference Include="..\Libzora.Application\Libzora.Application.csproj" />
+    <ProjectReference Include="..\Libzora.Infrastructure\Libzora.Infrastructure.csproj" />
+    <ProjectReference Include="..\Libzora.Layout\Libzora.Layout.csproj" />
+    <PackageReference Include="Avalonia" Version="12.1.1" />
+    <PackageReference Include="SkiaSharp" Version="3.119.4" />
+  </ItemGroup>
+</Project>

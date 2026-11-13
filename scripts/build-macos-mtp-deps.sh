@@ -33,7 +33,7 @@ deps_root="$(mkdir -p "$deps_root" && cd "$deps_root" && pwd)"
 prefix="$deps_root/prefix"
 libdir="$prefix/lib"
 archive_cache="$deps_root/downloads"
-source_pack="$prefix/share/kkindle/corresponding-source/MTP"
+source_pack="$prefix/share/libzora/corresponding-source/MTP"
 mkdir -p "$archive_cache"
 
 checksum() { shasum -a 256 "$1" | awk '{print $1}'; }

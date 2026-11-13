@@ -1,0 +1,22 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Libzora.Mobile.MobileApp">
+  <Application.Resources>
+    <ResourceDictionary>
+      <FontFamily x:Key="MobileUiFontFamily">avares://Libzora.Mobile/Assets/Fonts#KingHwaOldSong</FontFamily>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceInclude Source="avares://Libzora.Mobile/Styles/MobileTokens.axaml" />
+        <ResourceInclude Source="avares://Libzora.Mobile/Styles/MobileIcons.axaml" />
+      </ResourceDictionary.MergedDictionaries>
+    </ResourceDictionary>
+  </Application.Resources>
+  <Application.Styles>
+    <FluentTheme>
+      <FluentTheme.Palettes>
+        <ColorPaletteResources x:Key="Light" Accent="#0A0A0A" />
+        <ColorPaletteResources x:Key="Dark" Accent="#F2F2F2" />
+      </FluentTheme.Palettes>
+    </FluentTheme>
+    <StyleInclude Source="avares://Libzora.Mobile/Styles/MobileTheme.axaml" />
+  </Application.Styles>
+</Application>

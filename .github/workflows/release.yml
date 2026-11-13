@@ -119,13 +119,13 @@ jobs:
           "prerelease=$($Matches.version.Contains('-').ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
 
       - name: Restore dependencies
-        run: dotnet restore Kkindle.sln -p:Platform=x64
+        run: dotnet restore Libzora.sln -p:Platform=x64
 
       - name: Run quick release tests
-        run: dotnet test Kkindle.sln -c Release -p:Platform=x64 --no-restore
+        run: dotnet test Libzora.sln -c Release -p:Platform=x64 --no-restore
 
       - name: Build Avalonia Windows head
-        run: dotnet build src/Kkindle.Desktop.Windows/Kkindle.Desktop.Windows.csproj -c Release -p:Platform=x64 -r win-x64 --self-contained true
+        run: dotnet build src/Libzora.Desktop.Windows/Libzora.Desktop.Windows.csproj -c Release -p:Platform=x64 -r win-x64 --self-contained true
 
       - name: Install release toolchain
         shell: pwsh
@@ -143,7 +143,7 @@ jobs:
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: Kkindle-${{ steps.version.outputs.version }}-win-x64
+          name: Libzora-${{ steps.version.outputs.version }}-win-x64
           path: |
             ${{ env.RELEASE_DIR }}/*.exe
             ${{ env.RELEASE_DIR }}/*.zip
@@ -181,20 +181,20 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y ./artifacts/linux/kkindle_${{ steps.version.outputs.version }}_amd64.deb xvfb
+          sudo apt-get install -y ./artifacts/linux/libzora_${{ steps.version.outputs.version }}_amd64.deb xvfb
           set +e
-          xvfb-run -a timeout --signal=TERM --kill-after=5s 20s /usr/bin/kkindle \
-            > "$RUNNER_TEMP/kkindle-linux-release.log" 2>&1
+          xvfb-run -a timeout --signal=TERM --kill-after=5s 20s /usr/bin/libzora \
+            > "$RUNNER_TEMP/libzora-linux-release.log" 2>&1
           status=$?
           set -e
           if [[ "$status" != 124 ]]; then
-            cat "$RUNNER_TEMP/kkindle-linux-release.log"
-            echo "Kkindle exited before the Linux release smoke-test timeout (status $status)." >&2
+            cat "$RUNNER_TEMP/libzora-linux-release.log"
+            echo "Libzora exited before the Linux release smoke-test timeout (status $status)." >&2
             exit 1
           fi
       - uses: actions/upload-artifact@v7
         with:
-          name: Kkindle-${{ steps.version.outputs.version }}-linux
+          name: Libzora-${{ steps.version.outputs.version }}-linux
           path: artifacts/linux/*
           if-no-files-found: error
           retention-days: 14
@@ -244,9 +244,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          dotnet test tests/Kkindle.Tests/Kkindle.Tests.csproj -c Release
-          dotnet test tests/Kkindle.Platform.Common.Tests/Kkindle.Platform.Common.Tests.csproj -c Release
-          dotnet test tests/Kkindle.App.Tests/Kkindle.App.Tests.csproj -c Release
+          dotnet test tests/Libzora.Tests/Libzora.Tests.csproj -c Release
+          dotnet test tests/Libzora.Platform.Common.Tests/Libzora.Platform.Common.Tests.csproj -c Release
+          dotnet test tests/Libzora.App.Tests/Libzora.App.Tests.csproj -c Release
       - name: Configure Apple signing and notarization
         shell: bash
         run: |
@@ -269,13 +269,13 @@ jobs:
             exit 1
           fi
 
-          keychain="$RUNNER_TEMP/kkindle-signing.keychain-db"
+          keychain="$RUNNER_TEMP/libzora-signing.keychain-db"
           keychain_password="${APPLE_KEYCHAIN_PASSWORD:-$(openssl rand -hex 24)}"
-          echo "$APPLE_CERTIFICATE_P12_BASE64" | base64 -D > "$RUNNER_TEMP/kkindle-certificate.p12"
+          echo "$APPLE_CERTIFICATE_P12_BASE64" | base64 -D > "$RUNNER_TEMP/libzora-certificate.p12"
           security create-keychain -p "$keychain_password" "$keychain"
           security set-keychain-settings -lut 21600 "$keychain"
           security unlock-keychain -p "$keychain_password" "$keychain"
-          security import "$RUNNER_TEMP/kkindle-certificate.p12" \
+          security import "$RUNNER_TEMP/libzora-certificate.p12" \
             -k "$keychain" -P "${APPLE_CERTIFICATE_PASSWORD:-}" \
             -T /usr/bin/codesign -T /usr/bin/security
           security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
@@ -310,37 +310,37 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          work="$RUNNER_TEMP/kkindle-smoke"
+          work="$RUNNER_TEMP/libzora-smoke"
           mkdir -p "$work"
-          tar -xzf "artifacts/macos/Kkindle-${{ steps.version.outputs.version }}-${{ matrix.rid }}.tar.gz" -C "$work"
-          plutil -lint "$work/Kkindle.app/Contents/Info.plist"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "$work/Kkindle.app/Contents/Info.plist")" = Kkindle
-          xcrun assetutil -Z "$work/Kkindle.app/Contents/Resources/Assets.car"
-          codesign --verify --deep --strict "$work/Kkindle.app"
-          dmg="artifacts/macos/Kkindle-${{ steps.version.outputs.version }}-${{ matrix.rid }}.dmg"
+          tar -xzf "artifacts/macos/Libzora-${{ steps.version.outputs.version }}-${{ matrix.rid }}.tar.gz" -C "$work"
+          plutil -lint "$work/Libzora.app/Contents/Info.plist"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "$work/Libzora.app/Contents/Info.plist")" = Libzora
+          xcrun assetutil -Z "$work/Libzora.app/Contents/Resources/Assets.car"
+          codesign --verify --deep --strict "$work/Libzora.app"
+          dmg="artifacts/macos/Libzora-${{ steps.version.outputs.version }}-${{ matrix.rid }}.dmg"
           hdiutil verify "$dmg"
-          mountpoint="$RUNNER_TEMP/kkindle-dmg"
+          mountpoint="$RUNNER_TEMP/libzora-dmg"
           mkdir -p "$mountpoint"
           hdiutil attach -readonly -nobrowse -mountpoint "$mountpoint" "$dmg" >/dev/null
           trap 'hdiutil detach "$mountpoint" -force -quiet >/dev/null 2>&1 || true' EXIT
-          test -d "$mountpoint/Kkindle.app"
+          test -d "$mountpoint/Libzora.app"
           test -L "$mountpoint/Applications"
           test "$(readlink "$mountpoint/Applications")" = "/Applications"
           hdiutil detach "$mountpoint" >/dev/null
-          log="$RUNNER_TEMP/kkindle-macos-smoke.log"
-          "$work/Kkindle.app/Contents/MacOS/Kkindle" >"$log" 2>&1 &
+          log="$RUNNER_TEMP/libzora-macos-smoke.log"
+          "$work/Libzora.app/Contents/MacOS/Libzora" >"$log" 2>&1 &
           pid=$!
           sleep 20
           if ! kill -0 "$pid" 2>/dev/null; then
             cat "$log"
-            echo "Kkindle exited during the macOS release smoke test." >&2
+            echo "Libzora exited during the macOS release smoke test." >&2
             exit 1
           fi
           kill -TERM "$pid" 2>/dev/null || true
           wait "$pid" 2>/dev/null || true
       - uses: actions/upload-artifact@v7
         with:
-          name: Kkindle-${{ steps.version.outputs.version }}-${{ matrix.rid }}
+          name: Libzora-${{ steps.version.outputs.version }}-${{ matrix.rid }}
           path: artifacts/macos/*
           if-no-files-found: error
           retention-days: 14
@@ -362,7 +362,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/download-artifact@v8
         with:
-          pattern: Kkindle-*
+          pattern: Libzora-*
           path: artifacts
           merge-multiple: true
       - name: Create checksums
@@ -374,8 +374,8 @@ jobs:
         run: |
           set -euo pipefail
           tag="${RELEASE_TAG#v}"
-          changelog="$RUNNER_TEMP/kkindle-release-notes.md"
-          changelog_en="$RUNNER_TEMP/kkindle-release-notes.en.md"
+          changelog="$RUNNER_TEMP/libzora-release-notes.md"
+          changelog_en="$RUNNER_TEMP/libzora-release-notes.en.md"
 
           extract_release_section() {
             local source="$1"
@@ -418,17 +418,17 @@ jobs:
           fi
 
           {
-            echo '<!-- kkindle-release-notes:zh-CN -->'
+            echo '<!-- libzora-release-notes:zh-CN -->'
             echo '## 中文'
             cat "$changelog"
             if [[ -s "$changelog_en" ]]; then
               echo
-              echo '<!-- kkindle-release-notes:en-US -->'
+              echo '<!-- libzora-release-notes:en-US -->'
               echo '## English'
               cat "$changelog_en"
             fi
-          } > "$RUNNER_TEMP/kkindle-release-notes.combined.md"
-          mv "$RUNNER_TEMP/kkindle-release-notes.combined.md" "$changelog"
+          } > "$RUNNER_TEMP/libzora-release-notes.combined.md"
+          mv "$RUNNER_TEMP/libzora-release-notes.combined.md" "$changelog"
 
           test -s "$changelog"
           echo "----- release notes -----"
@@ -438,7 +438,7 @@ jobs:
         run: |
           set -euo pipefail
           version="${RELEASE_TAG#v}"
-          setup_name="Kkindle-${version}-win-x64-setup.exe"
+          setup_name="Libzora-${version}-win-x64-setup.exe"
           checksum_name="SHA256SUMS.txt"
           test -f "artifacts/${setup_name}"
           test -f "artifacts/${checksum_name}"
@@ -448,8 +448,8 @@ jobs:
           jq -n \
             --arg tag_name "$RELEASE_TAG" \
             --arg html_url "https://github.com/${GITHUB_REPOSITORY}/releases/tag/${RELEASE_TAG}" \
-            --rawfile body "$RUNNER_TEMP/kkindle-release-notes.md" \
-            --rawfile body_en "$RUNNER_TEMP/kkindle-release-notes.en.md" \
+            --rawfile body "$RUNNER_TEMP/libzora-release-notes.md" \
+            --rawfile body_en "$RUNNER_TEMP/libzora-release-notes.en.md" \
             --arg setup_name "$setup_name" \
             --arg setup_url "${download_base}/${setup_name}" \
             --argjson setup_size "$(stat -c%s "artifacts/${setup_name}")" \
@@ -480,12 +480,12 @@ jobs:
             gh release upload "$RELEASE_TAG" artifacts/* --clobber --repo "$GITHUB_REPOSITORY"
             gh release edit "$RELEASE_TAG" \
               --repo "$GITHUB_REPOSITORY" \
-              --title "Kkindle $RELEASE_TAG" \
-              --notes-file "$RUNNER_TEMP/kkindle-release-notes.md"
+              --title "Libzora $RELEASE_TAG" \
+              --notes-file "$RUNNER_TEMP/libzora-release-notes.md"
           else
             gh release create "$RELEASE_TAG" artifacts/* \
               --repo "$GITHUB_REPOSITORY" --verify-tag \
-              --title "Kkindle $RELEASE_TAG" \
-              --notes-file "$RUNNER_TEMP/kkindle-release-notes.md" \
+              --title "Libzora $RELEASE_TAG" \
+              --notes-file "$RUNNER_TEMP/libzora-release-notes.md" \
               "${prerelease[@]}"
           fi

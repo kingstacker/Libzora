@@ -5,7 +5,7 @@
 
 ## 1. 客户端：只改一处两区默认地址
 
-所有客户端前端共用 `src/Kkindle.Core/AccountServerEndpoints.cs`：
+所有客户端前端共用 `src/Libzora.Core/AccountServerEndpoints.cs`：
 
 | 字段 | 当前本机默认值 | 正式部署时修改为 |
 | --- | --- | --- |
@@ -22,21 +22,21 @@ public const string InternationalDefaultServerUrl = "https://accounts-intl.examp
 ```
 
 `LocalDevelopmentServerUrl` 是客户端仓库里 SQLite **协议测试服务**的固定监听默认值，
-不要跟随正式域名修改。正式 PostgreSQL 服务在独立的 `~/Desktop/Kkindle_server` 项目中。
+不要跟随正式域名修改。正式 PostgreSQL 服务在独立的 `~/Desktop/Libzora_server` 项目中。
 
 ### 不重建的运行覆盖
 
 进程环境变量优先于编译默认值，分别覆盖对应区域：
 
-- `KKINDLE_ACCOUNT_SERVER_CHINA`
-- `KKINDLE_ACCOUNT_SERVER_INTERNATIONAL`
+- `LIBZORA_ACCOUNT_SERVER_CHINA`
+- `LIBZORA_ACCOUNT_SERVER_INTERNATIONAL`
 
 例如在 macOS 终端启动本机 Debug 客户端：
 
 ```sh
-env KKINDLE_ACCOUNT_SERVER_CHINA=http://127.0.0.1:5088 \
-    KKINDLE_ACCOUNT_SERVER_INTERNATIONAL=http://127.0.0.1:5089 \
-    ./src/Kkindle.Desktop.MacOS/bin/Debug/net10.0/Kkindle
+env LIBZORA_ACCOUNT_SERVER_CHINA=http://127.0.0.1:5088 \
+    LIBZORA_ACCOUNT_SERVER_INTERNATIONAL=http://127.0.0.1:5089 \
+    ./src/Libzora.Desktop.MacOS/bin/Debug/net10.0/Libzora
 ```
 
 Finder 启动的应用通常不会继承终端变量；iOS/Android 分发版应修改编译默认值，开发运行
@@ -94,7 +94,7 @@ Docker Compose 的入口是服务端项目的 `.env.example` 和 `compose.yaml`�
 | `Storage__Provider` | `Local` 或 `S3` |
 | `Storage__ServiceUrl` / `Storage__SigningRegion` / `Storage__Bucket` | S3 端点、签名区域和私有桶 |
 | `Storage__AccessKey` / `Storage__SecretKey` | 对象存储凭据，绝不能写入客户端 |
-| `Storage__Prefix` | 桶内前缀，默认 `kkindle/`，非空时须以 `/` 结尾 |
+| `Storage__Prefix` | 桶内前缀，默认 `libzora/`，非空时须以 `/` 结尾 |
 | `Storage__ForcePathStyle` | 是否使用路径式寻址，按存储供应商要求设置，默认 `false` |
 | `Storage__UrlLifetimeMinutes` | 签名链接有效期，默认 15，范围 1–60；还会受 Plus 到期时间限制 |
 | `Billing__Enabled` | 生产购买默认关闭；真实支付网关尚未接入，不应仅靠开启此项就声称支持真实支付 |
@@ -108,14 +108,14 @@ Compose 的可信代理 IP 与其独立网络绑定；换网关或网络后应�
 ## 3. 上线前验证范围
 
 本机测试覆盖：真实 PostgreSQL 两区服务、真实 Plus 权限、签名传输、两设备双向同步、
-按需下载、书籍和封面字节比对、不透明 HMAC 对象名与 `KKINDLE-SYNC3` 长度补齐。
+按需下载、书籍和封面字节比对、不透明 HMAC 对象名与 `LIBZORA-SYNC3` 长度补齐。
 运行方法见[账号服务验证](account-server.md#真实-postgresql-服务端与客户端验证)。
 
 上线前仍须在目标服务和真实私有桶验证 TLS、签名上传/下载、范围读取、额度、代理配置
 和备份恢复。当前本机端到端验证使用 `Local` 对象后端，不能代替对真实 S3 桶的验证。
 同步协议最低读取版本为 6，参与同步的客户端应一起升级。旧客户端遇到新快照会停止写入；
 新客户端保留旧快照及旧对象的只读兼容，不会清空旧云数据，也不能追溯隐藏旧名字已暴露的元数据。
-账号服务响应头 `X-Kkindle-Server-Time` 用于客户端同步时序校准，反向代理和中间件不得删除或改写。
+账号服务响应头 `X-Libzora-Server-Time` 用于客户端同步时序校准，反向代理和中间件不得删除或改写。
 
 ## 4. 问题反馈
 

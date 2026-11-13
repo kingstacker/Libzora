@@ -1,0 +1,100 @@
+using Libzora.Core;
+using Libzora.Infrastructure;
+
+namespace Libzora.Tests;
+
+public sealed class EpubReaderSearchPolicyTests
+{
+    [Fact]
+    public void EqualExcerptsAtDifferentLocationsAreNotDuplicates()
+    {
+        var book = Guid.NewGuid();
+        var file = Guid.NewGuid();
+        var first = CreateChunk(book, file, 1, 0, 0, "同一章");
+        var second = CreateChunk(book, file, 1, 1, 300, "同一章");
+        var actual = ReaderDataService.DeduplicateSearchResults([first, second], "搜索命中", ["搜索命中"], 10);
+        Assert.Equal(2, actual.Count);
+    }
+
+    [Fact]
+    public void IncludesSpinePagesWithoutNavigationEntriesAndOrdersHits()
+    {
+        var chapters = Enumerable.Range(0, 6)
+            .Select(index => Path.GetFullPath(Path.Combine(
+                Path.GetTempPath(),
+                "libzora-reader-search-policy",
+                $"chapter-{index}.xhtml")))
+            .ToArray();
+        var document = new EpubReaderDocument(
+            Path.GetDirectoryName(chapters[0])!,
+            chapters,
+            [
+                new EpubReaderNavigationItem("序幕", new Uri(chapters[3]).AbsoluteUri, 3),
+                new EpubReaderNavigationItem("第一章", new Uri(chapters[4]).AbsoluteUri, 4)
+            ],
+            []);
+        var bookId = Guid.NewGuid();
+        var fileId = Guid.NewGuid();
+        BookContentChunk[] candidates =
+        [
+            CreateChunk(bookId, fileId, chapterIndex: 4, chunkIndex: 1, startOffset: 100, "第一章"),
+            CreateChunk(bookId, fileId, chapterIndex: 2, chunkIndex: 0, startOffset: 0, "前言"),
+            CreateChunk(bookId, fileId, chapterIndex: 3, chunkIndex: 2, startOffset: 200, "序幕"),
+            CreateChunk(bookId, fileId, chapterIndex: 3, chunkIndex: 0, startOffset: 0, "序幕")
+        ];
+
+        var actual = EpubReaderSearchPolicy.FilterAndOrder(document, candidates);
+
+        Assert.Equal(
+            ["前言", "序幕", "序幕", "第一章"],
+            actual.Select(chunk => chunk.ChapterTitle));
+        Assert.Equal([0, 0, 2, 1], actual.Select(chunk => chunk.ChunkIndex));
+    }
+
+    [Fact]
+    public void KeepsAllValidSpinePagesWhenTheBookHasNoNavigation()
+    {
+        var chapters = Enumerable.Range(0, 2)
+            .Select(index => Path.GetFullPath(Path.Combine(
+                Path.GetTempPath(),
+                "libzora-reader-search-policy",
+                $"fallback-{index}.xhtml")))
+            .ToArray();
+        var document = new EpubReaderDocument(
+            Path.GetDirectoryName(chapters[0])!,
+            chapters,
+            [],
+            []);
+        var bookId = Guid.NewGuid();
+        var fileId = Guid.NewGuid();
+        var candidates = new[]
+        {
+            CreateChunk(bookId, fileId, chapterIndex: 1, chunkIndex: 0, startOffset: 0, "第二页"),
+            CreateChunk(bookId, fileId, chapterIndex: 0, chunkIndex: 0, startOffset: 0, "第一页")
+        };
+
+        var actual = EpubReaderSearchPolicy.FilterAndOrder(document, candidates);
+
+        Assert.Equal(["第一页", "第二页"], actual.Select(chunk => chunk.ChapterTitle));
+    }
+
+    private static BookContentChunk CreateChunk(
+        Guid bookId,
+        Guid fileId,
+        int chapterIndex,
+        int chunkIndex,
+        int startOffset,
+        string title) =>
+        new(
+            Id: chapterIndex * 100L + chunkIndex,
+            BookId: bookId,
+            BookFileId: fileId,
+            SourceHash: "search-policy",
+            ChapterIndex: chapterIndex,
+            ChunkIndex: chunkIndex,
+            ChapterTitle: title,
+            ChapterPath: $"chapter-{chapterIndex}.xhtml",
+            StartOffset: startOffset,
+            EndOffset: startOffset + 20,
+            Content: $"{title} 搜索命中");
+}

@@ -76,11 +76,11 @@
 
 ## 验证
 
-- `Kkindle.Tests`：899 项通过（含增量 vs 全量快照一致性、合并后收敛视图一致性、
+- `Libzora.Tests`：899 项通过（含增量 vs 全量快照一致性、合并后收敛视图一致性、
   状态文件/压缩基线分离回读测试）。
-- `Kkindle.App.Tests`：13 项通过。
-- `Kkindle.Platform.Common.Tests`：12 项通过。
-- `Kkindle.Tests.Windows`：43 项通过。
+- `Libzora.App.Tests`：13 项通过。
+- `Libzora.Platform.Common.Tests`：12 项通过。
+- `Libzora.Tests.Windows`：43 项通过。
 - Kindle Scribe 实测：冷扫描约 5.7 秒，缓存扫描约 0.25 秒，侧车兜底约 0.29 秒。
 - 已生成并启动 Debug 自包含 x64 版本做冒烟验证。
 

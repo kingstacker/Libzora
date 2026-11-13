@@ -1,6 +1,6 @@
 """Windows integration test: real processes and the compiled Inno shutdown flow.
 
-May display UAC when an existing Kkindle process cannot be inspected.
+May display UAC when an existing Libzora process cannot be inspected.
 Uses an isolated directory, no uninstall registration, and no user library.
 """
 from pathlib import Path
@@ -11,7 +11,7 @@ import tempfile
 repo = Path(__file__).resolve().parents[2]
 compiler = Path(os.environ['LOCALAPPDATA']) / 'Programs/Inno Setup 6/ISCC.exe'
 csc = Path(os.environ['SystemRoot']) / 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
-with tempfile.TemporaryDirectory(prefix='Kkindle-upgrade-') as directory:
+with tempfile.TemporaryDirectory(prefix='Libzora-upgrade-') as directory:
     root = Path(directory)
     payload = root / 'payload'
     target = root / 'installed'
@@ -24,14 +24,14 @@ with tempfile.TemporaryDirectory(prefix='Kkindle-upgrade-') as directory:
                     'new System.Security.Principal.WindowsPrincipal(System.Security.Principal.WindowsIdentity.GetCurrent())'
                     '.IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator).ToString()); '
                     'System.Threading.Thread.Sleep(120000); } }')
-    subprocess.run([str(csc), '/nologo', '/target:winexe', f'/out:{target / "Kkindle.exe"}', str(stub)], check=True)
+    subprocess.run([str(csc), '/nologo', '/target:winexe', f'/out:{target / "Libzora.exe"}', str(stub)], check=True)
     import shutil
-    for path in (target / 'mcp/Kkindle.McpServer.exe', other / 'Kkindle.exe', payload / 'Kkindle.exe'):
-        shutil.copy2(target / 'Kkindle.exe', path)
+    for path in (target / 'mcp/Libzora.McpServer.exe', other / 'Libzora.exe', payload / 'Libzora.exe'):
+        shutil.copy2(target / 'Libzora.exe', path)
     shutil.copy2(repo / 'LICENSE', payload / 'LICENSE')
-    shutil.copy2(repo / 'src/Kkindle.App/Assets/Icons/Kkindle.ico', payload / 'Assets/Kkindle.ico')
+    shutil.copy2(repo / 'src/Libzora.App/Assets/Icons/Libzora.ico', payload / 'Assets/Libzora.ico')
     shutil.copy2(repo / 'installer/ChineseSimplified.isl', root / 'ChineseSimplified.isl')
-    source = (repo / 'installer/Kkindle.iss').read_text(encoding='utf-8-sig')
+    source = (repo / 'installer/Libzora.iss').read_text(encoding='utf-8-sig')
     source = source.replace('PrivilegesRequired=lowest', 'PrivilegesRequired=lowest\nUninstallable=no\nCreateUninstallRegKey=no\nUsePreviousAppDir=no')
     # Omit shortcuts and post-install launches, preserving the production shutdown code.
     start = source.index('[Icons]')
@@ -44,15 +44,15 @@ with tempfile.TemporaryDirectory(prefix='Kkindle-upgrade-') as directory:
     sentinel.parent.mkdir()
     sentinel.write_text('preserve library')
     powershell = Path(os.environ['SystemRoot']) / 'System32/WindowsPowerShell/v1.0/powershell.exe'
-    mcp_path = str(target / 'mcp/Kkindle.McpServer.exe').replace("'", "''")
+    mcp_path = str(target / 'mcp/Libzora.McpServer.exe').replace("'", "''")
     elevated_marker = root / 'elevated.txt'
     elevated_marker.write_text('waiting')
     marker_argument = ('"' + str(elevated_marker) + '"').replace("'", "''")
     # Run MCP elevated: ordinary Setup must request elevation to stop it.
-    processes = [subprocess.Popen([str(target / 'Kkindle.exe')]),
+    processes = [subprocess.Popen([str(target / 'Libzora.exe')]),
                  subprocess.Popen([str(powershell), '-NoProfile', '-WindowStyle', 'Hidden',
                                    '-Command', f"Start-Process -FilePath '{mcp_path}' -ArgumentList '{marker_argument}' -Verb RunAs -WindowStyle Hidden -Wait"]),
-                 subprocess.Popen([str(other / 'Kkindle.exe')])]
+                 subprocess.Popen([str(other / 'Libzora.exe')])]
     try:
         import time
         for _ in range(100):
@@ -64,7 +64,7 @@ with tempfile.TemporaryDirectory(prefix='Kkindle-upgrade-') as directory:
             time.sleep(0.1)
         assert elevated_marker.read_text() == 'True', 'MCP fixture was not elevated'
         log = root / 'install.log'
-        result = subprocess.run([str(root / 'Kkindle-1.0.6-win-x64-setup.exe'), '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', f'/DIR={target}', f'/LOG={log}'], timeout=180)
+        result = subprocess.run([str(root / 'Libzora-1.0.6-win-x64-setup.exe'), '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', f'/DIR={target}', f'/LOG={log}'], timeout=180)
         report = log.read_text(encoding='utf-8-sig')
         evidence = repo / 'artifacts/installer-fix-validation/integration.log'
         evidence.parent.mkdir(parents=True, exist_ok=True)

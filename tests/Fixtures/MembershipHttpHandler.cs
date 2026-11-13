@@ -1,9 +1,9 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
-using Kkindle.Core;
+using Libzora.Core;
 
-namespace Kkindle.TestFixtures;
+namespace Libzora.TestFixtures;
 
 /// <summary>Fictional account responses for client protocol and UI behavior tests.</summary>
 public sealed class MembershipHttpHandler : HttpMessageHandler
@@ -54,7 +54,7 @@ public sealed class MembershipHttpHandler : HttpMessageHandler
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
     {
         if (Offline) throw new HttpRequestException("fictional network outage");
-        var region = request.Headers.GetValues("X-Kkindle-Region").Single() == "china" ? AccountRegion.China : AccountRegion.International;
+        var region = request.Headers.GetValues("X-Libzora-Region").Single() == "china" ? AccountRegion.China : AccountRegion.International;
         var action = request.RequestUri!.AbsolutePath.Split("/api/accounts/")[1];
         if (action is "login" or "register")
         {
@@ -174,7 +174,7 @@ public sealed class MembershipHttpHandler : HttpMessageHandler
                 if (Devices[index].State == "blocked")
                 {
                     var blocked = new HttpResponseMessage(HttpStatusCode.Forbidden);
-                    blocked.Headers.Add("X-Kkindle-Error", "device_blocked");
+                    blocked.Headers.Add("X-Libzora-Error", "device_blocked");
                     return blocked;
                 }
                 Devices[index] = Devices[index] with { State = "signed_out" };
@@ -187,7 +187,7 @@ public sealed class MembershipHttpHandler : HttpMessageHandler
                 if (!LifetimeFeatures && !(ProExpiresAt > Now))
                 {
                     var denied = new HttpResponseMessage(HttpStatusCode.PaymentRequired);
-                    denied.Headers.Add("X-Kkindle-Error", "membership_required");
+                    denied.Headers.Add("X-Libzora-Error", "membership_required");
                     return denied;
                 }
             }
@@ -253,7 +253,7 @@ public sealed class MembershipHttpHandler : HttpMessageHandler
     private static HttpResponseMessage Error(HttpStatusCode status, string code)
     {
         var reply = new HttpResponseMessage(status);
-        reply.Headers.Add("X-Kkindle-Error", code);
+        reply.Headers.Add("X-Libzora-Error", code);
         return reply;
     }
 }

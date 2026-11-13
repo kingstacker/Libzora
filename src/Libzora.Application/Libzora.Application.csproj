@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Libzora.ApplicationServices</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Libzora.Core\Libzora.Core.csproj" />
+    <ProjectReference Include="..\Libzora.Infrastructure\Libzora.Infrastructure.csproj" />
+    <ProjectReference Include="..\Libzora.Layout\Libzora.Layout.csproj" />
+  </ItemGroup>
+</Project>

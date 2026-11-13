@@ -36,7 +36,7 @@ require_repo_dotnet_sdk "$repo_root"
 output_root="$(mkdir -p "$output_root" && cd "$output_root" && pwd)"
 work_root="$(mktemp -d)"
 trap 'rm -rf "$work_root"' EXIT
-app_root="$work_root/Kkindle.app"
+app_root="$work_root/Libzora.app"
 
 # Keep prerelease suffixes in the archive name, but use Apple-compatible
 # numeric values inside Info.plist.
@@ -56,10 +56,10 @@ mkdir -p "$app_macos" "$app_root/Contents/Resources" "$mtp_source_bundle"
 # .appex serves both payloads. The bridge dylib is copied next to each payload
 # executable so the managed app can request an immediate timeline reload.
 widget_build="$work_root/widgets"
-zsh "$repo_root/src/Kkindle.Widgets/build-macos-widgets.sh" "x86_64 arm64" \
+zsh "$repo_root/src/Libzora.Widgets/build-macos-widgets.sh" "x86_64 arm64" \
   "$widget_build" "$short_version" "$build_version"
 mkdir -p "$app_root/Contents/PlugIns"
-cp -a "$widget_build/KkindleWidgets.appex" "$app_root/Contents/PlugIns/"
+cp -a "$widget_build/LibzoraWidgets.appex" "$app_root/Contents/PlugIns/"
 
 for payload_rid in "${payload_rids[@]}"; do
   arch="$(payload_arch "$payload_rid")"
@@ -71,28 +71,28 @@ for payload_rid in "${payload_rids[@]}"; do
   mkdir -p "$payload_dir"
 
   publish_root="$work_root/publish/$payload_rid"
-  dotnet publish "src/Kkindle.Desktop.MacOS/Kkindle.Desktop.MacOS.csproj" \
+  dotnet publish "src/Libzora.Desktop.MacOS/Libzora.Desktop.MacOS.csproj" \
     -c Release -r "$payload_rid" --self-contained true \
     -p:Version="$version" -p:PublishSingleFile=false \
     -o "$publish_root"
   cp -a "$publish_root/." "$payload_dir/"
-  cp "$widget_build/libKkindleWidgetBridge.dylib" "$payload_dir/"
+  cp "$widget_build/libLibzoraWidgetBridge.dylib" "$payload_dir/"
 
   # The MCP server is a separate executable. Ship a self-contained build in
   # the payload's mcp directory, the location Settings > MCP probes.
   mcp_publish_root="$work_root/mcp-publish/$payload_rid"
-  dotnet publish "src/Kkindle.McpServer/Kkindle.McpServer.csproj" \
+  dotnet publish "src/Libzora.McpServer/Libzora.McpServer.csproj" \
     -c Release -f net10.0 -r "$payload_rid" --self-contained true \
     -p:Version="$version" -p:PublishSingleFile=false \
     -o "$mcp_publish_root"
   mkdir -p "$payload_dir/mcp"
   cp -a "$mcp_publish_root/." "$payload_dir/mcp/"
-  if [[ ! -f "$payload_dir/mcp/Kkindle.McpServer" ]]; then
+  if [[ ! -f "$payload_dir/mcp/Libzora.McpServer" ]]; then
     echo "Published output does not contain the MCP server executable." >&2
     exit 2
   fi
-  chmod 0755 "$payload_dir/mcp/Kkindle.McpServer"
-  chmod 0755 "$payload_dir/Kkindle"
+  chmod 0755 "$payload_dir/mcp/Libzora.McpServer"
+  chmod 0755 "$payload_dir/Libzora"
 
   # Newer Kindles only speak MTP, which macOS cannot mount. Bundle libmtp
   # (the same stack calibre uses on macOS) next to the payload executable so
@@ -101,7 +101,7 @@ for payload_rid in "${payload_rids[@]}"; do
   bash "$repo_root/scripts/build-macos-mtp-deps.sh" "$mtp_deps" "$arch"
   cp "$mtp_deps/prefix/lib/libmtp.9.dylib" "$mtp_deps/prefix/lib/libusb-1.0.0.dylib" \
     "$payload_dir/"
-  mtp_source="$mtp_deps/prefix/share/kkindle/corresponding-source/MTP"
+  mtp_source="$mtp_deps/prefix/share/libzora/corresponding-source/MTP"
   dotnet run --file "$repo_root/scripts/verify-third-party.cs" -- \
     --mtp-source "$mtp_source" --mtp-architecture "$arch" --mtp-binaries "$payload_dir"
   # Universal payloads share exact source archives and script, but each keeps
@@ -127,7 +127,7 @@ dotnet run --file "$repo_root/scripts/verify-third-party.cs" -- --mtp-source "$m
 if (( universal )); then
   # One fat executable picks the payload matching the architecture it was
   # started as. exec keeps the bundle identity, so the nested app still
-  # resolves Contents/... paths and the update helper can replace Kkindle.app.
+  # resolves Contents/... paths and the update helper can replace Libzora.app.
   launcher_source="$work_root/launcher.c"
   cat > "$launcher_source" <<'LAUNCHER'
 #include <limits.h>
@@ -156,11 +156,11 @@ int main(int argc, char **argv)
     const char *arch = "x86_64";
 #endif
     char target[PATH_MAX];
-    int written = snprintf(target, sizeof(target), "%s/%s/Kkindle", resolved, arch);
+    int written = snprintf(target, sizeof(target), "%s/%s/Libzora", resolved, arch);
     if (written < 0 || (size_t)written >= sizeof(target)) return 127;
 
     execv(target, argv);
-    perror("Kkindle launcher");
+    perror("Libzora launcher");
     return 127;
 }
 LAUNCHER
@@ -168,9 +168,9 @@ LAUNCHER
     clang -arch "$arch" -mmacosx-version-min=12.0 -O2 \
       -o "$work_root/launcher-$arch" "$launcher_source"
   done
-  lipo -create -output "$app_macos/Kkindle" \
+  lipo -create -output "$app_macos/Libzora" \
     "$work_root/launcher-x86_64" "$work_root/launcher-arm64"
-  chmod 0755 "$app_macos/Kkindle"
+  chmod 0755 "$app_macos/Libzora"
 fi
 
 cp "$repo_root/LICENSE" "$app_root/Contents/Resources/LICENSE"
@@ -200,12 +200,12 @@ for payload_rid in "${payload_rids[@]}"; do
   find "$payload_dir" -type d -name ThirdParty -prune -exec rm -rf {} +
   find "$payload_dir" -type f \( -name LICENSE -o -name THIRD-PARTY-NOTICES.md \) -exec rm -f {} +
 done
-cp "$repo_root/src/Kkindle.App/Assets/Icons/Kkindle.ico" "$app_root/Contents/Resources/Kkindle.ico"
+cp "$repo_root/src/Libzora.App/Assets/Icons/Libzora.ico" "$app_root/Contents/Resources/Libzora.ico"
 
 # Compile the layered Icon Composer artwork for Liquid Glass appearances and
 # a complete .icns fallback for older macOS releases. Both must be generated
 # together so their name and geometry match. This requires Xcode 26 or newer.
-icon_source="$repo_root/scripts/macos/Kkindle.icon"
+icon_source="$repo_root/scripts/macos/Libzora.icon"
 icon_output="$work_root/compiled-icon"
 if [[ ! -f "$icon_source/icon.json" ]]; then
   echo "Missing Icon Composer source: $icon_source" >&2
@@ -214,15 +214,15 @@ fi
 mkdir -p "$icon_output"
 xcrun actool --compile "$icon_output" \
   --platform macosx --target-device mac --minimum-deployment-target 12.0 \
-  --app-icon Kkindle --standalone-icon-behavior all \
+  --app-icon Libzora --standalone-icon-behavior all \
   --output-partial-info-plist "$icon_output/partial.plist" \
   --warnings --notices --errors "$icon_source"
-if [[ ! -s "$icon_output/Assets.car" || ! -s "$icon_output/Kkindle.icns" ]]; then
-  echo "Icon compilation did not produce both Assets.car and Kkindle.icns; use Xcode 26 or newer." >&2
+if [[ ! -s "$icon_output/Assets.car" || ! -s "$icon_output/Libzora.icns" ]]; then
+  echo "Icon compilation did not produce both Assets.car and Libzora.icns; use Xcode 26 or newer." >&2
   exit 2
 fi
 cp "$icon_output/Assets.car" "$app_root/Contents/Resources/Assets.car"
-cp "$icon_output/Kkindle.icns" "$app_root/Contents/Resources/Kkindle.icns"
+cp "$icon_output/Libzora.icns" "$app_root/Contents/Resources/Libzora.icns"
 
 # The bundled MTP libraries and their licences are copied with each payload.
 mtp_deps="$repo_root/artifacts/macos-deps/$(payload_arch "${payload_rids[0]}")"
@@ -237,15 +237,15 @@ cat > "$app_root/Contents/Info.plist" <<EOF
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleDisplayName</key><string>Kkindle</string>
-  <key>CFBundleExecutable</key><string>Kkindle</string>
-  <key>CFBundleIdentifier</key><string>io.github.kingstacker.kkindle</string>
-  <key>CFBundleIconFile</key><string>Kkindle</string>
-  <key>CFBundleIconName</key><string>Kkindle</string>
+  <key>CFBundleDisplayName</key><string>Libzora</string>
+  <key>CFBundleExecutable</key><string>Libzora</string>
+  <key>CFBundleIdentifier</key><string>io.github.kingstacker.libzora</string>
+  <key>CFBundleIconFile</key><string>Libzora</string>
+  <key>CFBundleIconName</key><string>Libzora</string>
   <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
   <key>CFBundleDevelopmentRegion</key><string>en</string>
   <key>CFBundleLocalizations</key><array><string>en</string><string>zh-Hans</string></array>
-  <key>CFBundleName</key><string>Kkindle</string>
+  <key>CFBundleName</key><string>Libzora</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$short_version</string>
   <key>CFBundleVersion</key><string>$build_version</string>
@@ -272,9 +272,9 @@ cat > "$app_root/Contents/Info.plist" <<EOF
       <key>CFBundleTypeRole</key><string>Viewer</string>
       <key>LSHandlerRank</key><string>Alternate</string>
       <key>LSItemContentTypes</key><array>
-        <string>io.github.kingstacker.kkindle.mobi</string>
-        <string>io.github.kingstacker.kkindle.azw</string>
-        <string>io.github.kingstacker.kkindle.azw3</string>
+        <string>io.github.kingstacker.libzora.mobi</string>
+        <string>io.github.kingstacker.libzora.azw</string>
+        <string>io.github.kingstacker.libzora.azw3</string>
       </array>
       <key>CFBundleTypeExtensions</key><array><string>mobi</string><string>prc</string><string>azw</string><string>azw3</string></array>
     </dict>
@@ -289,7 +289,7 @@ cat > "$app_root/Contents/Info.plist" <<EOF
   <key>UTExportedTypeDeclarations</key>
   <array>
     <dict>
-      <key>UTTypeIdentifier</key><string>io.github.kingstacker.kkindle.mobi</string>
+      <key>UTTypeIdentifier</key><string>io.github.kingstacker.libzora.mobi</string>
       <key>UTTypeDescription</key><string>Mobipocket eBook</string>
       <key>UTTypeConformsTo</key><array><string>public.data</string></array>
       <key>UTTypeTagSpecification</key><dict>
@@ -298,7 +298,7 @@ cat > "$app_root/Contents/Info.plist" <<EOF
       </dict>
     </dict>
     <dict>
-      <key>UTTypeIdentifier</key><string>io.github.kingstacker.kkindle.azw</string>
+      <key>UTTypeIdentifier</key><string>io.github.kingstacker.libzora.azw</string>
       <key>UTTypeDescription</key><string>Kindle eBook</string>
       <key>UTTypeConformsTo</key><array><string>public.data</string></array>
       <key>UTTypeTagSpecification</key><dict>
@@ -306,7 +306,7 @@ cat > "$app_root/Contents/Info.plist" <<EOF
       </dict>
     </dict>
     <dict>
-      <key>UTTypeIdentifier</key><string>io.github.kingstacker.kkindle.azw3</string>
+      <key>UTTypeIdentifier</key><string>io.github.kingstacker.libzora.azw3</string>
       <key>UTTypeDescription</key><string>Kindle eBook (AZW3)</string>
       <key>UTTypeConformsTo</key><array><string>public.data</string></array>
       <key>UTTypeTagSpecification</key><dict>
@@ -338,7 +338,7 @@ if [[ "$require_notarization" == "1" ]]; then
     exit 2
   fi
 fi
-entitlements_file="$repo_root/scripts/macos/Kkindle.entitlements"
+entitlements_file="$repo_root/scripts/macos/Libzora.entitlements"
 if [[ ! -f "$entitlements_file" ]]; then
   echo "Missing entitlements file: $entitlements_file" >&2
   exit 2
@@ -355,12 +355,12 @@ fi
 # Sign the widget extension as its own bundle with the App Group entitlement.
 # The outer app signature then seals the plugin; signing its executable again
 # in the loop below would break the nested CodeResources.
-widget_appex="$app_root/Contents/PlugIns/KkindleWidgets.appex"
+widget_appex="$app_root/Contents/PlugIns/LibzoraWidgets.appex"
 codesign "${sign_args[@]}" \
-  --entitlements "$repo_root/src/Kkindle.Widgets/KkindleWidgets.macOS.entitlements" \
+  --entitlements "$repo_root/src/Libzora.Widgets/LibzoraWidgets.macOS.entitlements" \
   --sign "$signing_identity" "$widget_appex"
 while IFS= read -r -d '' binary; do
-  [[ "$binary" == "$app_macos/Kkindle" ]] && continue
+  [[ "$binary" == "$app_macos/Libzora" ]] && continue
   case "$binary" in
     "$widget_appex"/*) continue ;;
   esac
@@ -404,23 +404,23 @@ dotnet run --file "$repo_root/scripts/verify-third-party.cs" -- --mtp-source "$m
 create_dmg() {
   local dmg_path="$1"
   local staging="$work_root/dmg-staging"
-  local rw_image="$work_root/Kkindle-rw.dmg"
+  local rw_image="$work_root/Libzora-rw.dmg"
   local mountpoint volume_name attach_output background
   background="$repo_root/scripts/macos/dmg-background.png"
   rm -rf "$staging" "$rw_image" "$dmg_path"
   mkdir -p "$staging"
-  cp -a "$app_root" "$staging/Kkindle.app"
+  cp -a "$app_root" "$staging/Libzora.app"
   ln -s /Applications "$staging/Applications"
   if [[ -f "$background" ]]; then
     mkdir -p "$staging/.background"
     cp "$background" "$staging/.background/background.png"
   fi
 
-  hdiutil create -quiet -volname "Kkindle" -srcfolder "$staging" \
+  hdiutil create -quiet -volname "Libzora" -srcfolder "$staging" \
     -fs HFS+ -format UDRW -ov "$rw_image"
   # Finder addresses the volume by its displayed (mount point) name. Mounting
   # at a custom directory makes Finder show that directory name instead of
-  # the volume label, so let hdiutil pick /Volumes/Kkindle and pass the actual
+  # the volume label, so let hdiutil pick /Volumes/Libzora and pass the actual
   # name to AppleScript. Finder also needs the volume to be browsable, so no
   # -nobrowse here.
   attach_output="$(hdiutil attach -noautoopen "$rw_image")"
@@ -433,7 +433,7 @@ create_dmg() {
   volume_name="$(basename "$mountpoint")"
   sleep 1
 
-  if [[ -f "$background" && "${KKINDLE_DMG_STYLE:-1}" != "0" ]]; then
+  if [[ -f "$background" && "${LIBZORA_DMG_STYLE:-1}" != "0" ]]; then
     osascript - "$volume_name" <<'APPLESCRIPT' &
 on run argv
 tell application "Finder"
@@ -450,7 +450,7 @@ tell application "Finder"
     try
       set background picture of viewOptions to file ".background:background.png"
     end try
-    set position of item "Kkindle.app" of container window to {180, 210}
+    set position of item "Libzora.app" of container window to {180, 210}
     set position of item "Applications" of container window to {480, 210}
     update without registering applications
     delay 1
@@ -485,14 +485,14 @@ APPLESCRIPT
 }
 
 if [[ -n "$notary_key_path" ]]; then
-  notarization_zip="$work_root/Kkindle-notarization.zip"
+  notarization_zip="$work_root/Libzora-notarization.zip"
   ditto -c -k --keepParent "$app_root" "$notarization_zip"
   xcrun notarytool submit "$notarization_zip" \
     --key "$notary_key_path" --key-id "$notary_key_id" --issuer "$notary_issuer" --wait
   xcrun stapler staple "$app_root"
   xcrun stapler validate "$app_root"
 elif [[ -n "$notary_profile" ]]; then
-  notarization_zip="$work_root/Kkindle-notarization.zip"
+  notarization_zip="$work_root/Libzora-notarization.zip"
   ditto -c -k --keepParent "$app_root" "$notarization_zip"
   xcrun notarytool submit "$notarization_zip" \
     --keychain-profile "$notary_profile" --wait
@@ -500,7 +500,7 @@ elif [[ -n "$notary_profile" ]]; then
   xcrun stapler validate "$app_root"
 fi
 
-dmg_path="$output_root/Kkindle-$version-$rid.dmg"
+dmg_path="$output_root/Libzora-$version-$rid.dmg"
 create_dmg "$dmg_path"
 
 if [[ "$signing_identity" != "-" ]]; then
@@ -510,7 +510,7 @@ fi
 
 # A DMG is a separate notarization artifact. Submitting it after the app has
 # already been stapled keeps both the copy-in-place bundle and the disk image
-# itself valid offline after the user drags Kkindle to Applications.
+# itself valid offline after the user drags Libzora to Applications.
 if [[ -n "$notary_key_path" ]]; then
   xcrun notarytool submit "$dmg_path" \
     --key "$notary_key_path" --key-id "$notary_key_id" --issuer "$notary_issuer" --wait
@@ -525,8 +525,8 @@ fi
 
 if [[ "$signing_identity" == "-" ]]; then
   cp "$repo_root/docs/macos-adhoc-install.md" "$work_root/MACOS-README.md"
-  tar -C "$work_root" -czf "$output_root/Kkindle-$version-$rid.tar.gz" \
-    Kkindle.app MACOS-README.md
+  tar -C "$work_root" -czf "$output_root/Libzora-$version-$rid.tar.gz" \
+    Libzora.app MACOS-README.md
 else
-  tar -C "$work_root" -czf "$output_root/Kkindle-$version-$rid.tar.gz" Kkindle.app
+  tar -C "$work_root" -czf "$output_root/Libzora-$version-$rid.tar.gz" Libzora.app
 fi

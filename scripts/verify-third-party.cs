@@ -20,7 +20,7 @@ for (var index = 0; index < args.Length; index += 2)
 
 var failures = new List<string>();
 var repository = Path.GetFullPath(options.GetValueOrDefault("--repository", Directory.GetCurrentDirectory()));
-var bundle = Path.Combine(repository, "src", "Kkindle.Infrastructure", "ThirdParty", "Notices");
+var bundle = Path.Combine(repository, "src", "Libzora.Infrastructure", "ThirdParty", "Notices");
 
 try
 {
@@ -90,7 +90,7 @@ try
 
         expected.Add("LICENSE", Path.Combine(repository, "LICENSE"));
         expected.Add("THIRD-PARTY-NOTICES.md", Path.Combine(repository, "THIRD-PARTY-NOTICES.md"));
-        var infrastructure = Path.Combine(repository, "src", "Kkindle.Infrastructure");
+        var infrastructure = Path.Combine(repository, "src", "Libzora.Infrastructure");
         foreach (var directory in new[] { "MdxParser", "KindleUnpack", "PDFium", "G2PW" })
         {
             var root = Path.Combine(infrastructure, "ThirdParty", directory);
@@ -116,8 +116,8 @@ try
 
         if (options.ContainsKey("--resources"))
         {
-            foreach (var file in Directory.EnumerateFiles(Path.Combine(repository, "src", "Kkindle.App", "Assets"), "*-LICENSE.txt", SearchOption.AllDirectories))
-                expected.Add("Assets/" + Path.GetRelativePath(Path.Combine(repository, "src", "Kkindle.App", "Assets"), file).Replace('\\', '/'), file);
+            foreach (var file in Directory.EnumerateFiles(Path.Combine(repository, "src", "Libzora.App", "Assets"), "*-LICENSE.txt", SearchOption.AllDirectories))
+                expected.Add("Assets/" + Path.GetRelativePath(Path.Combine(repository, "src", "Libzora.App", "Assets"), file).Replace('\\', '/'), file);
         }
         foreach (var item in expected)
             if (!File.Exists(item.Value)) failures.Add("Missing source license/notice: " + item.Value);

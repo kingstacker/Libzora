@@ -1,9 +1,9 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
-using Kkindle.Core;
+using Libzora.Core;
 
-namespace Kkindle.TestFixtures;
+namespace Libzora.TestFixtures;
 
 /// <summary>A deterministic account reply fixture for exercising UI controls.</summary>
 public sealed class AccountHttpHandler : HttpMessageHandler
@@ -22,7 +22,7 @@ public sealed class AccountHttpHandler : HttpMessageHandler
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
     {
-        var region = request.Headers.GetValues("X-Kkindle-Region").Single() == "international" ? AccountRegion.International : AccountRegion.China;
+        var region = request.Headers.GetValues("X-Libzora-Region").Single() == "international" ? AccountRegion.International : AccountRegion.China;
         LastRequestRegion = region;
         var session = _sessions[region];
         if (request.RequestUri!.AbsolutePath == "/api/v1/feedback")

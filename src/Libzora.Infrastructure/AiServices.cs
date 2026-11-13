@@ -1,0 +1,820 @@
+using System.Net.Http.Headers;
+using System.Runtime.CompilerServices;
+using System.Text;
+using System.Text.Json;
+using Libzora.Core;
+
+namespace Libzora.Infrastructure;
+
+public sealed class AiConnectionSettings
+{
+    public string Provider { get; set; } = "deepseek";
+    public string BaseUrl { get; set; } = "https://api.deepseek.com";
+    public string Model { get; set; } = "deepseek-v4-flash";
+    public string ApiKey { get; set; } = string.Empty;
+
+    public bool IsConfigured =>
+        Uri.TryCreate(BaseUrl, UriKind.Absolute, out var endpoint)
+        && endpoint.Scheme is "http" or "https"
+        && !string.IsNullOrWhiteSpace(Model)
+        && (IsLocalEndpoint || !string.IsNullOrWhiteSpace(ApiKey));
+
+    public bool IsLocalEndpoint => Uri.TryCreate(BaseUrl, UriKind.Absolute, out var endpoint)
+        && endpoint.Scheme is "http" or "https" && endpoint.IsLoopback;
+
+    public string Destination => Uri.TryCreate(BaseUrl, UriKind.Absolute, out var endpoint)
+        ? endpoint.GetComponents(UriComponents.SchemeAndServer, UriFormat.SafeUnescaped) : string.Empty;
+
+
+    public string ProviderDisplayName => Provider.ToLowerInvariant() switch
+    {
+        "openai" => "OpenAI",
+        "custom" => "自定义 API",
+        _ => "DeepSeek"
+    };
+
+    public AiConnectionSettings Clone() => new()
+    {
+        Provider = Provider,
+        BaseUrl = BaseUrl,
+        Model = Model,
+        ApiKey = ApiKey
+    };
+
+    public static (string BaseUrl, string Model) GetDefaults(string provider) => provider.ToLowerInvariant() switch
+    {
+        "openai" => ("https://api.openai.com/v1", "gpt-5.6-sol"),
+        "custom" => ("http://127.0.0.1:11434/v1", string.Empty),
+        _ => ("https://api.deepseek.com", "deepseek-v4-flash")
+    };
+
+    public static IReadOnlyList<string> GetModelOptions(string provider, string currentModel)
+    {
+        var defaults = provider.Trim().ToLowerInvariant() switch
+        {
+            "openai" => new[] { "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5-mini", "gpt-4.1" },
+            "deepseek" => new[] { "deepseek-v4-flash", "deepseek-v4-pro" },
+            _ => []
+        };
+
+        return new[] { currentModel.Trim() }
+            .Concat(defaults)
+            .Where(model => !string.IsNullOrWhiteSpace(model))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    public static string NormalizeModel(string provider, string model)
+    {
+        if (!provider.Trim().Equals("deepseek", StringComparison.OrdinalIgnoreCase))
+            return model.Trim();
+
+        return model.Trim().ToLowerInvariant() switch
+        {
+            "deepseek-chat" or "deepseek-reasoner" => "deepseek-v4-flash",
+            var normalized => normalized
+        };
+    }
+}
+
+public sealed class AiSettingsStore
+{
+    private readonly AppPaths _paths;
+    private readonly ISecretProtector _protector;
+    private readonly JsonSerializerOptions _jsonOptions = new() { WriteIndented = true };
+
+    public AiSettingsStore(AppPaths paths, ISecretProtector protector)
+    {
+        _paths = paths;
+        _protector = protector;
+    }
+
+    private string SettingsPath => Path.Combine(_paths.Data, "ai-settings.json");
+
+    public async Task<AiConnectionSettings> LoadAsync(CancellationToken cancellationToken = default)
+    {
+        _paths.EnsureDirectories();
+        if (!File.Exists(SettingsPath)) return new AiConnectionSettings();
+        try
+        {
+            await using var stream = new FileStream(SettingsPath, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete, 81920, true);
+            var persisted = await JsonSerializer.DeserializeAsync<PersistedAiSettings>(stream, _jsonOptions, cancellationToken);
+            if (persisted is null) return new AiConnectionSettings();
+            var provider = persisted.Provider?.Trim().ToLowerInvariant() ?? "deepseek";
+            if (provider is not ("deepseek" or "openai" or "custom")) provider = "custom";
+            var defaults = AiConnectionSettings.GetDefaults(provider);
+            return new AiConnectionSettings
+            {
+                Provider = provider,
+                BaseUrl = string.IsNullOrWhiteSpace(persisted.BaseUrl) ? defaults.BaseUrl : persisted.BaseUrl.Trim(),
+                Model = AiConnectionSettings.NormalizeModel(
+                    provider,
+                    string.IsNullOrWhiteSpace(persisted.Model) ? defaults.Model : persisted.Model),
+                ApiKey = UnprotectApiKey(persisted.ProtectedApiKey)
+            };
+        }
+        catch (Exception exception) when (exception is IOException or JsonException or FormatException or System.ComponentModel.Win32Exception)
+        {
+            return new AiConnectionSettings();
+        }
+        catch (SecretStoreUnavailableException)
+        {
+            // Keychain locked: keep the stored (still valid) API key untouched.
+            SecretStoreGuard.MarkUnreadable(SettingsPath);
+            return new AiConnectionSettings();
+        }
+    }
+
+    public async Task SaveAsync(AiConnectionSettings settings, CancellationToken cancellationToken = default)
+    {
+        using var lease = await SettingsWriteLock.AcquireAsync(_paths, cancellationToken);
+        await SaveUnderLockAsync(settings, cancellationToken);
+    }
+
+    // A quick model selection must preserve the stored endpoint and encrypted
+    // key, including keys that cannot be decrypted on the current machine.
+    public async Task SaveModelAsync(string model, CancellationToken cancellationToken = default)
+    {
+        using var lease = await SettingsWriteLock.AcquireAsync(_paths, cancellationToken);
+        var persisted = new PersistedAiSettings();
+        if (File.Exists(SettingsPath))
+        {
+            await using var stream = new FileStream(SettingsPath, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete, 81920, true);
+            persisted = await JsonSerializer.DeserializeAsync<PersistedAiSettings>(stream, _jsonOptions, cancellationToken)
+                ?? persisted;
+        }
+        persisted.Model = AiConnectionSettings.NormalizeModel(persisted.Provider ?? "deepseek", model);
+        await PublishAsync(persisted, cancellationToken);
+    }
+
+    private string UnprotectApiKey(string? protectedApiKey)
+    {
+        if (string.IsNullOrWhiteSpace(protectedApiKey)) return string.Empty;
+        try
+        {
+            return Encoding.UTF8.GetString(_protector.Unprotect(Convert.FromBase64String(protectedApiKey)));
+        }
+        catch (Exception exception) when (exception is FormatException
+            or System.Security.Cryptography.CryptographicException
+            or System.ComponentModel.Win32Exception)
+        {
+            // Keep the endpoint/model usable when the machine-bound key is
+            // unavailable, so the user only needs to re-enter the API key.
+            return string.Empty;
+        }
+    }
+
+    internal async Task SaveUnderLockAsync(AiConnectionSettings settings, CancellationToken cancellationToken, DateTimeOffset? syncedAt = null)
+    {
+        SecretStoreGuard.ThrowIfUnreadable(SettingsPath);
+        _paths.EnsureDirectories();
+        var persisted = new PersistedAiSettings
+        {
+            Provider = settings.Provider.Trim().ToLowerInvariant(),
+            BaseUrl = settings.BaseUrl.Trim(),
+            Model = AiConnectionSettings.NormalizeModel(settings.Provider, settings.Model),
+            ProtectedApiKey = string.IsNullOrWhiteSpace(settings.ApiKey)
+                ? string.Empty
+                : Convert.ToBase64String(_protector.Protect(Encoding.UTF8.GetBytes(settings.ApiKey.Trim())))
+        };
+        await PublishAsync(persisted, cancellationToken, syncedAt);
+    }
+
+    private async Task PublishAsync(PersistedAiSettings persisted, CancellationToken cancellationToken, DateTimeOffset? syncedAt = null)
+    {
+        _paths.EnsureDirectories();
+        var temporaryPath = SettingsPath + ".tmp";
+        await using (var stream = new FileStream(temporaryPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true))
+            await JsonSerializer.SerializeAsync(stream, persisted, _jsonOptions, cancellationToken);
+        if (syncedAt is { } timestamp) File.SetLastWriteTimeUtc(temporaryPath, timestamp.UtcDateTime);
+        SettingsFile.Publish(temporaryPath, SettingsPath);
+    }
+
+    private sealed class PersistedAiSettings
+    {
+        public string? Provider { get; set; }
+        public string? BaseUrl { get; set; }
+        public string? Model { get; set; }
+        public string? ProtectedApiKey { get; set; }
+    }
+}
+
+public sealed record AiConversationTurn(string Role, string Content)
+{
+    public IReadOnlyList<AiImageAttachment>? Images { get; init; }
+}
+
+public sealed record AiStreamChunk(string Text, string Reasoning);
+
+public sealed class AiChatClient : IDisposable
+{
+    private static readonly TimeSpan StreamIdleTimeout = TimeSpan.FromSeconds(90);
+    private readonly HttpClient _httpClient;
+
+    // Custom AI endpoints are free for every tier, so requests are not gated on membership.
+    public AiChatClient(HttpMessageHandler? handler = null)
+    {
+        _httpClient = handler is null ? new HttpClient() : new HttpClient(handler);
+        _httpClient.Timeout = TimeSpan.FromSeconds(120);
+    }
+
+    public async Task<IReadOnlyList<string>> ListModelsAsync(
+        AiConnectionSettings settings,
+        CancellationToken cancellationToken = default)
+    {
+        var endpoint = BuildEndpoint(settings.BaseUrl, "models");
+        if (string.IsNullOrWhiteSpace(settings.ApiKey) && !settings.IsLocalEndpoint)
+            throw new InvalidOperationException("请先配置 AI API Key。");
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
+        if (!string.IsNullOrWhiteSpace(settings.ApiKey))
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", settings.ApiKey.Trim());
+        request.Headers.UserAgent.ParseAdd("Libzora/1.0");
+        using var response = await _httpClient.SendAsync(
+            request,
+            HttpCompletionOption.ResponseHeadersRead,
+            cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        EnsureSuccess(response, body);
+
+        using var document = JsonDocument.Parse(body);
+        if ((!document.RootElement.TryGetProperty("data", out var data)
+                || data.ValueKind != JsonValueKind.Array)
+            && (!document.RootElement.TryGetProperty("models", out data)
+                || data.ValueKind != JsonValueKind.Array))
+            throw new InvalidDataException("AI 服务返回的模型列表格式无法识别。");
+
+        return data.EnumerateArray()
+            .Select(item => item.ValueKind == JsonValueKind.String
+                ? item.GetString()
+                : item.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String
+                    ? id.GetString()
+                    : item.TryGetProperty("name", out var name) && name.ValueKind == JsonValueKind.String
+                        ? name.GetString()
+                        : null)
+            .Where(model => !string.IsNullOrWhiteSpace(model))
+            .Select(model => model!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    public async Task<string> CompleteAsync(
+        AiConnectionSettings settings,
+        string instructions,
+        string question,
+        IReadOnlyList<AiConversationTurn> history,
+        CancellationToken cancellationToken = default)
+    {
+        var answer = new StringBuilder();
+        await foreach (var chunk in StreamAsync(
+            settings,
+            instructions,
+            question,
+            history,
+            reasoningDepth: "auto",
+            cancellationToken: cancellationToken))
+        {
+            answer.Append(chunk.Text);
+        }
+        return answer.ToString().Trim();
+    }
+
+    public async Task<string> TestConnectionAsync(
+        AiConnectionSettings settings,
+        CancellationToken cancellationToken = default)
+    {
+        if (!settings.IsConfigured)
+            throw new InvalidOperationException("请先配置 AI 服务、模型和 API Key。");
+
+        var answer = await CompleteAsync(
+            settings,
+            "你是 Libzora 的 AI 连通性检测助手。请简短回答，不要补充解释。",
+            "请只回复：连接成功",
+            Array.Empty<AiConversationTurn>(),
+            cancellationToken);
+        if (string.IsNullOrWhiteSpace(answer))
+            throw new InvalidDataException("AI 服务返回了空答案。");
+        return answer;
+    }
+
+    public async IAsyncEnumerable<AiStreamChunk> StreamAsync(
+        AiConnectionSettings settings,
+        string instructions,
+        string question,
+        IReadOnlyList<AiConversationTurn> history,
+        string reasoningDepth = "auto",
+        [EnumeratorCancellation] CancellationToken cancellationToken = default,
+        IReadOnlyList<AiImageAttachment>? images = null)
+    {
+        if (!settings.IsConfigured) throw new InvalidOperationException("请先配置 AI 服务、模型和 API Key。");
+
+        if (settings.Provider.Equals("openai", StringComparison.OrdinalIgnoreCase))
+        {
+            await foreach (var chunk in StreamOpenAiResponsesAsync(
+                settings,
+                instructions,
+                question,
+                history,
+                reasoningDepth,
+                images,
+                cancellationToken: cancellationToken))
+            {
+                yield return chunk;
+            }
+            yield break;
+        }
+
+        await foreach (var chunk in StreamChatCompletionsAsync(
+            settings,
+            instructions,
+            question,
+            history,
+            reasoningDepth,
+            images,
+            cancellationToken: cancellationToken))
+        {
+            yield return chunk;
+        }
+    }
+
+    /// <summary>
+    /// Streams a multimodal answer for an image selected in the reader. The
+    /// normal text-only path remains unchanged so compatible endpoints that do
+    /// not support image content continue to work.
+    /// </summary>
+    public async IAsyncEnumerable<AiStreamChunk> StreamVisionAsync(
+        AiConnectionSettings settings,
+        string instructions,
+        string question,
+        IReadOnlyList<AiConversationTurn> history,
+        AiImageAttachment image,
+        string reasoningDepth = "auto",
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        if (!settings.IsConfigured) throw new InvalidOperationException("请先配置 AI 服务、模型和 API Key。");
+        if (settings.Provider.Equals("openai", StringComparison.OrdinalIgnoreCase))
+        {
+            await foreach (var chunk in StreamOpenAiResponsesAsync(
+                settings,
+                instructions,
+                question,
+                history,
+                reasoningDepth,
+                [image],
+                cancellationToken))
+            {
+                yield return chunk;
+            }
+            yield break;
+        }
+
+        await foreach (var chunk in StreamChatCompletionsAsync(
+            settings,
+            instructions,
+            question,
+            history,
+            reasoningDepth,
+            [image],
+            cancellationToken))
+        {
+            yield return chunk;
+        }
+    }
+
+    private async IAsyncEnumerable<AiStreamChunk> StreamChatCompletionsAsync(
+        AiConnectionSettings settings,
+        string instructions,
+        string question,
+        IReadOnlyList<AiConversationTurn> history,
+        string reasoningDepth,
+        IReadOnlyList<AiImageAttachment>? images,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var messages = new List<object> { new { role = "system", content = instructions } };
+        messages.AddRange(history.TakeLast(8).Select(turn => (object)new
+        {
+            role = turn.Role.Equals("assistant", StringComparison.OrdinalIgnoreCase) ? "assistant" : "user",
+            content = BuildImageContent(Limit(turn.Content, 3500), turn.Images, responses: false)
+        }));
+        var userContent = BuildImageContent(question, images, responses: false);
+        messages.Add(new { role = "user", content = userContent });
+
+        var request = new Dictionary<string, object?>
+        {
+            ["model"] = settings.Model,
+            ["messages"] = messages,
+            ["stream"] = true
+        };
+        AddChatReasoningOption(request, reasoningDepth);
+
+        var payload = JsonSerializer.Serialize(request);
+        var endpoint = BuildEndpoint(settings.BaseUrl, "chat/completions");
+        using var response = await SendAsync(endpoint, settings.ApiKey, payload, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            EnsureSuccess(response, errorBody);
+        }
+
+        var producedOutput = false;
+        var completed = false;
+        await foreach (var eventData in ReadServerSentEventsAsync(response, cancellationToken))
+        {
+            if (eventData == "[DONE]")
+            {
+                completed = true;
+                break;
+            }
+            var chunk = ParseChatCompletionChunk(eventData, out var choiceCompleted);
+            completed |= choiceCompleted;
+            if (chunk is null) continue;
+            producedOutput = true;
+            yield return chunk;
+        }
+
+        if (!producedOutput)
+            throw new InvalidDataException("AI 服务返回了无法识别的流式响应格式。");
+        if (!completed)
+            throw new InvalidDataException("AI 响应意外中断，未收到完整结束标记，请重试。");
+    }
+
+    private async IAsyncEnumerable<AiStreamChunk> StreamOpenAiResponsesAsync(
+        AiConnectionSettings settings,
+        string instructions,
+        string question,
+        IReadOnlyList<AiConversationTurn> history,
+        string reasoningDepth,
+        IReadOnlyList<AiImageAttachment>? images,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var conversation = new StringBuilder();
+        foreach (var turn in history.TakeLast(8))
+        {
+            conversation.Append(turn.Role.Equals("assistant", StringComparison.OrdinalIgnoreCase) ? "助手：" : "读者：")
+                .AppendLine(Limit(turn.Content, 3500));
+        }
+        conversation.Append("读者：").Append(question);
+
+        object input = conversation.ToString();
+        if (images is { Count: > 0 } || history.TakeLast(8).Any(turn => turn.Images is { Count: > 0 }))
+        {
+            var turns = history.TakeLast(8).Select(turn => (object)new
+            {
+                role = turn.Role.Equals("assistant", StringComparison.OrdinalIgnoreCase) ? "assistant" : "user",
+                content = BuildImageContent(Limit(turn.Content, 3500), turn.Images, responses: true)
+            }).ToList();
+            turns.Add(new { role = "user", content = BuildImageContent(question, images, responses: true) });
+            input = turns;
+        }
+        var request = new Dictionary<string, object?>
+        {
+            ["model"] = settings.Model,
+            ["instructions"] = instructions,
+            ["input"] = input,
+            ["stream"] = true
+        };
+        var normalizedDepth = NormalizeReasoningDepth(reasoningDepth);
+        if (normalizedDepth != "auto")
+            request["reasoning"] = new { effort = normalizedDepth, summary = "auto" };
+
+        var payload = JsonSerializer.Serialize(request);
+        var endpoint = BuildEndpoint(settings.BaseUrl, "responses");
+        using var response = await SendAsync(endpoint, settings.ApiKey, payload, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            EnsureSuccess(response, errorBody);
+        }
+
+        var producedOutput = false;
+        var producedText = false;
+        var completed = false;
+        await foreach (var eventData in ReadServerSentEventsAsync(response, cancellationToken))
+        {
+            if (eventData == "[DONE]") break;
+            var chunk = ParseOpenAiResponseChunk(eventData, out var responseCompleted);
+            completed |= responseCompleted;
+            // The terminal event may include a full copy of text already streamed.
+            if (responseCompleted && producedText) continue;
+            if (chunk is null) continue;
+            producedOutput = true;
+            producedText |= chunk.Text.Length > 0;
+            yield return chunk;
+        }
+
+        if (!producedOutput)
+            throw new InvalidDataException("OpenAI 返回了无法识别的 Responses API 流式响应。");
+        if (!completed)
+            throw new InvalidDataException("AI 响应意外中断，未收到完整结束事件，请重试。");
+    }
+
+    private static object BuildImageContent(string text, IReadOnlyList<AiImageAttachment>? images, bool responses)
+    {
+        if (images is not { Count: > 0 }) return text;
+        var content = new List<object> { new { type = responses ? "input_text" : "text", text } };
+        foreach (var image in images)
+            content.Add(responses
+                ? (object)new { type = "input_image", image_url = image.DataUri, detail = image.Detail }
+                : new { type = "image_url", image_url = new { url = image.DataUri, detail = image.Detail } });
+        return content;
+    }
+
+    private static void AddChatReasoningOption(Dictionary<string, object?> request, string reasoningDepth)
+    {
+        var normalizedDepth = NormalizeReasoningDepth(reasoningDepth);
+        if (normalizedDepth == "auto") return;
+        request["reasoning_effort"] = normalizedDepth;
+        if (request.TryGetValue("model", out var model)
+            && model is string modelName
+            && modelName.StartsWith("deepseek", StringComparison.OrdinalIgnoreCase))
+            request["thinking"] = new { type = "enabled" };
+    }
+
+    private static string NormalizeReasoningDepth(string value) => value.Trim().ToLowerInvariant() switch
+    {
+        "low" => "low",
+        "medium" => "medium",
+        "high" => "high",
+        "max" => "max",
+        _ => "auto"
+    };
+
+    private static async IAsyncEnumerable<string> ReadServerSentEventsAsync(
+        HttpResponseMessage response,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+        var eventData = new StringBuilder();
+        var plainBody = new StringBuilder();
+        var sawServerSentEvent = false;
+        var eventName = string.Empty;
+
+        while (true)
+        {
+            string? line;
+            using (var idle = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+            {
+                idle.CancelAfter(StreamIdleTimeout);
+                try
+                {
+                    line = await reader.ReadLineAsync(idle.Token);
+                }
+                catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
+                {
+                    throw new TimeoutException(
+                        $"AI 流式回复连续 {StreamIdleTimeout.TotalSeconds:0} 秒没有数据。",
+                        exception);
+                }
+            }
+
+            if (line is null) break;
+            if (line.Length == 0)
+            {
+                if (eventData.Length == 0) continue;
+                sawServerSentEvent = true;
+                var data = eventData.ToString().Trim();
+                eventData.Clear();
+                if (eventName.Equals("error", StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException($"AI 服务返回流式错误：{Limit(data, 500)}");
+                eventName = string.Empty;
+                if (data.Equals("[DONE]", StringComparison.OrdinalIgnoreCase))
+                {
+                    yield return "[DONE]";
+                    yield break;
+                }
+                if (data.Length > 0) yield return data;
+                continue;
+            }
+
+            if (line.StartsWith("event:", StringComparison.OrdinalIgnoreCase))
+            {
+                eventName = line[6..].Trim();
+            }
+            else if (line.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+            {
+                sawServerSentEvent = true;
+                if (eventData.Length > 0) eventData.Append('\n');
+                eventData.Append(line[5..].TrimStart());
+            }
+            else if (!sawServerSentEvent && !line.StartsWith("event:", StringComparison.OrdinalIgnoreCase))
+            {
+                plainBody.AppendLine(line);
+            }
+
+            if (eventData.ToString().Trim().Equals("[DONE]", StringComparison.OrdinalIgnoreCase))
+            {
+                yield return "[DONE]";
+                yield break;
+            }
+        }
+
+        if (eventData.Length > 0)
+        {
+            var data = eventData.ToString().Trim();
+            if (eventName.Equals("error", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException($"AI 服务返回流式错误：{Limit(data, 500)}");
+            if (data.Length > 0 && !data.Equals("[DONE]", StringComparison.OrdinalIgnoreCase)) yield return data;
+        }
+        else if (!sawServerSentEvent && plainBody.Length > 0)
+        {
+            yield return plainBody.ToString().Trim();
+        }
+    }
+
+    private static AiStreamChunk? ParseChatCompletionChunk(string payload, out bool completed)
+    {
+        completed = false;
+        try
+        {
+            using var document = JsonDocument.Parse(payload);
+            var root = document.RootElement;
+            ThrowIfStreamError(root);
+            if (!root.TryGetProperty("choices", out var choices)
+                || choices.ValueKind != JsonValueKind.Array
+                || choices.GetArrayLength() == 0)
+                return null;
+
+            var choice = choices[0];
+            if (choice.TryGetProperty("finish_reason", out var reason)
+                && reason.ValueKind == JsonValueKind.String)
+            {
+                var value = reason.GetString();
+                if (!string.Equals(value, "stop", StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException($"AI 未完整返回答案（结束原因：{value}），请重试。");
+                completed = true;
+            }
+            var source = choice.TryGetProperty("delta", out var delta) ? delta
+                : choice.TryGetProperty("message", out var message) ? message
+                : default;
+            if (source.ValueKind == JsonValueKind.Undefined) return null;
+
+            if (ReadTextProperty(source, "refusal").Length > 0)
+                throw new InvalidDataException("AI 服务拒绝了本次请求，未生成完整答案。");
+
+            var text = ReadTextProperty(source, "content");
+            var reasoning = ReadTextProperty(source, "reasoning_content", "reasoning", "thinking", "reasoning_summary");
+            return text.Length == 0 && reasoning.Length == 0 ? null : new AiStreamChunk(text, reasoning);
+        }
+        catch (JsonException exception)
+        {
+            throw new InvalidDataException("AI 服务返回了损坏的响应数据。", exception);
+        }
+    }
+
+    private static AiStreamChunk? ParseOpenAiResponseChunk(string payload, out bool completed)
+    {
+        completed = false;
+        try
+        {
+            using var document = JsonDocument.Parse(payload);
+            var root = document.RootElement;
+            ThrowIfStreamError(root);
+            var type = root.TryGetProperty("type", out var typeValue) && typeValue.ValueKind == JsonValueKind.String
+                ? typeValue.GetString() ?? string.Empty
+                : string.Empty;
+
+            var response = root.TryGetProperty("response", out var nestedResponse)
+                && nestedResponse.ValueKind == JsonValueKind.Object ? nestedResponse : root;
+            ThrowIfStreamError(response);
+            var status = ReadTextProperty(response, "status");
+            if (type is "response.failed" or "response.incomplete" or "response.cancelled"
+                || status is "failed" or "incomplete" or "cancelled")
+                throw new InvalidDataException($"AI 未完整返回答案（状态：{status}，事件：{type}），请重试。");
+            if (type.Contains("refusal", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("AI 服务拒绝了本次请求，未生成完整答案。");
+            completed = type == "response.completed" || status == "completed";
+            if (completed) return ParseOpenAiResponseBody(response);
+
+            if (type.Equals("response.output_text.delta", StringComparison.OrdinalIgnoreCase))
+                return new AiStreamChunk(ReadTextProperty(root, "delta"), string.Empty);
+
+            if (type.Contains("reasoning", StringComparison.OrdinalIgnoreCase))
+            {
+                var reasoning = ReadTextProperty(root, "delta", "text", "summary", "content");
+                if (reasoning.Length == 0 && root.TryGetProperty("item", out var item))
+                    reasoning = ReadTextProperty(item, "summary", "content", "text");
+                return reasoning.Length == 0 ? null : new AiStreamChunk(string.Empty, reasoning);
+            }
+
+            if (root.TryGetProperty("output_text", out _)
+                || root.TryGetProperty("output", out _))
+                return ParseOpenAiResponseBody(root);
+
+            var fallbackText = ReadTextProperty(root, "delta");
+            return fallbackText.Length == 0 ? null : new AiStreamChunk(fallbackText, string.Empty);
+        }
+        catch (JsonException exception)
+        {
+            throw new InvalidDataException("AI 服务返回了损坏的响应数据。", exception);
+        }
+    }
+
+    private static void ThrowIfStreamError(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object)
+            throw new InvalidDataException("AI 服务返回的响应格式无法识别。");
+        if (root.TryGetProperty("error", out var error)
+            && error.ValueKind is not (JsonValueKind.Null or JsonValueKind.Undefined))
+        {
+            var detail = error.ValueKind == JsonValueKind.String
+                ? error.GetString() ?? string.Empty
+                : ReadTextProperty(error, "message", "code", "type");
+            throw new InvalidDataException($"AI 服务返回错误：{Limit(detail, 500)}");
+        }
+        if (ReadTextProperty(root, "type") == "error")
+            throw new InvalidDataException($"AI 服务返回错误：{Limit(ReadTextProperty(root, "message", "code"), 500)}");
+    }
+
+    private static AiStreamChunk? ParseOpenAiResponseBody(JsonElement root)
+    {
+        var text = ReadTextProperty(root, "output_text");
+        var reasoning = string.Empty;
+        var hasCombinedText = text.Length > 0;
+        if (root.TryGetProperty("output", out var output) && output.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in output.EnumerateArray())
+            {
+                var itemType = item.TryGetProperty("type", out var itemTypeValue)
+                    && itemTypeValue.ValueKind == JsonValueKind.String
+                    ? itemTypeValue.GetString() ?? string.Empty
+                    : string.Empty;
+                var itemText = ReadTextProperty(item, "text", "content", "summary");
+                if (itemType.Contains("reasoning", StringComparison.OrdinalIgnoreCase)) reasoning += itemText;
+                else if (!hasCombinedText) text += itemText;
+            }
+        }
+        return text.Length == 0 && reasoning.Length == 0 ? null : new AiStreamChunk(text, reasoning);
+    }
+
+    private static string ReadTextProperty(JsonElement element, params string[] names)
+    {
+        if (element.ValueKind != JsonValueKind.Object) return string.Empty;
+        foreach (var name in names)
+        {
+            if (!element.TryGetProperty(name, out var value)) continue;
+            var text = ReadTextValue(value);
+            if (text.Length > 0) return text;
+        }
+        return string.Empty;
+    }
+
+    private static string ReadTextValue(JsonElement value)
+    {
+        return value.ValueKind switch
+        {
+            JsonValueKind.String => value.GetString() ?? string.Empty,
+            JsonValueKind.Array => string.Concat(value.EnumerateArray().Select(ReadTextValue)),
+            JsonValueKind.Object => ReadTextProperty(value, "text", "delta", "summary", "content"),
+            _ => string.Empty
+        };
+    }
+
+    private async Task<HttpResponseMessage> SendAsync(
+        Uri endpoint,
+        string apiKey,
+        string payload,
+        CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
+        if (!string.IsNullOrWhiteSpace(apiKey))
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey.Trim());
+        request.Headers.UserAgent.ParseAdd("Libzora/1.0");
+        request.Content = new StringContent(payload, Encoding.UTF8, "application/json");
+        return await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+    }
+
+    private static Uri BuildEndpoint(string baseUrl, string operation)
+    {
+        if (!Uri.TryCreate(baseUrl.Trim(), UriKind.Absolute, out var baseUri)
+            || baseUri.Scheme is not ("http" or "https"))
+            throw new InvalidOperationException("API Base URL 必须是有效的 HTTP 或 HTTPS 地址。");
+        var trimmed = baseUrl.Trim().TrimEnd('/');
+        if (trimmed.EndsWith('/' + operation, StringComparison.OrdinalIgnoreCase)) return new Uri(trimmed);
+        return new Uri($"{trimmed}/{operation}");
+    }
+
+    private static void EnsureSuccess(HttpResponseMessage response, string body)
+    {
+        if (response.IsSuccessStatusCode) return;
+        var message = string.Empty;
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            if (document.RootElement.TryGetProperty("error", out var error))
+            {
+                if (error.ValueKind == JsonValueKind.String) message = error.GetString() ?? string.Empty;
+                else if (error.TryGetProperty("message", out var detail)) message = detail.GetString() ?? string.Empty;
+            }
+        }
+        catch (JsonException) { }
+        if (string.IsNullOrWhiteSpace(message)) message = Limit(body, 500);
+        throw new HttpRequestException($"AI 请求失败（{(int)response.StatusCode}）：{message}");
+    }
+
+    private static string Limit(string value, int maximum) =>
+        value.Length <= maximum ? value : value[..maximum] + "…";
+
+    public void Dispose() => _httpClient.Dispose();
+}

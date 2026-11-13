@@ -39,7 +39,7 @@
   }
 
   try {
-    const books = await window.kkindle.library.getBooks();
+    const books = await window.libzora.library.getBooks();
     if (!books.length) {
       const empty = document.createElement('p');
       empty.className = 'empty';
@@ -47,7 +47,7 @@
       list.appendChild(empty);
       return;
     }
-    window.kkindle.ui.setTitle(books.length === 1 ? books[0].title : `书籍信息（${books.length} 本）`);
+    window.libzora.ui.setTitle(books.length === 1 ? books[0].title : `书籍信息（${books.length} 本）`);
     books.forEach(book => list.appendChild(renderBook(book)));
   } catch (error) {
     const failure = document.createElement('p');

@@ -1,6 +1,6 @@
 (function () {
   'use strict';
-  const kk = window.kkindle;
+  const kk = window.libzora;
   const zh = !(kk.context.language || 'zh-CN').toLowerCase().startsWith('en');
   const text = zh ? {
     lead: '整本书会按段落翻译，完成后自动把生成的文件加入书库。翻译进度保存在本机，中断后可继续。',

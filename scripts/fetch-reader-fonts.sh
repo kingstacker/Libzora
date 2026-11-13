@@ -10,7 +10,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-DEST="$ROOT/src/Kkindle.App/Assets/Fonts/catalog"
+DEST="$ROOT/src/Libzora.App/Assets/Fonts/catalog"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$DEST/licenses"

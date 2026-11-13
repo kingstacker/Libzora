@@ -2,7 +2,7 @@
 
 客户端根许可证为 GPL v3，第三方代码、字体及原生库保留各自的许可。
 发布声明入口是根目录 `THIRD-PARTY-NOTICES.md`，原始文档、来源 URL 和
-SHA-256 位于 `src/Kkindle.Infrastructure/ThirdParty/Notices/manifest.json`。
+SHA-256 位于 `src/Libzora.Infrastructure/ThirdParty/Notices/manifest.json`。
 清单合并已恢复的不同平台依赖和缓存中的 SDK 运行时包，不代表某一个安装包
 实际使用了其中全部依赖。
 
@@ -64,7 +64,7 @@ Windows、macOS、Linux 和 MCP 项目的 `Publish` 会自动运行离线检查�
 ```bash
 dotnet run --file scripts/verify-third-party.cs -- \
   --repository . \
-  --assets src/Kkindle.Desktop.MacOS/obj/project.assets.json \
+  --assets src/Libzora.Desktop.MacOS/obj/project.assets.json \
   --publish /path/to/publish --configuration Debug
 ```
 
@@ -73,10 +73,10 @@ Android 和 iOS 使用显式 `AndroidAsset` / `BundleResource`，编译前自动
 保证许可文本进入 APK 或 iOS 应用包。可以单独执行资源检查，无需构建应用：
 
 ```bash
-dotnet msbuild src/Kkindle.Mobile.Android/Kkindle.Mobile.Android.csproj \
-  -t:VerifyKkindleMobileLicenseResources -p:Configuration=Debug -p:RuntimeIdentifier=android-x64
-dotnet msbuild src/Kkindle.Mobile.iOS/Kkindle.Mobile.iOS.csproj \
-  -t:VerifyKkindleMobileLicenseResources -p:Configuration=Debug -p:RuntimeIdentifier=iossimulator-x64
+dotnet msbuild src/Libzora.Mobile.Android/Libzora.Mobile.Android.csproj \
+  -t:VerifyLibzoraMobileLicenseResources -p:Configuration=Debug -p:RuntimeIdentifier=android-x64
+dotnet msbuild src/Libzora.Mobile.iOS/Libzora.Mobile.iOS.csproj \
+  -t:VerifyLibzoraMobileLicenseResources -p:Configuration=Debug -p:RuntimeIdentifier=iossimulator-x64
 ```
 
 检查最终 APK 时，使用生成的资源映射文件并指定归档：
@@ -84,8 +84,8 @@ dotnet msbuild src/Kkindle.Mobile.iOS/Kkindle.Mobile.iOS.csproj \
 ```bash
 dotnet run --file scripts/verify-third-party.cs -- \
   --repository . \
-  --assets src/Kkindle.Mobile.Android/obj/project.assets.json \
-  --resources src/Kkindle.Mobile.Android/obj/Debug/net10.0-android36.0/android-x64/third-party-resources.map \
+  --assets src/Libzora.Mobile.Android/obj/project.assets.json \
+  --resources src/Libzora.Mobile.Android/obj/Debug/net10.0-android36.0/android-x64/third-party-resources.map \
   --archive /path/to/application.apk --archive-prefix assets/
 ```
 

@@ -4,26 +4,26 @@ The mobile head is a separate solution so the desktop release pipeline keeps
 building and testing without the mobile workloads installed.
 
 ```
-Kkindle.sln                 desktop only: Core / Infrastructure / Application / App / Desktop heads
-Kkindle.Mobile.sln          mobile: Kkindle.Mobile + Kkindle.Mobile.Android + Kkindle.Mobile.iOS + Kkindle.Mobile.Desktop
+Libzora.sln                 desktop only: Core / Infrastructure / Application / App / Desktop heads
+Libzora.Mobile.sln          mobile: Libzora.Mobile + Libzora.Mobile.Android + Libzora.Mobile.iOS + Libzora.Mobile.Desktop
 ```
 
 ## Projects
 
 | Project | TFM | Purpose |
 | --- | --- | --- |
-| `src/Kkindle.Mobile` | `net10.0` | Platform-neutral single-view shell, pages and mobile styles. No Android/iOS APIs. |
-| `src/Kkindle.Mobile.Android` | `net10.0-android36.0` | Android head: `AvaloniaMainActivity`, private data root, secret storage, document-provider import. |
-| `src/Kkindle.Mobile.iOS` | `net10.0-ios` | iOS head: `AvaloniaAppDelegate`, sandbox data root, secret storage, document picker. |
-| `src/Kkindle.Mobile.Desktop` | `net10.0` | Dev-only preview harness that shows the phone shell in an 411x880 window. |
+| `src/Libzora.Mobile` | `net10.0` | Platform-neutral single-view shell, pages and mobile styles. No Android/iOS APIs. |
+| `src/Libzora.Mobile.Android` | `net10.0-android36.0` | Android head: `AvaloniaMainActivity`, private data root, secret storage, document-provider import. |
+| `src/Libzora.Mobile.iOS` | `net10.0-ios` | iOS head: `AvaloniaAppDelegate`, sandbox data root, secret storage, document picker. |
+| `src/Libzora.Mobile.Desktop` | `net10.0` | Dev-only preview harness that shows the phone shell in an 411x880 window. |
 
-`Kkindle.Mobile` references Core, Application, Infrastructure and Layout, so the
+`Libzora.Mobile` references Core, Application, Infrastructure and Layout, so the
 same library, reader-data and metadata services the desktop shell uses are
 available unchanged.
 
 ## Screens
 
-Captured on the `Kkindle_Pixel` emulator:
+Captured on the `Libzora_Pixel` emulator:
 
 | 书库 | 书籍详情 | 阅读页 |
 | --- | --- | --- |
@@ -59,7 +59,7 @@ small pill or a raised segment. Book covers keep their own color unless 我的 �
 
 ## iOS head
 
-`Kkindle.Mobile.iOS` mirrors the Android head: `Main` publishes `MobileServices`
+`Libzora.Mobile.iOS` mirrors the Android head: `Main` publishes `MobileServices`
 before UIKit starts, `AppDelegate` hosts `MobileApp`, `IOSSecretProtector` keeps
 its key inside the app sandbox, and `IOSFileImportSource` copies documents
 picked through the system picker into the cache. `IOSGlassTabBar` supplies the
@@ -80,12 +80,12 @@ Xcode 27. The head therefore pins `ValidateXcodeVersion=false` and
 `MtouchLink=SdkOnly`, which keeps the app building without iOS 27-only APIs.
 
 ```
-dotnet build src/Kkindle.Mobile.iOS/Kkindle.Mobile.iOS.csproj -c Debug \
+dotnet build src/Libzora.Mobile.iOS/Libzora.Mobile.iOS.csproj -c Debug \
   -f net10.0-ios -p:RuntimeIdentifier=iossimulator-x64
 xcrun simctl boot "iPhone 17 Pro"
 open /Applications/Xcode.app/Contents/Developer/Applications/Simulator.app
-xcrun simctl install booted src/Kkindle.Mobile.iOS/bin/Debug/net10.0-ios/iossimulator-x64/Kkindle.Mobile.iOS.app
-xcrun simctl launch booted com.kingstacker.kkindle
+xcrun simctl install booted src/Libzora.Mobile.iOS/bin/Debug/net10.0-ios/iossimulator-x64/Libzora.Mobile.iOS.app
+xcrun simctl launch booted com.kingstacker.libzora
 ```
 
 iOS reads aloud through `AVSpeechSynthesizer` (rendered to WAV like the Android
@@ -189,7 +189,7 @@ The reader hides its listening button when a host has no TTS engine and player.
 
 ## Library backup and restore
 
-In 我的, export a `.kkindle` backup through the system save or share interface,
+In 我的, export a `.libzora` backup through the system save or share interface,
 then keep the file somewhere outside the app. While a backup runs, the shell
 covers the app with a blocker that follows `AppBackupProgress`: a progress bar
 and the current step, so a large library does not look stuck. Restore selects one backup, asks
@@ -221,16 +221,16 @@ Sync can be disabled when required credentials or the encryption key are absent.
 ## Running the desktop preview
 
 ```
-dotnet build src/Kkindle.Mobile.Desktop/Kkindle.Mobile.Desktop.csproj
-src/Kkindle.Mobile.Desktop/bin/Debug/net10.0/Kkindle.Mobile.Desktop.exe
+dotnet build src/Libzora.Mobile.Desktop/Libzora.Mobile.Desktop.csproj
+src/Libzora.Mobile.Desktop/bin/Debug/net10.0/Libzora.Mobile.Desktop.exe
 ```
 
 Preview data (library database, covers, keys) lives in
-`%LOCALAPPDATA%\Kkindle\mobile-preview` so it never touches the desktop
+`%LOCALAPPDATA%\Libzora\mobile-preview` so it never touches the desktop
 library. To review the screens with real books, seed it from the command line:
 
 ```
-src/Kkindle.Mobile.Desktop/bin/Debug/net10.0/Kkindle.Mobile.Desktop.exe --seed <book1> [<book2> ...]
+src/Libzora.Mobile.Desktop/bin/Debug/net10.0/Libzora.Mobile.Desktop.exe --seed <book1> [<book2> ...]
 ```
 
 `--sync <endpoint> <bucket> <accessKey> <secretKey>` makes the preview act as a
@@ -241,7 +241,7 @@ preview, so MOBI/AZW3 imports will report a failure there.
 To review a design change, walk every screen in light and dark and save PNGs:
 
 ```
-src/Kkindle.Mobile.Desktop/bin/Debug/net10.0/Kkindle.Mobile.Desktop.exe --shots <directory>
+src/Libzora.Mobile.Desktop/bin/Debug/net10.0/Libzora.Mobile.Desktop.exe --shots <directory>
 ```
 
 The walk also writes `gestures.txt`, a pass/fail log of reader taps and swipes
@@ -250,13 +250,13 @@ toggles a bookmark, so it changes the preview library's reading data.
 
 ## Building for Android
 
-The Android head is not part of `Kkindle.sln`; build it from `Kkindle.Mobile.sln`
+The Android head is not part of `Libzora.sln`; build it from `Libzora.Mobile.sln`
 (Visual Studio) or directly:
 
 ```
 dotnet workload install android          # needs an elevated shell, once
-dotnet build src/Kkindle.Mobile.Android/Kkindle.Mobile.Android.csproj -f net10.0-android36.0
-dotnet publish src/Kkindle.Mobile.Android/Kkindle.Mobile.Android.csproj -f net10.0-android36.0 -c Release
+dotnet build src/Libzora.Mobile.Android/Libzora.Mobile.Android.csproj -f net10.0-android36.0
+dotnet publish src/Libzora.Mobile.Android/Libzora.Mobile.Android.csproj -f net10.0-android36.0 -c Release
 ```
 
 Release builds are fully AOT compiled: cold start on the emulator dropped from
@@ -281,7 +281,7 @@ Prerequisites the head assumes:
 
 ## Verification checklist
 
-Verified on the `Kkindle_Pixel` emulator (Android 15, x86_64, Release build):
+Verified on the `Libzora_Pixel` emulator (Android 15, x86_64, Release build):
 
 - install over an existing library, launch, adaptive icon and splash screen
 - `ACTION_OPEN_DOCUMENT` multi-select import of real EPUB and PDF files

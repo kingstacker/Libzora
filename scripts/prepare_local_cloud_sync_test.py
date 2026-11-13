@@ -48,7 +48,7 @@ class LocalClient:
             urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()), LocalRedirect(self.origin))
 
     def request(self, method, suffix, body=None, bearer=None):
-        headers = {"X-Kkindle-Region": self.region}
+        headers = {"X-Libzora-Region": self.region}
         if bearer:
             headers["Authorization"] = "Bearer " + bearer
         encoded = None if body is None else json.dumps(body).encode()
@@ -91,7 +91,7 @@ def save_private(path, manifest):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--server-config", type=Path,
-        default=Path.home() / "Desktop/Kkindle_server/.local/local-config.json")
+        default=Path.home() / "Desktop/Libzora_server/.local/local-config.json")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     if args.output.exists():

@@ -1,0 +1,162 @@
+using System.Text;
+using Libzora.Core;
+
+namespace Libzora.Infrastructure;
+
+public static class ReadingMaterialsExport
+{
+    public static async Task WriteMarkdownAsync(
+        Stream destination,
+        IReadOnlyList<ReadingMaterialRecord> records,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+        ArgumentNullException.ThrowIfNull(records);
+        await using var writer = new StreamWriter(
+            destination,
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+            16 * 1024,
+            leaveOpen: true);
+        await WriteLineAsync(writer, "# Libzora " + UiText.Get("阅读资料"), cancellationToken);
+        await WriteLineAsync(writer, string.Empty, cancellationToken);
+        foreach (var sourceGroup in records.GroupBy(item => (item.Source, item.SourceDeviceId, item.SourceDeviceName)))
+        foreach (var bookGroup in sourceGroup.GroupBy(item => item.BookTitle, StringComparer.CurrentCultureIgnoreCase))
+        {
+            var source = sourceGroup.First().SourceLabel;
+            await WriteLineAsync(writer, $"## {source} · {bookGroup.Key}", cancellationToken);
+            await WriteLineAsync(writer, string.Empty, cancellationToken);
+            foreach (var item in bookGroup)
+            {
+                await WriteLineAsync(writer, $"### {item.Type}", cancellationToken);
+                if (!string.IsNullOrWhiteSpace(item.Quote))
+                    await WriteLineAsync(writer, "> " + item.Quote.ReplaceLineEndings("\n> "), cancellationToken);
+                if (!string.IsNullOrWhiteSpace(item.Note))
+                {
+                    await WriteLineAsync(writer, string.Empty, cancellationToken);
+                    await WriteLineAsync(writer, IsReflection(item)
+                        ? item.Note.ReplaceLineEndings("\n")
+                        : UiText.Get("笔记：") + item.Note, cancellationToken);
+                }
+                if (!string.IsNullOrWhiteSpace(item.Location))
+                {
+                    await WriteLineAsync(writer, string.Empty, cancellationToken);
+                    await WriteLineAsync(writer, UiText.Get("位置：") + item.Location, cancellationToken);
+                }
+                if (item.UpdatedAt is { } time)
+                    await WriteLineAsync(writer, UiText.Get("时间：") + time.ToLocalTime().ToString("yyyy-MM-dd HH:mm"), cancellationToken);
+                await WriteLineAsync(writer, string.Empty, cancellationToken);
+            }
+        }
+        if (records.Count == 0)
+            await WriteLineAsync(writer, UiText.Get("暂无划线与笔记。"), cancellationToken);
+        await writer.FlushAsync(cancellationToken);
+    }
+
+    public static async Task WritePlainTextAsync(
+        Stream destination,
+        IReadOnlyList<ReadingMaterialRecord> records,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+        ArgumentNullException.ThrowIfNull(records);
+        await using var writer = new StreamWriter(
+            destination,
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+            16 * 1024,
+            leaveOpen: true);
+        await WriteLineAsync(writer, "Libzora " + UiText.Get("阅读资料"), cancellationToken);
+        await WriteLineAsync(writer, "================", cancellationToken);
+        await WriteLineAsync(writer, string.Empty, cancellationToken);
+        foreach (var sourceGroup in records.GroupBy(item => (item.Source, item.SourceDeviceId, item.SourceDeviceName)))
+        foreach (var bookGroup in sourceGroup.GroupBy(item => item.BookTitle, StringComparer.CurrentCultureIgnoreCase))
+        {
+            var source = sourceGroup.First().SourceLabel;
+            await WriteLineAsync(writer, $"[{source}] {bookGroup.Key}", cancellationToken);
+            foreach (var item in bookGroup)
+            {
+                var header = $"- {item.Type}" + (string.IsNullOrWhiteSpace(item.Location) ? string.Empty : $" · {item.Location}");
+                await WriteLineAsync(writer, header, cancellationToken);
+                if (!string.IsNullOrWhiteSpace(item.Quote)) await WriteLineAsync(writer, item.Quote, cancellationToken);
+                if (!string.IsNullOrWhiteSpace(item.Note)) await WriteLineAsync(writer,
+                    IsReflection(item) ? UiText.Get("思考：") + item.Note : UiText.Get("笔记：") + item.Note,
+                    cancellationToken);
+                if (item.UpdatedAt is { } time)
+                    await WriteLineAsync(writer, UiText.Get("时间：") + time.ToLocalTime().ToString("yyyy-MM-dd HH:mm"), cancellationToken);
+                await WriteLineAsync(writer, string.Empty, cancellationToken);
+            }
+        }
+        if (records.Count == 0)
+            await WriteLineAsync(writer, UiText.Get("暂无划线与笔记。"), cancellationToken);
+        await writer.FlushAsync(cancellationToken);
+    }
+
+    private static async Task WriteLineAsync(
+        StreamWriter writer,
+        string value,
+        CancellationToken cancellationToken)
+    {
+        await writer.WriteAsync(value.AsMemory(), cancellationToken);
+        await writer.WriteAsync("\n".AsMemory(), cancellationToken);
+    }
+
+    public static string BuildMarkdown(IReadOnlyList<ReadingMaterialRecord> records)
+    {
+        var builder = new StringBuilder("# Libzora " + UiText.Get("阅读资料") + "\n\n");
+        AppendGroups(records, (source, book, items) =>
+        {
+            builder.Append("## ").Append(source).Append(" · ").AppendLine(book).AppendLine();
+            foreach (var item in items)
+            {
+                builder.Append("### ").AppendLine(item.Type);
+                if (!string.IsNullOrWhiteSpace(item.Quote)) builder.Append("> ").AppendLine(item.Quote.ReplaceLineEndings("\n> "));
+                if (!string.IsNullOrWhiteSpace(item.Note))
+                {
+                    builder.AppendLine();
+                    if (IsReflection(item)) builder.AppendLine(item.Note.ReplaceLineEndings("\n"));
+                    else builder.Append(UiText.Get("笔记：")).AppendLine(item.Note);
+                }
+                if (!string.IsNullOrWhiteSpace(item.Location)) builder.AppendLine().Append(UiText.Get("位置：")).AppendLine(item.Location);
+                if (item.UpdatedAt is { } time) builder.Append(UiText.Get("时间：")).AppendLine(time.ToLocalTime().ToString("yyyy-MM-dd HH:mm"));
+                builder.AppendLine();
+            }
+        });
+        if (records.Count == 0) builder.AppendLine(UiText.Get("暂无划线与笔记。"));
+        return builder.ToString().ReplaceLineEndings("\n");
+    }
+
+    public static string BuildPlainText(IReadOnlyList<ReadingMaterialRecord> records)
+    {
+        var builder = new StringBuilder("Libzora " + UiText.Get("阅读资料") + "\r\n================\r\n\r\n");
+        AppendGroups(records, (source, book, items) =>
+        {
+            builder.Append('[').Append(source).Append("] ").AppendLine(book);
+            foreach (var item in items)
+            {
+                builder.Append("- ").Append(item.Type);
+                if (!string.IsNullOrWhiteSpace(item.Location)) builder.Append(" · ").Append(item.Location);
+                builder.AppendLine();
+                if (!string.IsNullOrWhiteSpace(item.Quote)) builder.AppendLine(item.Quote);
+                if (!string.IsNullOrWhiteSpace(item.Note))
+                    builder.Append(UiText.Get(IsReflection(item) ? "思考：" : "笔记：")).AppendLine(item.Note);
+                if (item.UpdatedAt is { } time) builder.Append(UiText.Get("时间：")).AppendLine(time.ToLocalTime().ToString("yyyy-MM-dd HH:mm"));
+                builder.AppendLine();
+            }
+        });
+        if (records.Count == 0) builder.AppendLine(UiText.Get("暂无划线与笔记。"));
+        return builder.ToString();
+    }
+
+    private static void AppendGroups(
+        IReadOnlyList<ReadingMaterialRecord> records,
+        Action<string, string, IReadOnlyList<ReadingMaterialRecord>> append)
+    {
+        foreach (var sourceGroup in records.GroupBy(item => (item.Source, item.SourceDeviceId, item.SourceDeviceName)))
+        foreach (var bookGroup in sourceGroup.GroupBy(item => item.BookTitle, StringComparer.CurrentCultureIgnoreCase))
+            append(sourceGroup.First().SourceLabel, bookGroup.Key, bookGroup.ToArray());
+    }
+
+    private static bool IsReflection(ReadingMaterialRecord item) =>
+        string.Equals(item.Type, UiText.Get("读后思考"), StringComparison.OrdinalIgnoreCase)
+        || string.Equals(item.Type, "读后思考", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(item.Type, "Reading reflection", StringComparison.OrdinalIgnoreCase);
+}

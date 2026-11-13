@@ -28,7 +28,7 @@ require_repo_dotnet_sdk() {
   fi
 
   if [[ "$actual_sdk" != "$required_sdk" ]]; then
-    echo "Kkindle uses one .NET SDK version: $required_sdk from global.json; found $actual_sdk." >&2
+    echo "Libzora uses one .NET SDK version: $required_sdk from global.json; found $actual_sdk." >&2
     return 2
   fi
 }

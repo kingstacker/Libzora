@@ -1,7 +1,7 @@
 # iOS 原生前端
 
 从 2026-11-07 起，iOS 项目默认使用 **Swift + SwiftUI** 界面。
-`UseSwiftUIFrontend=true` 由 `Kkindle.Mobile.iOS.csproj` 设置。
+`UseSwiftUIFrontend=true` 由 `Libzora.Mobile.iOS.csproj` 设置。
 Android 继续使用共享的 Avalonia 界面。
 
 ## 界面与业务的分工
@@ -66,8 +66,8 @@ iOS 26 起筛选卡片和按钮使用系统玻璃材质，导航按钮使用系�
 不强制把原页首另起一页，也不因段落必须保留两行而提前换页；手机端按剩余行数续排。
 竖排点击左侧前进、右侧返回，右滑前进、左滑返回，翻页动画方向同步反转。
 
-iOS 主图标与 macOS 共用 `scripts/macos/Kkindle.icon` 的 Icon Composer 图层，
-由 ACTool 生成 `Kkindle` 图标栈及浅色、深色、着色外观。iOS 26 使用分层液态玻璃图标，
+iOS 主图标与 macOS 共用 `scripts/macos/Libzora.icon` 的 Icon Composer 图层，
+由 ACTool 生成 `Libzora` 图标栈及浅色、深色、着色外观。iOS 26 使用分层液态玻璃图标，
 旧系统使用同源生成的平面回退图标。各平台“关于”均已移除咖啡支持入口及二维码弹层。
 
 C# 的 `ApplicationModules` 继续负责书库、SQLite、阅读记录、同步、AI、词典、
@@ -145,7 +145,7 @@ Plus 账号打开“同步”时默认显示账号云同步；用户在同步页
 楷体等，只保留包含常用简体汉字的字面）和可下载字体（思源宋体、霞鹜文楷、
 朱雀仿宋、思源黑体，均为 SIL OFL 1.1）。系统字体的字节由
 `SKTypeface.OpenStream()` 在内存中交给 HarfBuzz，不读取系统字体目录。下载目录
-定义在 `ReaderFontCatalog`：Debug 构建把 `src/Kkindle.App/Assets/Fonts/catalog`
+定义在 `ReaderFontCatalog`：Debug 构建把 `src/Libzora.App/Assets/Fonts/catalog`
 打进应用包，Release 从 `RemoteBaseUrl` 下载并在安装前校验大小和 SHA-256。
 偏好只保存稳定键（`system:<Family>` 或 `catalog:<id>`）；iOS 更新会改变应用容器
 路径，所以绝对路径只存在于内存注册表，每次启动由 `FontLibraryService` 从清单重建。
@@ -165,7 +165,7 @@ MSBuild 自动调用 `NativeUI/build-native-ui.sh`，按目标架构编译并链
 Intel 模拟器 Debug：
 
 ```bash
-dotnet build src/Kkindle.Mobile.iOS/Kkindle.Mobile.iOS.csproj \
+dotnet build src/Libzora.Mobile.iOS/Libzora.Mobile.iOS.csproj \
   -c Debug -r iossimulator-x64 -p:UseSharedCompilation=false
 ```
 
@@ -174,7 +174,7 @@ Apple Silicon 将 RID 改成 `iossimulator-arm64`。
 模拟器产物：
 
 ```text
-src/Kkindle.Mobile.iOS/bin/Debug/net10.0-ios/iossimulator-x64/Kkindle.Mobile.iOS.app
+src/Libzora.Mobile.iOS/bin/Debug/net10.0-ios/iossimulator-x64/Libzora.Mobile.iOS.app
 ```
 
 真机使用 `ios-arm64`，签名、安装和启动见 [ios-development.md](ios-development.md)。
@@ -183,19 +183,19 @@ src/Kkindle.Mobile.iOS/bin/Debug/net10.0-ios/iossimulator-x64/Kkindle.Mobile.iOS
 必要时可以显式构建原有界面：
 
 ```bash
-dotnet build src/Kkindle.Mobile.iOS/Kkindle.Mobile.iOS.csproj \
+dotnet build src/Libzora.Mobile.iOS/Libzora.Mobile.iOS.csproj \
   -c Debug -r iossimulator-x64 -p:UseSwiftUIFrontend=false -p:Registrar=static \
   -p:IntermediateOutputPath=obj/Debug/ios-legacy-verify/ \
   -p:OutputPath=bin/Debug/ios-legacy-verify/
 ```
 
 这个开关用于兼容性排查。旧前端产物位于
-`src/Kkindle.Mobile.iOS/bin/Debug/ios-legacy-verify/Kkindle.Mobile.iOS.app`。
+`src/Libzora.Mobile.iOS/bin/Debug/ios-legacy-verify/Libzora.Mobile.iOS.app`。
 使用独立中间目录和输出目录，避免两个前端混用 Registrar 和构建缓存。
 
-同一构建还会生成并嵌入 `KkindleWidgets.appex`，提供继续阅读、今日阅读、
+同一构建还会生成并嵌入 `LibzoraWidgets.appex`，提供继续阅读、今日阅读、
 书架、阅读数据和最近摘录五个桌面小组件。数据通过 App Group
-`group.com.kingstacker.kkindle` 共享，真机签名要求主应用和扩展的 profile
+`group.com.kingstacker.libzora` 共享，真机签名要求主应用和扩展的 profile
 都包含该组。关闭小组件可加 `-p:EnableWidgets=false`。完整说明见
 [widgets.md](widgets.md)。
 
@@ -205,11 +205,11 @@ dotnet build src/Kkindle.Mobile.iOS/Kkindle.Mobile.iOS.csproj \
 不显示 Avalonia 控件、不覆盖已有进度的检查：
 
 ```bash
-dotnet test tests/Kkindle.Mobile.Tests/Kkindle.Mobile.Tests.csproj -c Debug
+dotnet test tests/Libzora.Mobile.Tests/Libzora.Mobile.Tests.csproj -c Debug
 ```
 
-实际触摸测试位于 `tests/Kkindle.Mobile.iOS.UITests`。测试启动独立的
-`com.kingstacker.kkindle.nativepreview`，使用真实 App 二进制和单独的数据容器。
+实际触摸测试位于 `tests/Libzora.Mobile.iOS.UITests`。测试启动独立的
+`com.kingstacker.libzora.nativepreview`，使用真实 App 二进制和单独的数据容器。
 准备脚本只复制数据库、书籍、封面和字体，排除连接设置、密钥和真实界面偏好。
 它会在副本中把一本 EPUB/PDF 标记为 `Native UI EPUB` / `Native UI PDF`，
 并重置已有 preview 容器中的测试数据。不要在源 App 正在写数据库时复制数据；
@@ -217,14 +217,14 @@ dotnet test tests/Kkindle.Mobile.Tests/Kkindle.Mobile.Tests.csproj -c Debug
 
 ```bash
 SIMULATOR_ID="<booted simulator UUID>"
-APP="src/Kkindle.Mobile.iOS/bin/Debug/net10.0-ios/iossimulator-x64/Kkindle.Mobile.iOS.app"
-SEED="<local snapshot>/Kkindle"
+APP="src/Libzora.Mobile.iOS/bin/Debug/net10.0-ios/iossimulator-x64/Libzora.Mobile.iOS.app"
+SEED="<local snapshot>/Libzora"
 
-python3 tests/Kkindle.Mobile.iOS.UITests/prepare-preview.py \
+python3 tests/Libzora.Mobile.iOS.UITests/prepare-preview.py \
   --app "$APP" --simulator "$SIMULATOR_ID" --seed "$SEED"
 
-python3 tests/Kkindle.Mobile.iOS.UITests/run-tests.py \
-  --simulator "$SIMULATOR_ID" --results /tmp/kkindle-native-uitest-results
+python3 tests/Libzora.Mobile.iOS.UITests/run-tests.py \
+  --simulator "$SIMULATOR_ID" --results /tmp/libzora-native-uitest-results
 ```
 
 `--results` 必须使用尚不存在的路径。运行器使用独立构建目录并对测试宿主做 ad-hoc 签名，
@@ -247,35 +247,35 @@ python3 tests/Kkindle.Mobile.iOS.UITests/run-tests.py \
 一张照片（可先执行 `xcrun simctl addmedia <模拟器ID> <图片>`），默认套件跳过：
 
 ```bash
-python3 tests/Kkindle.Mobile.iOS.UITests/run-tests.py --simulator <模拟器ID> \
+python3 tests/Libzora.Mobile.iOS.UITests/run-tests.py --simulator <模拟器ID> \
   --results <新的结果目录> --only testFeedbackSubmissionUsesTheSignedInAccount
 ```
 
 用例注册一次性账号，选择“功能建议”、填写描述、通过系统照片选择器添加一张截图，
 确认收到反馈编号，并在结束后退出登录；未登录时反馈页显示登录门槛。
 
-覆盖升级验证使用第二个独立 Bundle `com.kingstacker.kkindle.nativeupgradepreview`。
+覆盖升级验证使用第二个独立 Bundle `com.kingstacker.libzora.nativeupgradepreview`。
 先用 `--upgrade-preview` 安装并启动旧前端，再用相同参数加 `--preserve-data`
 覆盖安装原生前端。脚本为该容器写入人工偏好（浅色、米色纸、125% 字号和首行缩进），
 升级测试检查已有 EPUB 与这些设置是否保留：
 
 ```bash
-python3 tests/Kkindle.Mobile.iOS.UITests/run-tests.py \
-  --simulator "$SIMULATOR_ID" --results /tmp/kkindle-native-upgrade-results \
+python3 tests/Libzora.Mobile.iOS.UITests/run-tests.py \
+  --simulator "$SIMULATOR_ID" --results /tmp/libzora-native-upgrade-results \
   --only testLegacyUpgradePreservesLibraryAndPreferences
 ```
 
 常规运行器运行十四项交互用例，覆盖升级用例需要完成上述安装顺序后单独执行。
 
-验证结束后，模拟器只保留最新的 `com.kingstacker.kkindle`，显示名为 `kkindle`。
+验证结束后，模拟器只保留最新的 `com.kingstacker.libzora`，显示名为 `Libzora`。
 先用最终构建覆盖安装该 Bundle，保留原书库和设置，然后清理测试副本和宿主：
 
 ```bash
 xcrun simctl install "$SIMULATOR_ID" "$APP"
-xcrun simctl uninstall "$SIMULATOR_ID" com.kingstacker.kkindle.nativepreview
-xcrun simctl uninstall "$SIMULATOR_ID" com.kingstacker.kkindle.nativeupgradepreview
-xcrun simctl uninstall "$SIMULATOR_ID" com.kingstacker.kkindle.nativefrontenduitests.xctrunner
-xcrun simctl uninstall "$SIMULATOR_ID" com.kingstacker.kkindle.uitests.xctrunner
+xcrun simctl uninstall "$SIMULATOR_ID" com.kingstacker.libzora.nativepreview
+xcrun simctl uninstall "$SIMULATOR_ID" com.kingstacker.libzora.nativeupgradepreview
+xcrun simctl uninstall "$SIMULATOR_ID" com.kingstacker.libzora.nativefrontenduitests.xctrunner
+xcrun simctl uninstall "$SIMULATOR_ID" com.kingstacker.libzora.uitests.xctrunner
 ```
 
 这些卸载命令仅用于对应的测试 Bundle 已安装时；正式 Bundle 通过覆盖安装更新。
@@ -293,13 +293,13 @@ EPUB 用例验证开关滚动后可点击，纸张、字号、缩进和方向在
 阅读设置滚动、正文触摸/翻页、PDF 显示设置、标签页导航和系统确认框共八项用例同轮通过。
 共享移动端测试重新通过 15 项；横排/竖排排版和设置归一化测试通过 88 项，包含
 段间距不改变段内行距/文字偏移、增大间距重新分页且不丢失文字的检查。
-最终 `Assets.car` 已检查包含浅色、深色、着色的三个 `Kkindle` 图标栈及 Page/Spine 图层，
+最终 `Assets.car` 已检查包含浅色、深色、着色的三个 `Libzora` 图标栈及 Page/Spine 图层，
 并包含旧系统需要的图标 PNG。iOS 模拟器和 macOS Debug 构建通过，
 `ios-arm64` 的 Swift 模块交叉编译通过；后者不等于完整真机安装验证。
 旧版到原生版的保数据覆盖升级已在独立模拟器容器中通过：启动日志确认恢复了旧场景会话，
 UI 测试确认旧书库、浅色外观、米色纸、125% 字号和首行缩进保留。
 2026-11-08 已完成 `ios-arm64` Debug 完整签名构建，并覆盖安装到 iPhone 16（iOS 27.2）。
-正式 Bundle 为 `com.kingstacker.kkindle`，显示名为 `kkindle`。覆盖安装前已备份应用数据，
+正式 Bundle 为 `com.kingstacker.libzora`，显示名为 `Libzora`。覆盖安装前已备份应用数据，
 安装后、首次启动前的 317 个数据文件与备份逐文件 SHA-256 一致，共 70,742,621 字节，
 原有书库、收藏夹、阅读进度、批注、书签和设置保留。普通启动成功，设备进程检查确认
 新安装路径中的应用持续运行。本机验证记录位于 `artifacts/ios-device-review-20261108/`。

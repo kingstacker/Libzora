@@ -17,7 +17,7 @@ jobs:
         include:
           - name: Linux
             os: ubuntu-24.04
-            head: src/Kkindle.Desktop.Linux/Kkindle.Desktop.Linux.csproj
+            head: src/Libzora.Desktop.Linux/Libzora.Desktop.Linux.csproj
             package_command: bash scripts/build-linux-release.sh 0.0.0 artifacts/validation linux-x64
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
@@ -30,12 +30,12 @@ jobs:
       - name: Build platform head
         run: dotnet build ${{ matrix.head }} -c Release
       - name: Run quick portable tests
-        run: dotnet test tests/Kkindle.Tests/Kkindle.Tests.csproj -c Release
+        run: dotnet test tests/Libzora.Tests/Libzora.Tests.csproj -c Release
       - name: Run quick platform-common tests
-        run: dotnet test tests/Kkindle.Platform.Common.Tests/Kkindle.Platform.Common.Tests.csproj -c Release
+        run: dotnet test tests/Libzora.Platform.Common.Tests/Libzora.Platform.Common.Tests.csproj -c Release
       - name: Run quick UI smoke tests
         run: >-
-          dotnet test tests/Kkindle.App.Tests/Kkindle.App.Tests.csproj -c Release
+          dotnet test tests/Libzora.App.Tests/Libzora.App.Tests.csproj -c Release
           --logger "console;verbosity=normal" --logger trx
           --blame --results-directory artifacts/test-results/ui
       - name: Upload UI test diagnostics
@@ -54,19 +54,19 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y ./artifacts/validation/kkindle_0.0.0_amd64.deb xvfb
+          sudo apt-get install -y ./artifacts/validation/libzora_0.0.0_amd64.deb xvfb
           set +e
-          xvfb-run -a timeout --signal=TERM --kill-after=5s 20s /usr/bin/kkindle \
-            > "$RUNNER_TEMP/kkindle-linux.log" 2>&1
+          xvfb-run -a timeout --signal=TERM --kill-after=5s 20s /usr/bin/libzora \
+            > "$RUNNER_TEMP/libzora-linux.log" 2>&1
           status=$?
           set -e
           if [[ "$status" != 124 ]]; then
-            cat "$RUNNER_TEMP/kkindle-linux.log"
-            echo "Kkindle exited before the Linux smoke-test timeout (status $status)." >&2
+            cat "$RUNNER_TEMP/libzora-linux.log"
+            echo "Libzora exited before the Linux smoke-test timeout (status $status)." >&2
             exit 1
           fi
       - name: Inspect Linux package metadata
         if: runner.os == 'Linux'
         run: |
-          dpkg-deb --info artifacts/validation/kkindle_0.0.0_amd64.deb
-          dpkg-deb --contents artifacts/validation/kkindle_0.0.0_amd64.deb | grep 'usr/bin/kkindle'
+          dpkg-deb --info artifacts/validation/libzora_0.0.0_amd64.deb
+          dpkg-deb --contents artifacts/validation/libzora_0.0.0_amd64.deb | grep 'usr/bin/libzora'

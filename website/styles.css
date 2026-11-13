@@ -1,5 +1,5 @@
 /* ==========================================================================
-   Kkindle — minimal monochrome landing page
+   Libzora — minimal monochrome landing page
    1 tokens · 2 base · 3 layout · 4 header · 5 hero · 6 features
    6b membership · 7 about · 8 downloads · 9 faq · 10 footer · 11 responsive
    ========================================================================== */
@@ -183,7 +183,7 @@ a {
   text-transform: uppercase;
 }
 
-/* The product name is always written exactly as "Kkindle". */
+/* The product name is always written exactly as "Libzora". */
 .label.label-brand {
   text-transform: none;
 }

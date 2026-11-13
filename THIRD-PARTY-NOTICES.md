@@ -1,6 +1,6 @@
-# Kkindle third-party notices
+# Libzora third-party notices
 
-Kkindle is distributed under the GNU GPL v3; see LICENSE.
+Libzora is distributed under the GNU GPL v3; see LICENSE.
 Third-party packages, fonts and native components retain their own licenses.
 This offline bundle preserves original license and notice texts, including
 native notices supplied in NuGet packages. The table combines platform dependencies
@@ -23,7 +23,7 @@ replace the font author's original custom license or certify that record as an o
 
 ## Downloadable reader fonts
 
-Kkindle's reading settings can install optional body fonts on demand. Each
+Libzora's reading settings can install optional body fonts on demand. Each
 font is distributed under the SIL Open Font License 1.1, which permits free
 commercial use, requires that the license text travel with the font, and
 reserves the font names for their authors. Debug builds carry the files in
@@ -33,17 +33,17 @@ license texts are bundled at `Assets/Fonts/catalog/licenses/`.
 
 | Font | Upstream | License | Copyright / attribution |
 | --- | --- | --- | --- |
-| 思源宋体 (Noto Serif CJK SC Regular) | [notofonts/noto-cjk](https://github.com/notofonts/noto-cjk) | OFL-1.1 | Adobe and Google; see [OFL-Noto.txt](src/Kkindle.App/Assets/Fonts/catalog/licenses/OFL-Noto.txt) |
-| 思源黑体 (Noto Sans CJK SC Regular) | [notofonts/noto-cjk](https://github.com/notofonts/noto-cjk) | OFL-1.1 | Adobe and Google; see [OFL-Noto.txt](src/Kkindle.App/Assets/Fonts/catalog/licenses/OFL-Noto.txt) |
-| 霞鹜文楷 Lite (LXGW WenKai Lite Regular) | [lxgw/LxgwWenKai-Lite](https://github.com/lxgw/LxgwWenKai-Lite) | OFL-1.1 | LXGW and contributors; see [OFL-LXGWWenKai.txt](src/Kkindle.App/Assets/Fonts/catalog/licenses/OFL-LXGWWenKai.txt) |
-| 朱雀仿宋 (Zhuque Fangsong Regular) | [TrionesType/zhuque](https://github.com/TrionesType/zhuque) | OFL-1.1 | TrionesType; see [OFL-Zhuque.txt](src/Kkindle.App/Assets/Fonts/catalog/licenses/OFL-Zhuque.txt) |
+| 思源宋体 (Noto Serif CJK SC Regular) | [notofonts/noto-cjk](https://github.com/notofonts/noto-cjk) | OFL-1.1 | Adobe and Google; see [OFL-Noto.txt](src/Libzora.App/Assets/Fonts/catalog/licenses/OFL-Noto.txt) |
+| 思源黑体 (Noto Sans CJK SC Regular) | [notofonts/noto-cjk](https://github.com/notofonts/noto-cjk) | OFL-1.1 | Adobe and Google; see [OFL-Noto.txt](src/Libzora.App/Assets/Fonts/catalog/licenses/OFL-Noto.txt) |
+| 霞鹜文楷 Lite (LXGW WenKai Lite Regular) | [lxgw/LxgwWenKai-Lite](https://github.com/lxgw/LxgwWenKai-Lite) | OFL-1.1 | LXGW and contributors; see [OFL-LXGWWenKai.txt](src/Libzora.App/Assets/Fonts/catalog/licenses/OFL-LXGWWenKai.txt) |
+| 朱雀仿宋 (Zhuque Fangsong Regular) | [TrionesType/zhuque](https://github.com/TrionesType/zhuque) | OFL-1.1 | TrionesType; see [OFL-Zhuque.txt](src/Libzora.App/Assets/Fonts/catalog/licenses/OFL-Zhuque.txt) |
 
 These fonts are optional. Users who prefer to keep their app bundle smaller can
 skip installation; the bundled 京华老宋体 remains the default reading font.
 
 ## Downloadable AI model licenses
 
-Kkindle does not bundle these model weights. The application downloads them on
+Libzora does not bundle these model weights. The application downloads them on
 demand from Hugging Face after the user selects a model, and verifies the pinned
 size or SHA-256 before installation. The following upstream licenses and
 attributions apply to those downloaded models:

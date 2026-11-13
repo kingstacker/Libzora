@@ -23,7 +23,7 @@ def fetch_release(repository: str, timeout: float) -> dict:
         f"https://api.github.com/repos/{repository}/releases/latest",
         headers={
             "Accept": "application/vnd.github+json",
-            "User-Agent": "kkindle-website-release-refresh",
+            "User-Agent": "libzora-website-release-refresh",
             **(
                 {"Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}"}
                 if os.environ.get("GITHUB_TOKEN")
@@ -37,7 +37,7 @@ def fetch_release(repository: str, timeout: float) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--repo", default="kingstacker/Kkindle")
+    parser.add_argument("--repo", default="kingstacker/Libzora")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument(
         "--input",

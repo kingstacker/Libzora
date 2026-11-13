@@ -1,4 +1,4 @@
-# Kkindle 汉英测试词典（10 条）
+# Libzora 汉英测试词典（10 条）
 你好=hello；a greeting
 世界=world；the earth or all people
 书=book；a written work

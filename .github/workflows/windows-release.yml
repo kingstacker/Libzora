@@ -64,13 +64,13 @@ jobs:
           }
 
       - name: Restore dependencies
-        run: dotnet restore Kkindle.sln -p:Platform=x64
+        run: dotnet restore Libzora.sln -p:Platform=x64
 
       - name: Run quick release tests
-        run: dotnet test Kkindle.sln -c Release -p:Platform=x64 --no-restore
+        run: dotnet test Libzora.sln -c Release -p:Platform=x64 --no-restore
 
       - name: Build Avalonia Windows head
-        run: dotnet build src/Kkindle.Desktop.Windows/Kkindle.Desktop.Windows.csproj -c Release -p:Platform=x64 --no-restore
+        run: dotnet build src/Libzora.Desktop.Windows/Libzora.Desktop.Windows.csproj -c Release -p:Platform=x64 --no-restore
 
       - name: Install release toolchain
         shell: pwsh
@@ -89,8 +89,8 @@ jobs:
         shell: pwsh
         run: |
           $version = '${{ steps.version.outputs.version }}'
-          $notesPath = Join-Path $env:RUNNER_TEMP 'kkindle-release-notes.md'
-          $notesEnglishPath = Join-Path $env:RUNNER_TEMP 'kkindle-release-notes.en.md'
+          $notesPath = Join-Path $env:RUNNER_TEMP 'libzora-release-notes.md'
+          $notesEnglishPath = Join-Path $env:RUNNER_TEMP 'libzora-release-notes.en.md'
 
           function Get-ReleaseSection([string] $path, [string] $releaseVersion) {
             if (-not (Test-Path -LiteralPath $path)) { return '' }
@@ -118,12 +118,12 @@ jobs:
           $changelogZh = Get-ReleaseSection 'CHANGELOG.md' $version
           $changelogEn = Get-ReleaseSection 'CHANGELOG.en.md' $version
           if ([string]::IsNullOrWhiteSpace($changelogZh)) {
-            $changelogZh = "## 更新内容`n`nKkindle $version。"
+            $changelogZh = "## 更新内容`n`nLibzora $version。"
           }
 
-          $body = "<!-- kkindle-release-notes:zh-CN -->`n## 中文`n$changelogZh"
+          $body = "<!-- libzora-release-notes:zh-CN -->`n## 中文`n$changelogZh"
           if (-not [string]::IsNullOrWhiteSpace($changelogEn)) {
-            $body += "`n`n<!-- kkindle-release-notes:en-US -->`n## English`n$changelogEn"
+            $body += "`n`n<!-- libzora-release-notes:en-US -->`n## English`n$changelogEn"
           }
           Set-Content -LiteralPath $notesPath -Value $body -Encoding utf8NoBOM
           Set-Content -LiteralPath $notesEnglishPath -Value $changelogEn -Encoding utf8NoBOM
@@ -134,14 +134,14 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a $env:RELEASE_TAG -m "Kkindle $env:RELEASE_TAG"
+          git tag -a $env:RELEASE_TAG -m "Libzora $env:RELEASE_TAG"
           git push origin "refs/tags/$env:RELEASE_TAG"
 
       - name: Create or update Windows GitHub Release
         shell: pwsh
         run: |
           $version = '${{ steps.version.outputs.version }}'
-          $setupName = "Kkindle-$version-win-x64-setup.exe"
+          $setupName = "Libzora-$version-win-x64-setup.exe"
           $checksumName = "SHA256SUMS.txt"
           $setupFile = Get-Item -LiteralPath (Join-Path $env:RELEASE_DIR $setupName)
           $checksumFile = Get-Item -LiteralPath (Join-Path $env:RELEASE_DIR $checksumName)
@@ -149,8 +149,8 @@ jobs:
           $manifest = [ordered]@{
             tag_name = $env:RELEASE_TAG
             html_url = "https://github.com/$env:GITHUB_REPOSITORY/releases/tag/$env:RELEASE_TAG"
-            body = Get-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'kkindle-release-notes.md') -Raw
-            body_en = Get-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'kkindle-release-notes.en.md') -Raw
+            body = Get-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'libzora-release-notes.md') -Raw
+            body_en = Get-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'libzora-release-notes.en.md') -Raw
             draft = $false
             prerelease = $version -match '-'
             assets = @(
@@ -173,7 +173,7 @@ jobs:
           $releaseArgs = @(
             $env:RELEASE_TAG,
             "--repo", $env:GITHUB_REPOSITORY,
-            "--title", "Kkindle $env:RELEASE_TAG",
+            "--title", "Libzora $env:RELEASE_TAG",
             "--verify-tag"
           )
           if ($version -match '-') { $releaseArgs += "--prerelease" }
@@ -183,15 +183,15 @@ jobs:
           $releaseExists = $null -ne ($releases | Where-Object { $_.tagName -eq $env:RELEASE_TAG })
           if ($releaseExists) {
             gh release upload $env:RELEASE_TAG $assets --clobber --repo $env:GITHUB_REPOSITORY
-            gh release edit $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --notes-file (Join-Path $env:RUNNER_TEMP 'kkindle-release-notes.md')
+            gh release edit $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --notes-file (Join-Path $env:RUNNER_TEMP 'libzora-release-notes.md')
           } else {
-            gh release create @releaseArgs $assets --notes-file (Join-Path $env:RUNNER_TEMP 'kkindle-release-notes.md')
+            gh release create @releaseArgs $assets --notes-file (Join-Path $env:RUNNER_TEMP 'libzora-release-notes.md')
           }
 
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: Kkindle-${{ steps.version.outputs.version }}-win-x64
+          name: Libzora-${{ steps.version.outputs.version }}-win-x64
           path: |
             ${{ env.RELEASE_DIR }}/*.exe
             ${{ env.RELEASE_DIR }}/*.zip

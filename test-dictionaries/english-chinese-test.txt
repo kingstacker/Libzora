@@ -1,4 +1,4 @@
-# Kkindle 英汉测试词典（10 条）
+# Libzora 英汉测试词典（10 条）
 hello=你好；问候语
 world=世界；人类社会
 book=书；书籍

@@ -1,6 +1,6 @@
 # Native AZW3 reader fixtures
 
-These small test books contain text authored for Kkindle tests, a one-pixel PNG,
+These small test books contain text authored for Libzora tests, a one-pixel PNG,
 a two-level chapter directory, CSS, Unicode text and links between chapters.
 They were generated from the same EPUB using Calibre's AZW3 writer, with default
 PalmDOC compression, `--dont-compress`, and `--mobi-file-type both`, respectively.

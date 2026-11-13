@@ -1,14 +1,14 @@
-# Kkindle
+# Libzora
 
-[![Release](https://github.com/kingstacker/Kkindle/actions/workflows/release.yml/badge.svg)](https://github.com/kingstacker/Kkindle/actions/workflows/release.yml) [![Latest release](https://img.shields.io/github/v/release/kingstacker/Kkindle)](https://github.com/kingstacker/Kkindle/releases/latest)
+[![Release](https://github.com/kingstacker/Libzora/actions/workflows/release.yml/badge.svg)](https://github.com/kingstacker/Libzora/actions/workflows/release.yml) [![Latest release](https://img.shields.io/github/v/release/kingstacker/Libzora)](https://github.com/kingstacker/Libzora/releases/latest)
 
-[Official website](https://kkindle.stacker.beauty) · [Chinese user manual](https://kkindle.stacker.beauty/manual/)
+[Official website](https://libzora.stacker.beauty) · [Chinese user manual](https://libzora.stacker.beauty/manual/)
 
 [简体中文](README.zh-CN.md) · **English**
 
-Kkindle is a quiet, cross-platform ebook and Kindle manager built with Avalonia. It combines a local library, reading, annotations, AI assistance, format conversion, and Kindle transfer in one desktop app.
+Libzora is a quiet, cross-platform ebook and Kindle manager built with Avalonia. It combines a local library, reading, annotations, AI assistance, format conversion, and Kindle transfer in one desktop app.
 
-![Kkindle library](docs/images/主界面.png?v=20261004)
+![Libzora library](docs/images/主界面.png?v=20261004)
 
 ## Platform status
 
@@ -24,7 +24,7 @@ Kkindle is a quiet, cross-platform ebook and Kindle manager built with Avalonia.
 
 | macOS | iOS | Android |
 | :---: | :---: | :---: |
-| <img src="website/assets/macos-library.webp?v=20261106" alt="Kkindle library on macOS" width="460"> | <img src="website/assets/ios-library.webp?v=20261106" alt="Kkindle library on iOS" width="190"> | <img src="website/assets/android-library.webp?v=20261106" alt="Kkindle library on Android" width="190"> |
+| <img src="website/assets/macos-library.webp?v=20261106" alt="Libzora library on macOS" width="460"> | <img src="website/assets/ios-library.webp?v=20261106" alt="Libzora library on iOS" width="190"> | <img src="website/assets/android-library.webp?v=20261106" alt="Libzora library on Android" width="190"> |
 | Library | Library | Library |
 
 ## Features
@@ -38,9 +38,9 @@ Kkindle is a quiet, cross-platform ebook and Kindle manager built with Avalonia.
 
 ## Download
 
-Download the latest Windows, Linux, or macOS package from the [official site](https://kkindle.stacker.beauty/#downloads); it automatically selects the latest stable release.
+Download the latest Windows, Linux, or macOS package from the [official site](https://libzora.stacker.beauty/#downloads); it automatically selects the latest stable release.
 
-Backup download: [GitHub Releases](https://github.com/kingstacker/Kkindle/releases).
+Backup download: [GitHub Releases](https://github.com/kingstacker/Libzora/releases).
 
 Calibre is required separately for format conversion. Official GitHub releases provide Windows, Linux, and macOS packages. macOS builds support macOS 12 or later on Intel and Apple Silicon; when Apple distribution credentials are not configured, the archive is ad-hoc signed and includes `MACOS-README.md` with the Gatekeeper steps.
 
@@ -52,11 +52,11 @@ For **Account cloud sync**, first register or sign in through **Login / Register
 
 For **S3** or **WebDAV**, choose the provider in **Settings → Data & sync → Cloud sync**, enter the connection details, and select **Save settings**. Both providers retain their own addresses and credentials. Manual, startup, exit, and scheduled sync use the saved selection.
 
-For WebDAV, enter the URL of an existing directory, such as `https://dav.example.com/dav/`, and credentials if required. Some services require an app password. Kkindle creates a sync subdirectory named `kkindle` by default; change it in Advanced options. The connection test verifies read/write access and removes its test file. The server must support standard PROPFIND, MKCOL, GET, PUT, MOVE, and DELETE operations. Completed uploads are published with MOVE so interrupted transfers do not replace existing snapshots.
+For WebDAV, enter the URL of an existing directory, such as `https://dav.example.com/dav/`, and credentials if required. Some services require an app password. Libzora creates a sync subdirectory named `libzora` by default; change it in Advanced options. The connection test verifies read/write access and removes its test file. The server must support standard PROPFIND, MKCOL, GET, PUT, MOVE, and DELETE operations. Completed uploads are published with MOVE so interrupted transfers do not replace existing snapshots.
 
-The sync subdirectory, encryption, scheduling, and transfer options are shared between providers within each region. Devices syncing the same directory need the same encryption key; use a new subdirectory when changing keys. Connection profile exports include only the selected provider's credentials. Existing `.kkindle-s3.json` profiles remain supported; WebDAV profiles use `.kkindle-webdav.json`.
+The sync subdirectory, encryption, scheduling, and transfer options are shared between providers within each region. Devices syncing the same directory need the same encryption key; use a new subdirectory when changing keys. Connection profile exports include only the selected provider's credentials. Existing `.libzora-s3.json` profiles remain supported; WebDAV profiles use `.libzora-webdav.json`.
 
-Every `.kkindle` data backup is encrypted with the locally configured sync key, including books, reading records, and library metadata. Import and export first prompt you to set that key if it is missing, even when cloud sync is disabled. To restore on another device, configure the original key before importing. Backups exclude connection passwords, account sessions, and the key itself. The key is never uploaded or recovered by the server; forgetting it makes existing encrypted data unreadable. Older plaintext backup files are rejected. See [encrypted backup details](docs/backup-encryption.md).
+Every `.libzora` data backup is encrypted with the locally configured sync key, including books, reading records, and library metadata. Import and export first prompt you to set that key if it is missing, even when cloud sync is disabled. To restore on another device, configure the original key before importing. Backups exclude connection passwords, account sessions, and the key itself. The key is never uploaded or recovered by the server; forgetting it makes existing encrypted data unreadable. Older plaintext backup files are rejected. See [encrypted backup details](docs/backup-encryption.md).
 
 ## Run from source
 
@@ -65,23 +65,23 @@ Requires the exact [.NET SDK 10.0.400](https://dotnet.microsoft.com/download/dot
 Windows (PowerShell):
 
 ```powershell
-dotnet restore Kkindle.sln -p:Platform=x64
-dotnet build Kkindle.sln -p:Platform=x64
-dotnet test Kkindle.sln --no-build -p:Platform=x64
+dotnet restore Libzora.sln -p:Platform=x64
+dotnet build Libzora.sln -p:Platform=x64
+dotnet test Libzora.sln --no-build -p:Platform=x64
 # Run the slow regression suite explicitly before a release
-dotnet test Kkindle.sln --no-build -p:Platform=x64 -p:RunSlowTests=true
-dotnet run --project src\Kkindle.Desktop.Windows\Kkindle.Desktop.Windows.csproj -p:Platform=x64
+dotnet test Libzora.sln --no-build -p:Platform=x64 -p:RunSlowTests=true
+dotnet run --project src\Libzora.Desktop.Windows\Libzora.Desktop.Windows.csproj -p:Platform=x64
 ```
 
 macOS:
 
 ```bash
-dotnet build src/Kkindle.Desktop.MacOS/Kkindle.Desktop.MacOS.csproj
-dotnet test tests/Kkindle.Tests/Kkindle.Tests.csproj
-dotnet run --project src/Kkindle.Desktop.MacOS/Kkindle.Desktop.MacOS.csproj
+dotnet build src/Libzora.Desktop.MacOS/Libzora.Desktop.MacOS.csproj
+dotnet test tests/Libzora.Tests/Libzora.Tests.csproj
+dotnet run --project src/Libzora.Desktop.MacOS/Libzora.Desktop.MacOS.csproj
 ```
 
-Linux uses the same commands with `Kkindle.Desktop.Linux` in place of `Kkindle.Desktop.MacOS`.
+Linux uses the same commands with `Libzora.Desktop.Linux` in place of `Libzora.Desktop.MacOS`.
 
 Build a macOS app bundle for either architecture:
 
@@ -96,11 +96,11 @@ bash scripts/build-macos-release.sh 1.1.3 artifacts/macos osx-universal
 
 Every command works on either architecture: the bundled libmtp and libusb are built from source for the target (cross-compiled with the macOS SDK when it differs from the host), so an Intel Mac can produce the arm64 package and vice versa. CI still uses native `macos-15` and `macos-15-intel` runners to keep builds fast.
 
-`osx-universal` produces a single `Kkindle.app` that starts natively on both Intel and Apple Silicon. A self-contained .NET publish contains architecture-specific native and ReadyToRun assemblies that cannot be combined into one file set, so the bundle carries both complete payloads under `Contents/MacOS/x86_64` and `Contents/MacOS/arm64` and a universal launcher execs the matching one. Expect roughly twice the download size of a single-architecture package.
+`osx-universal` produces a single `Libzora.app` that starts natively on both Intel and Apple Silicon. A self-contained .NET publish contains architecture-specific native and ReadyToRun assemblies that cannot be combined into one file set, so the bundle carries both complete payloads under `Contents/MacOS/x86_64` and `Contents/MacOS/arm64` and a universal launcher execs the matching one. Expect roughly twice the download size of a single-architecture package.
 
 The default test run skips expensive UI, rendering, and GC-stress cases while keeping core, platform, device, and a small UI smoke set. The skipped tests remain in the repository and can be enabled with `RunSlowTests=true`.
 
-Linux also requires WebKitGTK and Secret Service. See [cross-platform notes](docs/cross-platform.md) for platform packages and signing details. Mobile heads live in `Kkindle.Mobile.sln`; see [mobile notes](docs/mobile-skeleton.md) for workloads and simulator commands.
+Linux also requires WebKitGTK and Secret Service. See [cross-platform notes](docs/cross-platform.md) for platform packages and signing details. Mobile heads live in `Libzora.Mobile.sln`; see [mobile notes](docs/mobile-skeleton.md) for workloads and simulator commands.
 
 ## Referenced technologies
 

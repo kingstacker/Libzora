@@ -4,17 +4,17 @@
 
 ```text
 Desktop.Windows / Desktop.Linux / Desktop.MacOS
-    -> Kkindle.App (Avalonia views and desktop lifecycle)
-        -> Kkindle.Application (application services and TTS coordination)
-            -> Kkindle.Infrastructure (storage, parsing, network clients)
-                -> Kkindle.Core (models and platform contracts)
-            -> Kkindle.Layout (chapter parsing and text layout models)
-        -> Kkindle.Layout (text layout and drawing)
+    -> Libzora.App (Avalonia views and desktop lifecycle)
+        -> Libzora.Application (application services and TTS coordination)
+            -> Libzora.Infrastructure (storage, parsing, network clients)
+                -> Libzora.Core (models and platform contracts)
+            -> Libzora.Layout (chapter parsing and text layout models)
+        -> Libzora.Layout (text layout and drawing)
 ```
 
-`Kkindle.Application` must not reference Avalonia, `Kkindle.App`, or a desktop
-platform assembly. Its namespace is `Kkindle.ApplicationServices` so it does
-not shadow Avalonia's `Application` type in the existing `Kkindle` namespace.
+`Libzora.Application` must not reference Avalonia, `Libzora.App`, or a desktop
+platform assembly. Its namespace is `Libzora.ApplicationServices` so it does
+not shadow Avalonia's `Application` type in the existing `Libzora` namespace.
 The architecture regression test enforces this boundary.
 
 ## Service modules
@@ -152,9 +152,9 @@ boundaries and the Android native dependency graph have been validated.
 | Platform integrations | Secrets, TTS, conversion, device discovery and update installation have injectable contracts or options. Desktop supplies Calibre explicitly; Android must supply or disable platform-specific implementations. |
 | Native dependencies | Infrastructure references desktop PDFium native packages and ONNX/Skia dependencies. Android native assets, ABIs, packaging and actual device behavior have not been established. |
 
-An Android head project now exists in a separate solution (`Kkindle.Mobile.sln`):
-`Kkindle.Mobile` holds a platform-neutral single-view shell with library, book
-detail, materials and profile pages, and `Kkindle.Mobile.Android` supplies the
+An Android head project now exists in a separate solution (`Libzora.Mobile.sln`):
+`Libzora.Mobile` holds a platform-neutral single-view shell with library, book
+detail, materials and profile pages, and `Libzora.Mobile.Android` supplies the
 private data root, secret protector and document-provider import. See
 [mobile-skeleton.md](mobile-skeleton.md) for the layout, the stubs that remain
 (notably the reader renderers) and the build prerequisites.

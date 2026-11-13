@@ -91,7 +91,7 @@ def main() -> None:
     card.save(ROOT / "social-card.jpg", "JPEG", quality=82, optimize=True, progressive=True)
     print(f"social-card: {card.width}x{card.height} | {mb(ROOT / 'social-card.jpg'):.2f} MB")
 
-    icon = Image.open(ROOT / "kkindle.png").convert("RGBA")
+    icon = Image.open(ROOT / "libzora.png").convert("RGBA")
     icon.resize((180, 180), Image.Resampling.LANCZOS).save(
         ROOT / "apple-touch-icon.png", "PNG", optimize=True
     )

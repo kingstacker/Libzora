@@ -72,18 +72,18 @@ jobs:
         with:
           dotnet-version: 10.0.400
       - name: Run quick portable tests
-        run: dotnet test tests/Kkindle.Tests/Kkindle.Tests.csproj -c Release
+        run: dotnet test tests/Libzora.Tests/Libzora.Tests.csproj -c Release
       - name: Run quick platform-common tests
-        run: dotnet test tests/Kkindle.Platform.Common.Tests/Kkindle.Platform.Common.Tests.csproj -c Release
+        run: dotnet test tests/Libzora.Platform.Common.Tests/Libzora.Platform.Common.Tests.csproj -c Release
       - name: Run quick UI smoke tests
-        run: dotnet test tests/Kkindle.App.Tests/Kkindle.App.Tests.csproj -c Release
+        run: dotnet test tests/Libzora.App.Tests/Libzora.App.Tests.csproj -c Release
       - name: Audit runtime dependencies
         shell: bash
         continue-on-error: true
         run: |
           set -euo pipefail
           for attempt in 1 2 3; do
-            if dotnet list src/Kkindle.Desktop.Linux/Kkindle.Desktop.Linux.csproj package \
+            if dotnet list src/Libzora.Desktop.Linux/Libzora.Desktop.Linux.csproj package \
               --vulnerable --include-transitive; then
               exit 0
             fi
@@ -121,7 +121,7 @@ jobs:
             -OutputRoot $env:OUTPUT_DIR
       - uses: actions/upload-artifact@v7
         with:
-          name: Kkindle-${{ needs.prepare.outputs.version }}-windows
+          name: Libzora-${{ needs.prepare.outputs.version }}-windows
           path: |
             ${{ env.OUTPUT_DIR }}/*.exe
             ${{ env.OUTPUT_DIR }}/*.zip
@@ -150,20 +150,20 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y "./artifacts/development-linux/kkindle_${DEV_VERSION}_amd64.deb" xvfb
+          sudo apt-get install -y "./artifacts/development-linux/libzora_${DEV_VERSION}_amd64.deb" xvfb
           set +e
-          xvfb-run -a timeout --signal=TERM --kill-after=5s 20s /usr/bin/kkindle \
-            > "$RUNNER_TEMP/kkindle-linux-development.log" 2>&1
+          xvfb-run -a timeout --signal=TERM --kill-after=5s 20s /usr/bin/libzora \
+            > "$RUNNER_TEMP/libzora-linux-development.log" 2>&1
           status=$?
           set -e
           if [[ "$status" != 124 ]]; then
-            cat "$RUNNER_TEMP/kkindle-linux-development.log"
-            echo "Kkindle exited before the Linux smoke-test timeout (status $status)." >&2
+            cat "$RUNNER_TEMP/libzora-linux-development.log"
+            echo "Libzora exited before the Linux smoke-test timeout (status $status)." >&2
             exit 1
           fi
       - uses: actions/upload-artifact@v7
         with:
-          name: Kkindle-${{ needs.prepare.outputs.version }}-linux
+          name: Libzora-${{ needs.prepare.outputs.version }}-linux
           path: artifacts/development-linux/*
           if-no-files-found: error
           retention-days: 7
@@ -197,9 +197,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          dotnet test tests/Kkindle.Tests/Kkindle.Tests.csproj -c Release
-          dotnet test tests/Kkindle.Platform.Common.Tests/Kkindle.Platform.Common.Tests.csproj -c Release
-          dotnet test tests/Kkindle.App.Tests/Kkindle.App.Tests.csproj -c Release
+          dotnet test tests/Libzora.Tests/Libzora.Tests.csproj -c Release
+          dotnet test tests/Libzora.Platform.Common.Tests/Libzora.Platform.Common.Tests.csproj -c Release
+          dotnet test tests/Libzora.App.Tests/Libzora.App.Tests.csproj -c Release
       - name: Build macOS package
         shell: bash
         run: bash scripts/build-macos-release.sh "$DEV_VERSION" artifacts/development-macos "${{ matrix.rid }}"
@@ -207,37 +207,37 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          work="$RUNNER_TEMP/kkindle-smoke"
+          work="$RUNNER_TEMP/libzora-smoke"
           mkdir -p "$work"
-          tar -xzf "artifacts/development-macos/Kkindle-${DEV_VERSION}-${{ matrix.rid }}.tar.gz" -C "$work"
-          plutil -lint "$work/Kkindle.app/Contents/Info.plist"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "$work/Kkindle.app/Contents/Info.plist")" = Kkindle
-          xcrun assetutil -Z "$work/Kkindle.app/Contents/Resources/Assets.car"
-          codesign --verify --deep --strict "$work/Kkindle.app"
-          dmg="artifacts/development-macos/Kkindle-${DEV_VERSION}-${{ matrix.rid }}.dmg"
+          tar -xzf "artifacts/development-macos/Libzora-${DEV_VERSION}-${{ matrix.rid }}.tar.gz" -C "$work"
+          plutil -lint "$work/Libzora.app/Contents/Info.plist"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "$work/Libzora.app/Contents/Info.plist")" = Libzora
+          xcrun assetutil -Z "$work/Libzora.app/Contents/Resources/Assets.car"
+          codesign --verify --deep --strict "$work/Libzora.app"
+          dmg="artifacts/development-macos/Libzora-${DEV_VERSION}-${{ matrix.rid }}.dmg"
           hdiutil verify "$dmg"
-          mountpoint="$RUNNER_TEMP/kkindle-dmg"
+          mountpoint="$RUNNER_TEMP/libzora-dmg"
           mkdir -p "$mountpoint"
           hdiutil attach -readonly -nobrowse -mountpoint "$mountpoint" "$dmg" >/dev/null
           trap 'hdiutil detach "$mountpoint" -force -quiet >/dev/null 2>&1 || true' EXIT
-          test -d "$mountpoint/Kkindle.app"
+          test -d "$mountpoint/Libzora.app"
           test -L "$mountpoint/Applications"
           test "$(readlink "$mountpoint/Applications")" = "/Applications"
           hdiutil detach "$mountpoint" >/dev/null
-          log="$RUNNER_TEMP/kkindle-macos-smoke.log"
-          "$work/Kkindle.app/Contents/MacOS/Kkindle" >"$log" 2>&1 &
+          log="$RUNNER_TEMP/libzora-macos-smoke.log"
+          "$work/Libzora.app/Contents/MacOS/Libzora" >"$log" 2>&1 &
           pid=$!
           sleep 20
           if ! kill -0 "$pid" 2>/dev/null; then
             cat "$log"
-            echo "Kkindle exited during the macOS development smoke test." >&2
+            echo "Libzora exited during the macOS development smoke test." >&2
             exit 1
           fi
           kill -TERM "$pid" 2>/dev/null || true
           wait "$pid" 2>/dev/null || true
       - uses: actions/upload-artifact@v7
         with:
-          name: Kkindle-${{ needs.prepare.outputs.version }}-${{ matrix.rid }}
+          name: Libzora-${{ needs.prepare.outputs.version }}-${{ matrix.rid }}
           path: artifacts/development-macos/*
           if-no-files-found: error
           retention-days: 7
@@ -255,7 +255,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v8
         with:
-          pattern: Kkindle-${{ needs.prepare.outputs.version }}-*
+          pattern: Libzora-${{ needs.prepare.outputs.version }}-*
           path: artifacts
           merge-multiple: true
 
@@ -270,8 +270,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat > "$RUNNER_TEMP/kkindle-development-release-notes.md" <<EOF
-          ## Kkindle development build
+          cat > "$RUNNER_TEMP/libzora-development-release-notes.md" <<EOF
+          ## Libzora development build
 
           Automated development build **${RELEASE_TAG}** from commit [${GITHUB_SHA}](https://github.com/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}).
 
@@ -282,7 +282,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          setup_name="Kkindle-${DEV_VERSION}-win-x64-setup.exe"
+          setup_name="Libzora-${DEV_VERSION}-win-x64-setup.exe"
           checksum_name="SHA256SUMS.txt"
           test -f "artifacts/${setup_name}"
           test -f "artifacts/${checksum_name}"
@@ -290,8 +290,8 @@ jobs:
           jq -n \
             --arg tag_name "$RELEASE_TAG" \
             --arg html_url "https://github.com/${GITHUB_REPOSITORY}/releases/tag/${RELEASE_TAG}" \
-            --rawfile body "$RUNNER_TEMP/kkindle-development-release-notes.md" \
-            --rawfile body_en "$RUNNER_TEMP/kkindle-development-release-notes.md" \
+            --rawfile body "$RUNNER_TEMP/libzora-development-release-notes.md" \
+            --rawfile body_en "$RUNNER_TEMP/libzora-development-release-notes.md" \
             --arg setup_name "$setup_name" \
             --arg setup_url "${download_base}/${setup_name}" \
             --argjson setup_size "$(stat -c%s "artifacts/${setup_name}")" \
@@ -318,6 +318,6 @@ jobs:
           gh release create "$RELEASE_TAG" artifacts/* \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
-            --title "Kkindle $RELEASE_TAG (Development)" \
-            --notes-file "$RUNNER_TEMP/kkindle-development-release-notes.md" \
+            --title "Libzora $RELEASE_TAG (Development)" \
+            --notes-file "$RUNNER_TEMP/libzora-development-release-notes.md" \
             --prerelease

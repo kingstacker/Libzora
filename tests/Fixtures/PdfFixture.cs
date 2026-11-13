@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Text;
 
-namespace Kkindle.TestFixtures;
+namespace Libzora.TestFixtures;
 
 /// <summary>A deterministic PDF with text, a scan, nested outlines and a rotated crop.</summary>
 internal static class PdfFixture
@@ -134,7 +134,7 @@ internal static class PdfFixture
             "<< /Title (Nested section) /Parent 14 0 R /A << /S /GoTo /D [6 0 R /XYZ null 240 null] >> >>",
             $"<< /Title (Scanned page) /Parent 12 0 R /Dest [8 0 R {(offsetScannedOutline ? "/XYZ null 500 null" : "/Fit")}] /Prev 14 0 R >>",
             "<< /Type /XObject /Subtype /Image /Width 2 /Height 2 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /ASCIIHexDecode /Length 26 >>\nstream\nEEDDCC99BBAA557788CC9966>\nendstream",
-            $"<< /Title <{title}> /Author (Kkindle Tests) >>"
+            $"<< /Title <{title}> /Author (Libzora Tests) >>"
         };
         using var file = File.Create(path);
         void WriteAscii(string text) => file.Write(Encoding.ASCII.GetBytes(text));

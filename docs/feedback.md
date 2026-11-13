@@ -3,7 +3,7 @@
 桌面端“关于”页面提供“问题反馈”入口，打开独立的反馈窗口；iOS 原生前端在“我的 → 关于”
 中提供同一入口，进入原生反馈页。两端都通过当前区域的账号服务提交，服务端从登录令牌推导
 用户身份，客户端提交的 `userId` 一律忽略。本文同时说明客户端流程、仓库内 SQLite 协议服务
-的接口，以及正式 PostgreSQL 服务的对应实现（独立仓库 `Kkindle_server`）。
+的接口，以及正式 PostgreSQL 服务的对应实现（独立仓库 `Libzora_server`）。
 
 ## 客户端流程
 
@@ -79,20 +79,20 @@
 
 | 位置 | 作用 |
 | --- | --- |
-| `src/Kkindle.App/FeedbackWindow.axaml(.cs)` | 桌面反馈窗口、截图选择与压缩、日志开关 |
-| `src/Kkindle.App/MainWindow.Feedback.cs` | 从“关于”页打开/复用反馈窗口 |
-| `src/Kkindle.Core/FeedbackModels.cs` | 共享类型、限制与校验 |
-| `src/Kkindle.Infrastructure/SoftwareLog.cs` | 脱敏、限长、轮转的软件日志 |
-| `src/Kkindle.Infrastructure/SoftwareLogExportService.cs` | “导出软件日志”ZIP：仅打包脱敏日志与诊断 |
-| `src/Kkindle.Infrastructure/AccountService.cs` | `SubmitFeedbackAsync`、`GetFeedbackAsync` |
-| `src/Kkindle.Mobile.iOS/NativeUI/NativeFeedback.swift` | iOS 原生反馈页、照片选择与截图压缩 |
-| `src/Kkindle.Mobile.iOS/NativeFeedbackRequest.cs` | Swift 表单到共享反馈契约的转换与截图校验 |
-| `src/Kkindle.Mobile.iOS/IOSNativeFrontend.Settings.cs` | `settings.feedback.submit` 桥接命令 |
-| `src/Kkindle.AccountServer/FeedbackEndpoints.cs` | 仓库内 SQLite 协议服务端点 |
-| `src/Kkindle.AccountServer/FeedbackStorage.cs` | 截图私有文件存储 |
-| `tests/Kkindle.App.Tests/FeedbackWindowTests.cs` | 登录门槛与提交流程 UI 测试 |
-| `tests/Kkindle.Mobile.Tests/NativeFrontendContractTests.cs` | iOS 反馈桥接字段与截图校验测试 |
-| `tests/Kkindle.AccountServer.Tests/AccountIntegrationTests.Feedback.cs` | 协议服务集成测试 |
+| `src/Libzora.App/FeedbackWindow.axaml(.cs)` | 桌面反馈窗口、截图选择与压缩、日志开关 |
+| `src/Libzora.App/MainWindow.Feedback.cs` | 从“关于”页打开/复用反馈窗口 |
+| `src/Libzora.Core/FeedbackModels.cs` | 共享类型、限制与校验 |
+| `src/Libzora.Infrastructure/SoftwareLog.cs` | 脱敏、限长、轮转的软件日志 |
+| `src/Libzora.Infrastructure/SoftwareLogExportService.cs` | “导出软件日志”ZIP：仅打包脱敏日志与诊断 |
+| `src/Libzora.Infrastructure/AccountService.cs` | `SubmitFeedbackAsync`、`GetFeedbackAsync` |
+| `src/Libzora.Mobile.iOS/NativeUI/NativeFeedback.swift` | iOS 原生反馈页、照片选择与截图压缩 |
+| `src/Libzora.Mobile.iOS/NativeFeedbackRequest.cs` | Swift 表单到共享反馈契约的转换与截图校验 |
+| `src/Libzora.Mobile.iOS/IOSNativeFrontend.Settings.cs` | `settings.feedback.submit` 桥接命令 |
+| `src/Libzora.AccountServer/FeedbackEndpoints.cs` | 仓库内 SQLite 协议服务端点 |
+| `src/Libzora.AccountServer/FeedbackStorage.cs` | 截图私有文件存储 |
+| `tests/Libzora.App.Tests/FeedbackWindowTests.cs` | 登录门槛与提交流程 UI 测试 |
+| `tests/Libzora.Mobile.Tests/NativeFrontendContractTests.cs` | iOS 反馈桥接字段与截图校验测试 |
+| `tests/Libzora.AccountServer.Tests/AccountIntegrationTests.Feedback.cs` | 协议服务集成测试 |
 
 ## HTTP API
 
@@ -100,7 +100,7 @@
 
 ```http
 Authorization: Bearer <SESSION_TOKEN>
-X-Kkindle-Region: china | international
+X-Libzora-Region: china | international
 ```
 
 正式服务还要求 HTTPS；区域头必须与服务器固定区域一致，否则返回 403。用户 ID 永远取自
@@ -172,7 +172,7 @@ X-Kkindle-Region: china | international
 
 ### 错误码
 
-错误通过响应头 `X-Kkindle-Error` 返回稳定错误码，响应体包含可直接展示的中文消息：
+错误通过响应头 `X-Libzora-Error` 返回稳定错误码，响应体包含可直接展示的中文消息：
 
 | HTTP | 错误码 | 场景 |
 | --- | --- | --- |
@@ -224,7 +224,7 @@ CREATE TABLE IF NOT EXISTS Feedback (
 
 ### 正式 PostgreSQL 服务
 
-正式服务使用独立仓库 `~/Desktop/Kkindle_server`，schema v16 新增 `feedback` 表（当前为 v17，
+正式服务使用独立仓库 `~/Desktop/Libzora_server`，schema v16 新增 `feedback` 表（当前为 v17，
 v17 增加上传完成幂等记录）；截图通过现有 `ObjectBackend` 存入 `{account}/f/` 私有命名空间
 （本地文件或 S3）。详见该仓库的 `docs/feedback.md`。
 
@@ -268,16 +268,16 @@ v17 增加上传完成幂等记录）；截图通过现有 `ObjectBackend` 存�
 
 ```bash
 # 桌面客户端
-dotnet test tests/Kkindle.App.Tests/Kkindle.App.Tests.csproj
-dotnet test tests/Kkindle.AccountServer.Tests/Kkindle.AccountServer.Tests.csproj
+dotnet test tests/Libzora.App.Tests/Libzora.App.Tests.csproj
+dotnet test tests/Libzora.AccountServer.Tests/Libzora.AccountServer.Tests.csproj
 
 # iOS 桥接契约与原生界面
-dotnet test tests/Kkindle.Mobile.Tests/Kkindle.Mobile.Tests.csproj
-python3 tests/Kkindle.Mobile.iOS.UITests/run-tests.py --simulator <模拟器ID> --results <新的结果目录> \
+dotnet test tests/Libzora.Mobile.Tests/Libzora.Mobile.Tests.csproj
+python3 tests/Libzora.Mobile.iOS.UITests/run-tests.py --simulator <模拟器ID> --results <新的结果目录> \
   --only testFeedbackSubmissionUsesTheSignedInAccount
 
 # 正式 PostgreSQL 服务（独立仓库）
-cd ~/Desktop/Kkindle_server && python3 scripts/local.py test
+cd ~/Desktop/Libzora_server && python3 scripts/local.py test
 ```
 
 iOS 反馈用例需要本地中国区账号服务（默认 `http://127.0.0.1:5088`）和模拟器相册中至少一张

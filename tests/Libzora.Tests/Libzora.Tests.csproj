@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Portable tests only: anything needing WPD/MTP lives in
+         Libzora.Tests.Windows. Keeping this at plain net10.0 means the bulk of
+         the suite can run on Linux and macOS once those platforms are wired. -->
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../src/Libzora.Mobile/ReadingActivityClock.cs" Link="ReadingActivityClock.cs" />
+    <Compile Include="../Fixtures/PdfFixture.cs" Link="Fixtures/PdfFixture.cs" />
+    <Compile Include="../Fixtures/ActivatedDeviceFeatures.cs" Link="Fixtures/ActivatedDeviceFeatures.cs" />
+    <Compile Include="../Fixtures/MembershipHttpHandler.cs" Link="Fixtures/MembershipHttpHandler.cs" />
+    <Compile Include="../Fixtures/FakePdfDocument.cs" Link="Fixtures/FakePdfDocument.cs" />
+    <None Include="../Fixtures/Azw3/*" Link="Fixtures/Azw3/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <ProjectReference Include="..\..\src\Libzora.Core\Libzora.Core.csproj" />
+    <ProjectReference Include="..\..\src\Libzora.Application\Libzora.Application.csproj" />
+    <ProjectReference Include="..\..\src\Libzora.Infrastructure\Libzora.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Libzora.Layout\Libzora.Layout.csproj" />
+    <ProjectReference Include="..\..\src\Libzora.Reader\Libzora.Reader.csproj" />
+    <Compile Include="..\..\src\Libzora.App\ReaderTocScrollPolicy.cs" Link="ReaderTocScrollPolicy.cs" />
+    <Compile Include="..\..\src\Libzora.App\ReaderLinuxTextFallbackTitleLinePolicy.cs" Link="ReaderLinuxTextFallbackTitleLinePolicy.cs" />
+    <Compile Include="..\..\src\Libzora.App\ReaderLinuxTextFallbackPagingPolicy.cs" Link="ReaderLinuxTextFallbackPagingPolicy.cs" />
+    <Compile Include="..\..\src\Libzora.App\ReaderLinuxVerticalPagingPolicy.cs" Link="ReaderLinuxVerticalPagingPolicy.cs" />
+    <Compile Include="..\..\src\Libzora.App\ReaderLinuxVerticalTextUnits.cs" Link="ReaderLinuxVerticalTextUnits.cs" />
+    <Compile Include="..\..\src\Libzora.App\LibraryDropImportPolicy.cs" Link="LibraryDropImportPolicy.cs" />
+    <Compile Include="..\..\src\Libzora.App\ReadingMaterialCoverMatcher.cs" Link="ReadingMaterialCoverMatcher.cs" />
+    <Compile Include="..\..\src\Libzora.App\AmbientPalette.cs" Link="AmbientPalette.cs" />
+    <PackageReference Include="Avalonia" Version="12.1.1" />
+    <Compile Include="..\..\src\Libzora.App\ReaderFeatureViewModels.cs" Link="ReaderFeatureViewModels.cs" />
+    <Compile Include="..\..\src\Libzora.App\KreaderMarkdownTextBlock.cs" Link="KreaderMarkdownTextBlock.cs" />
+    <Compile Include="..\..\src\Libzora.App\KreaderSelectableTextBlock.cs" Link="KreaderSelectableTextBlock.cs" />
+    <Compile Include="..\..\src\Libzora.App\KreaderMarkdownTextBlock.Citations.cs" Link="KreaderMarkdownTextBlock.Citations.cs" />
+    <Compile Include="..\..\src\Libzora.App\KreaderMarkdownTextBlock.Math.cs" Link="KreaderMarkdownTextBlock.Math.cs" />
+    <PackageReference Include="Sylinko.CSharpMath.Avalonia" Version="12.0.0" />
+    <PackageReference Include="Markdig" Version="1.5.0" />
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.0.2">
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+</Project>

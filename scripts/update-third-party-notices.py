@@ -24,7 +24,7 @@ import zipfile
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-BUNDLE = ROOT / "src/Kkindle.Infrastructure/ThirdParty/Notices"
+BUNDLE = ROOT / "src/Libzora.Infrastructure/ThirdParty/Notices"
 MANIFEST = BUNDLE / "manifest.json"
 SOURCE_CACHE = ROOT / "artifacts/license-materials-cache"
 
@@ -99,7 +99,7 @@ class Documents:
             return cache.read_bytes()
         if self.offline:
             raise UncachedDocument("Public document is not cached: " + url)
-        request = urllib.request.Request(url, headers={"User-Agent": "Kkindle-license-materials/1.0"})
+        request = urllib.request.Request(url, headers={"User-Agent": "Libzora-license-materials/1.0"})
         with urllib.request.urlopen(request, timeout=20) as response:
             data = response.read(limit + 1)
         if len(data) > limit:
@@ -264,7 +264,7 @@ def package_documents(package, documents):
         # Include the standard Apache text as well as any original NOTICE and
         # differently licensed packaging/native material. No copyright notice
         # is invented or substituted for an upstream document.
-        path = documents.add((ROOT / "src/Kkindle.Infrastructure/ThirdParty/MdxParser/LICENSE.txt").read_bytes(),
+        path = documents.add((ROOT / "src/Libzora.Infrastructure/ThirdParty/MdxParser/LICENSE.txt").read_bytes(),
                              "licenses/Apache-2.0.txt", "https://www.apache.org/licenses/LICENSE-2.0.txt")
         paths.append(path)
         if not any("notice" in p.lower() for p in paths):
@@ -466,17 +466,17 @@ def refresh(offline, caches):
     # Re-read directories for inspecting actual embedded font resources.
     fonts = font_documents(restored_packages(caches), documents)
     for name, source in (("LICENSE.MiniLZO.txt", ROOT / "LICENSE"),):
-        (ROOT / "src/Kkindle.Infrastructure/ThirdParty/MdxParser" / name).write_bytes(source.read_bytes())
+        (ROOT / "src/Libzora.Infrastructure/ThirdParty/MdxParser" / name).write_bytes(source.read_bytes())
     bc_url = "https://raw.githubusercontent.com/bcgit/bc-csharp/release-1.9.0/crypto/License.html"
     bc_data = documents.fetch(bc_url)
     documents.add(bc_data, "components/MdxParser/BouncyCastle-LICENSE.html", bc_url)
-    (ROOT / "src/Kkindle.Infrastructure/ThirdParty/MdxParser/LICENSE.BouncyCastle.html").write_bytes(bc_data)
+    (ROOT / "src/Libzora.Infrastructure/ThirdParty/MdxParser/LICENSE.BouncyCastle.html").write_bytes(bc_data)
     manifest = {"schemaVersion": 1, "packages": packages, "fonts": fonts,
                 "documents": sorted(documents.by_hash.values(), key=lambda x: x["path"])}
     BUNDLE.mkdir(parents=True, exist_ok=True)
     MANIFEST.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    lines = ["# Kkindle third-party notices", "",
-             "Kkindle is distributed under the GNU GPL v3; see LICENSE.",
+    lines = ["# Libzora third-party notices", "",
+             "Libzora is distributed under the GNU GPL v3; see LICENSE.",
              "Third-party packages, fonts and native components retain their own licenses.",
              "This offline bundle preserves original license and notice texts, including",
              "native notices supplied in NuGet packages. The table combines platform dependencies",

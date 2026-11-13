@@ -1,4 +1,4 @@
-# Kkindle 分区账号与同步服务
+# Libzora 分区账号与同步服务
 
 桌面端左侧的“登录 / 注册”和移动端“我的 → 登录 / 注册”支持选择**中国区 / 国际区**。
 每个区域分别记住服务地址和登录会话。两区的账号数据库、会话和同步文件独立；相同用户名
@@ -41,18 +41,18 @@ IPv6 按 `/64` 网段合并计数。来源记录持久化，注销、删除或�
 | 跨端书籍文件云同步 | — | ✓ | ✓ |
 | 云同步设备数量 | — | 6 台 | 6 台 |
 | 自备 S3 / WebDAV 同步书籍及数据 | — | ✓ | ✓（订阅期内） |
-| Kkindle 云空间 | — | — | 10 GB |
-| Kkindle 云下载额度 | — | — | 50 GB/年 |
+| Libzora 云空间 | — | — | 10 GB |
+| Libzora 云下载额度 | — | — | 50 GB/年 |
 
 | 7 天 Plus 免费试用（每个账号一次） | — | — | 7 天 / 100 MB 空间 / 200 MB 累计下载 |
 
 文中 GB 均按 1 GB = 1,024 MB 计算。
 
 Free 仅保留本地和 USB 功能，不提供多端同步。功能解锁用户使用自备 S3 / WebDAV，
-自行承担存储与流量费用；Kkindle 云同步、空间和下载额度只提供给有效 Plus，不再提供 100 MB 免费空间。
+自行承担存储与流量费用；Libzora 云同步、空间和下载额度只提供给有效 Plus，不再提供 100 MB 免费空间。
 
 会员绑定账号，支持登录后兑换永久功能会员或 **1 年期 Plus** 激活码。接口中的档位值仍为 `free` / `lifetime` / `pro`，商品为 `lifetime`、
-`plus-365d`。Plus 不附赠功能解锁：到期后撤销全部 Kkindle 云同步与下载，以及自备 S3 / WebDAV
+`plus-365d`。Plus 不附赠功能解锁：到期后撤销全部 Libzora 云同步与下载，以及自备 S3 / WebDAV
 （已购功能解锁的自备存储权益保留）。Plus 的 50 GB 下载额度按每个购买周期发放，续费额度
 从新周期开始可用，未用完到期作废。不限制月流量：上传只统计用量，下载可以在一个月用完全年额度。
 空间、单文件大小和并发上传限制照常检查；跨月或提前续费不会补回本年度已用额度。
@@ -83,8 +83,8 @@ Plus 首次开通后的临时下载限额由 `plusEarlyDownloadQuotaBytes`、`pl
 不占用书籍年度下载额度；超出时返回 `429 metadata_traffic_exceeded`，书籍下载仍可继续。
 新用户限额超出时返回 `429 new_user_traffic_exceeded`，年度额度耗尽返回 `429 traffic_quota_exceeded`，
 下载授权频率过高返回 `429 download_rate_limited`。
-Plus 登录成功或首次通过激活码开通 Plus 后，桌面端自动选择 Kkindle 云同步；若用户已在同步设置中保存
-S3 / WebDAV，登录 Plus 不会覆盖该选择。手机端打开“云同步”时同样默认显示 Kkindle 云同步，用户保存过
+Plus 登录成功或首次通过激活码开通 Plus 后，桌面端自动选择 Libzora 云同步；若用户已在同步设置中保存
+S3 / WebDAV，登录 Plus 不会覆盖该选择。手机端打开“云同步”时同样默认显示 Libzora 云同步，用户保存过
 自备同步方式后则直接打开对应界面。尚未设置同步密钥时保留所选方式并暂停同步，设置密钥后可以启用。
 
 Plus 最多可持有从当前时刻起 5 个 UTC 自然年的有效期。年费商品和 Plus 激活码每次增加 365 天；
@@ -95,7 +95,7 @@ Plus 最多可持有从当前时刻起 5 个 UTC 自然年的有效期。年费�
 
 从未开通过 Plus 的账号可以领取一次 **7 天免费试用**，必须由用户在账号中心主动打开领取开关才会调用
 `POST /api/accounts/trial`；重复或并发请求返回当前试用状态而不会再次发放，曾拥有 Plus 且未领取过试用的账号返回
-`409 trial_unavailable`。试用期按 Plus（`pro`）处理，可立即使用 Kkindle 云同步，空间为 100 MB，
+`409 trial_unavailable`。试用期按 Plus（`pro`）处理，可立即使用 Libzora 云同步，空间为 100 MB，
 下载为 200 MB 累计额度（一期额度，不按年折算）；试用到期后下载、云同步及自备 S3 / WebDAV 停用，
 云端数据保留 7 天后由持久化任务销毁。领取试用会记录首次 Plus 激活时间，试用期间或之后购买正式 Plus
 从试用到期时间起顺延，并按正式配额发放新的年度下载额度。会员响应的 `trialAvailable`、
@@ -113,12 +113,12 @@ Plus 最多可持有从当前时刻起 5 个 UTC 自然年的有效期。年费�
 激活码用 160 位随机数生成，摘要用于兑换，完整内容按区域密钥加密保存，审计不写入完整激活码。
 账号注销后保留随机账户 ID、已兑换状态与会员账本，不能把码恢复为未使用。
 
-没有有效 Plus 时，服务端对 Kkindle 云同步的列表、快照、书籍、封面及下载授权返回 `402 plus_required`，
-客户端停止整个 Kkindle 云同步。为节省下载额度，客户端
+没有有效 Plus 时，服务端对 Libzora 云同步的列表、快照、书籍、封面及下载授权返回 `402 plus_required`，
+客户端停止整个 Libzora 云同步。为节省下载额度，客户端
 缓存其他设备的快照（按对象修改时间），本机快照内容没有变化时 30 天内不重复上传。
 
 Plus 到期后，客户端显示到期提示，云端书籍、批注、书签和其他同步数据从到期时刻起保留一个
-**UTC 自然月**（例如 1 月 31 日到期，保留至 2 月末同一时刻），期间禁止 Kkindle 云同步和下载。
+**UTC 自然月**（例如 1 月 31 日到期，保留至 2 月末同一时刻），期间禁止 Libzora 云同步和下载。
 试用 Plus 到期后只保留 **7 天**，随后销毁；试用期间或之后购买正式 Plus 的账号按正式会员的一个月规则处理。
 客户端在到期前 30、7、1 天各提醒一次；同一次到期不会重复提醒，续费后按新的到期时间重新计算。
 保留期内续费可恢复访问。保留期结束后，服务端后台以持久化任务自动销毁该账号的全部云端同步文件
@@ -149,7 +149,7 @@ S3 预签名下载链接本身可重放，当前服务端记录的是授权字�
 不进入备份或云同步，导入备份不会占用原设备身份。
 
 账号页可创建功能解锁和 Plus 订单并取消待支付订单。额外空间包和下载流量包已下架，此前到账的
-空间包保留至到期，旧下载余额保留，但使用 Kkindle 云同步仍需有效 Plus。空间不足或下载额度用完时
+空间包保留至到期，旧下载余额保留，但使用 Libzora 云同步仍需有效 Plus。空间不足或下载额度用完时
 保留已有加密文件，可先清理云端数据；已删除对象的空间在签名链接过期后完全释放，短时间内容量
 检查可能仍按最多两倍额度计算。会员过期则按上述一个月保留规则处理。
 
@@ -167,11 +167,11 @@ S3 预签名下载链接本身可重放，当前服务端记录的是授权字�
 
 ## 独立服务器项目与本机验证
 
-用户管理服务位于桌面的独立项目 `~/Desktop/Kkindle_server`，使用 ASP.NET Core / .NET 10、
+用户管理服务位于桌面的独立项目 `~/Desktop/Libzora_server`，使用 ASP.NET Core / .NET 10、
 PostgreSQL 和中文管理网页，不依赖客户端源码路径。操作与部署资料在该项目的 README 中。
 
 ```sh
-cd ~/Desktop/Kkindle_server
+cd ~/Desktop/Libzora_server
 python3 scripts/local.py start
 python3 scripts/local.py test
 ```
@@ -182,8 +182,8 @@ python3 scripts/local.py test
 
 | 区域 | 客户端服务地址 | 管理网页 | 账号数据库 | 加密文件 |
 | --- | --- | --- | --- | --- |
-| 中国区 | `http://127.0.0.1:5088` | `http://127.0.0.1:5088/admin` | PostgreSQL `kkindle_china` | `.local/storage/china/sync/<account-id>/` |
-| 国际区 | `http://127.0.0.1:5089` | `http://127.0.0.1:5089/admin` | PostgreSQL `kkindle_international` | `.local/storage/international/sync/<account-id>/` |
+| 中国区 | `http://127.0.0.1:5088` | `http://127.0.0.1:5088/admin` | PostgreSQL `libzora_china` | `.local/storage/china/sync/<account-id>/` |
+| 国际区 | `http://127.0.0.1:5089` | `http://127.0.0.1:5089/admin` | PostgreSQL `libzora_international` | `.local/storage/international/sync/<account-id>/` |
 
 PostgreSQL 只保存账号、会话哈希、封禁、额度、流量、存储汇总和管理记录。书籍与同步快照
 由客户端加密后存入独立文件目录；数据库没有书名、书籍清单、正文或解密密钥。管理网页
@@ -193,18 +193,18 @@ PostgreSQL 只保存账号、会话哈希、封禁、额度、流量、存储汇
 删除须先封禁，之后可选择只删除云数据或同时删除账号。删除账号后同名用户可以重新注册；
 需要保持拉黑状态时，选择只删除云数据。离线备份按服务器的独立保留计划清理。
 
-`GET /health` 返回服务标识 `kkindle-accounts`、区域（China 为 0，International 为 1）和
+`GET /health` 返回服务标识 `libzora-accounts`、区域（China 为 0，International 为 1）和
 `administration: true`。数据库和文件目录首次初始化时记录所属区域，禁止跨区复用。
 
 macOS 桌面端、移动端预览和 iOS 模拟器直接使用 `127.0.0.1`；Android 模拟器的开发机
 地址为 `10.0.2.2`，端口仍分别为 5088 / 5089。真机连接可访问的 HTTPS 服务。
 
 在登录页选择区域、切换到注册、填写邮箱、用户名、登录密码和确认登录密码。再到同步设置选择
-“Kkindle 云同步”，设置并保存同步密钥，再点击测试连接或立即同步。账号同步复用现有书库快照合并协议，包含书籍、
+“Libzora 云同步”，设置并保存同步密钥，再点击测试连接或立即同步。账号同步复用现有书库快照合并协议，包含书籍、
 批注、书签和阅读记录；书籍文件默认按需下载，也可开启同步时下载。
 
 同步密钥只在用户设备本地保存，不上传服务器，不导出到备份。用户须自行牢记；遗忘后
-无法解密已有云数据或 `.kkindle` 加密备份，服务器没有密钥找回能力。完整数据备份的
+无法解密已有云数据或 `.libzora` 加密备份，服务器没有密钥找回能力。完整数据备份的
 导入和导出也必须使用已配置的密钥，详见[加密备份说明](backup-encryption.md)。
 
 新上传的加密书籍与封面统一使用 `objects/encrypted/<64位命名空间>/<64位不透明名字>`。
@@ -218,9 +218,9 @@ macOS 桌面端、移动端预览和 iOS 模拟器直接使用 `127.0.0.1`；And
 后续采用同一排序规则，读取、去重及清理兼顾全部保留盐，不会因为初始化竞争丢失文件。
 未设置密钥的自备存储仍是明文 `objects/plain/<SHA-256>`，不承诺隐藏文件指纹。
 
-新加密书籍与封面使用 `KKINDLE-SYNC3`：真实长度放在认证密文内，数据按 Padmé 规则
+新加密书籍与封面使用 `LIBZORA-SYNC3`：真实长度放在认证密文内，数据按 Padmé 规则
 分档向上补齐；公开分块长度只反映补齐后的大小。服务器仍能看到对象数、大致大小、传输
-时间及同步频率，不能宣称消除了全部元数据泄露。快照仍使用 `KKINDLE-SYNC1`。
+时间及同步频率，不能宣称消除了全部元数据泄露。快照仍使用 `LIBZORA-SYNC1`。
 
 同步快照和最低读取协议提高为 **6**，所有设备须一起升级。新客户端继续读取旧版快照及
 `SYNC1`／`SYNC2` 对象；旧路径仅从不含口令摘要或文件哈希的目录列表中发现，不猜测
@@ -236,9 +236,9 @@ macOS 桌面端、移动端预览和 iOS 模拟器直接使用 `127.0.0.1`；And
 重新打开前，当前进程禁止同步和按需下载，包括后台同步，避免向另一地区发送现有书库。
 切回原区域并重新打开后，原来的本地书库和登录状态仍保留。
 
-“Kkindle 云同步”绑定当前登录的区域、服务地址和用户 ID；服务端仅从认证会话确定文件所有者。
+“Libzora 云同步”绑定当前登录的区域、服务地址和用户 ID；服务端仅从认证会话确定文件所有者。
 更换账号、服务地址、退出或会话失效时，旧的同步配置不能继续使用。Plus 登录成功后自动选择
-当前账号的 Kkindle 云同步，保留原同步启用状态；若缺少同步密钥，则暂停传输，待配置密钥后启用。
+当前账号的 Libzora 云同步，保留原同步启用状态；若缺少同步密钥，则暂停传输，待配置密钥后启用。
 正在进行的同步完成后再保存新的选择。之后手动保存 S3 / WebDAV，刷新或重新打开账户中心不会覆盖选择；
 再次登录 Plus 也不会覆盖，下次打开“云同步”会直接显示保存的方式。
 
@@ -246,7 +246,7 @@ macOS 桌面端、移动端预览和 iOS 模拟器直接使用 `127.0.0.1`；And
 `regions/international/<目录前缀>/`。即使填写相同 Bucket 或 WebDAV 地址，两个区域也不会
 合并数据。已有未分区的远端 `<目录前缀>/` 数据不会自动迁入，新版首次同步使用分区目录；
 原有本地书库会上传到当前区域。每个区域独立保存连接凭据。连接参数文件仍只支持 S3 / WebDAV；
-账号会话不能导出。普通备份不包含账号会话，恢复备份不会自动启用 Kkindle 云同步。
+账号会话不能导出。普通备份不包含账号会话，恢复备份不会自动启用 Libzora 云同步。
 
 ## 本地自动化验证
 
@@ -254,14 +254,14 @@ macOS 桌面端、移动端预览和 iOS 模拟器直接使用 `127.0.0.1`；And
 流量、CSRF、封禁、删除重试和并发上传期间的删除。现有 Chrome 验证脚本位于独立项目的
 `scripts/browser-check.mjs`，直接使用已安装浏览器，不要求下载另一个测试浏览器。
 
-客户端仓库保留 `src/Kkindle.AccountServer` 作为 SQLite 协议测试服务，用于验证客户端
+客户端仓库保留 `src/Libzora.AccountServer` 作为 SQLite 协议测试服务，用于验证客户端
 协议和两台设备的同步兼容性；它不具备独立项目的用户后台、额度与加密上传限制，不应
 作为本次服务器管理方案部署。相关测试使用临时目录和随机端口，不占用 5088 / 5089：
 
 ```sh
-dotnet test tests/Kkindle.AccountServer.Tests/Kkindle.AccountServer.Tests.csproj -c Debug
-dotnet test tests/Kkindle.Mobile.Tests/Kkindle.Mobile.Tests.csproj -c Debug
-dotnet test tests/Kkindle.Tests/Kkindle.Tests.csproj -c Debug
+dotnet test tests/Libzora.AccountServer.Tests/Libzora.AccountServer.Tests.csproj -c Debug
+dotnet test tests/Libzora.Mobile.Tests/Libzora.Mobile.Tests.csproj -c Debug
+dotnet test tests/Libzora.Tests/Libzora.Tests.csproj -c Debug
 ```
 
 覆盖注册、错误密码、重复用户名、会话恢复/撤销/过期、限流、两个区域的账号和对象隔离、
@@ -275,14 +275,14 @@ dotnet test tests/Kkindle.Tests/Kkindle.Tests.csproj -c Debug
 
 ```sh
 python3 -I scripts/prepare_local_cloud_sync_test.py --output artifacts/test-results/sync-privacy/live-accounts.json
-KKINDLE_LIVE_SYNC_CONFIG="$PWD/artifacts/test-results/sync-privacy/live-accounts.json" \
-  dotnet test tests/Kkindle.AccountServer.Tests/Kkindle.AccountServer.Tests.csproj -c Debug -nodeReuse:false \
+LIBZORA_LIVE_SYNC_CONFIG="$PWD/artifacts/test-results/sync-privacy/live-accounts.json" \
+  dotnet test tests/Libzora.AccountServer.Tests/Libzora.AccountServer.Tests.csproj -c Debug -nodeReuse:false \
   --filter FullyQualifiedName~LivePostgresCloudSync
 ```
 
 准备脚本只连接回环的两区**演示**服务，每区新建一个 `privacy_` 虚构账号，经过 Plus 订单和
 带 CSRF 的管理员到账流程，不修改保留的 `demo_cn_` 账号，也不发生真实付款。输出文件须是
-新文件；默认从 `~/Desktop/Kkindle_server/.local/local-config.json` 读取本机服务配置，可用
+新文件；默认从 `~/Desktop/Libzora_server/.local/local-config.json` 读取本机服务配置，可用
 `--server-config` 指定其他本地路径。凭据仅存于被忽略的 0600 JSON 文件，不输出、不提交。
 
 测试使用真实账号权限（无测试权益绕过）、签名直传和两台隔离客户端，验证超过 1 MiB 的
@@ -293,11 +293,11 @@ EPUB、封面、按需下载、双向批注与阅读时长、跨设备去重、�
 iOS 原生界面另有完整的分区账号测试。安装隔离预览应用并启动上述两个本地服务后运行：
 
 ```sh
-python3 tests/Kkindle.Mobile.iOS.UITests/run-tests.py --simulator <模拟器ID> --results <新的结果目录> --only testAccountMembershipDevicesAndOrders --only testRegionalAccountRegistrationAndFreeSyncRestriction
+python3 tests/Libzora.Mobile.iOS.UITests/run-tests.py --simulator <模拟器ID> --results <新的结果目录> --only testAccountMembershipDevicesAndOrders --only testRegionalAccountRegistrationAndFreeSyncRestriction
 ```
 
 这两个场景可连接上述 PostgreSQL 本地服务，验证 Free 会员、设备列表、订单创建/取消、
-踢出当前设备后的失效提示，以及两区分别注册、退出、错误密码提示、重新登录、Free Kkindle 云同步被拒绝
+踢出当前设备后的失效提示，以及两区分别注册、退出、错误密码提示、重新登录、Free Libzora 云同步被拒绝
 和切区重开后的书库隔离与会话恢复。测试使用虚构密码，并处理 iOS 系统的强密码建议弹层。
 先准备不含会话和同步密钥的隔离预览；完成后通过管理网页的封禁、删除任务清理日志中
 标记的临时 `region_` 账号，不删除保留的 `demo_cn_` 用户。由于依赖本地服务，默认的
@@ -308,13 +308,13 @@ python3 tests/Kkindle.Mobile.iOS.UITests/run-tests.py --simulator <模拟器ID> 
 独立服务器需要 .NET 10 ASP.NET Core Runtime 和 PostgreSQL。正式环境将两区服务运行在各自区域的主机上，
 使用独立的数据卷、备份和 HTTPS 域名。网关按域名固定代理对应区域，不配置跨区回退、
 账号复制或同步数据复制。客户端两区默认地址集中在
-`src/Kkindle.Core/AccountServerEndpoints.cs`，支持 `KKINDLE_ACCOUNT_SERVER_CHINA` /
-`KKINDLE_ACCOUNT_SERVER_INTERNATIONAL` 环境变量覆盖；已登录令牌仍绑定原服务器。
+`src/Libzora.Core/AccountServerEndpoints.cs`，支持 `LIBZORA_ACCOUNT_SERVER_CHINA` /
+`LIBZORA_ACCOUNT_SERVER_INTERNATIONAL` 环境变量覆盖；已登录令牌仍绑定原服务器。
 完整字段、已安装客户端的默认地址更新和部署注意事项见[部署配置入口](account-server-deployment.md)。
 
 ### 对象存储与签名直传
 
-Kkindle 云同步在 `S3` 模式下的加密字节不经过账号服务；`Local` 模式由服务自身提供
+Libzora 云同步在 `S3` 模式下的加密字节不经过账号服务；`Local` 模式由服务自身提供
 签名传输端点。服务端负责授权、计费和索引，客户端拿到短期签名链接后与对应存储传输，
 链接本身不携带账号会话：
 
@@ -349,7 +349,7 @@ location / {
 
 ## API 与会话
 
-所有账号和同步请求必须携带 `X-Kkindle-Region: china` 或 `international`，并与服务的固定
+所有账号和同步请求必须携带 `X-Libzora-Region: china` 或 `international`，并与服务的固定
 区域相同，否则返回 403。认证 JSON 中的 `region` 同样必须匹配。区域标签由服务器配置
 决定；请求头用于防止误连，不能改变服务器区域。
 
@@ -386,7 +386,7 @@ location / {
 
 反馈字段、截图限制、错误码与限流详见 [问题反馈](feedback.md)。
 
-账号服务的所有响应都带 `X-Kkindle-Server-Time`（ISO 8601 UTC）。客户端用请求往返中点估算本机与服务器的时钟偏移，并限制在 ±30 天内，用于校准同步使用的混合逻辑时钟；服务器仍不解析、不解密快照内容，只提供时间参考。自建 S3/WebDAV 没有该响应头时，客户端退回本机时钟。同步时序规则见[扩展 S3 同步内容](s3-sync-extension.md)。
+账号服务的所有响应都带 `X-Libzora-Server-Time`（ISO 8601 UTC）。客户端用请求往返中点估算本机与服务器的时钟偏移，并限制在 ±30 天内，用于校准同步使用的混合逻辑时钟；服务器仍不解析、不解密快照内容，只提供时间参考。自建 S3/WebDAV 没有该响应头时，客户端退回本机时钟。同步时序规则见[扩展 S3 同步内容](s3-sync-extension.md)。
 
 注册/登录返回 `region`、`user: { id, username, email, emailVerified }`、`token`、`expiresAt`，旧账号的 `email` 可为空。
 错误密码和不存在的账号统一返回 401；重复注册返回 409；同一来源每分钟最多 10 次
@@ -405,7 +405,7 @@ location / {
 32 字节随机令牌，有效期 30 天；服务器只保存令牌的 SHA-256 哈希。账号和会话在服务重启
 后保留。退出仅撤销当前设备、当前区域的会话，不影响其他设备或另一地区账号。
 客户端通过平台 `ISecretProtector` 独立加密两区会话，不保存账号密码；会话不进入任何云同步
-或 `.kkindle` 备份。服务器不可用时仍可在本机退出，界面提示远端撤销尚未完成。
+或 `.libzora` 备份。服务器不可用时仍可在本机退出，界面提示远端撤销尚未完成。
 
 ## 阅读周期
 

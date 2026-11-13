@@ -1,0 +1,385 @@
+namespace Libzora.Core;
+
+public sealed class ReaderAnnotation
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid BookId { get; set; }
+    public Guid BookFileId { get; set; }
+    public string ChapterPath { get; set; } = string.Empty;
+    public string? Fragment { get; set; }
+    public int StartOffset { get; set; }
+    public int EndOffset { get; set; }
+    public string SelectedText { get; set; } = string.Empty;
+    public string Prefix { get; set; } = string.Empty;
+    public string Suffix { get; set; } = string.Empty;
+    public string Color { get; set; } = "#000000";
+    public string UnderlineStyle { get; set; } = "solid";
+    public string Note { get; set; } = string.Empty;
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+
+    public string DisplayQuote => string.IsNullOrWhiteSpace(SelectedText) ? UiText.Get("未命名批注") : SelectedText;
+    public string DisplayNote => string.IsNullOrWhiteSpace(Note) ? UiText.Get("仅划线") : Note;
+}
+
+/// <summary>
+/// A book-level reflection is intentionally separate from an annotation.
+/// An annotation belongs to a quoted location in one book file; a reflection
+/// belongs to the logical book and therefore survives switching between EPUB,
+/// PDF, and other formats of the same book.
+/// </summary>
+public sealed class ReaderBookReflection
+{
+    public Guid BookId { get; set; }
+    public string Content { get; set; } = string.Empty;
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+}
+
+public sealed record BookContentChunk(
+    long Id,
+    Guid BookId,
+    Guid BookFileId,
+    string SourceHash,
+    int ChapterIndex,
+    int ChunkIndex,
+    string ChapterTitle,
+    string ChapterPath,
+    int StartOffset,
+    int EndOffset,
+    string Content,
+    double Rank = 0);
+
+public sealed record BookContentChunkDraft(
+    int ChapterIndex,
+    int ChunkIndex,
+    string ChapterTitle,
+    string ChapterPath,
+    int StartOffset,
+    int EndOffset,
+    string Content);
+
+// ------------------------------------------------------------------
+// Reader persistence: progress restore, bookmarks, per-format layout rows,
+// book-level layout/appearance scope and cumulative reading stats. Layout
+// controls stay per format while a book's selected scope and appearance are
+// shared by every format of that logical book.
+// ------------------------------------------------------------------
+
+public sealed record ReaderProgressRow(
+    Guid BookId,
+    Guid BookFileId,
+    string ChapterPath,
+    string? Fragment,
+    int ChapterIndex,
+    int ScrollPosition,
+    double ProgressPercent,
+    int FlowMode,
+    DateTimeOffset UpdatedAt)
+{
+    public ReaderContentPosition? ContentPosition { get; init; }
+}
+
+public sealed class ReaderBookmark
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid BookId { get; set; }
+    public Guid BookFileId { get; set; }
+    public string ChapterPath { get; set; } = string.Empty;
+    public string? Fragment { get; set; }
+    public int ChapterIndex { get; set; }
+    public int? ScrollPosition { get; set; }
+    public int FlowMode { get; set; }
+    public ReaderContentPosition? ContentPosition { get; set; }
+    public string Title { get; set; } = string.Empty;
+    public string Quote { get; set; } = string.Empty;
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+
+    public string DisplayTitle => string.IsNullOrWhiteSpace(Title) ? UiText.Get("未命名书签") : Title;
+    public string DisplayQuote => string.IsNullOrWhiteSpace(Quote) ? UiText.Get("当前阅读位置") : Quote;
+    public string DisplayTime => CreatedAt.ToLocalTime().ToString("MM-dd HH:mm");
+}
+
+public static class ReaderFontDefaults
+{
+    public const string DefaultFamily = "京华老宋体";
+    public const string BundledFamily = "KingHwaOldSong";
+    public const string BundledFontFileName = "KingHwaOldSong-v3.0.ttf";
+    /// <summary>Prefix for a face exposed by the platform font manager, e.g. <c>system:PingFang SC</c>.</summary>
+    public const string SystemFamilyPrefix = "system:";
+    /// <summary>Prefix for a font installed from the downloadable reader catalog.</summary>
+    public const string CatalogFamilyPrefix = "catalog:";
+}
+
+public sealed record ReaderLayoutSettings(
+    double FontScale = ReaderLayoutDefaults.DefaultFontScale,
+    double LineHeight = 1.8,
+    double MaxWidth = ReaderLayoutDefaults.DefaultMaxWidth,
+    double BodyPadding = 24,
+    string FontFamily = ReaderFontDefaults.DefaultFamily,
+    int FlowMode = 1,
+    bool VerticalWriting = false,
+    bool TwoPageMode = false)
+{
+    [System.Text.Json.Serialization.JsonExtensionData]
+    public Dictionary<string, System.Text.Json.JsonElement>? ExtensionData { get; init; }
+
+    // Keep this as an initialized property instead of a new positional
+    // constructor parameter. Older JSON settings do not contain the field;
+    // the initializer therefore gives new settings the current default.
+    public bool ParagraphIndent { get; init; } = false;
+    /// <summary>Extra gap after body paragraphs, in multiples of the body font size.</summary>
+    public double ParagraphSpacing { get; init; } = ReaderLayoutDefaults.DefaultParagraphSpacing;
+    /// <summary>Keep consecutive paragraph lines at the normal line pitch.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool ParagraphSpacingMatchesLineHeight { get; init; }
+    /// <summary>Use the reader's body line height instead of publisher CSS.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool OverridePublisherLineHeight { get; init; }
+    /// <summary>Use the reader's paragraph gap instead of adjacent paragraph CSS margins.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool OverridePublisherParagraphSpacing { get; init; }
+    /// <summary>Keep at least two lines together at paragraph page boundaries.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool AvoidWidowsAndOrphans { get; init; } = true;
+}
+
+/// <summary>
+/// A book-scoped layout and appearance profile. The active layout row is
+/// stored with the book's reader data so it follows the book across devices.
+/// </summary>
+public sealed record ReaderBookLayoutProfile(
+    Guid BookId,
+    Guid BookFileId,
+    bool UseBookOverride,
+    ReaderLayoutSettings Layout,
+    ReaderAppearanceSettings Appearance)
+{
+    public static ReaderBookLayoutProfile Normalize(ReaderBookLayoutProfile profile) => profile with
+    {
+        Layout = ReaderLayoutDefaults.Normalize(profile.Layout),
+        Appearance = ReaderAppearanceSettings.Normalize(profile.Appearance)
+    };
+}
+
+// ------------------------------------------------------------------
+// Layout settings safety net. Persisted per-book settings can carry
+// stale or corrupted values (NaN, out-of-range widths, invalid flow
+// modes) from older builds. Clamp every field to the supported ranges
+// so a bad row can never force an EPUB into an unreadable layout;
+// the rest of the user's reading data is never touched.
+// ------------------------------------------------------------------
+
+public static class ReaderLayoutDefaults
+{
+    public const double DefaultFontScale = 1.4;
+    public const double DefaultLineHeight = 1.8;
+    public const double DefaultMaxWidth = 1200;
+    public const double DefaultBodyPadding = 24;
+    public const double MinFontScale = 0.8;
+    public const double MaxFontScale = 1.8;
+    public const double MinLineHeight = 1.3;
+    public const double MaxLineHeight = 2.6;
+    public const double MinMaxWidth = 480;
+    // 3840 covers a full-width column on an unscaled 4K panel; the reader
+    // clamps the effective width to the viewport anyway, so larger monitors
+    // simply get more headroom.
+    public const double MaxMaxWidth = 3840;
+    public const double MinBodyPadding = 24;
+    public const double MaxBodyPadding = 160;
+    public const double DefaultParagraphSpacing = 0;
+    public const double MaxParagraphSpacing = 2;
+
+    // All reader layout options are global. Keep this helper for callers that
+    // still pass a legacy per-book layout, but never let that layout override
+    // the current global profile.
+    public static ReaderLayoutSettings ApplyGlobalPreferences(
+        ReaderLayoutSettings bookLayout,
+        ReaderLayoutSettings globalLayout)
+    {
+        _ = bookLayout;
+        return Normalize(globalLayout);
+    }
+
+    public static ReaderLayoutSettings ApplyPreferences(
+        ReaderLayoutSettings bookLayout,
+        ReaderLayoutSettings globalLayout,
+        bool useBookOverride) =>
+        Normalize(useBookOverride ? bookLayout : globalLayout);
+
+    public static ReaderLayoutSettings Normalize(ReaderLayoutSettings settings)
+    {
+        var fontScale = double.IsFinite(settings.FontScale)
+            ? Math.Clamp(settings.FontScale, MinFontScale, MaxFontScale)
+            : DefaultFontScale;
+        var lineHeight = double.IsFinite(settings.LineHeight)
+            ? Math.Clamp(settings.LineHeight, MinLineHeight, MaxLineHeight)
+            : DefaultLineHeight;
+        var maxWidth = double.IsFinite(settings.MaxWidth)
+            ? Math.Clamp(settings.MaxWidth, MinMaxWidth, MaxMaxWidth)
+            : DefaultMaxWidth;
+        var bodyPadding = double.IsFinite(settings.BodyPadding)
+            ? Math.Clamp(settings.BodyPadding, MinBodyPadding, MaxBodyPadding)
+            : DefaultBodyPadding;
+        var paragraphSpacing = double.IsFinite(settings.ParagraphSpacing)
+            ? Math.Clamp(settings.ParagraphSpacing, 0, MaxParagraphSpacing)
+            : DefaultParagraphSpacing;
+        var fontFamily = string.IsNullOrWhiteSpace(settings.FontFamily)
+            ? ReaderFontDefaults.DefaultFamily
+            : settings.FontFamily.Trim();
+        var verticalWriting = settings.VerticalWriting;
+        return settings with
+        {
+            FontScale = fontScale,
+            LineHeight = lineHeight,
+            MaxWidth = maxWidth,
+            BodyPadding = bodyPadding,
+            ParagraphSpacing = paragraphSpacing,
+            FontFamily = fontFamily,
+            // Vertical text is deliberately a single-page-only layout. Keep
+            // the invariant here rather than relying on individual controls:
+            // persisted legacy rows and programmatic callers must not be able
+            // to recreate vertical scrolling or a vertical two-page spread.
+            FlowMode = verticalWriting ? 1 : settings.FlowMode == 1 ? 1 : 0,
+            VerticalWriting = verticalWriting,
+            TwoPageMode = !verticalWriting && settings.TwoPageMode
+        };
+    }
+}
+
+public sealed class ReaderReadingStats
+{
+    public Guid BookId { get; set; }
+    public Guid BookFileId { get; set; }
+    public long CumulativeSeconds { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public double ProgressPercent { get; set; }
+    public int CompletedChapters { get; set; }
+    public int TotalChapters { get; set; }
+
+    public string DurationLabel
+    {
+        get
+        {
+            var seconds = CumulativeSeconds;
+            if (seconds < 60) return UiText.Get("{0} 秒", seconds);
+            if (seconds < 3600) return UiText.Get("{0} 分钟", seconds / 60);
+            return UiText.Get("{0:0.0} 小时", seconds / 3600.0);
+        }
+    }
+}
+
+public static class ReaderFormatting
+{
+    public static string FormatPercent(double percent) =>
+        $"{Math.Clamp((int)Math.Round(percent), 0, 100)}%";
+}
+
+// ------------------------------------------------------------------
+// Chapter-navigation intent. Every real chapter switch funnels through
+// NavigateReaderSourceAsync with an explicit intent so the reader knows
+// WHY it navigated:
+//   - None      open-book breakpoint restore, prev/next chapter,
+//               continuous scroll edge transitions.
+//   - Toc       a TOC click. Plain chapter entries must start at the
+//               chapter's first line; entries that explicitly carry a
+//               fragment anchor jump to that anchor.
+//   - Progress  progress-slider jump: chapter first line.
+//   - Link / Footnote / Bookmark / Annotation / Search / AiSource:
+//               explicit named locations that scroll to their own target.
+// An explicit user target must win over any automatic breakpoint restore,
+// and a navigation must never inherit the stale pending location of the
+// navigation it superseded (rapid TOC clicks, or a TOC click right after
+// a search/bookmark/annotation jump).
+// ------------------------------------------------------------------
+public enum ReaderNavigationIntent
+{
+    None = 0,
+    Toc = 1,
+    Progress = 2,
+    Bookmark = 3,
+    Annotation = 4,
+    Search = 5,
+    AiSource = 6,
+    Link = 7,
+    Footnote = 8
+}
+
+public static class ReaderNavigationLocationPolicy
+{
+    // WebView2 treats a different fragment in the same XHTML as an in-page
+    // navigation. Such jumps may not raise NavigationCompleted, so callers
+    // compare document identity without the fragment and position directly.
+    public static bool TargetsSameDocument(Uri? current, Uri? target)
+    {
+        if (current is null || target is null || !current.IsAbsoluteUri || !target.IsAbsoluteUri)
+            return false;
+
+        return Uri.Compare(
+            current,
+            target,
+            UriComponents.SchemeAndServer | UriComponents.Path | UriComponents.Query,
+            UriFormat.SafeUnescaped,
+            StringComparison.OrdinalIgnoreCase) == 0;
+    }
+
+    // A plain chapter navigation (TOC without an explicit anchor, or the
+    // progress slider) always starts at the chapter's first line: the actual
+    // scroll container goes back to the content-box start (scrollTop = 0 in
+    // scroll mode; first column boundary + scrollTop = 0 in pagination).
+    public static bool GoesToChapterStart(ReaderNavigationIntent intent) =>
+        intent is ReaderNavigationIntent.Toc or ReaderNavigationIntent.Progress;
+
+    // Automatic breakpoint restore is only used when the user did not ask
+    // for a specific target (open-book restore, plain chapter switches).
+    public static bool UsesRestorePosition(ReaderNavigationIntent intent) =>
+        intent == ReaderNavigationIntent.None;
+
+    public static bool KeepsChunkOffset(ReaderNavigationIntent intent) =>
+        intent is ReaderNavigationIntent.Search or ReaderNavigationIntent.AiSource;
+
+    public static bool KeepsBookmarkQuote(ReaderNavigationIntent intent) =>
+        intent == ReaderNavigationIntent.Bookmark;
+
+    public static bool KeepsAnnotationScroll(ReaderNavigationIntent intent) =>
+        intent == ReaderNavigationIntent.Annotation;
+
+    public static bool KeepsRestorePosition(ReaderNavigationIntent intent) =>
+        intent == ReaderNavigationIntent.None;
+
+    // A TOC entry that explicitly carries a fragment anchor goes to that
+    // anchor; a plain chapter entry starts at the first line. This keeps
+    // genuine heading anchors working while ordinary chapter entries always
+    // open at the chapter top. A trailing bare '#' is not an anchor (.NET
+    // Uri.Fragment reports "#" for it, but the EPUB navigation parser never
+    // emits such targets — it only appends a fragment when the anchor text is
+    // non-empty — so it must fall back to the plain chapter entry).
+    public static bool TocTargetHasAnchor(Uri target) =>
+        target?.Fragment is { Length: > 0 } fragment
+        && !string.Equals(fragment, "#", StringComparison.Ordinal);
+
+    public static string TocAnchorId(Uri target)
+    {
+        var fragment = target?.Fragment.TrimStart('#') ?? string.Empty;
+        return string.Equals(fragment, "#", StringComparison.Ordinal) ? string.Empty : fragment;
+    }
+
+    // Chapter-start normalization (drop leading blank blocks, zero the first
+    // element's top margin) may only run when the navigation is ABOUT to show
+    // the chapter's first line:
+    //   - a plain TOC entry (no explicit anchor),
+    //   - a progress-slider jump,
+    //   - a plain chapter switch (None) with no breakpoint restore pending.
+    // It must never run for fragment anchors, bookmarks, annotations, search
+    // or AI-source targets: those carry their own precise scroll target and
+    // their offset math depends on the untouched DOM.
+    public static bool ShouldNormalizeChapterStart(ReaderNavigationIntent intent, Uri? target, bool hasPendingRestorePosition) =>
+        intent switch
+        {
+            ReaderNavigationIntent.Toc => target is not null && !TocTargetHasAnchor(target),
+            ReaderNavigationIntent.Progress => true,
+            ReaderNavigationIntent.None => !hasPendingRestorePosition,
+            ReaderNavigationIntent.Link => target is not null && !TocTargetHasAnchor(target),
+            _ => false
+        };
+}

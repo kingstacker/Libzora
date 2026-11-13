@@ -1,6 +1,6 @@
 # Kreader 阅读器功能对比：老版 WinUI vs 新版 Avalonia
 
-> 本文是迁移期间完成的历史审计记录：删除前的 WinUI 参照版（MainWindow.xaml 阅读器区 3589–5208 + 9 个 Reader 分部类 + 4 个脚本文件）与 `src/Kkindle.App`（MainWindow.axaml 阅读器区 3118–4221 + 7 个 Reader 分部类 + 基础设施）曾逐项比对。旧 WinUI 源码已于 2026-08-19 删除，文中旧版行号仅用于追溯当时的审计结论。
+> 本文是迁移期间完成的历史审计记录：删除前的 WinUI 参照版（MainWindow.xaml 阅读器区 3589–5208 + 9 个 Reader 分部类 + 4 个脚本文件）与 `src/Libzora.App`（MainWindow.axaml 阅读器区 3118–4221 + 7 个 Reader 分部类 + 基础设施）曾逐项比对。旧 WinUI 源码已于 2026-08-19 删除，文中旧版行号仅用于追溯当时的审计结论。
 
 ## 结论摘要
 
@@ -38,7 +38,7 @@
 | 8 | **PDF 显示降级（最大功能差）** | 直接把 PDF 文件喂给 WebView2 内置 PDF 查看器，真实版式/图片/公式/矢量（`MainWindow.Pdf.cs:72-73`，`Source = 文件 URI + #page=N`） | 用"文本化 HTML"重建：纯文本 + 页卡片边框（`ReaderFeatures.cs:162-248`），无原版排版、图片、公式；搜索/进度/书签/标注逻辑一致但显示完全不同 |
 | 9 | **波浪翻页动画为近似实现** | DevTools Protocol `Page.captureScreenshot` 截取页面快照做真实卷页（`xaml.cs:2568, 3530-3565`） | CSS 灰度/对比度滤镜脉冲（`ReaderInteraction.cs:989-1026`），无真实卷页 |
 | 10 | **AI 气泡不渲染 Markdown** | `MarkdownRichTextBlock` 渲染（`ReaderAi.cs:569`） | 纯 `TextBlock` 显示原文（`MainWindow.axaml:3901`），AI 回复中的 **加粗/代码/链接** 以原文展示 |
-| 11 | **正文外观覆盖 CSS 简化（选区/图片/封面/两端对齐）** | 注入约 200 行覆盖样式（`xaml.cs:4422-4621`）：html font-size 百分比、`::selection` 黑底白字、两端对齐、letter-spacing、链接色 #222、p/h1-h4/blockquote 边距、图片适配（分页 contain + max-height、`.kkindle-cover` 封面检测）、pre/table 横向滚动、ruby、字体预热 `fonts.load`、`.kkindle-fragment-break` 断列 | 仅注入滚动条 + 分栏 + 白底 + 字号/行距/字体（`ReaderInteraction.cs:167-229`）：选区颜色、链接色、两端对齐、图片与封面在分页模式的表现与老版不同 |
+| 11 | **正文外观覆盖 CSS 简化（选区/图片/封面/两端对齐）** | 注入约 200 行覆盖样式（`xaml.cs:4422-4621`）：html font-size 百分比、`::selection` 黑底白字、两端对齐、letter-spacing、链接色 #222、p/h1-h4/blockquote 边距、图片适配（分页 contain + max-height、`.libzora-cover` 封面检测）、pre/table 横向滚动、ruby、字体预热 `fonts.load`、`.libzora-fragment-break` 断列 | 仅注入滚动条 + 分栏 + 白底 + 字号/行距/字体（`ReaderInteraction.cs:167-229`）：选区颜色、链接色、两端对齐、图片与封面在分页模式的表现与老版不同 |
 
 ### P3 —— 行为/精度差异
 
@@ -117,7 +117,7 @@
 | 15 | 书签反馈 ToolTip | **非缺口**：`ShowReaderBookmarkFeedback`（1.6s ToolTip）早已实现，报告此条为误报，已删除 |
 | 16 | 按钮 ToolTip | 缩放 A−/A+ 补 ToolTip.Tip；其余已手写覆盖 |
 | 17 | 滑块拖动提示 | 拖动时 ToolTip「current / total · 章节名」（PDF「第 N 页」） |
-| 18 | 字体项与字体栈 | 补等线 DengXian（7 项）；内置 KingHwaOldSong 进 `Kkindle.App\Assets\Fonts`（AvaloniaResource + Content）；`BuildReaderFontStack` 回退栈 + @font-face 注入 |
+| 18 | 字体项与字体栈 | 补等线 DengXian（7 项）；内置 KingHwaOldSong 进 `Libzora.App\Assets\Fonts`（AvaloniaResource + Content）；`BuildReaderFontStack` 回退栈 + @font-face 注入 |
 | 19 | 短章节连跳 | 滚动模式切章后 60ms 检测不可滚动（≤16px）连跳，深度上限 5 |
 | 20 | 导航意图管线 | `NavigateToReaderItemAsync` 加 intent 参数，`ApplyReaderLocationAsync` 按 `ReaderNavigationLocationPolicy` 归一化/锚点/保持 DOM；批注跳转附带 fragment |
 | 21 | WebView2 配置 | adapter 仅暴露 COM 指针（无托管设置对象）：右键菜单改 `contextmenu` preventDefault（页面级等效）；DevTools 已禁；脚本对话框被净化+CSP nonce 消解；`IsScriptEnabled=false` 无法恢复（桥接依赖 InvokeScript） |

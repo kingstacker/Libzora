@@ -1,4 +1,4 @@
-# Kkindle 项目 Agent 约定
+# Libzora 项目 Agent 约定
 
 ## Shell 使用约定
 
@@ -26,10 +26,10 @@
 
 - 中国区和国际区的账号、会话、书库、同步文件与密钥配置分别保存；禁止跨区复制、回退或合并。切区后必须重新加载对应书库，在重新打开应用前阻止旧书库的同步和按需下载。
 - 账号云同步必须设置同步密钥。密钥只在用户设备上受保护地保存；不上传、不写入备份、请求、日志或云对象路径，也不在云路径中暴露可快速验证口令的密钥摘要。
-- 加密书籍及封面的云对象路径不得包含明文内容哈希；使用慢速派生且用途隔离的命名密钥计算 HMAC。账号命名隔离于区域和账号 ID，不能依赖服务器域名；自备加密存储的随机盐随加密快照合并保留。新对象使用 `KKINDLE-SYNC3` 补齐长度，真实长度须在认证密文内；协议／最低读取版本为 6，旧对象只读发现，不猜测哈希路径或自动清空历史云数据。
-- 全量 `.kkindle` 数据导出和导入必须加密。未配置密钥时，在打开文件选择或分享界面前提示设置同步密钥。整份备份通过认证后才替换书库；错误密钥或损坏文件不能部分覆盖现有数据。
+- 加密书籍及封面的云对象路径不得包含明文内容哈希；使用慢速派生且用途隔离的命名密钥计算 HMAC。账号命名隔离于区域和账号 ID，不能依赖服务器域名；自备加密存储的随机盐随加密快照合并保留。新对象使用 `LIBZORA-SYNC3` 补齐长度，真实长度须在认证密文内；协议／最低读取版本为 6，旧对象只读发现，不猜测哈希路径或自动清空历史云数据。
+- 全量 `.libzora` 数据导出和导入必须加密。未配置密钥时，在打开文件选择或分享界面前提示设置同步密钥。整份备份通过认证后才替换书库；错误密钥或损坏文件不能部分覆盖现有数据。
 - 用户自行牢记和保管同步密钥，遗忘后无法解密旧云数据或备份。不得增加服务器保管密钥、找回密钥或通过账号密码重置解密用户数据的功能。
-- 本次用户管理服务在独立的 `~/Desktop/Kkindle_server` 项目中，PostgreSQL 只保存用户、会话、额度、汇总用量、管理记录和同步对象索引（不透明同步路径 → 随机存储 ID），不保存书名、正文或密文。书籍与快照以不透明加密文件存储在服务器目录或 S3 兼容桶（如七牛 Kodo），不增加管理端查看或下载书籍的入口。账号云同步的字节通过服务端签发的短期链接在客户端与存储之间直传，链接不携带账号会话；S3 上传完成后服务端复制到独立不可变发布键再索引，删除/覆盖对象在链接过期前按大小计入瞬时占用（最多约两倍额度）。用户自定义 S3 / WebDAV 同步仍直连用户自己的存储，与账号服务器无关。客户端仓库中的 SQLite 服务保留为协议测试用途，需与正式服务的签名直传协议保持一致。
+- 本次用户管理服务在独立的 `~/Desktop/Libzora_server` 项目中，PostgreSQL 只保存用户、会话、额度、汇总用量、管理记录和同步对象索引（不透明同步路径 → 随机存储 ID），不保存书名、正文或密文。书籍与快照以不透明加密文件存储在服务器目录或 S3 兼容桶（如七牛 Kodo），不增加管理端查看或下载书籍的入口。账号云同步的字节通过服务端签发的短期链接在客户端与存储之间直传，链接不携带账号会话；S3 上传完成后服务端复制到独立不可变发布键再索引，删除/覆盖对象在链接过期前按大小计入瞬时占用（最多约两倍额度）。用户自定义 S3 / WebDAV 同步仍直连用户自己的存储，与账号服务器无关。客户端仓库中的 SQLite 服务保留为协议测试用途，需与正式服务的签名直传协议保持一致。
 - 封禁后可删除用户的云文件或账号及云文件；删除须持久化为任务并阻断同步，处理并发上传与失败重试，不能在尚未清理完毕时显示成功。
 
 ## 会员、设备与额度约定
@@ -40,10 +40,10 @@
 - 客户端后台每 24 小时检查一次，成功时间跨重启保留；网络失败保留登录并重试。失效后清除对应区域会话并提示重新登录。登录、手动刷新、自定义功能使用仍实时验证服务端权限。
 - 所有档位免费：本地阅读、USB Kindle 书籍/批注双向同步、插件、自定义 AI 接口和加密备份。Free 没有任何多端同步。功能解锁或有效 Plus 可用自备 S3 / WebDAV 同步书籍、阅读进度、书签和批注，在对象存储创建前验证。全部官方云同步仅给有效 Plus，非 Plus 对所有同步对象及快照返回 `402 plus_required`，客户端停止整个同步。
 - 设备身份由本机随机生成并受平台密钥库保护，不采集硬件序列号。账号会话、设备身份、检查时间和会员状态不进入便携备份或云同步，不加入生产绕过授权的开关。
-- Kkindle 云空间和下载额度只给有效 Plus：10 GiB 空间、每个会员年度 150 GiB 下载（按购买周期发放，到期作废）。不限制月流量，上传没有流量额度；月度计数仅作统计。管理员只调整空间及当前年度下载总额，年度圆环包含调整后的本期总额，保留原已用量；跨月、撤销重开、提前续费不补回额度。额外空间包和下载包仍下架，旧余额保留，使用 Kkindle 云仍要求有效 Plus。
+- Libzora 云空间和下载额度只给有效 Plus：10 GiB 空间、每个会员年度 150 GiB 下载（按购买周期发放，到期作废）。不限制月流量，上传没有流量额度；月度计数仅作统计。管理员只调整空间及当前年度下载总额，年度圆环包含调整后的本期总额，保留原已用量；跨月、撤销重开、提前续费不补回额度。额外空间包和下载包仍下架，旧余额保留，使用 Libzora 云仍要求有效 Plus。
 - Plus 过期须提示用户：官方云同步与下载立即停用，云端书籍等全部同步数据从到期时刻起保留一个 UTC 自然月，期间续费恢复访问，保留期结束后自动销毁。自动销毁任务须持久化、失败重试并在删除前持账号锁重新核对会员状态；不删除账号或本地书库。下载签名链接不能超过会员到期时间。
 - 功能解锁、Plus 与扩容服务均不支持退款，包括预付未来年度和未使用余额；桌面与移动端在购买前清晰展示。用户只能取消未支付订单。后台可撤销功能解锁、Plus 全部剩余有效期或两项会员权益，要求原因和明确确认，取消同类待支付订单并保留金额、激活码和历史用量；撤销操作不产生资金退款。
-- 桌面账户中心为主窗口右侧的内嵌功能页，从左侧账户入口打开，不能打开独立账户弹窗。云同步设置不显示账户行；已登录时仅在 Kkindle 云同步名称前显示小绿点，会员与区域异常仍须提示。复用功能区的自定义字体、标题、直角布局、细分隔线、黑白按钮与设置页折叠表单；紧凑展示账户摘要和年度额度，退出登录放在账户摘要内，不设固定底栏。切到其他功能页须清空密码和激活码输入，主窗口退出取消请求并解绑事件；保留真实额度、设备管理、会员购买与激活、账户资料和注销确认流程。
+- 桌面账户中心为主窗口右侧的内嵌功能页，从左侧账户入口打开，不能打开独立账户弹窗。云同步设置不显示账户行；已登录时仅在 Libzora 云同步名称前显示小绿点，会员与区域异常仍须提示。复用功能区的自定义字体、标题、直角布局、细分隔线、黑白按钮与设置页折叠表单；紧凑展示账户摘要和年度额度，退出登录放在账户摘要内，不设固定底栏。切到其他功能页须清空密码和激活码输入，主窗口退出取消请求并解绑事件；保留真实额度、设备管理、会员购买与激活、账户资料和注销确认流程。
 - Plus 被后台撤销后重新开通保留原会员年度已下载记录和额度标识，不重发已覆盖期间的额度；云空间占用按实际文件计算，付款不清零。撤销 Plus 后云数据保留一个 UTC 自然月，单独撤销功能解锁不会改变 Plus 状态或原保留期限。旧订单和已用码重放不能恢复权益。保留期限已过的旧云数据须先清理，不能通过晚到续费绕过销毁。
 - 多年 Plus 授予的下载额度按最多 365 天的时期逐期生效，不能立即消费未来多年额度；拆分旧合并额度时保留总额度、已用总量和首期标识，避免迁移重复发放。
 - 正式独立服务注册默认同一 IPv4 / IPv6 /64 来源滚动 24 小时 3 个、30 天 10 个成功账号，计数跨重启、并发、注销删除保留；后台支持 IP / 网段、邮箱、用户名黑名单。来源只取连接和明确可信代理；封禁产生的身份黑名单在删除账号后保留。客户端应明确提示注册限制和黑名单错误，邮箱目前只有格式及唯一性校验，不能宣称它已验证邮件所有权。
@@ -55,41 +55,41 @@
 - 当前仓库 `global.json` 固定使用 .NET SDK **10.0.400**；Avalonia 主包和桌面包为 **12.1.1**，`Avalonia.Controls.WebView` 为 **12.1.0**。
 - 修改代码后，默认构建当前开发平台上与任务相关的项目；开发者明确指定目标平台时，按指定目标构建。根据改动运行相应测试，并如实说明未覆盖的平台或无法完成的验证。
 - 不因修改代码而默认构建其他平台，也不默认生成 Release 版本、安装包或便携包。纯文档修改无需构建应用，除非开发者明确要求。
-- Windows 是当前平台或指定目标时，生成带完整 .NET Runtime 的 x64 Debug EXE（self-contained），并同步到 `artifacts\Kkindle-debug-win-x64-latest\`；回复中告知用户 EXE 路径。调试版不得依赖用户机器预装 .NET。
+- Windows 是当前平台或指定目标时，生成带完整 .NET Runtime 的 x64 Debug EXE（self-contained），并同步到 `artifacts\Libzora-debug-win-x64-latest\`；回复中告知用户 EXE 路径。调试版不得依赖用户机器预装 .NET。
 - Windows 构建命令（项目根目录执行；使用 `publish`、`win-x64` 和 `--self-contained true`）：
-  - `dotnet publish src/Kkindle.Desktop.Windows/Kkindle.Desktop.Windows.csproj -c Debug -p:Platform=x64 -r win-x64 --self-contained true -p:PublishSingleFile=false`
-- 构建输出（即调试 exe 所在目录）：`src\Kkindle.Desktop.Windows\bin\x64\Debug\net10.0-windows10.0.19041.0\win-x64\publish\Kkindle.exe`
+  - `dotnet publish src/Libzora.Desktop.Windows/Libzora.Desktop.Windows.csproj -c Debug -p:Platform=x64 -r win-x64 --self-contained true -p:PublishSingleFile=false`
+- 构建输出（即调试 exe 所在目录）：`src\Libzora.Desktop.Windows\bin\x64\Debug\net10.0-windows10.0.19041.0\win-x64\publish\Libzora.exe`
 - 发布目录必须包含随 EXE 一起分发的 .NET Runtime 文件，至少检查 `hostfxr.dll`、`hostpolicy.dll` 和 `coreclr.dll`；缺少任一文件时视为构建不合格，不得同步或启动。
-- 同步到 latest 目录时**只覆盖文件、不删除内容**，保留 `data\`、`backups\`、`kkindle-crash.log` 等运行时数据：
-  - `robocopy src\Kkindle.Desktop.Windows\bin\x64\Debug\net10.0-windows10.0.19041.0\win-x64\publish artifacts\Kkindle-debug-win-x64-latest /E /XF kkindle-crash.log /XD data backups`（robocopy 退出码 ≤7 视为成功）
-- 启动或交付时使用同步后的 `artifacts\Kkindle-debug-win-x64-latest\Kkindle.exe`，不要直接使用未发布的 `bin\...\win-x64\Kkindle.exe`。
-- macOS Debug 构建：`dotnet build src/Kkindle.Desktop.MacOS/Kkindle.Desktop.MacOS.csproj -c Debug`。
-- Linux Debug 构建：`dotnet build src/Kkindle.Desktop.Linux/Kkindle.Desktop.Linux.csproj -c Debug`。
+- 同步到 latest 目录时**只覆盖文件、不删除内容**，保留 `data\`、`backups\`、`libzora-crash.log` 等运行时数据：
+  - `robocopy src\Libzora.Desktop.Windows\bin\x64\Debug\net10.0-windows10.0.19041.0\win-x64\publish artifacts\Libzora-debug-win-x64-latest /E /XF libzora-crash.log /XD data backups`（robocopy 退出码 ≤7 视为成功）
+- 启动或交付时使用同步后的 `artifacts\Libzora-debug-win-x64-latest\Libzora.exe`，不要直接使用未发布的 `bin\...\win-x64\Libzora.exe`。
+- macOS Debug 构建：`dotnet build src/Libzora.Desktop.MacOS/Libzora.Desktop.MacOS.csproj -c Debug`。
+- Linux Debug 构建：`dotnet build src/Libzora.Desktop.Linux/Libzora.Desktop.Linux.csproj -c Debug`。
 
 ## Android 模拟器验证（macOS，2026-11-02）
 
 - JDK 21 在 `~/.local/jdk-21/Contents/Home`（`JAVA_HOME` 要指向 `Contents/Home`，指向 `~/.local/jdk-21` 会报 “Could not find required file jar”）。
-- SDK 在 `~/Library/Android/sdk`，AVD 为 `kkindle-api36`（API 36，x86_64）。
+- SDK 在 `~/Library/Android/sdk`，AVD 为 `libzora-api36`（API 36，x86_64）。
 - 当前 Hackintosh 开发机的 Hypervisor.framework 会透传 WAITPKG，guest 执行 TPAUSE 时触发 `invalid opcode`（`delay_halt_tpause`）内核 panic。**不能从 Android Studio / AVD Manager 直接启动**，必须带 `-qemu -append clearcpuid=517`：
 
   ```bash
-  ~/Library/Android/sdk/emulator/emulator -avd kkindle-api36 \
+  ~/Library/Android/sdk/emulator/emulator -avd libzora-api36 \
     -no-snapshot -no-boot-anim -no-audio \
     -gpu swiftshader_indirect -memory 4096 -cores 4 \
     -qemu -append clearcpuid=517
   ```
 
 - 构建 Debug APK（项目根目录）：
-  `dotnet build src/Kkindle.Mobile.Android/Kkindle.Mobile.Android.csproj -c Debug -p:RuntimeIdentifier=android-x64`
-- APK 输出：`src/Kkindle.Mobile.Android/bin/Debug/net10.0-android36.0/android-x64/com.kingstacker.kkindle-Signed.apk`
-- 安装 / 启动：`adb -s emulator-5554 install -r <apk>`，然后 `adb shell am start -W -n com.kingstacker.kkindle/crc64fcb7126634234113.MainActivity`（LaunchActivity 名称以 `cmd package resolve-activity --brief com.kingstacker.kkindle` 为准）。
-- 崩溃后残留的 `~/.android/avd/kkindle-api36.avd/*.lock` 会导致 “Running multiple emulators with the same AVD”，无模拟器运行时删除即可。
+  `dotnet build src/Libzora.Mobile.Android/Libzora.Mobile.Android.csproj -c Debug -p:RuntimeIdentifier=android-x64`
+- APK 输出：`src/Libzora.Mobile.Android/bin/Debug/net10.0-android36.0/android-x64/com.kingstacker.libzora-Signed.apk`
+- 安装 / 启动：`adb -s emulator-5554 install -r <apk>`，然后 `adb shell am start -W -n com.kingstacker.libzora/crc64fcb7126634234113.MainActivity`（LaunchActivity 名称以 `cmd package resolve-activity --brief com.kingstacker.libzora` 为准）。
+- 崩溃后残留的 `~/.android/avd/libzora-api36.avd/*.lock` 会导致 “Running multiple emulators with the same AVD”，无模拟器运行时删除即可。
 - 最近验证：Debug APK（android-x64）安装启动正常，EPUB 导入 → 书架 → 阅读 → 章节切换 → 阅读数据统计均通过，logcat 无 FATAL。
 
 ## Linux Debug 验证信息（2026-08-22）
 
-- Linux Debug 入口：`src/Kkindle.Desktop.Linux/bin/Debug/net10.0/Kkindle`。
-- 构建命令：`dotnet build src/Kkindle.Desktop.Linux/Kkindle.Desktop.Linux.csproj --no-restore`。
-- 测试命令：`dotnet test tests/Kkindle.Tests/Kkindle.Tests.csproj --no-restore`。
+- Linux Debug 入口：`src/Libzora.Desktop.Linux/bin/Debug/net10.0/Libzora`。
+- 构建命令：`dotnet build src/Libzora.Desktop.Linux/Libzora.Desktop.Linux.csproj --no-restore`。
+- 测试命令：`dotnet test tests/Libzora.Tests/Libzora.Tests.csproj --no-restore`。
 - 最近一次结果：237 项测试通过，Linux Debug 构建 0 警告、0 错误；Debug UI 已实际验证 EPUB→AZW3 转换成功。
 - 在 Linux 上开发时，默认验证 Linux Debug 产物；指定其他平台时按上述目标平台约定执行。

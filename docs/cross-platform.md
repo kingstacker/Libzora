@@ -1,17 +1,17 @@
 # Linux and macOS
 
-Kkindle uses one portable Avalonia UI with separate Windows, Linux and macOS
+Libzora uses one portable Avalonia UI with separate Windows, Linux and macOS
 desktop heads. Windows retains WPD support for MTP-only Kindle devices. Linux
 supports Kindles exposed as mounted USB storage. macOS supports mounted storage
 and MTP devices through the bundled libmtp stack.
 
 ## User data and secrets
 
-- Linux data: `$XDG_DATA_HOME/Kkindle`, falling back to
-  `~/.local/share/Kkindle`; root configuration uses `$XDG_CONFIG_HOME/Kkindle`
-  or `~/.config/Kkindle`.
+- Linux data: `$XDG_DATA_HOME/Libzora`, falling back to
+  `~/.local/share/Libzora`; root configuration uses `$XDG_CONFIG_HOME/Libzora`
+  or `~/.config/Libzora`.
 - macOS data and root configuration:
-  `~/Library/Application Support/Kkindle`.
+  `~/Library/Application Support/Libzora`.
 - Linux stores its wrapping key in Secret Service using `secret-tool`.
 - macOS stores its wrapping key in the login Keychain.
 - Windows continues to use DPAPI and its existing data layout.
@@ -21,22 +21,22 @@ and MTP devices through the bundled libmtp stack.
 The macOS head matches the Windows build beyond device access:
 
 - A second launch activates the running instance over a Unix domain socket
-  (lock file in `~/Library/Application Support/Kkindle`). A window parked in the
+  (lock file in `~/Library/Application Support/Libzora`). A window parked in the
   menu bar is shown again, and files passed to the second launch are imported.
 - The native menu bar replaces Avalonia's default "About Avalonia" menu with
   About, Settings (Cmd+,), Import (Cmd+I), Close Window (Cmd+W), window,
   shortcut-help and manual entries; it follows the selected UI language.
 - Finder "Open With" works for EPUB, PDF, MOBI/PRC/AZW/AZW3 and TXT. Documents
-  opened while Kkindle is already running are queued until the library is
+  opened while Libzora is already running are queued until the library is
   ready, then imported through the same dialog as a manual import.
 - USB attach/detach events arrive through IOKit and refresh the device list.
 - Unhandled exceptions are written to `data/logs/crash.log`. Only loose
-  Debug executables also write `kkindle-crash.log` next to the binary; a file
-  added inside `Kkindle.app` would break the bundle's code signature.
-- In-app updates install from the `Kkindle-{version}-osx-{arm64|x64}.tar.gz`
+  Debug executables also write `libzora-crash.log` next to the binary; a file
+  added inside `Libzora.app` would break the bundle's code signature.
+- In-app updates install from the `Libzora-{version}-osx-{arm64|x64}.tar.gz`
   release asset. A detached helper waits for the app to exit, rejects archive
-  members outside `Kkindle.app`, verifies the downloaded bundle's code
-  signature, stops the bundled MCP server, replaces `Kkindle.app`, verifies the
+  members outside `Libzora.app`, verifies the downloaded bundle's code
+  signature, stops the bundled MCP server, replaces `Libzora.app`, verifies the
   installed signature again, reopens it, and restores the previous bundle if
   anything fails. The option is only offered when the bundle directory is
   writable and the app is not running from App Translocation.
@@ -47,7 +47,7 @@ The macOS head matches the Windows build beyond device access:
   backups plus SHA-256 verification, bookshelf thumbnails, and `.sdr` sidecar
   cleanup. The account annotation database is read before `My Clippings.txt`.
 - Custom shortcuts accept Command (`Meta`) as well as Control, and the TTS
-  cache uses `~/Library/Caches/Kkindle/tts`.
+  cache uses `~/Library/Caches/Libzora/tts`.
 - The MCP server is published self-contained into `Contents/MacOS/mcp` and uses
   libmtp plus mounted storage for device tools.
 - `scripts/uninstall-macos.sh` removes the bundle, library, settings, backups,
@@ -62,8 +62,8 @@ SDK versions so Linux, macOS and Windows packages are produced by the same SDK.
 
 ```sh
 dotnet --version # must print 10.0.400
-dotnet build src/Kkindle.Desktop.Linux/Kkindle.Desktop.Linux.csproj -c Release
-dotnet build src/Kkindle.Desktop.MacOS/Kkindle.Desktop.MacOS.csproj -c Release
+dotnet build src/Libzora.Desktop.Linux/Libzora.Desktop.Linux.csproj -c Release
+dotnet build src/Libzora.Desktop.MacOS/Libzora.Desktop.MacOS.csproj -c Release
 bash scripts/build-linux-release.sh 1.1.3 artifacts/linux linux-x64
 bash scripts/build-macos-release.sh 1.1.3 artifacts/macos osx-arm64
 ```
@@ -72,13 +72,13 @@ macOS release packaging also requires Xcode 26 or newer to compile the layered
 Icon Composer artwork. Select it with `xcode-select` or `DEVELOPER_DIR` when
 multiple Xcode versions are installed.
 
-Each macOS build produces both `Kkindle-{version}-{rid}.dmg` and the
-`Kkindle-{version}-{rid}.tar.gz` used by the in-app updater. The DMG contains
-`Kkindle.app` and an `Applications` symlink, so the standard drag-to-Applications
+Each macOS build produces both `Libzora-{version}-{rid}.dmg` and the
+`Libzora-{version}-{rid}.tar.gz` used by the in-app updater. The DMG contains
+`Libzora.app` and an `Applications` symlink, so the standard drag-to-Applications
 install works. Its Finder window uses the generated
 `scripts/macos/dmg-background.png`; the Finder layout pass is best effort with a
 timeout, and builds without Finder automation permission still produce a
-functional DMG. Set `KKINDLE_DMG_STYLE=0` to skip the layout pass entirely.
+functional DMG. Set `LIBZORA_DMG_STYLE=0` to skip the layout pass entirely.
 
 `build-macos-release.sh` builds libmtp and libusb for the package's architecture
 into `artifacts/macos-deps/<arch>/`. When the target differs from the build
@@ -90,7 +90,7 @@ Release and Development Build workflows still use native `macos-15`
 Pass `osx-universal` as the RID for one bundle that runs natively on both
 architectures. .NET self-contained output embeds RID-specific native libraries
 and ReadyToRun assemblies, so a single set of files cannot be lipo-merged;
-instead `Contents/MacOS/Kkindle` is a universal launcher and the complete
+instead `Contents/MacOS/Libzora` is a universal launcher and the complete
 `osx-x64` and `osx-arm64` payloads live in `Contents/MacOS/x86_64` and
 `Contents/MacOS/arm64`. In-app updates still fetch the matching
 single-architecture package, which replaces the universal bundle.
@@ -143,7 +143,7 @@ version. The workflow also keeps the per-platform artifacts for seven days.
 Calibre is not bundled in any Windows, Linux or macOS archive. It is optional and is
 discovered from the application directory, standard install locations or
 `PATH`, or the user can select `ebook-convert` in Settings. On Debian/Ubuntu,
-the `.deb` lists `calibre` only as a suggested package, so installing Kkindle
+the `.deb` lists `calibre` only as a suggested package, so installing Libzora
 does not automatically install it.
 
 The Settings page also offers explicit user-initiated installation buttons.
@@ -153,7 +153,7 @@ root; macOS verifies the official DMG and application signature before placing
 `calibre.app` in `~/Applications`. KFX Input is downloaded from the project's
 mirror when available (calibre's official plugin index otherwise), validated
 as a plugin ZIP and installed with the detected `calibre-customize`. These
-downloads never become part of a Kkindle release artifact.
+downloads never become part of a Libzora release artifact.
 
 Local macOS builds and GitHub Releases use ad-hoc signing when Apple
 distribution credentials are not configured. The archive includes
@@ -174,7 +174,7 @@ of the required credentials fails the release instead of silently falling back
 to ad-hoc signing. Step-by-step certificate and API-key setup, including local
 notarization without CI, is in [macos-notarization.md](macos-notarization.md).
 
-`scripts/macos/Kkindle.entitlements` grants the hardened runtime's JIT,
+`scripts/macos/Libzora.entitlements` grants the hardened runtime's JIT,
 unsigned-executable-memory and library-validation exceptions required by the
 .NET runtime and the bundled libmtp/libusb. The build script signs nested
 Mach-O images from the inside out and applies entitlements to the real

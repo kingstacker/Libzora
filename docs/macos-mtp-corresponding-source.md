@@ -1,25 +1,25 @@
 # macOS libmtp / libusb corresponding source
 
-Kkindle includes libmtp 1.1.21 and libusb 1.0.27 as separate dynamic libraries.
+Libzora includes libmtp 1.1.21 and libusb 1.0.27 as separate dynamic libraries.
 These libraries retain their LGPL licenses, copyrights and notices; see
 `libmtp-COPYING`, `libusb-COPYING` and the individual files in the source archives.
 The LGPL permits modification and replacement of these libraries. Reverse
 engineering for debugging modifications to these libraries is permitted.
 
 Every macOS distribution made by `scripts/build-macos-release.sh` includes this
-directory at `Kkindle.app/Contents/Resources/CorrespondingSource/MTP/`:
+directory at `Libzora.app/Contents/Resources/CorrespondingSource/MTP/`:
 
 - `libmtp-1.1.21.tar.gz` and `libusb-1.0.27.tar.bz2`: the complete, unmodified
   upstream release archives actually used to build the bundled libraries.
 - `libmtp-COPYING` and `libusb-COPYING`: original license texts from those archives.
-- `build-macos-mtp-deps.sh`: the exact build script used by Kkindle.
+- `build-macos-mtp-deps.sh`: the exact build script used by Libzora.
 - `BUILD-METADATA-<architecture>.txt`: versions, source and unsigned-library
   checksums, compiler/SDK version, deployment target and build configuration.
   Universal packages contain metadata for both `x86_64` and `arm64`.
 - `SHA256SUMS.txt`: checksums for all these source, license and build materials.
 - This `README.md` with rebuilding and replacement instructions.
 
-The source archives are not patched by the Kkindle build. Configure receives
+The source archives are not patched by the Libzora build. Configure receives
 `--host=aarch64-apple-darwin` for arm64 cross builds, instead of changing
 `config.sub`. After compilation, `install_name_tool` changes the dylib IDs and
 the libmtp-to-libusb dependency to `@loader_path/...`. The shipped script records
@@ -58,12 +58,12 @@ library sources, and use the configure/make/install commands and install-name
 changes in the supplied script. You can also adapt the script and its archive
 checksums to your own source archives. Keep the libraries' compatible ABI and
 their `libmtp.9.dylib` / `libusb-1.0.0.dylib` names. The checksums supplied by
-Kkindle identify its original build inputs; they do not prohibit modified builds.
+Libzora identify its original build inputs; they do not prohibit modified builds.
 
 ## Replace the libraries in your local app copy
 
-Quit Kkindle and make a writable copy of the application. A single-architecture
-package loads both dylibs from `Kkindle.app/Contents/MacOS/`. A universal package
+Quit Libzora and make a writable copy of the application. A single-architecture
+package loads both dylibs from `Libzora.app/Contents/MacOS/`. A universal package
 loads them from `Contents/MacOS/x86_64/` or `Contents/MacOS/arm64/`, according to
 the launched payload. Replace both libraries in the matching directory with
 your rebuilt files. The managed resolver uses this directory; no server
@@ -74,18 +74,18 @@ local use, remove the old signatures and sign your copy ad hoc. Preserve the
 runtime entitlements of the original executables when doing so:
 
 ```bash
-cp -R /Applications/Kkindle.app ./Kkindle-modified.app
-codesign -d --entitlements :- ./Kkindle-modified.app/Contents/MacOS/Kkindle \
-  > ./Kkindle-entitlements.plist
+cp -R /Applications/Libzora.app ./Libzora-modified.app
+codesign -d --entitlements :- ./Libzora-modified.app/Contents/MacOS/Libzora \
+  > ./Libzora-entitlements.plist
 # For a universal bundle, obtain the runtime entitlements from the matching
-# payload executable, e.g. Contents/MacOS/arm64/Kkindle, instead of the launcher.
+# payload executable, e.g. Contents/MacOS/arm64/Libzora, instead of the launcher.
 cp ./rebuilt/prefix/lib/libmtp.9.dylib \
-   ./rebuilt/prefix/lib/libusb-1.0.0.dylib ./Kkindle-modified.app/Contents/MacOS/
-codesign --force --sign - ./Kkindle-modified.app/Contents/MacOS/libusb-1.0.0.dylib
-codesign --force --sign - ./Kkindle-modified.app/Contents/MacOS/libmtp.9.dylib
-codesign --force --deep --sign - --entitlements ./Kkindle-entitlements.plist \
-  ./Kkindle-modified.app
-codesign --verify --deep --strict ./Kkindle-modified.app
+   ./rebuilt/prefix/lib/libusb-1.0.0.dylib ./Libzora-modified.app/Contents/MacOS/
+codesign --force --sign - ./Libzora-modified.app/Contents/MacOS/libusb-1.0.0.dylib
+codesign --force --sign - ./Libzora-modified.app/Contents/MacOS/libmtp.9.dylib
+codesign --force --deep --sign - --entitlements ./Libzora-entitlements.plist \
+  ./Libzora-modified.app
+codesign --verify --deep --strict ./Libzora-modified.app
 ```
 
 Adapt the dylib destinations for a universal bundle. These commands are for a

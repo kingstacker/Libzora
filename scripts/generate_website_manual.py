@@ -216,9 +216,9 @@ def render_page(slug: str, title: str, source_file: str, index: int) -> str:
         if index + 1 < len(PAGES)
         else ""
     )
-    canonical = f"https://kkindle.stacker.beauty/manual/{'' if slug == 'index' else slug + '.html'}"
-    description = f"Kkindle 软件使用手册：{title}。"
-    page_title = f"{title} · Kkindle 使用手册"
+    canonical = f"https://libzora.stacker.beauty/manual/{'' if slug == 'index' else slug + '.html'}"
+    description = f"Libzora 软件使用手册：{title}。"
+    page_title = f"{title} · Libzora 使用手册"
     return f'''<!doctype html>
 <html lang="zh-CN">
   <head>
@@ -229,24 +229,24 @@ def render_page(slug: str, title: str, source_file: str, index: int) -> str:
     <meta name="theme-color" content="#ffffff" />
     <link rel="canonical" href="{canonical}" />
     <meta property="og:type" content="article" />
-    <meta property="og:site_name" content="Kkindle" />
+    <meta property="og:site_name" content="Libzora" />
     <meta property="og:title" content="{html.escape(page_title, quote=True)}" />
     <meta property="og:description" content="{html.escape(description, quote=True)}" />
     <meta property="og:url" content="{canonical}" />
-    <meta property="og:image" content="https://kkindle.stacker.beauty/assets/social-card.jpg" />
+    <meta property="og:image" content="https://libzora.stacker.beauty/assets/social-card.jpg" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="{html.escape(page_title, quote=True)}" />
     <meta name="twitter:description" content="{html.escape(description, quote=True)}" />
-    <meta name="twitter:image" content="https://kkindle.stacker.beauty/assets/social-card.jpg" />
+    <meta name="twitter:image" content="https://libzora.stacker.beauty/assets/social-card.jpg" />
     <link rel="stylesheet" href="manual.css?v=20261105a" />
     <title>{html.escape(page_title)}</title>
   </head>
   <body>
     <a class="skip-link" href="#content">跳到正文</a>
     <header class="manual-header">
-      <a class="brand" href="index.html"><span class="brand-mark">K</span><span>Kkindle 使用手册</span></a>
+      <a class="brand" href="index.html"><span class="brand-mark">K</span><span>Libzora 使用手册</span></a>
       <a class="home-link" href="../index.html">返回官网 ↗</a>
     </header>
     <div class="manual-layout">
@@ -256,13 +256,13 @@ def render_page(slug: str, title: str, source_file: str, index: int) -> str:
         <nav>{nav}</nav>
       </aside>
       <main class="manual-content" id="content">
-        <p class="eyebrow">Kkindle · 使用手册</p>
+        <p class="eyebrow">Libzora · 使用手册</p>
         <article>{content}</article>
         <nav class="page-steps" aria-label="手册分页">{previous}{following}</nav>
         <footer class="manual-footer">
           <span>手册内容随软件功能更新。</span>
-          <a href="/">返回 Kkindle 官网首页</a>
-          <a href="https://github.com/kingstacker/Kkindle/tree/master/docs/manual/zh-CN" target="_blank" rel="noreferrer">查看 Markdown 源文件 ↗</a>
+          <a href="/">返回 Libzora 官网首页</a>
+          <a href="https://github.com/kingstacker/Libzora/tree/master/docs/manual/zh-CN" target="_blank" rel="noreferrer">查看 Markdown 源文件 ↗</a>
         </footer>
       </main>
     </div>

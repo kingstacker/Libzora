@@ -1,9 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-    <RootNamespace>Kkindle.Platform.MacOS</RootNamespace>
-  </PropertyGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\Kkindle.Platform.Common\Kkindle.Platform.Common.csproj" />
-  </ItemGroup>
-</Project>

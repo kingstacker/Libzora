@@ -41,5 +41,5 @@ AuthKey_*.p8
 
 # Reader font catalog binaries are fetched locally by scripts/fetch-reader-fonts.sh.
 # Production serves the same files from the font host.
-/src/Kkindle.App/Assets/Fonts/catalog/**/*.ttf
-/src/Kkindle.App/Assets/Fonts/catalog/**/*.otf
+/src/Libzora.App/Assets/Fonts/catalog/**/*.ttf
+/src/Libzora.App/Assets/Fonts/catalog/**/*.otf

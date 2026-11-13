@@ -17,7 +17,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 WEBSITE = ROOT / "website"
 SITEMAP = WEBSITE / "sitemap.xml"
-BASE = "https://kkindle.stacker.beauty/"
+BASE = "https://libzora.stacker.beauty/"
 
 LOC_RE = re.compile(r"(<loc>)(?P<url>[^<]+)(</loc>)")
 LASTMOD_RE = re.compile(r"\s*<lastmod>[^<]*</lastmod>")

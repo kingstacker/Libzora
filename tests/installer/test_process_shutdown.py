@@ -3,7 +3,7 @@ Run on Windows: python tests/installer/test_process_shutdown.py
 """
 from pathlib import Path
 import re, subprocess, tempfile, os
-source=(Path(__file__).resolve().parents[2] / 'installer/Kkindle.iss').read_text(encoding='utf-8-sig')
+source=(Path(__file__).resolve().parents[2] / 'installer/Libzora.iss').read_text(encoding='utf-8-sig')
 block=source.split('  Script :=\n',1)[1].split('\n\n  if not SaveStringToFile',1)[0]
 script='\n'.join(re.match(r"\s*'((?:[^']|'')*)'",line).group(1).replace("''", "'") for line in block.splitlines())
 ps=os.path.join(os.environ['SystemRoot'],'System32','WindowsPowerShell','v1.0','powershell.exe')
@@ -15,17 +15,17 @@ param([string]$root)
 $script:round=0
 function Get-CimInstance {
  $script:round++
- $items=@([pscustomobject]@{ProcessId=99;ExecutablePath='C:\other\mcp\Kkindle.McpServer.exe'})
+ $items=@([pscustomobject]@{ProcessId=99;ExecutablePath='C:\other\mcp\Libzora.McpServer.exe'})
  if ($script:round -eq 1 -or $scenario -eq 'refused') {
-  $items += [pscustomobject]@{ProcessId=11;ExecutablePath=(Join-Path $root 'Kkindle.exe')}
-  $items += [pscustomobject]@{ProcessId=12;ExecutablePath=$(if($scenario -eq 'fallback'){$null}else{Join-Path $root 'mcp\Kkindle.McpServer.exe'})}
+  $items += [pscustomobject]@{ProcessId=11;ExecutablePath=(Join-Path $root 'Libzora.exe')}
+  $items += [pscustomobject]@{ProcessId=12;ExecutablePath=$(if($scenario -eq 'fallback'){$null}else{Join-Path $root 'mcp\Libzora.McpServer.exe'})}
  }
  if ($scenario -in @('unknown','gone')) {$items = @([pscustomobject]@{ProcessId=88;ExecutablePath=$null}) + $items}
  return $items
 }
 function Get-Process {
  param($Id)
- if ($Id -eq 12) {return [pscustomobject]@{Path=(Join-Path $root 'mcp\Kkindle.McpServer.exe')}}
+ if ($Id -eq 12) {return [pscustomobject]@{Path=(Join-Path $root 'mcp\Libzora.McpServer.exe')}}
  if ($scenario -eq 'unknown') {return [pscustomobject]@{Path=$null}}
  return $null
 }

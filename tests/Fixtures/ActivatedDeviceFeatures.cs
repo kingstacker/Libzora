@@ -1,6 +1,6 @@
-using Kkindle.Core;
+using Libzora.Core;
 
-namespace Kkindle.TestFixtures;
+namespace Libzora.TestFixtures;
 
 // An explicitly licensed fictional device for existing transport/format tests.
 internal sealed class ActivatedDeviceFeatures : IDeviceFeatureAccess

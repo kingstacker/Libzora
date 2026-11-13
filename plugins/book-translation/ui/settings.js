@@ -1,6 +1,6 @@
 (function () {
   'use strict';
-  const kk = window.kkindle;
+  const kk = window.libzora;
   const zh = !(kk.context.language || 'zh-CN').toLowerCase().startsWith('en');
   const text = zh ? {
     title: '书籍翻译与注音',

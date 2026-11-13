@@ -1,6 +1,6 @@
 # iOS 开发、真机构建与自动化测试
 
-本文记录 `Kkindle.Mobile.iOS` 的真机构建、签名、安装、启动和自动化测试流程。
+本文记录 `Libzora.Mobile.iOS` 的真机构建、签名、安装、启动和自动化测试流程。
 默认目标是从仓库直接生成可安装到已连接 iPhone 的 Debug 包，并使用真实触摸
 验证界面，不使用 iPhone 镜像。
 
@@ -92,7 +92,7 @@ CODESIGN_PROVISION="<PROVISIONING_PROFILE_UUID>"
 test -n "$CODESIGN_KEY"
 test -n "$CODESIGN_PROVISION"
 
-dotnet build src/Kkindle.Mobile.iOS/Kkindle.Mobile.iOS.csproj \
+dotnet build src/Libzora.Mobile.iOS/Libzora.Mobile.iOS.csproj \
   -c Debug \
   -f net10.0-ios \
   -p:RuntimeIdentifier=ios-arm64 \
@@ -106,13 +106,13 @@ dotnet build src/Kkindle.Mobile.iOS/Kkindle.Mobile.iOS.csproj \
 产物：
 
 ```text
-src/Kkindle.Mobile.iOS/bin/Debug/net10.0-ios/ios-arm64/Kkindle.Mobile.iOS.app
+src/Libzora.Mobile.iOS/bin/Debug/net10.0-ios/ios-arm64/Libzora.Mobile.iOS.app
 ```
 
 构建后从产物读取 Bundle ID，后续安装、启动和日志命令都使用这个变量：
 
 ```bash
-APP="src/Kkindle.Mobile.iOS/bin/Debug/net10.0-ios/ios-arm64/Kkindle.Mobile.iOS.app"
+APP="src/Libzora.Mobile.iOS/bin/Debug/net10.0-ios/ios-arm64/Libzora.Mobile.iOS.app"
 BUNDLE_ID="$(plutil -extract CFBundleIdentifier raw "$APP/Info.plist")"
 printf '%s\n' "$BUNDLE_ID"
 ```
@@ -161,10 +161,10 @@ xcrun devicectl device info apps --device "$DEVICE_ID" \
 构建包中的图标配置：
 
 ```bash
-APP="src/Kkindle.Mobile.iOS/bin/Debug/net10.0-ios/ios-arm64/Kkindle.Mobile.iOS.app"
+APP="src/Libzora.Mobile.iOS/bin/Debug/net10.0-ios/ios-arm64/Libzora.Mobile.iOS.app"
 plutil -p "$APP/Info.plist" | rg 'CFBundleIcon|CFBundleDisplayName' -C 1
-find "$APP" -maxdepth 1 \( -iname 'Kkindle*png' -o -name 'Assets.car' \) -print
-xcrun assetutil --info "$APP/Assets.car" | rg 'IconImageStack|IconGroup|Kkindle_Assets/(Page|Spine)'
+find "$APP" -maxdepth 1 \( -iname 'Libzora*png' -o -name 'Assets.car' \) -print
+xcrun assetutil --info "$APP/Assets.car" | rg 'IconImageStack|IconGroup|Libzora_Assets/(Page|Spine)'
 ```
 
 如果本机安装了 `pymobiledevice3`，还可以确认 SpringBoard 已登记图标：
@@ -174,15 +174,15 @@ pymobiledevice3 springboard state get --userspace \
   | rg -n -C 3 "$BUNDLE_ID"
 ```
 
-当前图标与 macOS 共用 `scripts/macos/Kkindle.icon` 的分层书页图标。
-`CFBundleIconName` 应为 `Kkindle`，`Assets.car` 应包含 `IconImageStack`、`IconGroup`
+当前图标与 macOS 共用 `scripts/macos/Libzora.icon` 的分层书页图标。
+`CFBundleIconName` 应为 `Libzora`，`Assets.car` 应包含 `IconImageStack`、`IconGroup`
 及 Page/Spine 图层；只检查 PNG 存在不能证明 iOS 26 的液态玻璃图标已经接入。
 图标文件存在但主屏看不到时，也要检查 App 资源库、主屏下一页和系统图标缓存。
 
 ## 真机自动化测试原则
 
 - 使用 `XCUITest` 在物理设备上合成真实触摸，不使用 iPhone 镜像。
-- 测试 target 不嵌入 Kkindle，而是按 Bundle ID 启动已安装的
+- 测试 target 不嵌入 Libzora，而是按 Bundle ID 启动已安装的
   被测 App。
 - SwiftUI 前端的按钮、分段选择器、开关和输入框可以通过 Accessibility 定位，
   优先使用原生控件的名称或 `accessibilityIdentifier`。正文渲染区域仍通过坐标操作。
@@ -192,16 +192,16 @@ pymobiledevice3 springboard state get --userspace \
   `app.otherElements["inputView"]` 判断，而不是 `app.keyboards.count`。
 - XCUITest 的 `tearDown` 会终止 App。测试结束后如需让 App 留在手机上，必须
   再执行一次普通启动命令。
-- 测试 runner 会单独安装一个 `KkindleUITests-Runner`，这是正常现象。
+- 测试 runner 会单独安装一个 `LibzoraUITests-Runner`，这是正常现象。
 
 ## 原有界面的临时 XCUITest 工程
 
 2026-11-06 原有界面的临时工程位于：
 
 ```text
-/tmp/kkindle-uitest/
-├── KkindleUITests.xcodeproj
-├── KkindleUITests/KkindleUITests.swift
+/tmp/libzora-uitest/
+├── LibzoraUITests.xcodeproj
+├── LibzoraUITests/LibzoraUITests.swift
 └── DerivedData/
 ```
 
@@ -210,14 +210,14 @@ pymobiledevice3 springboard state get --userspace \
 
 建议使用 Xcode 创建一个 **iOS UI Testing Bundle**：
 
-- Project/Scheme 名称：`KkindleUITests`
+- Project/Scheme 名称：`LibzoraUITests`
 - Target Bundle ID：`<BUNDLE_ID>.uitests`
 - Team：在 Xcode 中选择当前开发者团队，不要把真实 Team ID 写入文档
 - iOS Deployment Target：`15.0`
 - Swift：`5`
 - Automatic Signing：开启
 
-测试 target 不需要添加 Kkindle 为 Host Application。测试代码直接启动已安装
+测试 target 不需要添加 Libzora 为 Host Application。测试代码直接启动已安装
 应用：
 
 ```swift
@@ -254,15 +254,15 @@ private func attachScreenshot(_ app: XCUIApplication, name: String) {
 
 ## 构建和执行 XCUITest
 
-先确保被测 App 已安装。XCTest runner 不负责安装 Kkindle 本体。
+先确保被测 App 已安装。XCTest runner 不负责安装 Libzora 本体。
 
 ```bash
-UITEST_DIR="/tmp/kkindle-uitest"
+UITEST_DIR="/tmp/libzora-uitest"
 DEVICE_ID="<DEVICE_ID>"
 
 xcodebuild build-for-testing \
-  -project "$UITEST_DIR/KkindleUITests.xcodeproj" \
-  -scheme KkindleUITests \
+  -project "$UITEST_DIR/LibzoraUITests.xcodeproj" \
+  -scheme LibzoraUITests \
   -configuration Debug \
   -destination "id=$DEVICE_ID" \
   -derivedDataPath "$UITEST_DIR/DerivedData" \
@@ -289,10 +289,10 @@ xcodebuild test-without-building \
   -destination "id=$DEVICE_ID" \
   -resultBundlePath "$RESULT_BUNDLE" \
   -allowProvisioningUpdates \
-  -only-testing:KkindleUITests/KkindleUITests/testLibraryImportTap \
-  -only-testing:KkindleUITests/KkindleUITests/testLibrarySearchTap \
-  -only-testing:KkindleUITests/KkindleUITests/testCollectionsAndCreateTap \
-  -only-testing:KkindleUITests/KkindleUITests/testCollectionKeyboardRefocus
+  -only-testing:LibzoraUITests/LibzoraUITests/testLibraryImportTap \
+  -only-testing:LibzoraUITests/LibzoraUITests/testLibrarySearchTap \
+  -only-testing:LibzoraUITests/LibzoraUITests/testCollectionsAndCreateTap \
+  -only-testing:LibzoraUITests/LibzoraUITests/testCollectionKeyboardRefocus
 ```
 
 导出截图：
@@ -333,12 +333,12 @@ Executed 4 tests, with 0 failures
 生产代码清理，不应对最终包宣称仍然可用：
 
 ```text
-KKINDLE_UI_SCENARIO
-KKINDLE_UI_BOOK
-KKINDLE_UI_TOC
-KKINDLE_UI_CHAPTER
-KKINDLE_UI_IMAGE
-KKINDLE-TEST 日志
+LIBZORA_UI_SCENARIO
+LIBZORA_UI_BOOK
+LIBZORA_UI_TOC
+LIBZORA_UI_CHAPTER
+LIBZORA_UI_IMAGE
+LIBZORA-TEST 日志
 ```
 
 当时使用的场景包括：
@@ -351,12 +351,12 @@ KKINDLE-TEST 日志
 
 1. 只在临时 Debug 构建加回 `MobileShell`/`ReaderPage` 的诊断入口。
 2. 诊断入口通过环境变量触发，不能进入正常用户路径。
-3. 测试完成后删除诊断入口和 `KKINDLE-TEST` 日志。
+3. 测试完成后删除诊断入口和 `LIBZORA-TEST` 日志。
 4. 用下面的命令确认清理干净，再重新构建最终包：
 
 ```bash
-rg -n "KKINDLE_UI_|KKINDLE-TEST|Diagnostic|OpenCompletion" \
-  src/Kkindle.Mobile src/Kkindle.Reader src/Kkindle.Mobile.iOS
+rg -n "LIBZORA_UI_|LIBZORA-TEST|Diagnostic|OpenCompletion" \
+  src/Libzora.Mobile src/Libzora.Reader src/Libzora.Mobile.iOS
 ```
 
 本次真机验证覆盖过：

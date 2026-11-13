@@ -1,4 +1,4 @@
-# Kkindle 使用手册
+# Libzora 使用手册
 
 中文手册的 Markdown 源文件位于 `zh-CN/`，配图放在 `zh-CN/images/`。网站使用不依赖在线服务的静态 HTML，生成文件保存在 `website/manual/`。
 

@@ -2,4 +2,4 @@ User-agent: *
 Allow: /
 Disallow: /dev/
 
-Sitemap: https://kkindle.stacker.beauty/sitemap.xml
+Sitemap: https://libzora.stacker.beauty/sitemap.xml

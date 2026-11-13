@@ -19,9 +19,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RELEASE = ROOT / "website" / "_release.json"
-START = "<!-- kkindle-noscript:start -->"
-END = "<!-- kkindle-noscript:end -->"
-BASE = "https://kkindle.stacker.beauty/"
+START = "<!-- libzora-noscript:start -->"
+END = "<!-- libzora-noscript:end -->"
+BASE = "https://libzora.stacker.beauty/"
 
 LABELS = (
     ("win-x64-setup.exe", "Windows 安装包"),
@@ -86,19 +86,19 @@ def build_block(release: dict) -> str:
             f'        <li><a href="{html.escape(url)}">{html.escape(label_for(name))}</a>'
             f" —— {html.escape(name)}（{human_size(size)}）</li>"
         )
-    headline = f"Kkindle {tag} 下载" + (f"（发布于 {published}）" if published else "")
+    headline = f"Libzora {tag} 下载" + (f"（发布于 {published}）" if published else "")
     return "\n".join(
         [
             START,
             "    <noscript>",
             '      <div class="wrap">',
             f"        <h2>{html.escape(headline)}</h2>",
-            "        <p>Kkindle 是一款面向 Windows、Linux、macOS、Android 和 iOS 的开源电子书与 Kindle 设备管理器："
+            "        <p>Libzora 是一款面向 Windows、Linux、macOS、Android 和 iOS 的开源电子书与 Kindle 设备管理器："
             "书库管理、阅读与批注、Kindle 设备连接，本地优先、数据自持，GPL-3.0 开源，免费下载。</p>",
             "        <ul>",
             *rows,
             "        </ul>",
-            '        <p>代码仓库：<a href="https://github.com/kingstacker/Kkindle">github.com/kingstacker/Kkindle</a>；'
+            '        <p>代码仓库：<a href="https://github.com/kingstacker/Libzora">github.com/kingstacker/Libzora</a>；'
             "本页「更新日志」一节有逐版更新说明。</p>",
             "      </div>",
             "    </noscript>",

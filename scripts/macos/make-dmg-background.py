@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the Kkindle DMG background (no third-party imaging modules).
+"""Generate the Libzora DMG background (no third-party imaging modules).
 
 The image is rendered at 2x and box-filtered down so Finder's rounded
 corner strokes and the drag arrow stay smooth on Retina displays.

@@ -1,0 +1,121 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="using:Libzora.Mobile.Controls"
+             x:Class="Libzora.Mobile.Views.Sheets.ReaderSettingsSheet">
+  <c:ElasticScrollViewer VerticalScrollBarVisibility="Hidden">
+  <StackPanel Margin="20,4,20,24" Spacing="8">
+    <TextBlock Classes="label" Text="纸张" />
+    <c:NativeSegmentGroup>
+      <Border Classes="segments">
+        <Grid ColumnDefinitions="*,*,*,*">
+          <Button Grid.Column="0" Name="PaperFollow" Classes="seg" Content="跟随" Click="OnPaperClick" />
+          <Button Grid.Column="1" Name="PaperWhite" Classes="seg" Content="白" Click="OnPaperClick" />
+          <Button Grid.Column="2" Name="PaperBeige" Classes="seg" Content="米" Click="OnPaperClick" />
+          <Button Grid.Column="3" Name="PaperInk" Classes="seg" Content="黑" Click="OnPaperClick" />
+        </Grid>
+      </Border>
+    </c:NativeSegmentGroup>
+
+    <TextBlock Classes="label" Text="翻页动画" Margin="0,14,0,0" />
+    <c:NativeSegmentGroup>
+      <Border Classes="segments">
+        <Grid ColumnDefinitions="*,*,*,*">
+          <Button Grid.Column="0" Name="AnimationNone" Classes="seg" Content="无" Click="OnAnimationClick" />
+          <Button Grid.Column="1" Name="AnimationFade" Classes="seg" Content="淡入" Click="OnAnimationClick" />
+          <Button Grid.Column="2" Name="AnimationSlide" Classes="seg" Content="滑动" Click="OnAnimationClick" />
+          <Button Grid.Column="3" Name="AnimationWave" Classes="seg" Content="墨水" Click="OnAnimationClick" />
+        </Grid>
+      </Border>
+    </c:NativeSegmentGroup>
+
+    <TextBlock Classes="label" Text="底部进度" Margin="0,14,0,0" />
+    <c:NativeSegmentGroup>
+      <Border Classes="segments">
+        <Grid ColumnDefinitions="*,*,*">
+          <Button Grid.Column="0" Name="ProgressPages" Classes="seg" Content="页码" Click="OnProgressClick" />
+          <Button Grid.Column="1" Name="ProgressChapters" Classes="seg" Content="章节" Click="OnProgressClick" />
+          <Button Grid.Column="2" Name="ProgressBookTime" Classes="seg" Content="剩余时间" Click="OnProgressClick" />
+        </Grid>
+      </Border>
+    </c:NativeSegmentGroup>
+
+    <StackPanel Name="PdfOptions" Spacing="8" IsVisible="False">
+      <TextBlock Classes="label" Text="缩放" Margin="0,14,0,0" />
+      <c:NativeSegmentGroup>
+        <Border Classes="segments">
+          <Grid ColumnDefinitions="*,*,*">
+            <Button Grid.Column="0" Name="ZoomPage" Classes="seg" Content="整页" Click="OnZoomClick" />
+            <Button Grid.Column="1" Name="ZoomMedium" Classes="seg" Content="1.5 倍" Click="OnZoomClick" />
+            <Button Grid.Column="2" Name="ZoomLarge" Classes="seg" Content="2 倍" Click="OnZoomClick" />
+          </Grid>
+        </Border>
+      </c:NativeSegmentGroup>
+    </StackPanel>
+
+    <StackPanel Name="TextOptions" Spacing="8">
+      <TextBlock Classes="label" Text="字号" Margin="0,14,0,0" />
+      <Border Classes="segments">
+        <Grid ColumnDefinitions="*,*,*">
+          <Button Grid.Column="0" Classes="seg" Content="A−" Click="OnSmallerClick" />
+          <TextBlock Grid.Column="1" Name="FontScaleText" HorizontalAlignment="Center"
+                     VerticalAlignment="Center" />
+          <Button Grid.Column="2" Classes="seg" Content="A+" Click="OnLargerClick" />
+        </Grid>
+      </Border>
+
+      <TextBlock Classes="label" Text="行距" Margin="0,14,0,0" />
+      <c:NativeSegmentGroup>
+        <Border Classes="segments">
+          <Grid ColumnDefinitions="*,*,*">
+            <Button Grid.Column="0" Name="LineTight" Classes="seg" Content="紧凑" Click="OnLineClick" />
+            <Button Grid.Column="1" Name="LineNormal" Classes="seg" Content="标准" Click="OnLineClick" />
+            <Button Grid.Column="2" Name="LineLoose" Classes="seg" Content="宽松" Click="OnLineClick" />
+          </Grid>
+        </Border>
+      </c:NativeSegmentGroup>
+
+      <TextBlock Classes="label" Text="段间距" Margin="0,14,0,0" />
+      <c:NativeSegmentGroup>
+        <Border Classes="segments">
+          <Grid ColumnDefinitions="*,*,*">
+            <Button Grid.Column="0" Name="ParagraphTight" Classes="seg" Content="紧凑" Click="OnParagraphClick" AutomationProperties.Name="段间距紧凑" />
+            <Button Grid.Column="1" Name="ParagraphNormal" Classes="seg" Content="标准" Click="OnParagraphClick" AutomationProperties.Name="段间距标准" />
+            <Button Grid.Column="2" Name="ParagraphLoose" Classes="seg" Content="宽松" Click="OnParagraphClick" AutomationProperties.Name="段间距宽松" />
+          </Grid>
+        </Border>
+      </c:NativeSegmentGroup>
+
+      <TextBlock Classes="label" Text="页边距" Margin="0,14,0,0" />
+      <c:NativeSegmentGroup>
+        <Border Classes="segments">
+          <Grid ColumnDefinitions="*,*,*">
+            <Button Grid.Column="0" Name="MarginNarrow" Classes="seg" Content="窄" Click="OnMarginClick" />
+            <Button Grid.Column="1" Name="MarginNormal" Classes="seg" Content="标准" Click="OnMarginClick" />
+            <Button Grid.Column="2" Name="MarginWide" Classes="seg" Content="宽" Click="OnMarginClick" />
+          </Grid>
+        </Border>
+      </c:NativeSegmentGroup>
+
+      <TextBlock Classes="label" Text="首行缩进" Margin="0,14,0,0" />
+      <c:NativeSegmentGroup>
+        <Border Classes="segments">
+          <Grid ColumnDefinitions="*,*">
+            <Button Grid.Column="0" Name="IndentOff" Classes="seg" Content="关" Click="OnIndentClick" />
+            <Button Grid.Column="1" Name="IndentOn" Classes="seg" Content="开" Click="OnIndentClick" />
+          </Grid>
+        </Border>
+      </c:NativeSegmentGroup>
+
+      <TextBlock Classes="label" Text="排版方向" Margin="0,14,0,0" />
+      <c:NativeSegmentGroup>
+        <Border Classes="segments">
+          <Grid ColumnDefinitions="*,*">
+            <Button Grid.Column="0" Name="DirectionHorizontal" Classes="seg" Content="横排" Click="OnDirectionClick" />
+            <Button Grid.Column="1" Name="DirectionVertical" Classes="seg" Content="竖排" Click="OnDirectionClick" />
+          </Grid>
+        </Border>
+      </c:NativeSegmentGroup>
+    </StackPanel>
+  </StackPanel>
+  </c:ElasticScrollViewer>
+</UserControl>

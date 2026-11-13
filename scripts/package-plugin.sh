@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Packages a plugin folder into a .kkplugin archive (a plain zip).
+# Packages a plugin folder into a .libzoraplugin archive (a plain zip).
 #
 #   scripts/package-plugin.sh plugins/book-translation
 #   scripts/package-plugin.sh plugins/book-translation dist/
@@ -19,11 +19,11 @@ fi
 plugin_dir="${plugin_dir%/}"
 name="$(basename "$plugin_dir")"
 mkdir -p "$output_dir"
-output="$(cd "$output_dir" && pwd)/${name}.kkplugin"
+output="$(cd "$output_dir" && pwd)/${name}.libzoraplugin"
 rm -f "$output"
 
 cd "$plugin_dir"
 zip -q -r -X "$output" . \
-  -x '*.DS_Store' '*/.DS_Store' '.git/*' 'node_modules/*' '*.kkplugin' 'dist/*'
+  -x '*.DS_Store' '*/.DS_Store' '.git/*' 'node_modules/*' '*.libzoraplugin' 'dist/*'
 
 echo "packaged: $output"

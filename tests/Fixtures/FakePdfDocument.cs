@@ -1,6 +1,6 @@
-using Kkindle.Infrastructure;
+using Libzora.Infrastructure;
 
-namespace Kkindle.TestFixtures;
+namespace Libzora.TestFixtures;
 
 public sealed class FakePdfDocumentFactory : IPdfDocumentFactory
 {

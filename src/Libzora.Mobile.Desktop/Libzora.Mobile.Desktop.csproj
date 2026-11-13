@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Development harness only: runs the mobile shell in a phone-sized window
+         on desktop so layout and navigation can be iterated without an
+         emulator. Not shipped. -->
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Libzora.Mobile.Desktop</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Libzora.Mobile\Libzora.Mobile.csproj" />
+    <ProjectReference Include="..\Libzora.Platform.Common\Libzora.Platform.Common.csproj" />
+    <PackageReference Include="Avalonia.Desktop" Version="12.1.1" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.1" />
+  </ItemGroup>
+</Project>

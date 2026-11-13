@@ -52,6 +52,16 @@ public partial class AppDelegate : AvaloniaAppDelegate<MobileApp>
         UISceneSession connectingSceneSession, UISceneConnectionOptions options) =>
         new("Kkindle Native", connectingSceneSession.Role) { DelegateType = typeof(IOSNativeSceneDelegate) };
 
+    /// <summary>Widget taps use kkindle://read/&lt;id&gt; and kkindle://dashboard.</summary>
+    /// <remarks>
+    /// Avalonia's delegate exposes a non-virtual <c>OpenUrl</c>, so register
+    /// the UIKit selector directly; scene-based launches arrive through
+    /// <see cref="IOSNativeSceneDelegate"/> instead.
+    /// </remarks>
+    [Export("application:openURL:options:")]
+    public bool HandleOpenUrl(UIApplication application, NSUrl url, NSDictionary options) =>
+        IOSNativeFrontend.HandleUrl(url.AbsoluteString);
+
     private static void ConfigureRestoredNativeSession()
     {
         if (IOSNativeFrontend.IsAttached || Application.Current is not MobileApp { Shell: { } }) return;

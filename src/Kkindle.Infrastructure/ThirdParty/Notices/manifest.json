@@ -1612,6 +1612,25 @@
       ]
     },
     {
+      "id": "Microsoft.ML.OnnxRuntime",
+      "version": "1.27.1",
+      "licenseType": "file",
+      "license": "LICENSE",
+      "copyright": "© Microsoft Corporation. All rights reserved.",
+      "authors": "Microsoft",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/onnxruntime.git",
+        "commit": "df2ba1cf8108aa63627cf4cdf8f807880b938616"
+      },
+      "projectUrl": "https://github.com/Microsoft/onnxruntime",
+      "developmentOnly": false,
+      "documents": [
+        "packages/Microsoft.ML.OnnxRuntime/1.23.2/LICENSE",
+        "packages/Microsoft.ML.OnnxRuntime/1.27.1/ThirdPartyNotices.txt"
+      ]
+    },
+    {
       "id": "Microsoft.ML.OnnxRuntime.Managed",
       "version": "1.23.2",
       "licenseType": "file",
@@ -1628,6 +1647,25 @@
       "documents": [
         "packages/Microsoft.ML.OnnxRuntime/1.23.2/LICENSE",
         "packages/Microsoft.ML.OnnxRuntime/1.23.2/ThirdPartyNotices.txt"
+      ]
+    },
+    {
+      "id": "Microsoft.ML.OnnxRuntime.Managed",
+      "version": "1.27.1",
+      "licenseType": "file",
+      "license": "LICENSE.txt",
+      "copyright": "© Microsoft Corporation. All rights reserved.",
+      "authors": "Microsoft",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/microsoft/onnxruntime",
+        "commit": "df2ba1cf8108aa63627cf4cdf8f807880b938616"
+      },
+      "projectUrl": "https://github.com/Microsoft/onnxruntime",
+      "developmentOnly": false,
+      "documents": [
+        "packages/Microsoft.ML.OnnxRuntime/1.23.2/LICENSE",
+        "packages/Microsoft.ML.OnnxRuntime/1.27.1/ThirdPartyNotices.txt"
       ]
     },
     {
@@ -2056,6 +2094,196 @@
       ]
     },
     {
+      "id": "org.k2fsa.sherpa.onnx",
+      "version": "1.13.5",
+      "licenseType": "expression",
+      "license": "Apache-2.0",
+      "copyright": "Copyright 2019-2023 Xiaomi Corporation",
+      "authors": "The Next-gen Kaldi development team",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/k2-fsa/sherpa-onnx",
+        "commit": "3dc7c569f31ca2cd4a20ed6f7db780327e6714c5"
+      },
+      "projectUrl": "https://github.com/k2-fsa/sherpa-onnx",
+      "developmentOnly": false,
+      "documents": [
+        "licenses/Apache-2.0.txt",
+        "packages/org.k2fsa.sherpa.onnx/1.13.5/LICENSE"
+      ]
+    },
+    {
+      "id": "org.k2fsa.sherpa.onnx.runtime.android-arm64",
+      "version": "1.13.5",
+      "licenseType": "expression",
+      "license": "Apache-2.0",
+      "copyright": "",
+      "authors": "sherpa-onnx",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/k2-fsa/sherpa-onnx",
+        "commit": "3dc7c569f31ca2cd4a20ed6f7db780327e6714c5"
+      },
+      "projectUrl": "https://github.com/k2-fsa/sherpa-onnx",
+      "developmentOnly": false,
+      "documents": [
+        "licenses/Apache-2.0.txt",
+        "packages/org.k2fsa.sherpa.onnx/1.13.5/LICENSE"
+      ]
+    },
+    {
+      "id": "org.k2fsa.sherpa.onnx.runtime.android-x64",
+      "version": "1.13.5",
+      "licenseType": "expression",
+      "license": "Apache-2.0",
+      "copyright": "",
+      "authors": "sherpa-onnx",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/k2-fsa/sherpa-onnx",
+        "commit": "3dc7c569f31ca2cd4a20ed6f7db780327e6714c5"
+      },
+      "projectUrl": "https://github.com/k2-fsa/sherpa-onnx",
+      "developmentOnly": false,
+      "documents": [
+        "licenses/Apache-2.0.txt",
+        "packages/org.k2fsa.sherpa.onnx/1.13.5/LICENSE"
+      ]
+    },
+    {
+      "id": "org.k2fsa.sherpa.onnx.runtime.linux-arm64",
+      "version": "1.13.5",
+      "licenseType": "expression",
+      "license": "Apache-2.0",
+      "copyright": "",
+      "authors": "sherpa-onnx",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/k2-fsa/sherpa-onnx",
+        "commit": "3dc7c569f31ca2cd4a20ed6f7db780327e6714c5"
+      },
+      "projectUrl": "https://github.com/k2-fsa/sherpa-onnx",
+      "developmentOnly": false,
+      "documents": [
+        "licenses/Apache-2.0.txt",
+        "packages/org.k2fsa.sherpa.onnx/1.13.5/LICENSE"
+      ]
+    },
+    {
+      "id": "org.k2fsa.sherpa.onnx.runtime.linux-x64",
+      "version": "1.13.5",
+      "licenseType": "expression",
+      "license": "Apache-2.0",
+      "copyright": "",
+      "authors": "sherpa-onnx",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/k2-fsa/sherpa-onnx",
+        "commit": "3dc7c569f31ca2cd4a20ed6f7db780327e6714c5"
+      },
+      "projectUrl": "https://github.com/k2-fsa/sherpa-onnx",
+      "developmentOnly": false,
+      "documents": [
+        "licenses/Apache-2.0.txt",
+        "packages/org.k2fsa.sherpa.onnx/1.13.5/LICENSE"
+      ]
+    },
+    {
+      "id": "org.k2fsa.sherpa.onnx.runtime.osx-arm64",
+      "version": "1.13.5",
+      "licenseType": "expression",
+      "license": "Apache-2.0",
+      "copyright": "",
+      "authors": "sherpa-onnx",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/k2-fsa/sherpa-onnx",
+        "commit": "3dc7c569f31ca2cd4a20ed6f7db780327e6714c5"
+      },
+      "projectUrl": "https://github.com/k2-fsa/sherpa-onnx",
+      "developmentOnly": false,
+      "documents": [
+        "licenses/Apache-2.0.txt",
+        "packages/org.k2fsa.sherpa.onnx/1.13.5/LICENSE"
+      ]
+    },
+    {
+      "id": "org.k2fsa.sherpa.onnx.runtime.osx-x64",
+      "version": "1.13.5",
+      "licenseType": "expression",
+      "license": "Apache-2.0",
+      "copyright": "",
+      "authors": "sherpa-onnx",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/k2-fsa/sherpa-onnx",
+        "commit": "3dc7c569f31ca2cd4a20ed6f7db780327e6714c5"
+      },
+      "projectUrl": "https://github.com/k2-fsa/sherpa-onnx",
+      "developmentOnly": false,
+      "documents": [
+        "licenses/Apache-2.0.txt",
+        "packages/org.k2fsa.sherpa.onnx/1.13.5/LICENSE"
+      ]
+    },
+    {
+      "id": "org.k2fsa.sherpa.onnx.runtime.win-arm64",
+      "version": "1.13.5",
+      "licenseType": "expression",
+      "license": "Apache-2.0",
+      "copyright": "",
+      "authors": "sherpa-onnx",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/k2-fsa/sherpa-onnx",
+        "commit": "3dc7c569f31ca2cd4a20ed6f7db780327e6714c5"
+      },
+      "projectUrl": "https://github.com/k2-fsa/sherpa-onnx",
+      "developmentOnly": false,
+      "documents": [
+        "licenses/Apache-2.0.txt",
+        "packages/org.k2fsa.sherpa.onnx/1.13.5/LICENSE"
+      ]
+    },
+    {
+      "id": "org.k2fsa.sherpa.onnx.runtime.win-x64",
+      "version": "1.13.5",
+      "licenseType": "expression",
+      "license": "Apache-2.0",
+      "copyright": "",
+      "authors": "sherpa-onnx",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/k2-fsa/sherpa-onnx",
+        "commit": "3dc7c569f31ca2cd4a20ed6f7db780327e6714c5"
+      },
+      "projectUrl": "https://github.com/k2-fsa/sherpa-onnx",
+      "developmentOnly": false,
+      "documents": [
+        "licenses/Apache-2.0.txt",
+        "packages/org.k2fsa.sherpa.onnx/1.13.5/LICENSE"
+      ]
+    },
+    {
+      "id": "org.k2fsa.sherpa.onnx.runtime.win-x86",
+      "version": "1.13.5",
+      "licenseType": "expression",
+      "license": "Apache-2.0",
+      "copyright": "",
+      "authors": "sherpa-onnx",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/k2-fsa/sherpa-onnx",
+        "commit": "3dc7c569f31ca2cd4a20ed6f7db780327e6714c5"
+      },
+      "projectUrl": "https://github.com/k2-fsa/sherpa-onnx",
+      "developmentOnly": false,
+      "documents": [
+        "licenses/Apache-2.0.txt",
+        "packages/org.k2fsa.sherpa.onnx/1.13.5/LICENSE"
+      ]
+    },
+    {
       "id": "PdfPig",
       "version": "0.1.15",
       "licenseType": "expression",
@@ -2246,7 +2474,7 @@
       "developmentOnly": false,
       "documents": [
         "licenses/Apache-2.0.txt",
-        "packages/SQLitePCLRaw.bundle_e_sqlite3/2.1.12/LICENSE.TXT"
+        "packages/org.k2fsa.sherpa.onnx/1.13.5/LICENSE"
       ]
     },
     {
@@ -2264,7 +2492,7 @@
       "developmentOnly": false,
       "documents": [
         "licenses/Apache-2.0.txt",
-        "packages/SQLitePCLRaw.bundle_e_sqlite3/2.1.12/LICENSE.TXT"
+        "packages/org.k2fsa.sherpa.onnx/1.13.5/LICENSE"
       ]
     },
     {
@@ -2282,7 +2510,7 @@
       "developmentOnly": false,
       "documents": [
         "licenses/Apache-2.0.txt",
-        "packages/SQLitePCLRaw.bundle_e_sqlite3/2.1.12/LICENSE.TXT"
+        "packages/org.k2fsa.sherpa.onnx/1.13.5/LICENSE"
       ]
     },
     {
@@ -2300,7 +2528,7 @@
       "developmentOnly": false,
       "documents": [
         "licenses/Apache-2.0.txt",
-        "packages/SQLitePCLRaw.bundle_e_sqlite3/2.1.12/LICENSE.TXT"
+        "packages/org.k2fsa.sherpa.onnx/1.13.5/LICENSE"
       ]
     },
     {
@@ -2318,7 +2546,7 @@
       "developmentOnly": false,
       "documents": [
         "licenses/Apache-2.0.txt",
-        "packages/SQLitePCLRaw.bundle_e_sqlite3/2.1.12/LICENSE.TXT"
+        "packages/org.k2fsa.sherpa.onnx/1.13.5/LICENSE"
       ]
     },
     {
@@ -2336,7 +2564,7 @@
       "developmentOnly": false,
       "documents": [
         "licenses/Apache-2.0.txt",
-        "packages/SQLitePCLRaw.bundle_e_sqlite3/2.1.12/LICENSE.TXT"
+        "packages/org.k2fsa.sherpa.onnx/1.13.5/LICENSE"
       ]
     },
     {
@@ -2354,7 +2582,7 @@
       "developmentOnly": false,
       "documents": [
         "licenses/Apache-2.0.txt",
-        "packages/SQLitePCLRaw.bundle_e_sqlite3/2.1.12/LICENSE.TXT"
+        "packages/org.k2fsa.sherpa.onnx/1.13.5/LICENSE"
       ]
     },
     {
@@ -4395,7 +4623,9 @@
       "sha256": "c250d6278f0b47a6439fb7592b08b58a55eb9f535aa49a1db63211c3f982b674",
       "sources": [
         "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/1.23.2/microsoft.ml.onnxruntime.1.23.2.nupkg#LICENSE",
-        "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime.managed/1.23.2/microsoft.ml.onnxruntime.managed.1.23.2.nupkg#LICENSE.txt"
+        "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/1.27.1/microsoft.ml.onnxruntime.1.27.1.nupkg#LICENSE",
+        "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime.managed/1.23.2/microsoft.ml.onnxruntime.managed.1.23.2.nupkg#LICENSE.txt",
+        "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime.managed/1.27.1/microsoft.ml.onnxruntime.managed.1.27.1.nupkg#LICENSE.txt"
       ]
     },
     {
@@ -4404,6 +4634,14 @@
       "sources": [
         "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/1.23.2/microsoft.ml.onnxruntime.1.23.2.nupkg#ThirdPartyNotices.txt",
         "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime.managed/1.23.2/microsoft.ml.onnxruntime.managed.1.23.2.nupkg#ThirdPartyNotices.txt"
+      ]
+    },
+    {
+      "path": "packages/Microsoft.ML.OnnxRuntime/1.27.1/ThirdPartyNotices.txt",
+      "sha256": "fb0af774b4d7cffc5b9d046f2aaeade2f37df2f80abf8033c95dfffcc77a8866",
+      "sources": [
+        "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/1.27.1/microsoft.ml.onnxruntime.1.27.1.nupkg#ThirdPartyNotices.txt",
+        "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime.managed/1.27.1/microsoft.ml.onnxruntime.managed.1.27.1.nupkg#ThirdPartyNotices.txt"
       ]
     },
     {
@@ -4472,13 +4710,6 @@
       "sha256": "4c510e162f896ea43b4b1cf1b743641d7c756f1004d0e5eaf0615b28b7ded409",
       "sources": [
         "https://raw.githubusercontent.com/UglyToad/PdfPig/f131f642976936e06ee91cb19d3ed728f9dd18b6/LICENSE"
-      ]
-    },
-    {
-      "path": "packages/SQLitePCLRaw.bundle_e_sqlite3/2.1.12/LICENSE.TXT",
-      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
-      "sources": [
-        "https://raw.githubusercontent.com/ericsink/SQLitePCL.raw/v2.1.12/LICENSE.TXT"
       ]
     },
     {
@@ -4675,6 +4906,14 @@
       "sha256": "493abc10084b58f97dce3fac1654624e1a25788f17180fe8925786c266cd2416",
       "sources": [
         "https://raw.githubusercontent.com/bblanchon/pdfium-binaries/c6529b58791d142002f819beb46e370e668797d7/LICENSE"
+      ]
+    },
+    {
+      "path": "packages/org.k2fsa.sherpa.onnx/1.13.5/LICENSE",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "sources": [
+        "https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/3dc7c569f31ca2cd4a20ed6f7db780327e6714c5/LICENSE",
+        "https://raw.githubusercontent.com/ericsink/SQLitePCL.raw/v2.1.12/LICENSE.TXT"
       ]
     }
   ]

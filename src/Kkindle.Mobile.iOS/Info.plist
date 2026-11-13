@@ -6,6 +6,17 @@
     <string>Kkindle</string>
     <key>CFBundleIdentifier</key>
     <string>com.kingstacker.kkindle</string>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>com.kingstacker.kkindle</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>kkindle</string>
+            </array>
+        </dict>
+    </array>
     <key>CFBundleShortVersionString</key>
     <string>1.1.3</string>
     <key>CFBundleVersion</key>

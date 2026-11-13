@@ -3124,13 +3124,11 @@
             <Setter Property="Margin" Value="0" />
         </Style>
 
-        <!-- Book cover frames: the cover keeps a thin grey border so covers
-             read as images in the gallery. Hover and selection frames are
-             drawn by the whole-card overlay in the card template
-             (BookCardViewModel.IsFrameVisible); the cover border itself never
-             turns black. -->
+        <!-- Book covers keep only a hairline edge so white covers do not
+             disappear into the paper. Selection is shown with a soft fill and
+             a small check badge instead of a black frame. -->
         <Style Selector="Border.bookCover">
-            <Setter Property="BorderBrush" Value="{DynamicResource CardBorderBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}" />
             <Setter Property="ClipToBounds" Value="True" />
         </Style>
         <Style Selector="Border.bookCover Image">
@@ -3146,16 +3144,16 @@
             <Setter Property="RenderTransform" Value="scale(1.06)" />
         </Style>
         <!-- The gallery card keeps its light-grey resting outline from the
-             template. Draw a one-unit black inset frame only while hovered.
-             Do not use ListBoxItem:selected here: the ListBox can retain a
-             current item independently of the app's real book selection. -->
+             template. Hover adds a soft shadow instead of a black frame. -->
         <Style Selector="ListBox.bookGrid ListBoxItem:pointerover Border.bookOutline">
             <Setter Property="BoxShadow" Value="{DynamicResource CardHoverShadow}" />
         </Style>
-        <!-- List-view rows follow the same rule: grey at rest, black thin
-             border on hover (and black when selected via the overlay). -->
+        <!-- List-view rows use a quiet fill and hairline edge at rest; hover
+             only darkens the edge slightly. Selection no longer draws a
+             black outer rectangle. -->
         <Style Selector="Border.bookRow">
             <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}" />
+            <Setter Property="CornerRadius" Value="6" />
             <Setter Property="Transitions">
                 <Transitions>
                     <BrushTransition Property="BorderBrush" Duration="0:0:0.12" />
@@ -3163,7 +3161,17 @@
             </Setter>
         </Style>
         <Style Selector="Border.bookRow:pointerover">
-            <Setter Property="BorderBrush" Value="{DynamicResource InkBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource CardBorderBrush}" />
+        </Style>
+        <Style Selector="Border.bookRow.selected">
+            <Setter Property="Background" Value="{DynamicResource SoftHoverBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}" />
+        </Style>
+        <Style Selector="Border.deviceBookRow">
+            <Setter Property="CornerRadius" Value="6" />
+        </Style>
+        <Style Selector="Border.deviceBookRow.selected">
+            <Setter Property="Background" Value="{DynamicResource SoftHoverBrush}" />
         </Style>
         <StyleInclude Source="avares://Kkindle.App/ReaderAppearanceStyles.axaml" />
         <Style Selector="Button:focus-visible">

@@ -3,9 +3,12 @@ using Kkindle.Core;
 namespace Kkindle.Infrastructure;
 
 /// <summary>All application sync providers use a fixed namespace for the open library's region.</summary>
-internal sealed class RegionalSyncObjectStore(ISyncObjectStore inner, AccountService accounts, AccountRegion region) : ISyncObjectStore
+internal sealed class RegionalSyncObjectStore(ISyncObjectStore inner, AccountService accounts, AccountRegion region)
+    : ISyncObjectStore, ISyncServerClockSource
 {
     private readonly string _root = "regions/" + AccountRegions.Slug(region) + "/";
+
+    public TimeSpan? ServerClockOffset => (inner as ISyncServerClockSource)?.ServerClockOffset;
 
     public async Task<IReadOnlyList<string>> ListKeysAsync(string prefix, CancellationToken cancellationToken)
     {

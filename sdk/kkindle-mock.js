@@ -247,7 +247,7 @@
       emit('import.progress', { fileName: name, stage: 'download', downloadedBytes: 1, totalBytes: 1, percent: 100 });
       return { fileName: name, imported: true, added: true, message: '（模拟）已导入', bookId: uuid() };
     },
-    'library.translateBook': function (p) { need('translation', '插件没有翻译书籍的权限。'); return fakeTask('translation', p.bookId); },
+    'library.translateBook': function (p) { need('translation', '插件没有翻译书籍的权限。'); if (p.provider && p.provider !== 'ai') throw new Error('网页免费翻译已停用，请选择模型翻译。'); return fakeTask('translation', p.bookId); },
     'library.annotatePinyin': function (p) { need('pinyin', '插件没有注音的权限。'); return fakeTask('pinyin', p.bookId); },
     'library.cancelTask': function () { return { cancelling: false }; },
     'pinyin.status': function () { need('pinyin', '插件没有注音的权限。'); return { g2pwInstalled: false }; },

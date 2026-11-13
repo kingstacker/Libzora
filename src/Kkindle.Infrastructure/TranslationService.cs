@@ -1,119 +1,37 @@
-using System.Globalization;
-using System.Net;
-using System.Text;
-using System.Text.Json;
-using System.Text.RegularExpressions;
 using Kkindle.Core;
 
 namespace Kkindle.Infrastructure;
 
-public enum ReaderTranslationProvider
-{
-    Google,
-    Bing,
-    Ai
-}
+// Numeric values remain stable for compatibility with older callers.
+public enum ReaderTranslationProvider { Google = 0, Bing = 1, Ai = 2 }
 
-/// <summary>
-/// Translates a reader selection through the public Google Translate and Bing
-/// Translator web endpoints, or through the configured OpenAI-compatible AI
-/// service. Google and Bing web translation do not require an application key;
-/// Bing credentials are short-lived values published by its translator page.
-/// </summary>
+/// <summary>Translates only through the explicitly configured model API. No web scraping or provider fallback.</summary>
 public sealed class TranslationService : IDisposable
 {
     public const int MaxInputLength = 12_000;
-
-    private const int MaxOnlineChunkLength = 900;
-    private const string BingHost = "https://www.bing.com";
-    private const string BingTranslatorPage = $"{BingHost}/translator";
-    private const string BingIid = "translator.5024.1";
-    private const string GoogleTranslationEndpoint = "https://translate.googleapis.com/translate_a/single";
-    private const string GoogleLegacyTranslationEndpoint = "https://clients5.google.com/translate_a/t";
-    private const string DefaultUserAgent =
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-        + "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36 Kkindle/1.0";
-
-    private static readonly Regex BingCredentialsPattern = new(
-        "params_AbusePreventionHelper\\s*=\\s*\\[\\s*(?<key>\\d+)\\s*,\\s*\\\"(?<token>[^\\\"]+)\\\"\\s*,\\s*(?<lifetime>\\d+)",
-        RegexOptions.Compiled | RegexOptions.CultureInvariant);
-
     private readonly AiChatClient _aiChatClient;
-    private readonly HttpClient _httpClient;
-    private readonly SemaphoreSlim _bingCredentialsGate = new(1, 1);
     private readonly AiRequestsPerMinuteLimiter _aiRequestsPerMinuteLimiter = new();
-    private readonly object _googleProxyClientsGate = new();
-    private readonly Dictionary<string, HttpClient> _googleProxyClients = new(StringComparer.OrdinalIgnoreCase);
-    private BingCredentials? _bingCredentials;
     private bool _disposed;
 
-    public TranslationService(AiChatClient aiChatClient, HttpMessageHandler? handler = null)
+    public TranslationService(AiChatClient aiChatClient)
     {
         _aiChatClient = aiChatClient ?? throw new ArgumentNullException(nameof(aiChatClient));
-        if (handler is null)
-        {
-            var httpHandler = new HttpClientHandler
-            {
-                AllowAutoRedirect = true,
-                AutomaticDecompression = DecompressionMethods.All,
-                UseCookies = true,
-                CookieContainer = new CookieContainer()
-            };
-            _httpClient = new HttpClient(httpHandler, disposeHandler: true);
-        }
-        else
-        {
-            _httpClient = new HttpClient(handler, disposeHandler: true);
-        }
-
-        ConfigureHttpClient(_httpClient);
     }
 
-    public async Task<string> TranslateAsync(
-        string text,
-        ReaderTranslationProvider provider,
-        string targetLanguage,
-        AiConnectionSettings? aiSettings = null,
-        CancellationToken cancellationToken = default,
-        int aiRequestsPerMinute = 0,
-        string? googleProxyAddress = null)
+    public Task<string> TranslateAsync(string text, ReaderTranslationProvider provider, string targetLanguage,
+        AiConnectionSettings? aiSettings = null, CancellationToken cancellationToken = default,
+        int aiRequestsPerMinute = 0, string? googleProxyAddress = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-
-        var normalizedText = text?.Trim() ?? string.Empty;
-        if (normalizedText.Length == 0) return string.Empty;
-        if (normalizedText.Length > MaxInputLength)
-        {
-            throw new ArgumentException(
-                $"所选文本过长，请缩小选择范围（最多 {MaxInputLength:N0} 个字符）。",
-                nameof(text));
-        }
-
-        var normalizedTarget = NormalizeTargetLanguage(targetLanguage);
-        return provider switch
-        {
-            ReaderTranslationProvider.Google => await TranslateOnlineAsync(
-                normalizedText,
-                normalizedTarget,
-                (chunk, language, token) => TranslateGoogleChunkAsync(
-                    chunk,
-                    language,
-                    googleProxyAddress,
-                    token),
-                cancellationToken),
-            ReaderTranslationProvider.Bing => await TranslateOnlineAsync(
-                normalizedText,
-                normalizedTarget,
-                TranslateBingChunkAsync,
-                cancellationToken),
-            ReaderTranslationProvider.Ai => await TranslateWithAiAsync(
-                normalizedText,
-                normalizedTarget,
-                aiSettings,
-                aiRequestsPerMinute,
-                cancellationToken),
-            _ => throw new ArgumentOutOfRangeException(nameof(provider), provider, null)
-        };
+        cancellationToken.ThrowIfCancellationRequested();
+        if (provider != ReaderTranslationProvider.Ai)
+            throw new NotSupportedException("Google／Bing 网页免费翻译已停用，请配置模型翻译服务或本地模型。");
+        var source = text?.Trim() ?? string.Empty;
+        if (source.Length == 0) return Task.FromResult(string.Empty);
+        if (source.Length > MaxInputLength)
+            throw new ArgumentException($"所选文本过长，请缩小选择范围（最多 {MaxInputLength:N0} 个字符）。", nameof(text));
+        return TranslateWithAiAsync(source, NormalizeTargetLanguage(targetLanguage), aiSettings,
+            aiRequestsPerMinute, cancellationToken);
     }
 
     public static string NormalizeTargetLanguage(string? language) => language?.Trim().ToLowerInvariant() switch
@@ -139,192 +57,6 @@ public sealed class TranslationService : IDisposable
         _ => throw new ArgumentException("暂不支持所选目标语言。", nameof(language))
     };
 
-    private async Task<string> TranslateOnlineAsync(
-        string text,
-        string targetLanguage,
-        Func<string, string, CancellationToken, Task<string>> translateChunk,
-        CancellationToken cancellationToken)
-    {
-        var chunks = SplitText(text, MaxOnlineChunkLength);
-        var translated = new StringBuilder(text.Length);
-        for (var index = 0; index < chunks.Count; index++)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (index > 0)
-                translated.Append(chunks[index - 1].SeparatorAfter);
-
-            var chunk = await translateChunk(
-                chunks[index].Text,
-                targetLanguage,
-                cancellationToken);
-            if (string.IsNullOrWhiteSpace(chunk))
-                throw new InvalidDataException("翻译服务返回了空结果。");
-            translated.Append(chunk.Trim());
-        }
-
-        return translated.ToString().Trim();
-    }
-
-    private async Task<string> TranslateGoogleChunkAsync(
-        string text,
-        string targetLanguage,
-        string? googleProxyAddress,
-        CancellationToken cancellationToken)
-    {
-        var query = string.Join(
-            "&",
-            "client=gtx",
-            "sl=auto",
-            $"tl={Uri.EscapeDataString(targetLanguage)}",
-            "dt=t",
-            $"q={Uri.EscapeDataString(text)}");
-        using var request = new HttpRequestMessage(
-            HttpMethod.Get,
-            new Uri($"{GoogleTranslationEndpoint}?{query}"));
-        request.Headers.Referrer = new Uri("https://translate.google.com/");
-
-        var httpClient = GetGoogleHttpClient(googleProxyAddress);
-        using var response = await GoogleTranslationResponse.SendAsync(httpClient, request, cancellationToken);
-        var body = await response.Content.ReadAsStringAsync(cancellationToken);
-        if (!response.IsSuccessStatusCode)
-        {
-            if (response.StatusCode == HttpStatusCode.TooManyRequests)
-            {
-                return await TranslateGoogleLegacyChunkAsync(
-                    text,
-                    targetLanguage,
-                    googleProxyAddress,
-                    cancellationToken);
-            }
-            throw new HttpRequestException(
-                $"Google 翻译请求失败（HTTP {(int)response.StatusCode}）。");
-        }
-
-        return GoogleTranslationResponse.Parse(body);
-    }
-
-    private async Task<string> TranslateGoogleLegacyChunkAsync(
-        string text,
-        string targetLanguage,
-        string? googleProxyAddress,
-        CancellationToken cancellationToken)
-    {
-        var query = string.Join(
-            "&",
-            "client=dict-chrome-ex",
-            "sl=auto",
-            $"tl={Uri.EscapeDataString(targetLanguage)}",
-            $"q={Uri.EscapeDataString(text)}");
-        using var request = new HttpRequestMessage(
-            HttpMethod.Get,
-            new Uri($"{GoogleLegacyTranslationEndpoint}?{query}"));
-        request.Headers.Referrer = new Uri("https://translate.google.com/");
-
-        var httpClient = GetGoogleHttpClient(googleProxyAddress);
-        using var response = await GoogleTranslationResponse.SendAsync(httpClient, request, cancellationToken);
-        var body = await response.Content.ReadAsStringAsync(cancellationToken);
-        if (!response.IsSuccessStatusCode)
-        {
-            throw new HttpRequestException(
-                $"Google 翻译备用接口请求失败（HTTP {(int)response.StatusCode}）。");
-        }
-
-        return GoogleTranslationResponse.Parse(body);
-    }
-
-    private async Task<string> TranslateBingChunkAsync(
-        string text,
-        string targetLanguage,
-        CancellationToken cancellationToken)
-    {
-        for (var attempt = 0; attempt < 2; attempt++)
-        {
-            var credentials = await GetBingCredentialsAsync(cancellationToken);
-            var fields = new Dictionary<string, string>
-            {
-                ["fromLang"] = "auto-detect",
-                ["text"] = text,
-                ["to"] = ToBingLanguage(targetLanguage),
-                ["token"] = credentials.Token,
-                ["key"] = credentials.Key.ToString(CultureInfo.InvariantCulture)
-            };
-
-            using var request = new HttpRequestMessage(
-                HttpMethod.Post,
-                $"{credentials.Host}/ttranslatev3?isVertical=1&IG={credentials.ImpressionGuid}&IID={BingIid}")
-            {
-                Content = new FormUrlEncodedContent(fields)
-            };
-            request.Headers.Referrer = new Uri($"{credentials.Host}/translator");
-            request.Headers.TryAddWithoutValidation("Origin", credentials.Host);
-
-            using var response = await _httpClient.SendAsync(
-                request,
-                HttpCompletionOption.ResponseContentRead,
-                cancellationToken);
-            var body = await response.Content.ReadAsStringAsync(cancellationToken);
-            if (response.StatusCode == HttpStatusCode.Unauthorized && attempt == 0)
-            {
-                InvalidateBingCredentials(credentials);
-                continue;
-            }
-            if (!response.IsSuccessStatusCode)
-            {
-                throw new HttpRequestException(
-                    $"必应翻译请求失败（HTTP {(int)response.StatusCode}）。");
-            }
-
-            try
-            {
-                return ParseBingTranslation(body);
-            }
-            catch (InvalidDataException) when (attempt == 0 && body.Contains("statusCode", StringComparison.Ordinal))
-            {
-                InvalidateBingCredentials(credentials);
-            }
-        }
-
-        throw new InvalidDataException("必应翻译返回了无法识别的结果。");
-    }
-
-    private async Task<BingCredentials> GetBingCredentialsAsync(CancellationToken cancellationToken)
-    {
-        if (_bingCredentials is { } cached && cached.ExpiresAt > DateTimeOffset.UtcNow)
-            return cached;
-
-        await _bingCredentialsGate.WaitAsync(cancellationToken);
-        try
-        {
-            if (_bingCredentials is { } refreshed && refreshed.ExpiresAt > DateTimeOffset.UtcNow)
-                return refreshed;
-
-            using var request = new HttpRequestMessage(HttpMethod.Get, BingTranslatorPage);
-            request.Headers.Referrer = new Uri(BingTranslatorPage);
-            using var response = await _httpClient.SendAsync(
-                request,
-                HttpCompletionOption.ResponseContentRead,
-                cancellationToken);
-            var html = await response.Content.ReadAsStringAsync(cancellationToken);
-            if (!response.IsSuccessStatusCode)
-            {
-                throw new HttpRequestException(
-                    $"无法打开必应翻译页面（HTTP {(int)response.StatusCode}）。");
-            }
-
-            // Bing redirects the page to a regional host on some networks. Posting
-            // to the original host then follows a 302 as a GET and loses the form.
-            // Keep the token, cookies, Origin and POST on the page's final host.
-            var pageUri = response.RequestMessage?.RequestUri ?? request.RequestUri!;
-            var host = pageUri.GetLeftPart(UriPartial.Authority);
-            _bingCredentials = ParseBingCredentials(html, host);
-            return _bingCredentials;
-        }
-        finally
-        {
-            _bingCredentialsGate.Release();
-        }
-    }
-
     private async Task<string> TranslateWithAiAsync(
         string text,
         string targetLanguage,
@@ -335,7 +67,7 @@ public sealed class TranslationService : IDisposable
         if (aiSettings is null || !aiSettings.IsConfigured)
         {
             throw new InvalidOperationException(
-                "AI 翻译需要先配置 AI 服务、模型和 API Key。");
+                "请先配置模型服务地址和模型；远程服务还需要 API Key。");
         }
 
         var targetName = GetTargetLanguageName(targetLanguage);
@@ -358,187 +90,13 @@ public sealed class TranslationService : IDisposable
         return result.Trim();
     }
 
-    private static BingCredentials ParseBingCredentials(string html, string host)
-    {
-        var match = BingCredentialsPattern.Match(html);
-        if (!match.Success
-            || !long.TryParse(
-                match.Groups["key"].Value,
-                NumberStyles.Integer,
-                CultureInfo.InvariantCulture,
-                out var key))
-        {
-            throw new InvalidDataException("无法从必应翻译页面读取临时凭据。");
-        }
-
-        var lifetime = long.TryParse(
-            match.Groups["lifetime"].Value,
-            NumberStyles.Integer,
-            CultureInfo.InvariantCulture,
-            out var parsedLifetime)
-            ? parsedLifetime
-            : 3_600_000L;
-        var expiresAt = DateTimeOffset.UtcNow.AddMilliseconds(
-            Math.Max(60_000L, lifetime - 60_000L));
-        return new BingCredentials(
-            host,
-            key,
-            match.Groups["token"].Value,
-            Guid.NewGuid().ToString("N").ToUpperInvariant(),
-            expiresAt);
-    }
-
-    private static string ParseBingTranslation(string body)
-    {
-        try
-        {
-            using var document = JsonDocument.Parse(body);
-            var root = document.RootElement;
-            if (root.ValueKind == JsonValueKind.Object
-                && root.TryGetProperty("statusCode", out var statusCode))
-            {
-                var message = root.TryGetProperty("errorMessage", out var errorMessage)
-                    && errorMessage.ValueKind == JsonValueKind.String
-                    ? errorMessage.GetString()
-                    : null;
-                var code = statusCode.ValueKind == JsonValueKind.Number
-                    ? statusCode.GetInt32().ToString(CultureInfo.InvariantCulture)
-                    : statusCode.ToString();
-                throw new InvalidDataException(
-                    string.IsNullOrWhiteSpace(message)
-                        ? $"必应翻译返回错误（{code}）。"
-                        : $"必应翻译返回错误：{message}");
-            }
-
-            if (root.ValueKind != JsonValueKind.Array)
-                throw new InvalidDataException("必应翻译返回了无法识别的结果。");
-
-            foreach (var result in root.EnumerateArray())
-            {
-                if (!result.TryGetProperty("translations", out var translations)
-                    || translations.ValueKind != JsonValueKind.Array)
-                    continue;
-                foreach (var translation in translations.EnumerateArray())
-                {
-                    if (translation.TryGetProperty("text", out var value)
-                        && value.ValueKind == JsonValueKind.String
-                        && !string.IsNullOrWhiteSpace(value.GetString()))
-                    {
-                        return value.GetString()!;
-                    }
-                }
-            }
-
-            throw new InvalidDataException("必应翻译返回了空结果。");
-        }
-        catch (JsonException exception)
-        {
-            throw new InvalidDataException("必应翻译返回了无法识别的结果。", exception);
-        }
-    }
-
-    private void InvalidateBingCredentials(BingCredentials credentials)
-    {
-        if (ReferenceEquals(_bingCredentials, credentials))
-            _bingCredentials = null;
-    }
-
-    private static string ToBingLanguage(string targetLanguage) =>
-        TranslationLanguageCatalog.Find(targetLanguage).BingCode;
-
     private static string GetTargetLanguageName(string targetLanguage) =>
         TranslationLanguageCatalog.Find(targetLanguage).DisplayName;
-
-    private static IReadOnlyList<TranslationChunk> SplitText(string text, int maxLength)
-    {
-        var chunks = new List<TranslationChunk>();
-        var offset = 0;
-        while (offset < text.Length)
-        {
-            var maximumEnd = Math.Min(text.Length, offset + maxLength);
-            if (maximumEnd == text.Length)
-            {
-                chunks.Add(new TranslationChunk(text[offset..], string.Empty));
-                break;
-            }
-
-            var splitEnd = -1;
-            for (var cursor = maximumEnd; cursor > offset + maxLength / 2; cursor--)
-            {
-                var candidate = text[cursor - 1];
-                if (!char.IsWhiteSpace(candidate) && !IsSentenceBoundary(candidate))
-                    continue;
-                splitEnd = char.IsWhiteSpace(candidate) ? cursor - 1 : cursor;
-                break;
-            }
-
-            if (splitEnd <= offset)
-                splitEnd = maximumEnd;
-            var separatorEnd = splitEnd;
-            while (separatorEnd < text.Length && char.IsWhiteSpace(text[separatorEnd]))
-                separatorEnd++;
-            chunks.Add(new TranslationChunk(
-                text[offset..splitEnd],
-                text[splitEnd..separatorEnd]));
-            offset = separatorEnd;
-        }
-
-        return chunks;
-    }
-
-    private static bool IsSentenceBoundary(char value) => value is
-        '。' or '！' or '？' or '；' or '：' or '.' or '!' or '?' or ';' or ':';
-
-    private HttpClient GetGoogleHttpClient(string? proxyAddress)
-    {
-        var normalizedAddress = TranslationProxy.NormalizeAddress(proxyAddress);
-        if (normalizedAddress.Length == 0) return _httpClient;
-
-        lock (_googleProxyClientsGate)
-        {
-            if (_googleProxyClients.TryGetValue(normalizedAddress, out var existing))
-                return existing;
-
-            var client = new HttpClient(
-                TranslationProxy.CreateHandler(normalizedAddress),
-                disposeHandler: true);
-            ConfigureHttpClient(client);
-            _googleProxyClients[normalizedAddress] = client;
-            return client;
-        }
-    }
-
-    private static void ConfigureHttpClient(HttpClient client)
-    {
-        client.Timeout = TimeSpan.FromSeconds(35);
-        client.DefaultRequestHeaders.UserAgent.ParseAdd(DefaultUserAgent);
-        client.DefaultRequestHeaders.Accept.ParseAdd("*/*");
-        client.DefaultRequestHeaders.AcceptLanguage.ParseAdd("zh-CN,zh;q=0.9,en;q=0.8");
-    }
 
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
         _aiRequestsPerMinuteLimiter.Dispose();
-        HttpClient[] proxyClients;
-        lock (_googleProxyClientsGate)
-        {
-            proxyClients = _googleProxyClients.Values.ToArray();
-            _googleProxyClients.Clear();
-        }
-        foreach (var proxyClient in proxyClients)
-            proxyClient.Dispose();
-        _httpClient.Dispose();
-        _bingCredentialsGate.Dispose();
     }
-
-    private sealed record BingCredentials(
-        string Host,
-        long Key,
-        string Token,
-        string ImpressionGuid,
-        DateTimeOffset ExpiresAt);
-
-    private sealed record TranslationChunk(string Text, string SeparatorAfter);
 }

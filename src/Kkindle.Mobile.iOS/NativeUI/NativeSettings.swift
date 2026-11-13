@@ -55,6 +55,8 @@ struct NativeProfilePage: View {
                 NavigationLink { NativeDictionary(store: store, initialTerm: "").nativeBackButton() } label: { NativeSettingsRow(title: "本地词典") }
 
                 sectionLabel("关于", top: 24).padding(.bottom, 4)
+                NavigationLink { NativeFeedbackPage(store: store) } label: { NativeSettingsRow(title: "问题反馈") }
+                    .accessibilityIdentifier("profile.feedback")
                 Button { UIPasteboard.general.string = "1109898894"; store.showToast("群号已复制到剪贴板") } label: {
                     NativeSettingsRow(title: "QQ 交流群", value: "1109898894", chevron: false)
                 }
@@ -103,6 +105,10 @@ struct NativeLibrarySettings: View {
             }))
             settingToggle("炫彩模式", identifier: "library.settings.colorful", isOn: Binding(get: { store.preferences.colorfulMode }, set: { enabled in
                 var value = store.preferences; value.colorfulMode = enabled
+                store.setPreferences(value)
+            }))
+            settingToggle("显示书籍评分", identifier: "library.settings.rating", isOn: Binding(get: { store.preferences.showBookRating }, set: { enabled in
+                var value = store.preferences; value.showBookRating = enabled
                 store.setPreferences(value)
             }))
             settingToggle("显示书籍同步状态", identifier: "library.settings.syncStatus", isOn: Binding(get: { store.preferences.showBookSyncStatus }, set: { enabled in

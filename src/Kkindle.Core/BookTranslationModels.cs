@@ -5,6 +5,7 @@ namespace Kkindle.Core;
 public enum BookTranslationProvider
 {
     Ai = 0,
+    // Retained only to deserialize old settings; Normalize migrates these to Ai.
     BingFree = 1,
     GoogleFree = 2
 }
@@ -35,9 +36,8 @@ public sealed record BookTranslationSettings
     public static BookTranslationSettings Normalize(BookTranslationSettings? settings)
     {
         settings ??= new BookTranslationSettings();
-        var provider = Enum.IsDefined(settings.Provider)
-            ? settings.Provider
-            : BookTranslationProvider.Ai;
+        // Retired web providers migrate to the configured model API; there is no free-web fallback.
+        var provider = BookTranslationProvider.Ai;
         var source = TranslationLanguageCatalog.NormalizeSource(settings.SourceLanguage);
         var target = TranslationLanguageCatalog.NormalizeTarget(settings.TargetLanguage);
         var output = settings.OutputMode & (

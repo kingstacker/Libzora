@@ -82,6 +82,8 @@ public partial class MainWindow
         {
             _updatingEmbeddingModelSelectors = false;
         }
+
+        UpdateEmbeddingModelLicenseUi(selected);
     }
 
     private void ApplyReaderEmbeddingModelSelection()
@@ -103,6 +105,39 @@ public partial class MainWindow
         finally
         {
             _updatingEmbeddingModelSelectors = false;
+        }
+
+        UpdateEmbeddingModelLicenseUi(selected);
+    }
+
+    private void UpdateEmbeddingModelLicenseUi(EmbeddingModelPackage package)
+    {
+        var licenseLabel = $"{package.LicenseName} 许可证";
+        var attribution = $"{package.Attribution} · {package.LicenseName} 许可 · 按需下载自 Hugging Face";
+        MainReaderEmbeddingModelLicenseButton.Content = licenseLabel;
+        ReaderEmbeddingModelLicenseButton.Content = licenseLabel;
+        MainReaderEmbeddingModelLicenseText.Text = attribution;
+        ReaderEmbeddingModelLicenseText.Text = attribution;
+    }
+
+    private void EmbeddingModelLicenseButton_Click(object? sender, RoutedEventArgs e)
+    {
+        var selector = ReferenceEquals(sender, MainReaderEmbeddingModelLicenseButton)
+            ? MainReaderEmbeddingModelSelectorBox
+            : ReaderEmbeddingModelSelectorBox;
+        var package = selector.SelectedIndex >= 0
+            && selector.SelectedIndex < ReaderEmbeddingModelPackages.Count
+                ? ReaderEmbeddingModelPackages[selector.SelectedIndex]
+                : EmbeddingModelPackage.Default;
+        if (package.LicenseUri is not { } licenseUri) return;
+
+        try
+        {
+            Process.Start(new ProcessStartInfo(licenseUri.AbsoluteUri) { UseShellExecute = true });
+        }
+        catch (Exception exception)
+        {
+            SetEmbeddingModelStatus(T("打开许可证页面失败：{0}", UiText.Localize(exception.Message)));
         }
     }
 
@@ -941,7 +976,7 @@ public partial class MainWindow
             validationMessage = T("请输入模型名称。");
             return false;
         }
-        if (requireApiKey && apiKey.Length == 0)
+        if (requireApiKey && apiKey.Length == 0 && !endpoint.IsLoopback)
         {
             validationMessage = T("请输入 API Key 后再测试。");
             return false;
@@ -1534,6 +1569,7 @@ public partial class MainWindow
         catch (Exception exception)
         {
             if (!ReferenceEquals(_readerAiCancellation, aiCancellation)) return;
+            SoftwareLog.ErrorWithoutMessage("ai.request", exception);
             assistantMessage.Update(answer.ToString(), reasoning.ToString(), isStreaming: false);
             assistantMessage.Status = T("请求失败：{0}", UiText.Localize(exception.Message));
             QueueReaderAiScrollToEnd();
@@ -1640,7 +1676,7 @@ public partial class MainWindow
                 return;
             if (!Uri.TryCreate(_readerAiSettings.BaseUrl, UriKind.Absolute, out var endpoint)
                 || endpoint.Scheme is not ("http" or "https")
-                || string.IsNullOrWhiteSpace(_readerAiSettings.ApiKey))
+                || (string.IsNullOrWhiteSpace(_readerAiSettings.ApiKey) && !_readerAiSettings.IsLocalEndpoint))
                 return;
             var models = await FetchAiModelsAsync(_readerAiSettings, sessionCancellationToken);
             if (models.Count == 0) return;

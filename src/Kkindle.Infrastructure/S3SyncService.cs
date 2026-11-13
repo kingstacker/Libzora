@@ -437,6 +437,7 @@ public sealed partial class S3SyncService : ISyncService
             local.Tombstones = MergeTombstones(
                 local.Tombstones,
                 detectedDeletions.Concat(GetRecordedTombstones(recordedDeletionTimes, local, state.LastUploadedSnapshot)));
+            await AssignTombstoneVersionsAsync(local, deviceId, cancellationToken);
 
             progress?.Report(UiText.Get("正在连接 {0}…", normalized.ProviderName));
             using var client = _clientFactory(normalized);
@@ -454,6 +455,8 @@ public sealed partial class S3SyncService : ISyncService
                 state.LastUploadedSnapshot is not null,
                 progress,
                 cancellationToken);
+            var serverOffset = (client as ISyncServerClockSource)?.ServerClockOffset;
+            await ObserveRemoteVersionsAsync(remoteSnapshots, deviceId, serverOffset, cancellationToken);
             InitializeBlobNamingSession(normalized, state.LastUploadedSnapshot, remoteSnapshots, createIfMissing: true);
 
             var tombstoneWatermark = Max(
@@ -516,12 +519,14 @@ public sealed partial class S3SyncService : ISyncService
                 remoteSnapshots,
                 detectedDeletions,
                 tombstoneWatermark);
+            await AssignTombstoneVersionsAsync(local, deviceId, cancellationToken);
 
             progress?.Report(UiText.Get("正在合并书籍和阅读数据…"));
             var databaseResult = await ApplyRemoteSnapshotsAsync(
                 client,
                 normalized,
                 local,
+                state.LastUploadedSnapshot,
                 remoteSnapshots,
                 progress,
                 cancellationToken);
@@ -555,11 +560,15 @@ public sealed partial class S3SyncService : ISyncService
                 .Select(annotation => annotation.Id)
                 .Distinct()
                 .ToArray();
-            var finalSnapshot = databaseResult.LocalBaseline is { } convergedBase
-                ? await CaptureConvergedSnapshotAsync(
-                    deviceId, local.Tombstones, convergedBase, remoteAnnotationIds,
-                    databaseResult.ConsolidatedDuplicates, cancellationToken)
-                : await CaptureSnapshotAsync(deviceId, local.Tombstones, cancellationToken);
+            // Reuse the sync-start capture's row versions when there was no
+            // merge to establish a newer baseline. A plain full capture would
+            // re-stamp every unchanged row with the sync time, letting a
+            // device that merely syncs later overwrite a genuinely newer edit
+            // from another device.
+            var convergedBase = databaseResult.LocalBaseline ?? local;
+            var finalSnapshot = await CaptureConvergedSnapshotAsync(
+                deviceId, local.Tombstones, convergedBase, remoteAnnotationIds,
+                databaseResult.ConsolidatedDuplicates, cancellationToken);
             finalSnapshot.TombstonesPrunedBefore = local.TombstonesPrunedBefore;
             var finalDeletions = finalSnapshot.LocalDeletionTimes
                 .Where(entry => finalSnapshot.TombstonesPrunedBefore is not { } watermark
@@ -729,6 +738,7 @@ public sealed partial class S3SyncService : ISyncService
                 // baseline, so make it newer than the stale remote row it is
                 // intended to suppress.
                 tombstone.DeletedAt = Max(remoteVersion, existingWatermark).AddTicks(1);
+                tombstone.SyncVersion = null;
             }
         }
     }
@@ -768,14 +778,19 @@ public sealed partial class S3SyncService : ISyncService
             var key = VersionKey(remoteTombstone.EntityType, remoteTombstone.Key);
             if (!unchangedKeys.Contains(key)) continue;
             if (previouslyObservedDeletions.TryGetValue(key, out var observedDeletion)
-                && observedDeletion >= remoteTombstone.DeletedAt)
+                && !S3SyncVersion.IsNewer(
+                    remoteTombstone.SyncVersion, remoteTombstone.DeletedAt,
+                    observedDeletion.SyncVersion, observedDeletion.DeletedAt))
                 continue;
             var observedVersion = remoteVersions.GetValueOrDefault(key, DateTimeOffset.MinValue);
             var deletionVersion = Max(remoteTombstone.DeletedAt, observedVersion).AddTicks(1);
             if (tombstones.TryGetValue(key, out var localTombstone))
             {
                 if (deletionVersion > localTombstone.DeletedAt)
+                {
                     localTombstone.DeletedAt = deletionVersion;
+                    localTombstone.SyncVersion = null;
+                }
             }
             else
             {
@@ -844,6 +859,7 @@ public sealed partial class S3SyncService : ISyncService
             }
             restoreVersion = GetVersionAfter(book.UpdatedAt, restoreVersion);
             book.UpdatedAt = restoreVersion;
+            book.SyncVersion = null;
             updatedBookVersions[book.Id] = restoreVersion;
             foreach (var file in localFilesByBook[book.Id])
                 updatedFileVersions[file.Id] = GetVersionAfter(file.ModifiedAt, restoreVersion);
@@ -865,13 +881,17 @@ public sealed partial class S3SyncService : ISyncService
             if (book is null) continue;
             var restoreVersion = GetVersionAfter(book.UpdatedAt, deletedAt);
             book.UpdatedAt = restoreVersion;
+            book.SyncVersion = null;
             updatedBookVersions[book.Id] = restoreVersion;
         }
 
         if (resolved.Count == 0) return resolved;
         foreach (var file in local.Files)
             if (updatedFileVersions.TryGetValue(file.Id, out var version))
+            {
                 file.ModifiedAt = version;
+                file.SyncVersion = null;
+            }
 
         using var processLease = await AppDataProcessLock.AcquireAsync(_paths, cancellationToken);
         await using var connection = await OpenDatabaseConnectionAsync(cancellationToken);
@@ -1568,6 +1588,7 @@ public sealed partial class S3SyncService : ISyncService
         var payload = settings.EncryptionKey.Length == 0
             ? compressed
             : ProtectPayloadForSync(compressed, settings.EncryptionKey);
+        EnsureSnapshotSize(payload.Length);
         using var stream = new MemoryStream(payload, writable: false);
         await client.PutAsync(SnapshotKey(settings, snapshot.DeviceId), stream,
             "application/octet-stream", cancellationToken);
@@ -1970,10 +1991,23 @@ public sealed partial class S3SyncService : ISyncService
         S3SyncSnapshot snapshot,
         CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+        var json = JsonSerializer.SerializeToUtf8Bytes(snapshot, JsonOptions);
+        EnsureSnapshotSize(json.Length);
         await using var output = new MemoryStream();
         await using (var gzip = new GZipStream(output, CompressionLevel.SmallestSize, leaveOpen: true))
-            await JsonSerializer.SerializeAsync(gzip, snapshot, JsonOptions, cancellationToken);
-        return output.ToArray();
+            await gzip.WriteAsync(json, cancellationToken);
+        var compressed = output.ToArray();
+        EnsureSnapshotSize(compressed.Length);
+        return compressed;
+    }
+
+    internal static void EnsureSnapshotSize(long length, long limit = MaxSnapshotBytes)
+    {
+        if (length > limit)
+            throw new InvalidDataException(UiText.Get(
+                "同步快照超过大小限制（{0} MB）。请减少书籍数量后重试。",
+                Math.Max(1, limit / (1024 * 1024))));
     }
 
     private async Task<S3SyncSnapshot> DecodeSnapshotAsync(

@@ -14,9 +14,16 @@ public sealed class AiConnectionSettings
     public string ApiKey { get; set; } = string.Empty;
 
     public bool IsConfigured =>
-        Uri.TryCreate(BaseUrl, UriKind.Absolute, out _)
+        Uri.TryCreate(BaseUrl, UriKind.Absolute, out var endpoint)
+        && endpoint.Scheme is "http" or "https"
         && !string.IsNullOrWhiteSpace(Model)
-        && !string.IsNullOrWhiteSpace(ApiKey);
+        && (IsLocalEndpoint || !string.IsNullOrWhiteSpace(ApiKey));
+
+    public bool IsLocalEndpoint => Uri.TryCreate(BaseUrl, UriKind.Absolute, out var endpoint)
+        && endpoint.Scheme is "http" or "https" && endpoint.IsLoopback;
+
+    public string Destination => Uri.TryCreate(BaseUrl, UriKind.Absolute, out var endpoint)
+        ? endpoint.GetComponents(UriComponents.SchemeAndServer, UriFormat.SafeUnescaped) : string.Empty;
 
 
     public string ProviderDisplayName => Provider.ToLowerInvariant() switch
@@ -216,11 +223,12 @@ public sealed class AiChatClient : IDisposable
         CancellationToken cancellationToken = default)
     {
         var endpoint = BuildEndpoint(settings.BaseUrl, "models");
-        if (string.IsNullOrWhiteSpace(settings.ApiKey))
+        if (string.IsNullOrWhiteSpace(settings.ApiKey) && !settings.IsLocalEndpoint)
             throw new InvalidOperationException("请先配置 AI API Key。");
 
         using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", settings.ApiKey.Trim());
+        if (!string.IsNullOrWhiteSpace(settings.ApiKey))
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", settings.ApiKey.Trim());
         request.Headers.UserAgent.ParseAdd("Kkindle/1.0");
         using var response = await _httpClient.SendAsync(
             request,
@@ -770,7 +778,8 @@ public sealed class AiChatClient : IDisposable
         CancellationToken cancellationToken)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey.Trim());
+        if (!string.IsNullOrWhiteSpace(apiKey))
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey.Trim());
         request.Headers.UserAgent.ParseAdd("Kkindle/1.0");
         request.Content = new StringContent(payload, Encoding.UTF8, "application/json");
         return await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);

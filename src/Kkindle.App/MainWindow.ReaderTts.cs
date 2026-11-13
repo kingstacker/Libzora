@@ -8,6 +8,7 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using Kkindle.Core;
 using Kkindle.Infrastructure;
+using System.Diagnostics;
 using System.Text.Json;
 
 namespace Kkindle;
@@ -45,6 +46,7 @@ public partial class MainWindow
     private TtsSettings _readerTtsSettings = new();
     private bool _readerTtsVoicesLoading;
     private int _readerTtsVoicesRequest;
+    private IReadOnlyList<TtsVoiceInfo> _readerTtsLastVoices = [];
     private bool _readerTtsAutoNavigation;
     private bool _readerTtsFloatingRequested;
     private bool _readerTtsFloatingExpanded;
@@ -61,6 +63,13 @@ public partial class MainWindow
     private string? _readerTtsNotice;
     private Task? _readerTtsEnvironmentTask;
     private CancellationTokenSource? _readerSelectionTtsCancellation;
+    private TtsModelStore? _readerTtsModelStore;
+    private bool _readerTtsModelDownloadInProgress;
+    private bool _readerTtsModelsRefreshing;
+    private CancellationTokenSource? _readerTtsModelDownloadCancellation;
+    private TtsModelPackage? _readerTtsSelectedModel;
+    private TtsModelDownloadProgress? _readerTtsModelProgress;
+    private string? _readerTtsModelNotice;
     private DispatcherTimer? _readerTtsFloatingCollapseTimer;
     private DispatcherTimer? _readerTtsFloatingAutoHideTimer;
     private DispatcherTimer? _readerTtsButtonBreathingTimer;
@@ -619,7 +628,9 @@ public partial class MainWindow
         ReaderTtsVolumeSlider.Value = _readerTtsSettings.Volume;
         ReaderTtsPitchSlider.Value = _readerTtsSettings.Pitch;
         ReaderTtsAutoAdvanceCheck.IsChecked = _readerTtsSettings.AutoAdvance;
+        ReaderTtsShowAllVoicesCheck.IsChecked = _readerTtsSettings.ShowAllVoices;
         UpdateReaderTtsValueLabels();
+        RefreshReaderTtsModels();
     }
 
     private void CaptureReaderTtsSettingsFromControls()
@@ -629,10 +640,29 @@ public partial class MainWindow
         _readerTtsSettings.Voice = selectedVoice?.Tag as string
             ?? ReaderTtsVoiceBox.Text?.Trim()
             ?? TtsOptions.DefaultVoice;
+        _readerTtsSettings.VoiceCulture = _readerTtsLastVoices
+            .FirstOrDefault(voice => string.Equals(
+                voice.Id,
+                _readerTtsSettings.Voice,
+                StringComparison.OrdinalIgnoreCase))
+            ?.Culture ?? string.Empty;
         _readerTtsSettings.Speed = ReaderTtsSpeedSlider.Value;
         _readerTtsSettings.Volume = (int)Math.Round(ReaderTtsVolumeSlider.Value);
         _readerTtsSettings.Pitch = (int)Math.Round(ReaderTtsPitchSlider.Value);
         _readerTtsSettings.AutoAdvance = ReaderTtsAutoAdvanceCheck.IsChecked == true;
+        _readerTtsSettings.ShowAllVoices = ReaderTtsShowAllVoicesCheck.IsChecked == true;
+        if (ReaderTtsModelBox?.SelectedItem is ComboBoxItem selectedModel
+            && selectedModel.Tag is string modelId)
+        {
+            _readerTtsSettings.Model = modelId;
+        }
+        if (TtsModelCatalog.TryParseVoiceId(
+                _readerTtsSettings.Voice,
+                out var voicePackageId,
+                out _))
+        {
+            _readerTtsSettings.Model = voicePackageId;
+        }
         _readerTtsSettings = TtsSettings.Normalize(_readerTtsSettings);
     }
 
@@ -708,26 +738,47 @@ public partial class MainWindow
         ReaderTtsTitleText.Text = T("听书");
         ReaderTtsDescriptionText.Text = _readerIsPdf
             ? T("当前 PDF 页面有可提取文本时可朗读；扫描图片页需要 OCR，当前版本不自动识别。")
-            : T("首次启动会自动准备 edge-tts；生成语音需要联网。Windows、Linux 和 macOS 均支持。");
+            : (_readerTts.EngineId == LocalSystemTtsEngine.ProviderId
+                ? T("使用本机离线语音（系统语音或已下载语音包），朗读无需联网，正文不会上传。")
+                : T("在线语音需要联网，朗读文本将发送给语音服务商。"));
         ReaderTtsProviderLabelText.Text = T("语音引擎");
-        ReaderTtsEngineText.Text = "edge-tts";
+        ReaderTtsEngineText.Text = _readerTts.EngineId == LocalSystemTtsEngine.ProviderId
+            ? T("本机离线语音") : _readerTts.EngineId;
+        ReaderTtsPitchSlider.IsEnabled = _readerTts.EngineId != LocalSystemTtsEngine.ProviderId;
         ReaderTtsVoiceLabelText.Text = T("声音");
-        ReaderTtsVoiceBox.PlaceholderText = T("选择 edge-tts 语音");
+        ReaderTtsVoiceBox.PlaceholderText = T("选择语音");
+        if (ReaderTtsShowAllVoicesCheck is not null)
+        {
+            ReaderTtsShowAllVoicesCheck.IsVisible =
+                _readerTts.EngineId == LocalSystemTtsEngine.ProviderId;
+            ReaderTtsShowAllVoicesCheck.Content = T("显示全部声音");
+            ReaderTtsShowAllVoicesCheck.IsChecked = _readerTtsSettings.ShowAllVoices;
+        }
         ReaderTtsPreviewButton.Content = _readerTtsPreviewInProgress
             ? T("试听中…")
             : T("试听");
         ReaderTtsPreviewSampleText.Text = T(
             "试听内容：{0}",
-            TtsService.GetPreviewText(_readerTtsSettings.Voice));
+            TtsService.GetPreviewText(
+                _readerTtsSettings.Voice,
+                _readerTtsSettings.VoiceCulture));
         ReaderTtsRefreshVoicesButton.Content = T("刷新语音");
         ReaderTtsSpeedLabelText.Text = T("语速");
         ReaderTtsVolumeLabelText.Text = T("音量");
+        ReaderTtsVolumeSlider.Maximum = _readerTts.EngineId == LocalSystemTtsEngine.ProviderId ? 100 : 200;
         ReaderTtsPitchLabelText.Text = T("音调");
         ReaderTtsAutoAdvanceCheck.Content = T("自动朗读下一章");
         ReaderTtsApplyButton.Content = T("应用设置");
         ReaderTtsPreviousSegmentButton.Content = T("上一段");
         ReaderTtsNextSegmentButton.Content = T("下一段");
         ReaderTtsStopButton.Content = T("停止");
+
+        if (ReaderTtsModelPanel is not null)
+        {
+            ReaderTtsModelPanel.IsVisible =
+                _readerTts.EngineId == LocalSystemTtsEngine.ProviderId;
+        }
+        UpdateReaderTtsModelUi();
 
         ReaderTtsPlayButton.Content = state switch
         {
@@ -745,14 +796,14 @@ public partial class MainWindow
                 and not TtsPlaybackState.AdvancingChapter;
         ReaderTtsPreviewButton.IsEnabled = _readerTts.CanOpen
             && !_readerTtsPreviewInProgress
-            && !_readerTts.EnvironmentSetupInProgress
-            && state is TtsPlaybackState.Stopped
-                or TtsPlaybackState.Error;
+            && !_readerTts.EnvironmentSetupInProgress;
         ReaderTtsStopButton.IsEnabled = state is not TtsPlaybackState.Stopped;
         ReaderTtsPreviousSegmentButton.IsEnabled = _readerTts.CanSkipPrevious;
         ReaderTtsNextSegmentButton.IsEnabled = _readerTts.CanSkipNext;
         ReaderTtsStatusText.Text = _readerTtsPreviewInProgress
-            ? T("正在试听：{0}", TtsService.GetPreviewText(_readerTtsSettings.Voice))
+            ? T("正在试听：{0}", TtsService.GetPreviewText(
+                _readerTtsSettings.Voice,
+                _readerTtsSettings.VoiceCulture))
             : state switch
             {
                 TtsPlaybackState.Generating => T(
@@ -1307,6 +1358,7 @@ public partial class MainWindow
         ReaderTtsPopup.IsOpen = true;
         UpdateReaderTtsUi();
         _ = RefreshReaderTtsVoicesAsync();
+        RefreshReaderTtsModels();
     }
 
     private async void ReaderTtsButton_Click(
@@ -1355,6 +1407,316 @@ public partial class MainWindow
         RoutedEventArgs e)
         => await RefreshReaderTtsVoicesAsync();
 
+    private async void ReaderTtsShowAllVoicesCheck_Click(
+        object? sender,
+        RoutedEventArgs e)
+    {
+        _readerTtsSettings.ShowAllVoices = ReaderTtsShowAllVoicesCheck.IsChecked == true;
+        await RefreshReaderTtsVoicesAsync();
+    }
+
+    private TtsModelStore ReaderTtsModels =>
+        _readerTtsModelStore ??= new TtsModelStore(
+            _paths,
+            proxyAddress: _appSettings.Translation.GoogleProxyAddress);
+
+    private void RefreshReaderTtsModels()
+    {
+        if (ReaderTtsModelBox is null) return;
+        var previous = _readerTtsSelectedModel?.Id ?? _readerTtsSettings.Model;
+        _readerTtsModelsRefreshing = true;
+        try
+        {
+            var items = TtsModelCatalog.Packages
+                .Select(package =>
+                {
+                    var installed = ReaderTtsModels.IsInstalled(package);
+                    var status = installed ? T("已下载") : T("未下载");
+                    return new ComboBoxItem
+                    {
+                        Content = $"{T(package.DisplayName)} · {package.EstimatedSizeText} · {status}",
+                        Tag = package.Id,
+                    };
+                })
+                .ToArray();
+            ReaderTtsModelBox.ItemsSource = items;
+            var selected = items.FirstOrDefault(item =>
+                    string.Equals(
+                        item.Tag as string,
+                        previous,
+                        StringComparison.OrdinalIgnoreCase))
+                ?? items.FirstOrDefault(item =>
+                    ReaderTtsModels.IsInstalled(TtsModelCatalog.Find(item.Tag as string)!))
+                ?? items.FirstOrDefault();
+            ReaderTtsModelBox.SelectedItem = selected;
+            _readerTtsSelectedModel = TtsModelCatalog.Find(selected?.Tag as string);
+        }
+        finally
+        {
+            _readerTtsModelsRefreshing = false;
+        }
+        UpdateReaderTtsModelUi();
+    }
+
+    private void UpdateReaderTtsModelUi()
+    {
+        if (ReaderTtsModelPanel is null) return;
+        ReaderTtsModelLabelText.Text = T("离线语音包");
+        ReaderTtsModelBox.PlaceholderText = T("选择语音包");
+        ReaderTtsModelDownloadButton.Content = T("下载");
+        ReaderTtsModelDeleteButton.Content = T("删除");
+        ReaderTtsModelLicenseButton.Content = T("许可证");
+        ReaderTtsModelProgressBar.IsVisible = _readerTtsModelDownloadInProgress;
+        ReaderTtsModelBox.IsEnabled = !_readerTtsModelDownloadInProgress;
+
+        var package = _readerTtsSelectedModel;
+        if (package is null)
+        {
+            ReaderTtsModelDetailText.Text = T("未选择语音包。");
+            ReaderTtsModelDownloadButton.IsEnabled = false;
+            ReaderTtsModelDeleteButton.IsEnabled = false;
+            ReaderTtsModelLicenseButton.IsEnabled = false;
+            ReaderTtsModelStatusText.Text = string.Empty;
+            return;
+        }
+
+        var installed = ReaderTtsModels.IsInstalled(package);
+        ReaderTtsModelDetailText.Text =
+            $"{T(package.Description)} · {T("许可证")}: {package.LicenseName} · {T("下载源：GitHub")}";
+        ReaderTtsModelDownloadButton.Content = _readerTtsModelDownloadInProgress
+            ? T("取消下载")
+            : installed ? T("已下载") : T("下载");
+        ReaderTtsModelDownloadButton.IsEnabled =
+            _readerTtsModelDownloadInProgress || !installed;
+        ReaderTtsModelDeleteButton.IsEnabled =
+            installed && !_readerTtsModelDownloadInProgress;
+        ReaderTtsModelLicenseButton.IsEnabled = true;
+
+        if (_readerTtsModelDownloadInProgress)
+        {
+            var progress = _readerTtsModelProgress;
+            ReaderTtsModelProgressBar.Value = progress?.Percentage ?? 0;
+            ReaderTtsModelStatusText.Text = progress?.Phase switch
+            {
+                TtsModelDownloadPhase.Preparing => T("正在准备下载…"),
+                TtsModelDownloadPhase.Verifying => T("正在校验…"),
+                TtsModelDownloadPhase.Extracting => T("正在解压…"),
+                TtsModelDownloadPhase.Completed => T("语音包已下载。"),
+                _ when progress?.Percentage is { } percentage
+                    => T(
+                        "正在下载… {0}% · {1} / {2}",
+                        percentage.ToString("0", System.Globalization.CultureInfo.InvariantCulture),
+                        TtsModelCatalog.FormatBytes(progress.BytesReceived),
+                        TtsModelCatalog.FormatBytes(progress.TotalBytes ?? package.ArchiveBytes)),
+                _ => T("正在下载…"),
+            };
+            if (!string.IsNullOrWhiteSpace(_readerTtsModelNotice))
+                ReaderTtsModelStatusText.Text = _readerTtsModelNotice;
+            return;
+        }
+
+        ReaderTtsModelStatusText.Text = _readerTtsModelNotice
+            ?? (installed
+                ? T(
+                    "已下载 · 本机占用 {0}",
+                    TtsModelCatalog.FormatBytes(ReaderTtsModels.GetInstalledBytes(package)))
+                : T("模型体积 {0}", package.EstimatedSizeText));
+    }
+
+    private void ReaderTtsModelBox_SelectionChanged(
+        object? sender,
+        SelectionChangedEventArgs e)
+    {
+        if (_readerTtsModelsRefreshing) return;
+        _readerTtsSelectedModel = TtsModelCatalog.Find(
+            (ReaderTtsModelBox.SelectedItem as ComboBoxItem)?.Tag as string);
+        _readerTtsModelNotice = null;
+        UpdateReaderTtsModelUi();
+    }
+
+    private async void ReaderTtsModelDownloadButton_Click(
+        object? sender,
+        RoutedEventArgs e)
+    {
+        if (_readerTtsModelDownloadInProgress)
+        {
+            _readerTtsModelDownloadCancellation?.Cancel();
+            return;
+        }
+        var package = _readerTtsSelectedModel;
+        if (package is null) return;
+        var store = ReaderTtsModels;
+        if (store.IsInstalled(package))
+        {
+            _readerTtsModelNotice = T("该语音包已下载。");
+            UpdateReaderTtsModelUi();
+            return;
+        }
+
+        try
+        {
+            var confirmed = await ConfirmAsync(
+                T("下载离线语音包"),
+                T(
+                    "将下载 {0}（{1}），下载源为 GitHub。是否继续？",
+                    package.DisplayName,
+                    package.EstimatedSizeText),
+                primaryText: T("下载"),
+                cancellationToken: ReaderToken);
+            if (!confirmed) return;
+
+            _readerTtsModelDownloadInProgress = true;
+            _readerTtsModelNotice = null;
+            _readerTtsModelProgress = new TtsModelDownloadProgress(
+                TtsModelDownloadPhase.Preparing,
+                0,
+                package.ArchiveBytes);
+            var cancellation = CancellationTokenSource.CreateLinkedTokenSource(ReaderToken);
+            _readerTtsModelDownloadCancellation?.Dispose();
+            _readerTtsModelDownloadCancellation = cancellation;
+            UpdateReaderTtsModelUi();
+
+            var progress = new Progress<TtsModelDownloadProgress>(value =>
+            {
+                _readerTtsModelProgress = value;
+                UpdateReaderTtsModelUi();
+            });
+            try
+            {
+                await store.DownloadAsync(package, progress, cancellation.Token);
+                _readerTtsSettings.Model = package.Id;
+                await _ttsSettingsStore.SaveAsync(_readerTtsSettings, ReaderToken);
+                _readerTtsModelNotice = T("语音包已下载。");
+                RefreshReaderTtsModels();
+                await RefreshReaderTtsVoicesAsync();
+            }
+            catch (OperationCanceledException) when (ReaderToken.IsCancellationRequested)
+            {
+            }
+            catch (OperationCanceledException)
+            {
+                _readerTtsModelNotice = T("下载已取消，下次可以继续。");
+            }
+            catch (Exception exception)
+            {
+                _readerTtsModelNotice = T(
+                    "语音包下载失败：{0}",
+                    UiText.Localize(exception.Message));
+            }
+            finally
+            {
+                _readerTtsModelDownloadInProgress = false;
+                _readerTtsModelProgress = null;
+                if (ReferenceEquals(_readerTtsModelDownloadCancellation, cancellation))
+                    _readerTtsModelDownloadCancellation = null;
+                cancellation.Dispose();
+                UpdateReaderTtsModelUi();
+            }
+        }
+        catch (OperationCanceledException) when (ReaderToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            _readerTtsModelNotice = T(
+                "语音包下载失败：{0}",
+                UiText.Localize(exception.Message));
+            UpdateReaderTtsModelUi();
+        }
+    }
+
+    private async void ReaderTtsModelDeleteButton_Click(
+        object? sender,
+        RoutedEventArgs e)
+    {
+        var package = _readerTtsSelectedModel;
+        if (package is null || _readerTtsModelDownloadInProgress) return;
+        var store = ReaderTtsModels;
+        if (!store.IsInstalled(package)) return;
+
+        try
+        {
+            var confirmed = await ConfirmAsync(
+                T("删除离线语音包"),
+                T("删除 {0}？之后可以重新下载。", package.DisplayName),
+                primaryText: T("确认删除"),
+                cancellationToken: ReaderToken);
+            if (!confirmed) return;
+
+            if (TtsModelCatalog.TryParseVoiceId(
+                    _readerTtsSettings.Voice,
+                    out var voicePackageId,
+                    out _)
+                && voicePackageId.Equals(package.Id, StringComparison.OrdinalIgnoreCase))
+            {
+                _readerTtsSettings.Voice = TtsOptions.DefaultVoice;
+                await _ttsSettingsStore.SaveAsync(_readerTtsSettings, ReaderToken);
+            }
+            store.Delete(package);
+            _readerTtsModelNotice = T("已删除语音包。");
+            RefreshReaderTtsModels();
+            await RefreshReaderTtsVoicesAsync();
+        }
+        catch (OperationCanceledException) when (ReaderToken.IsCancellationRequested)
+        {
+        }
+        catch (IOException)
+        {
+            _readerTtsModelNotice = T("删除失败：语音包正在使用，请重启应用后重试。");
+            UpdateReaderTtsModelUi();
+        }
+        catch (Exception exception)
+        {
+            _readerTtsModelNotice = T(
+                "删除语音包失败：{0}",
+                UiText.Localize(exception.Message));
+            UpdateReaderTtsModelUi();
+        }
+    }
+
+    private void ReaderTtsModelLicenseButton_Click(object? sender, RoutedEventArgs e)
+    {
+        var package = _readerTtsSelectedModel;
+        if (package is null) return;
+        try
+        {
+            Process.Start(new ProcessStartInfo(package.LicenseUrl)
+            {
+                UseShellExecute = true,
+            });
+        }
+        catch (Exception exception)
+        {
+            _readerTtsModelNotice = T(
+                "打开许可证页面失败：{0}",
+                UiText.Localize(exception.Message));
+            UpdateReaderTtsModelUi();
+        }
+    }
+
+    private void ReaderTtsVoiceBox_SelectionChanged(
+        object? sender,
+        SelectionChangedEventArgs e)
+    {
+        if (ReaderTtsVoiceBox.SelectedItem is not ComboBoxItem item
+            || item.Tag is not string voiceId)
+        {
+            return;
+        }
+        _readerTtsSettings.Voice = voiceId;
+        _readerTtsSettings.VoiceCulture = _readerTtsLastVoices
+            .FirstOrDefault(voice => string.Equals(
+                voice.Id,
+                voiceId,
+                StringComparison.OrdinalIgnoreCase))
+            ?.Culture ?? string.Empty;
+        ReaderTtsPreviewSampleText.Text = T(
+            "试听内容：{0}",
+            TtsService.GetPreviewText(
+                _readerTtsSettings.Voice,
+                _readerTtsSettings.VoiceCulture));
+    }
+
     private async void ReaderTtsPreviewButton_Click(
         object? sender,
         RoutedEventArgs e)
@@ -1364,10 +1726,20 @@ public partial class MainWindow
         try
         {
             CaptureReaderTtsSettingsFromControls();
+            if (IsReaderTtsActiveState(_readerTts.State))
+            {
+                // Auditioning a different voice should always work, even when
+                // the reader is paused or speaking. Stop the current session
+                // first; the reading position remains available for restart.
+                CancelReaderTtsContinuation();
+                await _readerTts.StopAsync();
+            }
             _readerTtsPreviewInProgress = true;
             _readerTtsNotice = T(
                 "正在试听：{0}",
-                TtsService.GetPreviewText(_readerTtsSettings.Voice));
+                TtsService.GetPreviewText(
+                    _readerTtsSettings.Voice,
+                    _readerTtsSettings.VoiceCulture));
             UpdateReaderTtsUi();
 
             await _readerTts.PreviewAsync(
@@ -1403,9 +1775,16 @@ public partial class MainWindow
         {
             var voices = await _readerTts.GetVoicesAsync(ReaderToken);
             if (request != _readerTtsVoicesRequest) return;
-            var supportedVoices = voices
-                .Where(TtsSelectionVoicePolicy.IsSupportedVoice)
-                .ToArray();
+            _readerTtsLastVoices = voices;
+            var localEngine = _readerTts.EngineId == LocalSystemTtsEngine.ProviderId;
+            var supportedVoices = localEngine
+                ? TtsVoicePicker.Select(
+                    voices,
+                    _readerTtsSettings.ShowAllVoices,
+                    _readerTtsSettings.Voice)
+                : voices
+                    .Where(voice => TtsSelectionVoicePolicy.IsSupportedVoice(voice))
+                    .ToArray();
             var items = supportedVoices
                 .Select(voice => new ComboBoxItem
                 {
@@ -1428,16 +1807,24 @@ public partial class MainWindow
                         item.Tag as string,
                         TtsOptions.DefaultVoice,
                         StringComparison.OrdinalIgnoreCase))
+                    ?? items.FirstOrDefault(item => voices.Any(voice => voice.Id == (item.Tag as string)
+                        && voice.Culture == "zh-CN"))
                     ?? items.FirstOrDefault();
                 if (selected?.Tag is string fallbackVoice)
                     _readerTtsSettings.Voice = fallbackVoice;
             }
             ReaderTtsVoiceBox.SelectedItem = selected;
             ReaderTtsVoiceBox.Text = _readerTtsSettings.Voice;
+            _readerTtsSettings.VoiceCulture = voices
+                .FirstOrDefault(voice => string.Equals(
+                    voice.Id,
+                    _readerTtsSettings.Voice,
+                    StringComparison.OrdinalIgnoreCase))
+                ?.Culture ?? _readerTtsSettings.VoiceCulture;
             _readerTtsNotice = items.Length == 0
                 ? _readerTts.Availability is { IsAvailable: false } unavailable
                     ? unavailable.Message
-                    : T("未找到 edge-tts 语音。")
+                    : T("未找到可用语音，请检查系统语音设置。")
                 : null;
             UpdateReaderTtsUi();
         }
@@ -1549,7 +1936,8 @@ public partial class MainWindow
                 BookKey: document.BookKey,
                 ChapterKey: document.ChapterKey);
             var settings = _readerTtsSettings.Clone();
-            settings.Voice = TtsSelectionVoicePolicy.SelectVoice(text, settings.Voice);
+            if (_readerTts.EngineId != LocalSystemTtsEngine.ProviderId)
+                settings.Voice = TtsSelectionVoicePolicy.SelectVoice(text, settings.Voice);
             _readerTtsNotice = null;
             _readerTtsFloatingRequested = true;
             ShowReaderTtsFloatingPanelTemporarily();

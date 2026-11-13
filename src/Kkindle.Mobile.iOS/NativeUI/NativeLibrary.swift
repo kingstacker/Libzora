@@ -108,7 +108,7 @@ struct NativeBookDetailPage: View {
             if let book {
                 Button { store.perform { try await store.openReader(book) } } label: {
                     Text(book.progress > 0 ? "继续阅读 · \(book.progress, specifier: "%.0f")%" : "开始阅读")
-                }.buttonStyle(NativePrimaryButtonStyle()).disabled(store.openingReader).accessibilityIdentifier("book.read")
+                }.buttonStyle(NativeLiquidGlassButtonStyle()).disabled(store.openingReader).accessibilityIdentifier("book.read")
                     .padding(.horizontal, 28).padding(.top, 8).padding(.bottom, 14)
             }
         }.background(NativeAmbientBackground()).navigationBarHidden(true).modifier(NativeHideTabBar())
@@ -152,27 +152,43 @@ struct NativeBookEditor: View {
             "description": book.description ?? "", "onlineRating": book.onlineRating.map { String($0) } ?? ""])
     }
     private func field(_ key: String) -> Binding<String> { Binding(get: { fields[key] ?? "" }, set: { fields[key] = $0 }) }
+    private var coverImage: UIImage? {
+        guard let encoded = fields["cover"], let data = Data(base64Encoded: encoded) else { return nil }
+        return UIImage(data: data)
+    }
+    private var draftTitle: String {
+        let value = (fields["title"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? book.title : value
+    }
+    private var draftAuthors: String {
+        let value = (fields["authors"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? book.authors : value
+    }
     var body: some View {
         NavigationView {
-            NativeForm {
-                Section("封面") {
-                    if let encoded = fields["cover"], let bytes = Data(base64Encoded: encoded), let image = UIImage(data: bytes) {
-                        Image(uiImage: image).resizable().scaledToFit().frame(height: 160)
-                    } else { BookCover(book: book, width: 90) }
-                    Button("更换封面") {
-                        busy = true
-                        Task { defer { busy = false }; do { let value: CoverResult = try await store.request("book.cover"); if let cover = value.cover { fields["cover"] = cover } } catch { self.error = error.localizedDescription } }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 22) {
+                    coverPanel
+                    editorSection("简介") { descriptionEditor }
+                    editorSection("书籍信息") {
+                        VStack(spacing: 16) {
+                            NativeTextField(title: "书名", text: field("title")); NativeTextField(title: "作者", text: field("authors"))
+                            NativeTextField(title: "评分（0–10）", text: field("onlineRating")).keyboardType(.decimalPad); NativeTextField(title: "标签", text: field("tags"))
+                            NativeTextField(title: "分类", text: field("category")); NativeTextField(title: "丛书", text: field("series"))
+                            NativeTextField(title: "出版社", text: field("publisher")); NativeTextField(title: "出版日期", text: field("publishDate"))
+                            NativeTextField(title: "ISBN", text: field("isbn")); NativeTextField(title: "页数", text: field("pageCount"))
+                            NativeTextField(title: "装帧", text: field("binding"))
+                        }
                     }
-                }
-                Section("书籍信息") {
-                    NativeTextField(title: "书名", text: field("title")); NativeTextField(title: "作者", text: field("authors")); NativeTextField(title: "丛书", text: field("series"))
-                    NativeTextField(title: "出版社", text: field("publisher")); NativeTextField(title: "出版日期", text: field("publishDate")); NativeTextField(title: "ISBN", text: field("isbn"))
-                    NativeTextField(title: "页数", text: field("pageCount")); NativeTextField(title: "装帧", text: field("binding")); NativeTextField(title: "标签", text: field("tags"))
-                    NativeTextField(title: "分类", text: field("category")); NativeTextField(title: "评分（0–10）", text: field("onlineRating")).keyboardType(.decimalPad)
-                }
-                Section("简介") { TextEditor(text: field("description")).frame(minHeight: 150) }
-                if let error { Section { Text(error).foregroundStyle(NativeTheme.secondary) } }
-            }.disabled(busy).navigationTitle("编辑书籍").navigationBarTitleDisplayMode(.inline).navigationBarHidden(false).modifier(NativeKeyboardDone())
+                    if let error {
+                        Text(error).font(NativeTheme.font(13, relativeTo: .footnote)).foregroundStyle(NativeTheme.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 4)
+                    }
+                }.padding(.horizontal, 24).padding(.top, 12).padding(.bottom, 32).disabled(busy)
+            }
+            .modifier(NativeScrollDismissesKeyboard())
+            .background(NativeAmbientBackground())
+            .navigationTitle("编辑书籍").navigationBarTitleDisplayMode(.inline).navigationBarHidden(false).modifier(NativeKeyboardDone())
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() }.disabled(busy) }
                     ToolbarItem(placement: .confirmationAction) { Button("保存") {
@@ -181,6 +197,63 @@ struct NativeBookEditor: View {
                     }.disabled(busy || (fields["title"] ?? "").isEmpty) }
                 }
         }.navigationViewStyle(.stack).interactiveDismissDisabled(busy)
+    }
+
+    /// The cover and the live title/author preview fill the header so the sheet
+    /// does not open on a small cover floating in empty space.
+    private var coverPanel: some View {
+        HStack(alignment: .top, spacing: 18) {
+            coverThumbnail
+            VStack(alignment: .leading, spacing: 4) {
+                Text(draftTitle).font(NativeTheme.font(17, relativeTo: .headline)).lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(draftAuthors).font(NativeTheme.font(13, relativeTo: .footnote))
+                    .foregroundStyle(NativeTheme.secondary).lineLimit(2)
+                Text("\(book.formats) · \(book.size) · 已读 \(book.progress, specifier: "%.0f")%")
+                    .font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.muted)
+                    .padding(.top, 2)
+                Spacer(minLength: 12)
+                Button {
+                    busy = true
+                    Task { defer { busy = false }; do { let value: CoverResult = try await store.request("book.cover"); if let cover = value.cover { fields["cover"] = cover } } catch { self.error = error.localizedDescription } }
+                } label: {
+                    Label("更换封面", systemImage: "photo.on.rectangle.angled")
+                }.buttonStyle(NativeLiquidGlassButtonStyle(compact: true)).disabled(busy)
+                    .accessibilityIdentifier("book.cover.change")
+            }
+            Spacer(minLength: 0)
+        }.padding(.vertical, 4)
+    }
+
+    @ViewBuilder private var coverThumbnail: some View {
+        if let image = coverImage {
+            Image(uiImage: image).resizable().scaledToFill()
+                .frame(width: 104, height: 151)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .shadow(color: .black.opacity(0.12), radius: 5, y: 2)
+        } else {
+            BookCover(book: book, width: 104)
+        }
+    }
+
+    private func editorSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title).font(NativeTheme.font(13, relativeTo: .footnote)).foregroundStyle(NativeTheme.muted)
+                .padding(.leading, 4)
+            content()
+        }
+    }
+
+    private var descriptionEditor: some View {
+        ZStack(alignment: .topLeading) {
+            if (fields["description"] ?? "").isEmpty {
+                Text("写点什么…").font(NativeTheme.font()).foregroundStyle(NativeTheme.faint)
+                    .padding(.horizontal, 12).padding(.vertical, 11).allowsHitTesting(false)
+            }
+            TextEditor(text: field("description")).font(NativeTheme.font()).frame(minHeight: 150)
+                .padding(.horizontal, 7).padding(.vertical, 3)
+                .modifier(NativeScrollContentBackgroundHidden())
+        }.background(NativeTheme.sunk, in: RoundedRectangle(cornerRadius: 12))
     }
 }
 
@@ -265,13 +338,18 @@ struct NativeCollectionPage: View {
                             }.frame(maxWidth: .infinity).padding(.top, 96)
                         } else {
                             NativeBookShelf(store: store, books: books, pageWidth: geometry.size.width) { book in
-                                Button("阅读") { store.perform { try await store.openReader(book) } }
-                                Button(book.favorite ? "取消收藏" : "收藏") {
-                                    store.perform { try await store.command("book.favorite", ["bookId": book.id, "favorite": !book.favorite]); try await store.refreshLibrary() }
-                                }
+                                var items = [
+                                    NativeBookMenuItem("阅读") { store.perform { try await store.openReader(book) } },
+                                    NativeBookMenuItem(book.favorite ? "取消收藏" : "收藏") {
+                                        store.perform { try await store.command("book.favorite", ["bookId": book.id, "favorite": !book.favorite]); try await store.refreshLibrary() }
+                                    }
+                                ]
                                 if folder?.automatic == false {
-                                    Button("移出收藏夹", role: .destructive) { run("membership", ["bookId": book.id, "member": false]) }
+                                    items.append(NativeBookMenuItem("移出收藏夹", destructive: true) {
+                                        run("membership", ["bookId": book.id, "member": false])
+                                    })
                                 }
+                                return items
                             }
                         }
                     }.padding(.horizontal, 24).padding(.top, 8).padding(.bottom, 28)

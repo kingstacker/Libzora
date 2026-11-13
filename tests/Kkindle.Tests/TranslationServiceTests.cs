@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using Kkindle.Infrastructure;
+using Kkindle.Core;
 
 namespace Kkindle.Tests;
 
@@ -18,161 +19,67 @@ public sealed class TranslationServiceTests
             () => TranslationProxy.NormalizeAddress("socks5://127.0.0.1:1080"));
     }
 
-    [Fact]
-    public async Task TranslatesWithGoogleWebEndpoint()
+    [Theory]
+    [InlineData(ReaderTranslationProvider.Google)]
+    [InlineData(ReaderTranslationProvider.Bing)]
+    public async Task RetiredWebProvidersAreRejectedBeforeAnyRequest(ReaderTranslationProvider provider)
     {
-        using var aiClient = TestHelpers.CreateActivatedAiClient();
-        using var service = CreateService(request =>
+        var requests = 0;
+        using var ai = new AiChatClient(new TestHelpers.StubHttpMessageHandler(_ =>
         {
-            Assert.Equal(HttpMethod.Get, request.Method);
-            Assert.Equal("translate.googleapis.com", request.RequestUri?.Host);
-            Assert.Contains("client=gtx", request.RequestUri?.Query);
-            Assert.Contains("tl=zh-CN", request.RequestUri?.Query);
-            return JsonResponse("[[[\"你好，世界\",\"Hello world\",null,null,1]],null,\"en\"]");
-        }, aiClient);
-
-        var result = await service.TranslateAsync(
-            "Hello world",
-            ReaderTranslationProvider.Google,
-            "zh-CN");
-
-        Assert.Equal("你好，世界", result);
+            requests++;
+            throw new InvalidOperationException("No request is allowed");
+        }));
+        using var service = new TranslationService(ai);
+        var error = await Assert.ThrowsAsync<NotSupportedException>(() => service.TranslateAsync("Hello", provider, "zh-CN"));
+        Assert.Contains("已停用", error.Message);
+        Assert.Equal(0, requests);
     }
 
     [Theory]
-    [InlineData("[\"你好，世界\"]")]
-    [InlineData("[[\"你好，世界\",\"en\"]]")]
-    public async Task FallsBackToLegacyGoogleEndpointWhenPrimaryIsRateLimited(string responseBody)
-    {
-        var requests = new List<HttpRequestMessage>();
-        using var aiClient = TestHelpers.CreateActivatedAiClient();
-        using var service = CreateService(request =>
-        {
-            requests.Add(request);
-            if (requests.Count == 1)
-            {
-                return new HttpResponseMessage(HttpStatusCode.TooManyRequests)
-                {
-                    Content = new StringContent("rate limited", Encoding.UTF8, "text/plain")
-                };
-            }
-
-            Assert.Equal("clients5.google.com", request.RequestUri?.Host);
-            Assert.Contains("dict-chrome-ex", request.RequestUri?.Query);
-            return JsonResponse(responseBody);
-        }, aiClient);
-
-        var result = await service.TranslateAsync(
-            "Hello world",
-            ReaderTranslationProvider.Google,
-            "zh-CN");
-
-        Assert.Equal("你好，世界", result);
-        Assert.Equal(2, requests.Count);
-    }
-
-    [Theory]
-    [InlineData("")]
-    [InlineData("   ")]
-    [InlineData("null")]
-    [InlineData("[]")]
-    [InlineData("[null]")]
-    [InlineData("[[]]")]
-    [InlineData("[\"\"]")]
-    [InlineData("[[\" \",\"en\"]]")]
-    [InlineData("[[[\" \"]]]")]
-    public async Task EmptyGoogleResponsesExplainHowToRetry(string responseBody)
-    {
-        using var aiClient = TestHelpers.CreateActivatedAiClient();
-        using var service = CreateService(_ => JsonResponse(responseBody), aiClient);
-        var error = await Assert.ThrowsAsync<InvalidDataException>(() =>
-            service.TranslateAsync("Hello", ReaderTranslationProvider.Google, "zh-CN"));
-        Assert.Contains("空结果", error.Message);
-        Assert.Contains("代理设置", error.Message);
-    }
-
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task GoogleConnectionErrorsExplainNetworkAndProxySettings(bool timeout)
-    {
-        using var aiClient = TestHelpers.CreateActivatedAiClient();
-        using var service = CreateService(_ => throw (timeout
-            ? new TaskCanceledException("timeout") : new HttpRequestException("connection failed")), aiClient);
-        var error = await Record.ExceptionAsync(() =>
-            service.TranslateAsync("Hello", ReaderTranslationProvider.Google, "zh-CN"));
-        Assert.NotNull(error);
-        Assert.Contains(timeout ? "超时" : "无法连接", error.Message);
-        Assert.Contains("代理设置", error.Message);
-    }
+    [InlineData(BookTranslationProvider.BingFree)]
+    [InlineData(BookTranslationProvider.GoogleFree)]
+    public void RetiredSavedSettingsMigrateToModelTranslation(BookTranslationProvider provider)
+        => Assert.Equal(BookTranslationProvider.Ai, BookTranslationSettings.Normalize(new() { Provider = provider }).Provider);
 
     [Fact]
-    public async Task TranslatesWithBingFreeWebEndpointAndRefreshesCredentials()
+    public async Task UnconfiguredTranslationDoesNotFallBackToAnOnlineService()
     {
-        var requests = new List<HttpRequestMessage>();
-        using var aiClient = TestHelpers.CreateActivatedAiClient();
-        using var service = CreateService(request =>
-        {
-            requests.Add(request);
-            if (request.Method == HttpMethod.Get)
-            {
-                return new HttpResponseMessage(HttpStatusCode.OK)
-                {
-                    Content = new StringContent(
-                        "var params_AbusePreventionHelper = [178894, \"temporary-token\", 3600000];",
-                        Encoding.UTF8,
-                        "text/html")
-                };
-            }
-
-            Assert.Equal(HttpMethod.Post, request.Method);
-            Assert.Equal("/ttranslatev3", request.RequestUri?.AbsolutePath);
-            Assert.Contains("IID=translator.5024.1", request.RequestUri?.Query);
-            var form = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
-            Assert.Contains("fromLang=auto-detect", form);
-            Assert.Contains("to=zh-Hans", form);
-            Assert.Contains("token=temporary-token", form);
-            Assert.Contains("key=178894", form);
-            return JsonResponse(
-                "[{\"translations\":[{\"text\":\"你好，世界\",\"to\":\"zh-Hans\"}]}]");
-        }, aiClient);
-
-        var result = await service.TranslateAsync(
-            "Hello world",
-            ReaderTranslationProvider.Bing,
-            "zh-CN");
-
-        Assert.Equal("你好，世界", result);
-        Assert.Equal(2, requests.Count);
+        using var ai = new AiChatClient(new TestHelpers.StubHttpMessageHandler(_ => throw new InvalidOperationException("No network")));
+        using var service = new TranslationService(ai);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.TranslateAsync("Hello", ReaderTranslationProvider.Ai, "zh-CN"));
     }
 
     [Theory]
-    [InlineData("cn.bing.com")]
-    [InlineData("www.bing.com")]
-    public async Task BingPostsToTheFinalTranslatorPageHost(string pageHost)
+    [InlineData("http://127.0.0.1:11434/v1", true)]
+    [InlineData("http://localhost:1234/v1", true)]
+    [InlineData("http://[::1]:11434/v1", true)]
+    [InlineData("https://api.example.com/v1", false)]
+    [InlineData("https://localhost.example.com/v1", false)]
+    [InlineData("file:///tmp/model", false)]
+    public void OnlyLoopbackModelEndpointsCanOmitAnApiKey(string endpoint, bool expected)
+        => Assert.Equal(expected, new AiConnectionSettings { BaseUrl = endpoint, Model = "local-model" }.IsConfigured);
+
+    [Fact]
+    public async Task LocalModelTranslatesWithoutAnAuthorizationHeader()
     {
-        using var aiClient = TestHelpers.CreateActivatedAiClient();
-        using var service = CreateService(request =>
+        using var ai = new AiChatClient(new TestHelpers.StubHttpMessageHandler(request =>
         {
-            if (request.Method == HttpMethod.Get)
-                return new HttpResponseMessage(HttpStatusCode.OK)
-                {
-                    RequestMessage = new HttpRequestMessage(HttpMethod.Get, $"https://{pageHost}/translator"),
-                    Content = new StringContent("var params_AbusePreventionHelper = [178894, \"regional-token\", 3600000];")
-                };
-
-            // A POST to the pre-redirect host becomes an empty GET on the
-            // regional site, although the server still returns HTTP 200.
-            Assert.Equal(HttpMethod.Post, request.Method);
-            Assert.Equal(pageHost, request.RequestUri!.Host);
-            Assert.Equal($"https://{pageHost}/translator", request.Headers.Referrer!.AbsoluteUri);
-            Assert.Equal($"https://{pageHost}", Assert.Single(request.Headers.GetValues("Origin")));
-            Assert.Contains("token=regional-token", request.Content!.ReadAsStringAsync().GetAwaiter().GetResult());
-            return JsonResponse("[{\"translations\":[{\"text\":\"你好\",\"to\":\"zh-Hans\"}]}]");
-        }, aiClient);
-
-        Assert.Equal("你好", await service.TranslateAsync("Hello", ReaderTranslationProvider.Bing, "zh-CN"));
+            Assert.Equal("127.0.0.1", request.RequestUri!.Host);
+            Assert.Equal("/v1/chat/completions", request.RequestUri.AbsolutePath);
+            Assert.Null(request.Headers.Authorization);
+            return ModelReply("你好");
+        }));
+        using var service = new TranslationService(ai);
+        Assert.Equal("你好", await service.TranslateAsync("Hello", ReaderTranslationProvider.Ai, "zh-CN",
+            new AiConnectionSettings { Provider = "custom", BaseUrl = "http://127.0.0.1:11434/v1", Model = "local-model" }));
     }
+
+    internal static HttpResponseMessage ModelReply(string text) => new(HttpStatusCode.OK)
+    {
+        Content = new StringContent("data: " + JsonSerializer.Serialize(new { choices = new[] { new { delta = new { content = text } } } })
+            + "\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n", Encoding.UTF8, "text/event-stream")
+    };
 
     [Fact]
     public async Task TranslatesWithConfiguredAiWithoutAddingChatHistory()
@@ -198,7 +105,7 @@ public sealed class TranslationServiceTests
                     "text/event-stream")
             };
         }));
-        using var service = CreateService(_ => throw new InvalidOperationException("online provider should not be called"), aiClient);
+        using var service = new TranslationService(aiClient);
 
         var result = await service.TranslateAsync(
             "Hello world",
@@ -215,17 +122,4 @@ public sealed class TranslationServiceTests
         Assert.Equal("你好，世界", result);
     }
 
-    private static TranslationService CreateService(
-        Func<HttpRequestMessage, HttpResponseMessage> responder,
-        AiChatClient? aiClient = null)
-    {
-        return new TranslationService(
-            aiClient ?? TestHelpers.CreateActivatedAiClient(),
-            new TestHelpers.StubHttpMessageHandler(responder));
-    }
-
-    private static HttpResponseMessage JsonResponse(string body) => new(HttpStatusCode.OK)
-    {
-        Content = new StringContent(body, Encoding.UTF8, "application/json")
-    };
 }

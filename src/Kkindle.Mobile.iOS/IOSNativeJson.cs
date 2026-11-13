@@ -45,6 +45,7 @@ internal sealed record NativeMaterial(string Id, Guid BookId, string BookTitle, 
 [JsonSerializable(typeof(ReadingPeriodBucket[]))]
 [JsonSerializable(typeof(ReadingMedal[]))]
 [JsonSerializable(typeof(AccountStatus))]
+[JsonSerializable(typeof(FeedbackReceipt))]
 [JsonSerializable(typeof(DeviceFeatureStatus))]
 [JsonSerializable(typeof(MembershipProduct[]))]
 [JsonSerializable(typeof(PurchaseOrder))]

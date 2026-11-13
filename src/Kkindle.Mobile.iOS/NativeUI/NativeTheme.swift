@@ -41,6 +41,9 @@ enum NativeTheme {
     static let mutedOnColorful = color(0x565656, 0xb4b4b4)
     static let faint = color(0x9a9a9a, 0x6e6e6e)
     static let divider = color(0xefefef, 0x262626)
+    // Incoming chat bubbles sit on the white assistant page, so they need a
+    // slightly deeper grey than the generic sunk surface to read as bubbles.
+    static let bubble = color(0xebecef, 0x2c2c2e)
     // Plan and notice accents shared with the desktop account center.
     static let planFree = color(0x667085, 0xb0b8c6)
     static let planLifetime = color(0x7955b4, 0xbaa0ea)
@@ -118,6 +121,28 @@ struct NativePrimaryButtonStyle: ButtonStyle {
     }
 }
 
+/// A primary action that floats over the ambient page instead of sitting on a
+/// card. iOS 26 draws it with the system's Liquid Glass material so it belongs
+/// with the surrounding chrome; older systems keep the solid pill. Compact
+/// sizing suits inline actions such as the cover picker.
+struct NativeLiquidGlassButtonStyle: ButtonStyle {
+    var compact = false
+    @Environment(\.isEnabled) private var enabled
+    @ViewBuilder func makeBody(configuration: Configuration) -> some View {
+        let label = configuration.label
+            .font(NativeTheme.font(compact ? 13 : 15, relativeTo: compact ? .footnote : .body))
+            .foregroundStyle(enabled ? NativeTheme.ink : NativeTheme.muted)
+            .frame(maxWidth: compact ? nil : .infinity)
+            .padding(.horizontal, compact ? 14 : 16).padding(.vertical, compact ? 8 : 14)
+        if #available(iOS 26.0, *) {
+            label.glassEffect(.regular.interactive(), in: Capsule())
+        } else {
+            label.background(configuration.isPressed ? NativeTheme.strong : NativeTheme.sunk,
+                             in: RoundedRectangle(cornerRadius: compact ? 10 : 12))
+        }
+    }
+}
+
 struct NativeSettingsRow: View {
     let title: String
     var value = ""
@@ -149,6 +174,7 @@ struct NativeTextField: View {
     let title: String
     @Binding var text: String
     var secure = false
+    var identifier = ""
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title).font(NativeTheme.font(13, relativeTo: .caption)).foregroundStyle(NativeTheme.muted)
@@ -158,6 +184,7 @@ struct NativeTextField: View {
             }.font(NativeTheme.font()).padding(.horizontal, 12).padding(.vertical, 11)
                 .background(NativeTheme.sunk, in: RoundedRectangle(cornerRadius: 12))
                 .accessibilityLabel(title)
+                .accessibilityIdentifier(identifier)
         }
     }
 }
@@ -251,6 +278,20 @@ struct NativeListBackground: ViewModifier {
     @ViewBuilder func body(content: Content) -> some View {
         if #available(iOS 16.0, *) { content.scrollContentBackground(.hidden).background(NativeAmbientBackground()) }
         else { content.background(NativeAmbientBackground()) }
+    }
+}
+
+/// iOS 15's TextEditor paints the system background; iOS 16 can clear it so
+/// the editor sits on the same card as the rest of the form.
+struct NativeScrollContentBackgroundHidden: ViewModifier {
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(iOS 16.0, *) { content.scrollContentBackground(.hidden) } else { content }
+    }
+}
+
+struct NativeScrollDismissesKeyboard: ViewModifier {
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(iOS 16.0, *) { content.scrollDismissesKeyboard(.interactively) } else { content }
     }
 }
 

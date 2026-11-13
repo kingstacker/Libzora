@@ -50,7 +50,7 @@ public sealed class S3SyncTests
                 ["reflection-device", Array.Empty<S3SyncTombstone>(), CancellationToken.None])!;
             Task Apply(S3SyncSnapshot local, S3SyncSnapshot remote) => (Task)apply.Invoke(
                 service,
-                [null!, new S3SyncSettings(), local, new[] { remote }, null, CancellationToken.None])!;
+                [null!, new S3SyncSettings(), local, null, new[] { remote }, null, CancellationToken.None])!;
 
             var local = await Capture();
             var wire = JsonSerializer.Serialize(local);
@@ -164,7 +164,7 @@ public sealed class S3SyncTests
             var apply = typeof(S3SyncService).GetMethod("ApplyRemoteSnapshotsAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
             Task<S3SyncSnapshot> Capture() => (Task<S3SyncSnapshot>)capture.Invoke(service, ["position-device", Array.Empty<S3SyncTombstone>(), CancellationToken.None])!;
             Task Apply(S3SyncSnapshot local, S3SyncSnapshot remote) => (Task)apply.Invoke(service,
-                [null!, new S3SyncSettings(), local, new[] { remote }, null, CancellationToken.None])!;
+                [null!, new S3SyncSettings(), local, null, new[] { remote }, null, CancellationToken.None])!;
             var local = await Capture();
             var wire = JsonSerializer.Serialize(local);
             Assert.Equal(position, ReaderContentPositionJson.Deserialize(Assert.Single(local.Progress).ContentPositionJson));
@@ -187,6 +187,10 @@ public sealed class S3SyncTests
             remote.Bookmarks[0].CreatedAt = time.AddMinutes(2);
             remote.Bookmarks[0].ScrollPosition = 1234;
             remote.Bookmarks[0].ContentPositionJson = null;
+            // An older client predating hybrid-clock versions republishes
+            // these rows without SyncVersion; only the timestamps advance.
+            remote.Progress[0].SyncVersion = null;
+            remote.Bookmarks[0].SyncVersion = null;
             wire = JsonSerializer.Serialize(remote);
             Assert.DoesNotContain("ContentPositionJson", wire, StringComparison.Ordinal);
             await Apply(local, JsonSerializer.Deserialize<S3SyncSnapshot>(wire)!);
@@ -710,7 +714,7 @@ public sealed class S3SyncTests
             var settings = new S3SyncSettings();
             var mergeTask = (Task)method!.Invoke(
                 service,
-                [null!, settings, local, new[] { remote }, null, CancellationToken.None])!;
+                [null!, settings, local, null, new[] { remote }, null, CancellationToken.None])!;
             await mergeTask;
 
             await using var verify = new SqliteConnection($"Data Source={paths.Database}");
@@ -1048,6 +1052,19 @@ public sealed class S3SyncTests
     {
         snapshot.CreatedAt = DateTimeOffset.UnixEpoch;
         snapshot.DeviceId = "incremental-device";
+        foreach (var row in snapshot.Books.Cast<object>()
+                     .Concat(snapshot.Files)
+                     .Concat(snapshot.Collections)
+                     .Concat(snapshot.CollectionItems)
+                     .Concat(snapshot.Annotations)
+                     .Concat(snapshot.BookReflections)
+                     .Concat(snapshot.Progress)
+                     .Concat(snapshot.Bookmarks)
+                     .Concat(snapshot.Layouts)
+                     .Concat(snapshot.ReadingStats)
+                     .Concat(snapshot.Tombstones))
+            if (row is ISyncVersionedRow versioned)
+                versioned.SyncVersion = null;
         snapshot.Books = snapshot.Books.OrderBy(item => item.Id).ToList();
         snapshot.Files = snapshot.Files.OrderBy(item => item.Id).ToList();
         snapshot.Collections = snapshot.Collections.OrderBy(item => item.Id).ToList();

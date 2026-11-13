@@ -30,9 +30,10 @@ public sealed class IOSNativeSceneDelegate : UIResponder, IUIWindowSceneDelegate
     [Export("scene:openURLContexts:")]
     public void OpenUrlContexts(UIScene scene, NSSet<UIOpenUrlContext> contexts)
     {
-        if (UIApplication.SharedApplication.Delegate is not AppDelegate appDelegate) return;
+        // Do not route through AvaloniaAppDelegate.OpenUrl: that method is not
+        // virtual, so it would bypass Kkindle's widget deep-link handling.
         foreach (var context in contexts)
-            appDelegate.OpenUrl(UIApplication.SharedApplication, context.Url, new NSDictionary());
+            IOSNativeFrontend.HandleUrl(context.Url.AbsoluteString);
     }
 
     [Export("scene:continueUserActivity:")]

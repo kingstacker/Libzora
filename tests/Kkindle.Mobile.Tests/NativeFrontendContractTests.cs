@@ -14,7 +14,10 @@ public sealed class NativeFrontendContractTests
     public void ReaderEventUsesSwiftFieldNamesAndNumericEnums()
     {
         var state = new NativeReaderState(true, true, false, "测试书", "第一章", "3 / 9", 32.5,
-            false, null, TtsPlaybackState.Paused, "已暂停", "所选文字");
+            false, null, TtsPlaybackState.Paused, "已暂停", "所选文字")
+        {
+            SelectionBounds = new(16, 120, 180, 390, 760)
+        };
         using var document = JsonDocument.Parse(Serialize(Data(("type", "reader"), ("reader", state))));
         var reader = document.RootElement.GetProperty("reader");
         Assert.Equal("reader", document.RootElement.GetProperty("type").GetString());
@@ -22,16 +25,24 @@ public sealed class NativeFrontendContractTests
         Assert.Equal(3, reader.GetProperty("speechState").GetInt32());
         Assert.Equal(32.5, reader.GetProperty("progress").GetDouble());
         Assert.Equal("所选文字", reader.GetProperty("selectedText").GetString());
+        var bounds = reader.GetProperty("selectionBounds");
+        Assert.Equal(16, bounds.GetProperty("x").GetDouble());
+        Assert.Equal(120, bounds.GetProperty("y").GetDouble());
+        Assert.Equal(180, bounds.GetProperty("bottom").GetDouble());
+        Assert.Equal(390, bounds.GetProperty("viewportWidth").GetDouble());
+        Assert.Equal(760, bounds.GetProperty("viewportHeight").GetDouble());
         Assert.Equal(JsonValueKind.Null, reader.GetProperty("error").ValueKind);
 
         using var preferences = JsonDocument.Parse(Serialize(new MobilePreferences
-            { ReaderTheme = ReaderTheme.Ink, GalleryMode = true, ColorfulMode = true, ShowBookSyncStatus = true }));
+            { ReaderTheme = ReaderTheme.Ink, GalleryMode = true, ColorfulMode = true, ShowBookSyncStatus = true, ShowBookRating = true }));
         Assert.Equal(5, preferences.RootElement.GetProperty("readerTheme").GetInt32());
         Assert.Equal(1.35, preferences.RootElement.GetProperty("readerFontScale").GetDouble());
         Assert.Equal(0, preferences.RootElement.GetProperty("readerParagraphSpacing").GetDouble());
+        Assert.Equal(0, preferences.RootElement.GetProperty("readerProgressDisplay").GetInt32());
         Assert.True(preferences.RootElement.GetProperty("galleryMode").GetBoolean());
         Assert.True(preferences.RootElement.GetProperty("colorfulMode").GetBoolean());
         Assert.True(preferences.RootElement.GetProperty("showBookSyncStatus").GetBoolean());
+        Assert.True(preferences.RootElement.GetProperty("showBookRating").GetBoolean());
     }
 
     [Fact]
@@ -78,15 +89,65 @@ public sealed class NativeFrontendContractTests
         Assert.Equal(1.45, choice.ReaderFontScale);
         Assert.Equal(24, choice.ReaderBodyPadding);
         Assert.Equal(0, choice.ReaderParagraphSpacing);
+        Assert.Equal(MobileReaderProgressDisplay.Pages, choice.ReaderProgressDisplay);
         Assert.False(choice.GalleryMode);
         Assert.False(choice.ColorfulMode);
         Assert.False(choice.ShowBookSyncStatus);
+        Assert.False(choice.ShowBookRating);
 
         using var spacingDocument = JsonDocument.Parse("""{"readerParagraphSpacing":0.5,"galleryMode":true}""");
         var spaced = Read(spacingDocument.RootElement, choice, IOSNativeJsonContext.Default.MobilePreferences);
         Assert.Equal(0.5, spaced.ReaderParagraphSpacing);
         Assert.True(spaced.GalleryMode);
         Assert.Equal(choice.ReaderLineHeight, spaced.ReaderLineHeight);
+
+        using var progressDocument = JsonDocument.Parse("""{"readerProgressDisplay":3}""");
+        var timed = Read(progressDocument.RootElement, spaced, IOSNativeJsonContext.Default.MobilePreferences);
+        Assert.Equal(MobileReaderProgressDisplay.BookTimeRemaining, timed.ReaderProgressDisplay);
+        Assert.Equal(spaced.ReaderParagraphSpacing, timed.ReaderParagraphSpacing);
+        Assert.True(timed.GalleryMode);
+    }
+
+    [Theory]
+    [InlineData(MobileReaderProgressDisplay.Pages)]
+    [InlineData(MobileReaderProgressDisplay.Chapters)]
+    [InlineData(MobileReaderProgressDisplay.ChapterTimeRemaining)]
+    [InlineData(MobileReaderProgressDisplay.BookTimeRemaining)]
+    public void ProgressDisplaySurvivesRestartWithoutChangingOtherPreferences(MobileReaderProgressDisplay display)
+    {
+        var root = Path.Combine(Path.GetTempPath(), "kkindle-progress-preferences", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var paths = new AppPaths(root);
+            var store = new MobilePreferencesStore(paths);
+            store.Update(value => value with { ReaderProgressDisplay = display, ReaderFontScale = 1.45, ReaderVerticalWriting = true });
+            var restored = new MobilePreferencesStore(paths);
+            restored.Load();
+            Assert.Equal(display, restored.Current.ReaderProgressDisplay);
+            Assert.Equal(1.45, restored.Current.ReaderFontScale);
+            Assert.True(restored.Current.ReaderVerticalWriting);
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    [Fact]
+    public void UnknownProgressDisplayFallsBackToPagesWithoutResettingSettings()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "kkindle-progress-preferences", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var paths = new AppPaths(root);
+            File.WriteAllText(Path.Combine(root, "mobile-preferences.json"),
+                """{"ReaderProgressDisplay":999,"ReaderFontScale":1.45,"ReaderVerticalWriting":true}""");
+            var store = new MobilePreferencesStore(paths);
+            store.Load();
+            Assert.Equal(MobileReaderProgressDisplay.Pages, store.Current.ReaderProgressDisplay);
+            Assert.Equal(1.45, store.Current.ReaderFontScale);
+            Assert.True(store.Current.ReaderVerticalWriting);
+        }
+        finally { Directory.Delete(root, recursive: true); }
     }
 
     [Fact]
@@ -103,6 +164,7 @@ public sealed class NativeFrontendContractTests
                 ("collections", new[] { Data(("id", Guid.NewGuid()), ("count", 1), ("automatic", false)) }), ("preferences", new MobilePreferences())),
             Data(("dashboard", dashboard), ("medals", ReadingMedalCatalog.Build(dashboard).ToArray()), ("streak", 1)),
             new AccountStatus("http://127.0.0.1:5088", new AccountUser(bookId, "test_reader"), now.AddDays(30)),
+            new FeedbackReceipt(Guid.NewGuid(), 128, FeedbackStatuses.Pending, now),
             Data(("period", 2), ("today", "2026-11-08"), ("buckets", new ReadingPeriodBucket[]
                 { new(new(2026, 11, 1), new(2026, 11, 30), 120) })),
             new BookCollection { Id = Guid.NewGuid(), Name = "测试收藏夹" },
@@ -171,5 +233,64 @@ public sealed class NativeFrontendContractTests
             1, "USD", 0, 0, "pending", now, now.AddDays(2), null)));
         Assert.Equal("pending", order.RootElement.GetProperty("state").GetString());
         Assert.Equal(JsonValueKind.Null, order.RootElement.GetProperty("fulfilledAt").ValueKind);
+    }
+
+    [Fact]
+    public void NativeFeedbackFormMapsToTheSharedSubmissionContract()
+    {
+        var requestId = Guid.NewGuid();
+        var jpeg = Convert.ToBase64String([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10]);
+        using var document = JsonDocument.Parse(JsonSerializer.Serialize(new
+        {
+            requestId = requestId.ToString().ToUpperInvariant(),
+            type = "bug",
+            content = "阅读页切换章节时闪退。",
+            contact = "  ",
+            platformVersion = "26.5",
+            deviceModel = "iPhone17,1",
+            images = new[] { jpeg }
+        }));
+        var draft = NativeFeedbackRequest.ReadDraft(document.RootElement, "1.1.3");
+        Assert.Equal(requestId, draft.RequestId);
+        Assert.Equal(FeedbackTypes.Bug, draft.Type);
+        Assert.Equal("阅读页切换章节时闪退。", draft.Content);
+        Assert.Null(draft.Contact);
+        Assert.Equal("1.1.3", draft.AppVersion);
+        Assert.Equal("ios", draft.Platform);
+        Assert.Equal("26.5", draft.PlatformVersion);
+        Assert.Equal("iPhone17,1", draft.DeviceModel);
+        // Logs default to on, matching the desktop feedback window.
+        Assert.True(NativeFeedbackRequest.ReadAttachLogs(document.RootElement));
+        using var noLogs = JsonDocument.Parse("""{"attachLogs":false}""");
+        Assert.False(NativeFeedbackRequest.ReadAttachLogs(noLogs.RootElement));
+        Assert.Null(FeedbackValidation.ValidateSoftwareLog("Kkindle software log\nERROR reader.open"));
+        Assert.NotNull(FeedbackValidation.ValidateSoftwareLog("bad\0log"));
+        // The bridge must produce a form the shared service accepts as-is.
+        Assert.Null(FeedbackValidation.ValidateDraft(draft));
+
+        var image = Assert.Single(NativeFeedbackRequest.ReadImages(document.RootElement));
+        Assert.Equal("image/jpeg", image.ContentType);
+        Assert.Equal("screenshot-1.jpg", image.FileName);
+        Assert.Null(FeedbackValidation.ValidateImages([image]));
+    }
+
+    [Fact]
+    public void NativeFeedbackRejectsInvalidScreenshots()
+    {
+        using var invalid = JsonDocument.Parse("""{"images":["bm90IGFuIGltYWdl"]}""");
+        Assert.Contains("截图格式无效", Assert.Throws<InvalidOperationException>(
+            () => NativeFeedbackRequest.ReadImages(invalid.RootElement)).Message);
+
+        using var malformed = JsonDocument.Parse("""{"images":["!!!"]}""");
+        Assert.Contains("截图内容无效", Assert.Throws<InvalidOperationException>(
+            () => NativeFeedbackRequest.ReadImages(malformed.RootElement)).Message);
+
+        using var count = JsonDocument.Parse(JsonSerializer.Serialize(new
+        {
+            images = Enumerable.Repeat(Convert.ToBase64String([0xFF, 0xD8, 0xFF, 0xE0]),
+                FeedbackLimits.MaxAttachments + 1).ToArray()
+        }));
+        Assert.Contains("最多只能添加", Assert.Throws<InvalidOperationException>(
+            () => NativeFeedbackRequest.ReadImages(count.RootElement)).Message);
     }
 }

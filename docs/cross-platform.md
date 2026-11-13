@@ -102,15 +102,15 @@ WebKit when `libWPEWebKit-2.0.so.1` is installed. Ubuntu 22.04 does not package
 that WPE 2.0 ABI, so the `.deb` remains installable there through the
 WebKitGTK 4.1 fallback.
 
-Read-aloud uses the same Microsoft Edge TTS service on all three desktop heads.
-On first use Kkindle installs `edge-tts` into its own data directory: Windows
-and Linux use pipx, while macOS creates an application-local Python venv and
-exposes the command through the shared runtime bin directory. macOS locates
-Python 3 in `PATH` or the usual Homebrew and python.org install locations;
-without Python 3 the UI shows the `xcode-select --install` / `brew install
-python3` instructions. Playback runs in-process through AVFoundation's
-`AVAudioPlayer`, so pausing never suspends a child process (a stopped child
-used to stall every other process launch in the app).
+Windows and macOS read-aloud use installed local system voices only. Windows
+uses SAPI through the built-in Windows PowerShell host; macOS uses `/usr/bin/say`.
+Both generate PCM WAV files for the shared cache and existing in-process players.
+No book text is uploaded and no Python/edge-tts environment is installed on those
+platforms. Missing voices must be installed in system settings. On Windows and
+macOS, read-aloud settings can additionally download optional sherpa-onnx voice
+packs (Kokoro v1.1-zh int8/fp32 and MeloTTS zh/en) from the pinned GitHub Release,
+verify their SHA-256 and run them fully offline; nothing is downloaded until the
+user chooses a pack. Linux retains its existing online edge-tts integration.
 
 The Settings > Diagnostics page performs the same local checks at runtime and
 shows the detected WebView library, writable data paths, bundled PDF parser,

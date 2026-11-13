@@ -22,6 +22,20 @@
     <Registrar Condition="'$(UseSwiftUIFrontend)' == 'true'">static</Registrar>
     <DefineConstants Condition="'$(UseSwiftUIFrontend)' == 'true'">$(DefineConstants);KKINDLE_SWIFT_UI</DefineConstants>
     <NativeSwiftOutput>$(MSBuildProjectDirectory)/obj/$(Configuration)/$(TargetFramework)/$(RuntimeIdentifier)/native-ui</NativeSwiftOutput>
+    <!-- WidgetKit extensions share an App Group with the phone app. Device
+         builds need a provisioning profile that includes
+         group.com.kingstacker.kkindle; pass -p:EnableWidgets=false to build a
+         profile-less diagnostic app instead. -->
+    <EnableWidgets Condition="'$(EnableWidgets)' == ''">true</EnableWidgets>
+    <WidgetBundleId Condition="'$(WidgetBundleId)' == ''">com.kingstacker.kkindle.widgets</WidgetBundleId>
+    <!-- Optional path to the widget extension's provisioning profile. Device
+         builds must pass it when the generated extension is signed, otherwise
+         the app installs but widget discovery cannot open the extension. -->
+    <WidgetProvisioningProfile Condition="'$(WidgetProvisioningProfile)' == ''"></WidgetProvisioningProfile>
+    <WidgetSwiftOutput>$(NativeSwiftOutput)-widgets</WidgetSwiftOutput>
+    <CodesignEntitlements Condition="'$(EnableWidgets)' == 'true' And '$(RuntimeIdentifier)' != '' And '$(CodesignEntitlements)' == ''">$(MSBuildProjectDirectory)/Entitlements.plist</CodesignEntitlements>
+    <WidgetBuildScript>$(MSBuildProjectDirectory)/../../src/Kkindle.Widgets/build-ios-widgets.sh</WidgetBuildScript>
+    <WidgetSourceRoot>$(MSBuildProjectDirectory)/../../src/Kkindle.Widgets/Shared</WidgetSourceRoot>
   </PropertyGroup>
 
   <ItemGroup>
@@ -84,8 +98,19 @@
     <SwiftFrontendSource Include="NativeUI/*.swift" />
     <NativeReference Include="$(NativeSwiftOutput)/libKkindleNativeUI.a"
                      Kind="Static" ForceLoad="true" SmartLink="false"
-                     Frameworks="SwiftUI UIKit Foundation"
+                     Frameworks="SwiftUI UIKit Foundation WidgetKit"
                      LinkWithSwiftSystemLibraries="true" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(EnableWidgets)' == 'true' And '$(RuntimeIdentifier)' != ''">
+    <SwiftWidgetSource Include="$(WidgetSourceRoot)/*.swift" />
+    <WidgetFontResource Include="../Kkindle.App/Assets/Fonts/KingHwaOldSong-v3.0.ttf;../Kkindle.App/Assets/Fonts/KingHwaOldSong-LICENSE.txt" />
+    <!-- The .NET iOS SDK copies and signs these additional app extensions. -->
+    <AdditionalAppExtensions Include="$(WidgetSwiftOutput)">
+      <BuildOutput>.</BuildOutput>
+      <Name>KkindleWidgets</Name>
+      <CodesignEntitlements>$(MSBuildProjectDirectory)/../../src/Kkindle.Widgets/KkindleWidgets.iOS.entitlements</CodesignEntitlements>
+    </AdditionalAppExtensions>
   </ItemGroup>
 
   <Target Name="BuildSwiftFrontend" BeforeTargets="_ExpandNativeReferences"
@@ -93,5 +118,21 @@
           Inputs="@(SwiftFrontendSource);NativeUI/build-native-ui.sh"
           Outputs="$(NativeSwiftOutput)/libKkindleNativeUI.a">
     <Exec Command="/bin/zsh &quot;$(MSBuildProjectDirectory)/NativeUI/build-native-ui.sh&quot; &quot;$(RuntimeIdentifier)&quot; &quot;$(NativeSwiftOutput)&quot; &quot;$(Configuration)&quot;" />
+  </Target>
+
+  <Target Name="BuildSwiftWidgets" BeforeTargets="_ExtendAppExtensionReferences"
+          Condition="'$(EnableWidgets)' == 'true' And '$(RuntimeIdentifier)' != ''"
+          Inputs="@(SwiftWidgetSource);@(WidgetFontResource);$(WidgetBuildScript)"
+          Outputs="$(WidgetSwiftOutput)/KkindleWidgets.appex/KkindleWidgets">
+    <Exec Command="/bin/zsh &quot;$(WidgetBuildScript)&quot; &quot;$(RuntimeIdentifier)&quot; &quot;$(WidgetSwiftOutput)&quot; &quot;$(Configuration)&quot; &quot;$(WidgetBundleId)&quot; &quot;$(ApplicationDisplayVersion)&quot; &quot;$(ApplicationVersion)&quot;" />
+  </Target>
+
+  <Target Name="EmbedWidgetProvisioningProfile" DependsOnTargets="BuildSwiftWidgets"
+          BeforeTargets="_ExtendAppExtensionReferences"
+          Condition="'$(EnableWidgets)' == 'true' And '$(RuntimeIdentifier)' != '' And '$(WidgetProvisioningProfile)' != ''">
+    <Error Text="WidgetProvisioningProfile does not exist: $(WidgetProvisioningProfile)"
+           Condition="!Exists('$(WidgetProvisioningProfile)')" />
+    <Copy SourceFiles="$(WidgetProvisioningProfile)"
+          DestinationFiles="$(WidgetSwiftOutput)/KkindleWidgets.appex/embedded.mobileprovision" />
   </Target>
 </Project>

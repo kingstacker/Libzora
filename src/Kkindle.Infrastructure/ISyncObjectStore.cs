@@ -44,3 +44,13 @@ internal sealed class SyncObjectNotFoundException(string message, Exception? inn
 
 internal sealed class SyncListingUnavailableException(string message, Exception inner)
     : IOException(message, inner);
+
+/// <summary>
+/// Optional authoritative time source. The account server returns its clock in
+/// response headers; custom S3/WebDAV stores do not, so the client falls back
+/// to its own clock there.
+/// </summary>
+internal interface ISyncServerClockSource
+{
+    TimeSpan? ServerClockOffset { get; }
+}

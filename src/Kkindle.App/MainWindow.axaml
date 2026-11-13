@@ -526,6 +526,9 @@
               Background="{DynamicResource PaperBrush}"
               ZIndex="0"
               SizeChanged="LibraryRoot_SizeChanged">
+            <!-- Colourful-mode wash: painted above the paper colour and below
+                 every page, so all main-window surfaces share it. -->
+            <local:AmbientBackground x:Name="AmbientBackdrop" Grid.ColumnSpan="3" IsHitTestVisible="False" ClipToBounds="True" />
             <!-- Left navigation -->
             <Border x:Name="LibrarySidebar" Grid.Column="0"
                     Background="{DynamicResource SidebarBrush}"
@@ -866,7 +869,7 @@
 
             <ContentControl x:Name="AccountCenterHost" Grid.Column="1" IsVisible="False"
                             HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"
-                            Background="{DynamicResource PaperBrush}" />
+                            Background="Transparent" />
 
             <!-- Local library -->
             <Grid x:Name="LibraryWorkspace"
@@ -1076,10 +1079,10 @@
                     </Border>
 
                     <Grid Grid.Row="1">
-                        <ListBox x:Name="BookGrid" Classes="bookGrid" ItemsSource="{Binding ViewModel.Books}" SelectionMode="Multiple" SelectionChanged="BookList_SelectionChanged" PointerPressed="BookGrid_PointerPressed" PointerMoved="BookGrid_PointerMoved" PointerReleased="BookGrid_PointerReleased" PointerCaptureLost="BookGrid_PointerCaptureLost" KeyDown="BookGrid_KeyDown" Focusable="True" Background="Transparent" BorderThickness="0" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Disabled"><ListBox.ItemsPanel><ItemsPanelTemplate><local:VirtualizingWrapPanel Orientation="Horizontal" ItemWidth="166" ItemHeight="304" CacheLength="0.5" /></ItemsPanelTemplate></ListBox.ItemsPanel><ListBox.ItemTemplate>                                 <DataTemplate x:DataType="local:BookCardViewModel">                                     <Grid Width="154"                                           Height="{Binding CardHeight}"                                           Margin="6"                                           RowDefinitions="214,Auto"                                           PointerPressed="BookCard_PointerPressed"                                           ContextRequested="BookCard_ContextRequested"                                           DoubleTapped="BookCard_DoubleTapped" AttachedToVisualTree="BookCard_AttachedToVisualTree" DetachedFromVisualTree="BookCard_DetachedFromVisualTree">                                         <Border Grid.Row="0"                                                 Classes="bookCover"                                                 Background="{DynamicResource PressedBrush}"                                                 BorderThickness="1">                                             <Grid Background="Transparent">                                                 <TextBlock Text="BOOK"                                                            HorizontalAlignment="Center"                                                            VerticalAlignment="Center"                                                            Foreground="{DynamicResource MutedInkBrush}"                                                            FontSize="17"                                                            IsHitTestVisible="False" />                                                 <Image Source="{Binding CoverImage}" Stretch="UniformToFill" /></Grid>                                         </Border>                                         <Grid Grid.Row="1" Margin="2,8,2,0" ColumnDefinitions="*,58" RowDefinitions="40,16,14" IsVisible="{Binding GalleryTextVisibility}">                                             <TextBlock Grid.Row="0" Grid.ColumnSpan="2" Text="{Binding Title}" FontSize="15" LineHeight="18" FontWeight="SemiBold" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" />                                             <TextBlock Grid.Row="1" Text="{Binding Authors}" FontSize="11" LineHeight="14" Foreground="{DynamicResource MutedInkBrush}" TextTrimming="CharacterEllipsis" />                                             <TextBlock Grid.Row="2" Text="{Binding FormatLabel}" FontSize="10" LineHeight="12" Foreground="{DynamicResource SubtleInkBrush}" TextTrimming="CharacterEllipsis" />                                         <Grid Grid.Row="1" Grid.RowSpan="2" Grid.Column="1" Width="52" ColumnDefinitions="24,24" ColumnSpacing="4" HorizontalAlignment="Right" VerticalAlignment="Center">
+                        <ListBox x:Name="BookGrid" Classes="bookGrid" ItemsSource="{Binding ViewModel.Books}" SelectionMode="Multiple" SelectionChanged="BookList_SelectionChanged" PointerPressed="BookGrid_PointerPressed" PointerMoved="BookGrid_PointerMoved" PointerReleased="BookGrid_PointerReleased" PointerCaptureLost="BookGrid_PointerCaptureLost" KeyDown="BookGrid_KeyDown" Focusable="True" Background="Transparent" BorderThickness="0" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Disabled"><ListBox.ItemsPanel><ItemsPanelTemplate><local:VirtualizingWrapPanel Orientation="Horizontal" ItemWidth="166" ItemHeight="304" CacheLength="0.5" /></ItemsPanelTemplate></ListBox.ItemsPanel><ListBox.ItemTemplate>                                 <DataTemplate x:DataType="local:BookCardViewModel">                                     <Grid Width="154"                                           Height="{Binding CardHeight}"                                           Margin="6"                                           RowDefinitions="214,Auto"                                           PointerPressed="BookCard_PointerPressed"                                           ContextRequested="BookCard_ContextRequested"                                           DoubleTapped="BookCard_DoubleTapped" AttachedToVisualTree="BookCard_AttachedToVisualTree" DetachedFromVisualTree="BookCard_DetachedFromVisualTree">                                         <Border Grid.Row="0"                                                 Classes="bookCover ambientCover"                                                 Background="{DynamicResource PressedBrush}"                                                 BorderThickness="1">                                             <Grid Background="Transparent">                                                 <TextBlock Text="BOOK"                                                            HorizontalAlignment="Center"                                                            VerticalAlignment="Center"                                                            Foreground="{DynamicResource MutedInkBrush}"                                                            FontSize="17"                                                            IsHitTestVisible="False" />                                                 <Image Source="{Binding CoverImage}" Stretch="UniformToFill" /></Grid>                                         </Border>                                         <Grid Grid.Row="1" Margin="2,8,2,0" ColumnDefinitions="*,58" RowDefinitions="40,16,14" IsVisible="{Binding GalleryTextVisibility}">                                             <TextBlock Grid.Row="0" Grid.ColumnSpan="2" Text="{Binding Title}" FontSize="15" LineHeight="18" FontWeight="SemiBold" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" />                                             <TextBlock Grid.Row="1" Text="{Binding Authors}" FontSize="11" LineHeight="14" Foreground="{DynamicResource MutedInkBrush}" TextTrimming="CharacterEllipsis" />                                             <TextBlock Grid.Row="2" Text="{Binding FormatLabel}" FontSize="10" LineHeight="12" Foreground="{DynamicResource SubtleInkBrush}" TextTrimming="CharacterEllipsis" />                                         <Grid Grid.Row="1" Grid.RowSpan="2" Grid.Column="1" Width="52" ColumnDefinitions="24,24" ColumnSpacing="4" HorizontalAlignment="Right" VerticalAlignment="Center">
                                              <ContentControl Grid.Column="0" Width="24" Height="24" Content="{Binding}" Padding="0" HorizontalAlignment="Center" VerticalAlignment="Center" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ContentTemplate="{StaticResource BookSyncStatusGlyph}" ToolTip.Tip="{Binding SyncStatusLabel}" AutomationProperties.Name="{Binding SyncStatusLabel}" Tapped="BookSyncStatusIcon_Tapped" IsVisible="{Binding SyncStatusVisibility}" />
                                              <ContentControl Grid.Column="1" Width="24" Height="24" Content="{Binding}" Padding="0" HorizontalAlignment="Center" VerticalAlignment="Center" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ContentTemplate="{StaticResource LibraryPresenceGlyph}" ToolTip.Tip="{Binding PresenceLabel}" AutomationProperties.Name="{Binding PresenceLabel}" IsVisible="{Binding PresenceVisibility}" />
-                                         </Grid>                                         </Grid>                                                                                  <Border Grid.RowSpan="2"                                                 Classes="bookOutline"                                                 BorderBrush="{DynamicResource CardBorderBrush}"                                                 BorderThickness="1"                                                 IsHitTestVisible="False" />                                         <Border Grid.RowSpan="2"                                                 BorderBrush="{DynamicResource InkBrush}"                                                 BorderThickness="1"                                                 IsVisible="{Binding IsMultiSelected}"                                                 IsHitTestVisible="False">                                             <Border Width="20"                                                     Height="20"                                                     Margin="6"                                                     HorizontalAlignment="Left"                                                     VerticalAlignment="Top"                                                     Background="{DynamicResource PaperBrush}" BorderBrush="{DynamicResource InkBrush}" BorderThickness="1">                                                 <TextBlock Text="✓"                                                            Foreground="{DynamicResource InkBrush}"                                                            FontSize="13"                                                            FontWeight="Bold"                                                            HorizontalAlignment="Center"                                                            VerticalAlignment="Center" />                                             </Border>                                         </Border>                                     </Grid></DataTemplate>                             </ListBox.ItemTemplate>
+                                         </Grid>                                         </Grid>                                                                                  <Border Grid.RowSpan="2"                                                 Classes="bookOutline"                                                 BorderBrush="{DynamicResource HairlineBrush}"                                                 BorderThickness="1"                                                 IsHitTestVisible="False" />                                         <Border Width="20" Height="20" Margin="6" HorizontalAlignment="Left" VerticalAlignment="Top" CornerRadius="10" Background="{DynamicResource InkBrush}" IsVisible="{Binding IsMultiSelected}" IsHitTestVisible="False">                                             <TextBlock Text="✓"                                                            Foreground="{DynamicResource PaperBrush}"                                                            FontSize="12"                                                            FontWeight="Bold"                                                            HorizontalAlignment="Center"                                                            VerticalAlignment="Center" />                                         </Border>                                     </Grid></DataTemplate>                             </ListBox.ItemTemplate>
                         </ListBox>
 
                         <Canvas IsHitTestVisible="False" ZIndex="25">
@@ -1109,15 +1112,31 @@
                                 <DataTemplate x:DataType="local:BookCardViewModel">
                                         <Border Margin="0,0,0,7"
                                                 Classes="bookRow flatRow"
+                                                Classes.selected="{Binding IsSelected}"
                                                 Padding="10"
-                                                Background="{DynamicResource PaperBrush}"
                                                 PointerPressed="BookCard_PointerPressed"
                                             ContextRequested="BookCard_ContextRequested"
                                             DoubleTapped="BookCard_DoubleTapped" AttachedToVisualTree="BookCard_AttachedToVisualTree" DetachedFromVisualTree="BookCard_DetachedFromVisualTree">
                                         <Grid ColumnDefinitions="48,1.55*,1.65*,1.2*,140" ColumnSpacing="12">
-                                            <Border Width="40" Height="56" VerticalAlignment="Center" Background="{DynamicResource SoftHoverBrush}" BorderBrush="{DynamicResource InkBrush}" BorderThickness="1">
+                                            <Border Width="40" Height="56" VerticalAlignment="Center" Classes="ambientCover" Background="{DynamicResource SoftHoverBrush}" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="1">
                                                 <Grid>
                                                     <Image Source="{Binding CoverImage}" Stretch="UniformToFill" />
+                                                    <Border Width="16"
+                                                            Height="16"
+                                                            Margin="3"
+                                                            HorizontalAlignment="Left"
+                                                            VerticalAlignment="Top"
+                                                            CornerRadius="8"
+                                                            Background="{DynamicResource InkBrush}"
+                                                            IsVisible="{Binding IsSelected}"
+                                                            IsHitTestVisible="False">
+                                                        <TextBlock Text="✓"
+                                                                   Foreground="{DynamicResource PaperBrush}"
+                                                                   FontSize="10"
+                                                                   FontWeight="Bold"
+                                                                   HorizontalAlignment="Center"
+                                                                   VerticalAlignment="Center" />
+                                                    </Border>
                                                 </Grid>
                                              </Border>
                                             <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3">
@@ -1166,11 +1185,6 @@
                                                                     IsVisible="{Binding PresenceVisibility}" />
                                                 </Grid>
                                             </StackPanel>
-                                            <Border Grid.ColumnSpan="5"
-                                                    BorderBrush="{DynamicResource InkBrush}"
-                                                    BorderThickness="1"
-                                                    IsVisible="{Binding IsSelected}"
-                                                    IsHitTestVisible="False" />
                                         </Grid>
                                     </Border>
                                 </DataTemplate>
@@ -1971,17 +1985,19 @@
                                                     IsVisible="{Binding PresenceVisibility}" />
                                     <Border Grid.RowSpan="2"
                                             Classes="bookOutline"
-                                            BorderBrush="{DynamicResource CardBorderBrush}"
+                                            BorderBrush="{DynamicResource HairlineBrush}"
                                             BorderThickness="1"
                                             IsHitTestVisible="False" />
-                                    <Border Grid.RowSpan="2"
-                                            BorderBrush="{DynamicResource InkBrush}"
-                                            BorderThickness="1"
+                                    <Border Width="20"
+                                            Height="20"
+                                            Margin="6"
+                                            HorizontalAlignment="Left"
+                                            VerticalAlignment="Top"
+                                            CornerRadius="10"
+                                            Background="{DynamicResource InkBrush}"
                                             IsVisible="{Binding IsMultiSelected}"
                                             IsHitTestVisible="False">
-                                        <Border Width="20" Height="20" Margin="6" HorizontalAlignment="Left" VerticalAlignment="Top" Background="{DynamicResource PaperBrush}" BorderBrush="{DynamicResource InkBrush}" BorderThickness="1">
-                                            <TextBlock Text="✓" Foreground="{DynamicResource InkBrush}" FontSize="13" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                        </Border>
+                                        <TextBlock Text="✓" Foreground="{DynamicResource PaperBrush}" FontSize="12" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
                                     </Border>
                                 </Grid>
                             </DataTemplate>
@@ -1999,7 +2015,9 @@
                     <ItemsControl x:Name="DeviceBookListItems" ItemsSource="{Binding VisibleDeviceBooks}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="local:KindleBookCardViewModel">
-                                <Border BorderBrush="{DynamicResource HairlineBrush}"
+                                <Border Classes="deviceBookRow"
+                                        Classes.selected="{Binding IsSelected}"
+                                        BorderBrush="{DynamicResource HairlineBrush}"
                                         BorderThickness="0,0,0,1"
                                         Padding="8,9"
                                         PointerPressed="DeviceBook_PointerPressed"
@@ -2009,8 +2027,24 @@
                                         ContextRequested="DeviceBook_ContextRequested">
                                     <Grid ColumnDefinitions="54,2*,*,180" ColumnSpacing="10" MinHeight="48">
                                         <Grid Width="42" Height="56" VerticalAlignment="Center">
-                                            <Border Background="{DynamicResource PressedBrush}" BorderBrush="{DynamicResource InkBrush}" BorderThickness="1">
+                                            <Border Background="{DynamicResource PressedBrush}" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="1">
                                                 <Image Source="{Binding CoverImage}" Stretch="UniformToFill" />
+                                            </Border>
+                                            <Border Width="16"
+                                                    Height="16"
+                                                    Margin="3"
+                                                    HorizontalAlignment="Left"
+                                                    VerticalAlignment="Top"
+                                                    CornerRadius="8"
+                                                    Background="{DynamicResource InkBrush}"
+                                                    IsVisible="{Binding IsSelected}"
+                                                    IsHitTestVisible="False">
+                                                <TextBlock Text="✓"
+                                                           Foreground="{DynamicResource PaperBrush}"
+                                                           FontSize="10"
+                                                           FontWeight="Bold"
+                                                           HorizontalAlignment="Center"
+                                                           VerticalAlignment="Center" />
                                             </Border>
                                             <Border Width="18"
                                                     Height="18"
@@ -2050,7 +2084,6 @@
                                             <TextBlock Text="{Binding RelativePath}" Foreground="{DynamicResource SubtleInkBrush}" FontSize="10" TextTrimming="CharacterEllipsis" HorizontalAlignment="Right" ToolTip.Tip="{Binding RelativePath}" />
                                             <TextBlock Text="{Binding HashLabel}" Foreground="{DynamicResource SubtleInkBrush}" FontSize="10" TextTrimming="CharacterEllipsis" HorizontalAlignment="Right" ToolTip.Tip="{Binding HashLabel}" />
                                         </StackPanel>
-                                        <Border Grid.ColumnSpan="4" BorderBrush="{DynamicResource InkBrush}" BorderThickness="1" IsVisible="{Binding IsFrameVisible}" IsHitTestVisible="False" />
                                     </Grid>
                                 </Border>
                             </DataTemplate>
@@ -2076,7 +2109,7 @@
                         <Button Content="{DynamicResource Ui.Auto.74966E20DF2EA9FD}" Padding="11,6" Click="ClearDeviceBookSelectionButton_Click" />
                     </StackPanel>
                 </Border>
-                <Border x:Name="DeviceBookEmptyState" Grid.Row="3" Background="{DynamicResource PaperBrush}" IsVisible="True" ZIndex="10">
+                <Border x:Name="DeviceBookEmptyState" Grid.Row="3" Background="Transparent" IsVisible="True" ZIndex="10">
                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8">
                         <Path Width="46" Height="46" Stretch="Uniform" Stroke="{DynamicResource InkBrush}" StrokeThickness="1.5" StrokeLineCap="Round" StrokeJoin="Round" Fill="Transparent"
                               Data="M 3.5,6.5 C 6.5,5.4 9.9,5.9 12,7.8 C 14.1,5.9 17.5,5.4 20.5,6.5 V 18.2 C 17.5,17.1 14.1,17.6 12,19.4 C 9.9,17.6 6.5,17.1 3.5,18.2 Z M 12,7.8 V 19.4" />
@@ -2703,6 +2736,7 @@
                                         </ComboBoxItem>
                                     </ComboBox>
                                 </Grid>
+                                <ToggleSwitch x:Name="ColorfulModeCheck" VerticalAlignment="Center" Classes="settingsToggle" Content="{DynamicResource Ui.Appearance.ColorfulMode}" ToolTip.Tip="{DynamicResource Ui.Appearance.ColorfulModeHint}" AutomationProperties.Name="{DynamicResource Ui.Appearance.ColorfulMode}" />
                                 <TextBlock Text="{DynamicResource Ui.Settings.Group.Network}" Classes="settingsSectionTitle" Margin="0,16,0,0" TextWrapping="Wrap" />
                                 <ToggleSwitch x:Name="NetworkEnabledCheck" VerticalAlignment="Center" ToolTip.Tip="{DynamicResource Ui.Auto.D7842A57D154C697}" Classes="settingsToggle" Content="{DynamicResource Ui.Auto.098925F827B88E7A}" AutomationProperties.Name="{DynamicResource Ui.Auto.098925F827B88E7A}" />
                                             <Grid x:Name="TranslationGoogleProxyPane" ColumnDefinitions="*,220" ColumnSpacing="12" Background="Transparent" ToolTip.Tip="{DynamicResource Ui.Auto.8B7B5D7E5F3A1C20}">
@@ -2877,6 +2911,21 @@
                                                         <ComboBox x:Name="MainReaderEmbeddingModelSelectorBox" FontSize="14" MinWidth="180" VerticalAlignment="Center" SelectionChanged="MainReaderEmbeddingModelSelectorBox_SelectionChanged" AutomationProperties.Name="{DynamicResource Ui.Auto.753CC20E7DA80BB0}" />
                                                         <Button x:Name="MainReaderEmbeddingModelDownloadButton" Grid.Column="1" Classes="quiet libraryToolbar" ContentTemplate="{StaticResource DownloadModelActionContent}" Content="下载模型" Click="MainReaderEmbeddingModelDownloadButton_Click" />
                                                         <Button x:Name="MainReaderEmbeddingModelCancelButton" Grid.Column="2" Classes="quiet" Padding="10,5" FontSize="11" Content="取消" IsVisible="False" Click="MainReaderEmbeddingModelCancelButton_Click" />
+                                                    </Grid>
+                                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                                                        <Button x:Name="MainReaderEmbeddingModelLicenseButton"
+                                                                Classes="quiet"
+                                                                Padding="0"
+                                                                MinHeight="0"
+                                                                FontSize="11"
+                                                                Content="MIT 许可证"
+                                                                Click="EmbeddingModelLicenseButton_Click" />
+                                                        <TextBlock x:Name="MainReaderEmbeddingModelLicenseText"
+                                                                   Grid.Column="1"
+                                                                   FontSize="11"
+                                                                   Foreground="{DynamicResource MutedInkBrush}"
+                                                                   TextWrapping="Wrap"
+                                                                   VerticalAlignment="Center" />
                                                     </Grid>
                                                 </StackPanel>
                                             </Border>
@@ -3397,11 +3446,12 @@
                                            TextWrapping="Wrap" />
                                 <Border BorderThickness="0" Padding="0,8,0,16">
                                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="24" VerticalAlignment="Top">
-                                        <StackPanel Spacing="10">
+                                        <StackPanel Spacing="18">
                                             <TextBlock Text="{DynamicResource Ui.Auto.52D25A9E30BA94F1}" Classes="settingsSectionTitle" TextWrapping="Wrap" />
-                                            <TextBlock x:Name="AboutVersionText" Text="{DynamicResource Ui.Auto.DC730979055D9FEF}" FontSize="12" Foreground="{DynamicResource MutedInkBrush}" TextWrapping="Wrap" />
+                                            <Button x:Name="FeedbackButton" Content="{DynamicResource Ui.Feedback.Entry}" Classes="quiet" FontSize="12" MinWidth="0" MinHeight="0" Padding="0" BorderThickness="0" HorizontalAlignment="Left" Click="OpenFeedbackButton_Click" />
+                                            <Button x:Name="AboutUserManualButton" Content="{DynamicResource Ui.About.UserManual}" Classes="quiet" FontSize="12" MinWidth="0" MinHeight="0" Padding="0" BorderThickness="0" HorizontalAlignment="Left" Click="OpenUserManualButton_Click" />
                                             <Button x:Name="AboutUserGroupButton" Content="{DynamicResource Ui.About.UserGroup}" Classes="quiet" FontSize="12" Foreground="{DynamicResource MutedInkBrush}" HorizontalAlignment="Left" MinWidth="0" MinHeight="0" Padding="0" BorderThickness="0" Cursor="Hand" ToolTip.Tip="{DynamicResource Ui.About.CopyUserGroup}" Click="AboutUserGroupButton_Click" />
-                                            <Button x:Name="AboutUserManualButton" Content="{DynamicResource Ui.About.UserManual}" Classes="quiet" FontSize="12" MinWidth="0" MinHeight="0" Padding="0" BorderThickness="0" Margin="0,4,0,0" HorizontalAlignment="Left" Click="OpenUserManualButton_Click" />
+                                            <TextBlock x:Name="AboutVersionText" Text="{DynamicResource Ui.Auto.DC730979055D9FEF}" FontSize="12" Foreground="{DynamicResource MutedInkBrush}" TextWrapping="Wrap" />
                                         </StackPanel>
                                         <Button x:Name="AboutDeveloperButton" Grid.Column="1" Classes="quiet" Padding="12,9" MinWidth="0" MinHeight="0" BorderThickness="0" Background="{DynamicResource SoftHoverBrush}" CornerRadius="0" VerticalAlignment="Top" Margin="0,26,0,0" Cursor="Hand" ToolTip.Tip="https://github.com/kingstacker" AutomationProperties.Name="kingstacker GitHub" Click="AboutDeveloperButton_Click">
                                             <StackPanel Spacing="4">
@@ -4066,6 +4116,10 @@
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="0" />
             </Grid.ColumnDefinitions>
+
+            <!-- Colourful-mode wash for the reader. The opacity is lowered
+                 for the dark Ink theme so body text keeps its contrast. -->
+            <local:AmbientBackground x:Name="ReaderAmbientBackdrop" Grid.ColumnSpan="3" IsHitTestVisible="False" ClipToBounds="True" />
 
             <!-- Opaque transition cover used when leaving zen mode: the reader
                  pane sits above the library, so fading the pane itself would
@@ -5770,6 +5824,21 @@
                                                     IsVisible="False"
                                                     Click="ReaderEmbeddingModelCancelButton_Click" />
                                         </Grid>
+                                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
+                                            <Button x:Name="ReaderEmbeddingModelLicenseButton"
+                                                    Classes="quiet"
+                                                    Padding="0"
+                                                    MinHeight="0"
+                                                    FontSize="10"
+                                                    Content="MIT 许可证"
+                                                    Click="EmbeddingModelLicenseButton_Click" />
+                                            <TextBlock x:Name="ReaderEmbeddingModelLicenseText"
+                                                       Grid.Column="1"
+                                                       FontSize="10"
+                                                       Foreground="{DynamicResource ReaderMutedBrush}"
+                                                       TextWrapping="Wrap"
+                                                       VerticalAlignment="Center" />
+                                        </Grid>
                                     </StackPanel>
                                 </Border>
                                 </StackPanel>
@@ -5838,7 +5907,7 @@
                 </Grid>
             </Border>
 
-            <!-- TTS controls backed by the cross-platform edge-tts engine. -->
+            <!-- TTS controls use the platform-provided speech engine. -->
             <Popup x:Name="ReaderTtsPopup"
                    IsOpen="False"
                    IsLightDismissEnabled="True"
@@ -5859,7 +5928,7 @@
                                        FontSize="18"
                                        FontWeight="SemiBold" />
                             <TextBlock x:Name="ReaderTtsDescriptionText"
-                                       Text="按句朗读当前 EPUB；edge-tts 需要联网。"
+                                       Text="按句朗读当前 EPUB。"
                                        FontSize="11"
                                        Foreground="{DynamicResource ReaderMutedBrush}"
                                        TextWrapping="Wrap" />
@@ -5868,7 +5937,7 @@
                                            Text="语音引擎"
                                            FontSize="11" />
                                 <TextBlock x:Name="ReaderTtsEngineText"
-                                           Text="edge-tts"
+                                           Text="系统语音"
                                            FontSize="13" />
                             </StackPanel>
 
@@ -5879,7 +5948,8 @@
                                 <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
                                     <ComboBox x:Name="ReaderTtsVoiceBox"
                                               Classes="readerTtsVoice"
-                                              PlaceholderText="选择 edge-tts 语音" />
+                                              PlaceholderText="选择语音"
+                                              SelectionChanged="ReaderTtsVoiceBox_SelectionChanged" />
                                     <Button x:Name="ReaderTtsPreviewButton"
                                             Grid.Column="1"
                                             Classes="quiet"
@@ -5891,9 +5961,55 @@
                                             Content="刷新语音"
                                             Click="ReaderTtsRefreshVoicesButton_Click" />
                                 </Grid>
+                                <CheckBox x:Name="ReaderTtsShowAllVoicesCheck"
+                                          Classes="readerTtsCheck"
+                                          Content="显示全部声音"
+                                          FontSize="11"
+                                          IsVisible="False"
+                                          Click="ReaderTtsShowAllVoicesCheck_Click" />
                                 <TextBlock x:Name="ReaderTtsPreviewSampleText"
                                            Text="试听内容：你好，这是声音试听。"
                                            FontSize="11"
+                                           Foreground="{DynamicResource ReaderMutedBrush}"
+                                           TextWrapping="Wrap" />
+                            </StackPanel>
+
+                            <StackPanel x:Name="ReaderTtsModelPanel" Spacing="4">
+                                <TextBlock x:Name="ReaderTtsModelLabelText"
+                                           Text="离线语音包"
+                                           FontSize="11" />
+                                <ComboBox x:Name="ReaderTtsModelBox"
+                                          Classes="readerTtsVoice"
+                                          PlaceholderText="选择语音包"
+                                          SelectionChanged="ReaderTtsModelBox_SelectionChanged" />
+                                <TextBlock x:Name="ReaderTtsModelDetailText"
+                                           FontSize="11"
+                                           Foreground="{DynamicResource ReaderMutedBrush}"
+                                           TextWrapping="Wrap" />
+                                <Grid ColumnDefinitions="Auto,Auto,Auto,*"
+                                      ColumnSpacing="8">
+                                    <Button x:Name="ReaderTtsModelDownloadButton"
+                                            Classes="quiet"
+                                            Content="下载"
+                                            Click="ReaderTtsModelDownloadButton_Click" />
+                                    <Button x:Name="ReaderTtsModelDeleteButton"
+                                            Grid.Column="1"
+                                            Classes="quiet"
+                                            Content="删除"
+                                            Click="ReaderTtsModelDeleteButton_Click" />
+                                    <Button x:Name="ReaderTtsModelLicenseButton"
+                                            Grid.Column="2"
+                                            Classes="quiet"
+                                            Content="许可证"
+                                            Click="ReaderTtsModelLicenseButton_Click" />
+                                </Grid>
+                                <ProgressBar x:Name="ReaderTtsModelProgressBar"
+                                             Minimum="0"
+                                             Maximum="100"
+                                             Height="4"
+                                             IsVisible="False" />
+                                <TextBlock x:Name="ReaderTtsModelStatusText"
+                                           FontSize="10"
                                            Foreground="{DynamicResource ReaderMutedBrush}"
                                            TextWrapping="Wrap" />
                             </StackPanel>

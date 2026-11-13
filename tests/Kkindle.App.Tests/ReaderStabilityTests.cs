@@ -135,6 +135,32 @@ public sealed class ReaderStabilityTests(SettingsUiSession session) : IDisposabl
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public Task SettingsReflowKeepsTextVisibleWithoutAddingArtificialPageBreaks(bool vertical) => Run(async () =>
+    {
+        var settings = new ReaderLayoutSettings(FlowMode: 1, VerticalWriting: vertical)
+        {
+            ParagraphIndent = false, ParagraphSpacing = 0.5,
+            OverridePublisherLineHeight = true, OverridePublisherParagraphSpacing = true,
+            AvoidWidowsAndOrphans = false
+        };
+        using var host = await LoadChapter(settings, inlineAnchors: true);
+        var offset = MoveToMiddle(host);
+        await host.Configure(settings with { FontScale = 1.45, LineHeight = 1.75 }, 0, null, false, false);
+        AssertTextIsVisible(host, offset);
+        var actual = Layout(host);
+        var ordinary = Field<TypesetEngine>(host, "_engine").Compose(Content(host), actual.Options);
+        Assert.Equal(ordinary.Pages.Select(page => (page.TextStartOffset, page.TextEndOffset)),
+            actual.Pages.Select(page => (page.TextStartOffset, page.TextEndOffset)));
+        var originalPage = host.CurrentPage;
+        Assert.True(host.TurnPage(-1));
+        Assert.True(host.TurnPage(1));
+        Assert.Equal(originalPage, host.CurrentPage);
+        AssertTextIsVisible(host, offset);
+    });
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public Task MobileSettingsFromARestoredMidPagePositionKeepThePageStart(bool vertical) => Run(async () =>
     {
         var settings = new ReaderLayoutSettings(FlowMode: 1, VerticalWriting: vertical) { ParagraphIndent = false };

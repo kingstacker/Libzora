@@ -72,7 +72,6 @@ struct NativeMaterials: View {
                             ForEach(records) { item in materialEntry(item).padding(.bottom, 6) }
                             Color.clear.frame(height: 6)
                         }
-                        NativeTheme.divider.frame(height: 1)
                     }
                 }.padding(.horizontal, 24).padding(.top, 4).padding(.bottom, 28)
             }

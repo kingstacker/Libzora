@@ -1,4 +1,5 @@
 using Kkindle.Core;
+using Kkindle.ApplicationServices.Tts;
 using Kkindle.Mobile.Views.Sheets;
 
 namespace Kkindle.Mobile.Views;
@@ -6,7 +7,13 @@ namespace Kkindle.Mobile.Views;
 public sealed record NativeReaderState(
     bool Ready, bool ChromeVisible, bool IsPdf, string Title, string Chapter,
     string Position, double Progress, bool Bookmark, string? Error,
-    TtsPlaybackState SpeechState, string SpeechStatus, string? SelectedText);
+    TtsPlaybackState SpeechState, string SpeechStatus, string? SelectedText)
+{
+    public NativeReaderSelectionBounds? SelectionBounds { get; init; }
+}
+
+public sealed record NativeReaderSelectionBounds(double X, double Y, double Bottom,
+    double ViewportWidth, double ViewportHeight);
 
 public sealed record NativeReaderTocItem(int Id, string Title, int Level, bool Selected);
 public sealed record NativeReaderSearchItem(int Id, string Title, string Excerpt);
@@ -49,7 +56,12 @@ public partial class ReaderPage
         FooterChapter.Text ?? string.Empty, FooterPosition.Text ?? string.Empty,
         _overallProgress * 100, FindCurrentBookmark() is not null, _nativeError,
         _tts?.State ?? TtsPlaybackState.Stopped, SpeechStatusText.Text ?? string.Empty,
-        _selection?.Text);
+        _selection?.Text)
+    {
+        SelectionBounds = _selection is { X: { } x, Y: { } y } selected
+            ? new(x, y, selected.Bottom ?? y, ReaderPaper.Bounds.Width, ReaderPaper.Bounds.Height)
+            : null
+    };
 
     private void NotifyNativeState()
     {
@@ -82,6 +94,27 @@ public partial class ReaderPage
     }
 
     public Task NativeToggleSpeechAsync() => ToggleListeningAsync();
+    public async Task NativeSpeakSelectionAsync()
+    {
+        var text = _selection?.Text.Trim();
+        if (string.IsNullOrWhiteSpace(text)) return;
+        if (_shell.Services is not { CreateTtsEngine: { } createEngine, CreateTtsPlayer: { } createPlayer })
+            throw new InvalidOperationException("这台设备不支持朗读");
+        var document = BuildSpeechDocument()
+            ?? throw new InvalidOperationException("当前页面没有可朗读的文字。");
+        _tts ??= CreateSpeech(createEngine(), createPlayer());
+        var settings = await _modules.Reader.TtsSettings.LoadAsync(_lifetime.Token);
+        settings.AudioFormat = "wav";
+        settings.Voice = TtsSelectionVoicePolicy.SelectVoice(text, settings.Voice);
+        var selection = new ReaderTtsDocument(document.Key, text, 0,
+            (_, _) => Task.CompletedTask, () => { },
+            BookKey: document.BookKey, ChapterKey: document.ChapterKey);
+        HideSelectionBar();
+        SetChromeVisible(false);
+        _speechExpanded = true;
+        await _tts.StartSelectionAsync(selection, settings, _lifetime.Token);
+    }
+
     public void NativePauseSpeech() => _tts?.PauseOrResume();
     public Task NativeStopSpeechAsync() => _tts?.StopAsync() ?? Task.CompletedTask;
     public string NativePageText() => CurrentPageText();

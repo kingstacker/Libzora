@@ -324,12 +324,7 @@ public partial class MainWindow
     {
         if (string.IsNullOrWhiteSpace(_readerPendingSelection)) return;
         var settings = BookTranslationSettings.Normalize(_appSettings.Translation);
-        _readerTranslationProvider = settings.Provider switch
-        {
-            BookTranslationProvider.BingFree => ReaderTranslationProvider.Bing,
-            BookTranslationProvider.GoogleFree => ReaderTranslationProvider.Google,
-            _ => ReaderTranslationProvider.Ai
-        };
+        _readerTranslationProvider = ReaderTranslationProvider.Ai;
         await TranslateReaderSelectionAsync(
             _readerTranslationProvider,
             settings.AiRequestsPerMinute,

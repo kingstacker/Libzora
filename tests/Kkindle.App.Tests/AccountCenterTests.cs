@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Media;
 using Avalonia.VisualTree;
 using Kkindle.Core;
 using Kkindle.Infrastructure;
@@ -327,7 +328,10 @@ public sealed partial class SettingsTests
             Assert.Equal(settingsTitle.FontFamily, Get<TextBlock>("AccountPageTitle").FontFamily);
             Assert.Equal(settingsTitle.FontSize, Get<TextBlock>("AccountPageTitle").FontSize);
             Assert.Equal(settingsTitle.FontWeight, Get<TextBlock>("AccountPageTitle").FontWeight);
-            Assert.Equal(ResourceColor("PaperBrush"), ColorOf(dialog.Background));
+            // The account centre is transparent so the colourful wash can
+            // show through; the library shell underneath keeps the paper.
+            Assert.Equal(Colors.Transparent, ColorOf(dialog.Background));
+            Assert.Equal(ResourceColor("PaperBrush"), ColorOf(scope.Get<Grid>("LibraryRoot").Background));
             Assert.Contains(Get<Border>("AccountCard"), Get<Button>("SignOutButton").GetVisualAncestors());
             AssertWithinAccountViewport(Get<Button>("SignOutButton"), viewport);
             AssertWithinAccountViewport(Get<Grid>("CloudUsagePanel"), viewport);

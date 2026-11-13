@@ -14,6 +14,8 @@ public static class MobileComposition
     public static ApplicationModules Create(MobileServices services)
     {
         services.Paths.EnsureDirectories();
+        SoftwareLog.Configure(services.Paths,
+            ApplicationVersion.GetDisplayVersion(typeof(MobileApp).Assembly));
         // The mobile views are written in Chinese only; shared text (medals, sync
         // messages) must not switch to English with the system language.
         UiText.SetLanguage("zh-CN");

@@ -40,6 +40,18 @@ public sealed record EmbeddingModelPackage(
     string QueryPrefix = "",
     string PassagePrefix = "")
 {
+    /// <summary>
+    /// License declared by the upstream model card. These packages are not
+    /// bundled with the application; the user downloads them on demand.
+    /// </summary>
+    public string LicenseName { get; init; } = "MIT";
+
+    /// <summary>Upstream model card where the license and attribution are published.</summary>
+    public Uri? LicenseUri { get; init; }
+
+    /// <summary>Short attribution shown next to the license in the download UI.</summary>
+    public string Attribution { get; init; } = "Hugging Face";
+
     public long? ExpectedTotalBytes => Files.All(file => file.ExpectedBytes is not null)
         ? Files.Sum(file => file.ExpectedBytes!.Value)
         : null;
@@ -73,7 +85,12 @@ public sealed record EmbeddingModelPackage(
                 MaximumBytes: 1L * 1024 * 1024,
                 ExpectedBytes: 367,
                 ExpectedSha256: "E6F3B96DB926A37D4039995FBF5AD17DE158DFB8F6343D607E4DBAAD18D75F5A")
-        ]);
+        ])
+    {
+        LicenseName = "MIT",
+        LicenseUri = new Uri("https://huggingface.co/BAAI/bge-small-zh-v1.5"),
+        Attribution = "BAAI · ONNX by Qdrant"
+    };
 
     /// <summary>
     /// Multilingual E5 small uses XLM-Roberta's SentencePiece vocabulary and
@@ -113,7 +130,12 @@ public sealed record EmbeddingModelPackage(
         PaddingTokenId: 1,
         MaxSequenceLength: 512,
         QueryPrefix: "query: ",
-        PassagePrefix: "passage: ");
+        PassagePrefix: "passage: ")
+    {
+        LicenseName = "MIT",
+        LicenseUri = new Uri("https://huggingface.co/intfloat/multilingual-e5-small"),
+        Attribution = "intfloat"
+    };
 
     public static IReadOnlyList<EmbeddingModelPackage> Supported { get; } =
         [BgeSmallZhV15, MultilingualE5Small];

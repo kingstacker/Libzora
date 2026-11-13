@@ -367,7 +367,7 @@ location / {
 | HEAD | `/api/sync/objects/<KEY>` | 返回当前账号对象的长度和修改时间 |
 | DELETE | `/api/sync/objects/<KEY>` | 删除当前账号的对象；旧数据在已签发链接过期后清理 |
 | POST | `/api/sync/uploads` | JSON `key`、`length`；预留空间并按授权长度计入上传防滥用用量，返回 `uploadId`、`url`（签入长度）、`expiresAt` |
-| POST | `/api/sync/uploads/<ID>/complete` | 核对已上传对象的长度与加密封装后发布，不重复计费，原子替换同名对象 |
+| POST | `/api/sync/uploads/<ID>/complete` | 核对已上传对象的长度与加密封装后发布，不重复计费，原子替换同名对象；已完成的上传可重复调用并返回 204，v17 用 `sync_completed_uploads` 记录短期幂等状态 |
 | DELETE | `/api/sync/uploads/<ID>` | 取消空间预留，已签发授权的上传计数不退回；未完成的预留 6 小时后自动失效 |
 | POST | `/api/sync/downloads` | JSON `key`、`offset`、可选 `length`；先扣流量，返回 `url`、需原样发送的 `range`、长度与总长度 |
 | GET / PUT | 签名链接 | 不带会话；上传必须声明与授权一致的 `Content-Length`，最多 512 MiB |
@@ -380,6 +380,13 @@ location / {
 | GET / POST | `/api/accounts/orders` | 列出订单，或用 `productId`、`requestId` 创建待支付订单 |
 | POST | `/api/accounts/orders/<ORDER_ID>/cancel` | 取消自己的待支付订单 |
 | POST | `/api/accounts/activation-codes/redeem` | 必须登录；JSON `code`、非空 UUID `requestId`，返回 `codeId`、`kind`、`years`、`redeemedAt`、`status`（当前会员 / 设备）和 `alreadyRedeemed`；Plus 只发放 1 年 |
+| POST | `/api/v1/feedback` | 认证头；`multipart/form-data`，字段 `requestId`、`type`、`content`、可选 `contact`、`appVersion`、`platform`、`platformVersion`、`deviceModel`、可选脱敏 `softwareLog`（≤ 256 KB），以及最多 3 个 `attachments` 截图；用户身份取自会话 |
+| GET | `/api/v1/feedback` | 认证头；返回当前用户最近 100 条反馈 |
+| GET | `/api/v1/feedback/<ID>` | 认证头；返回自己的单条反馈，其他用户返回 `404 feedback_not_found` |
+
+反馈字段、截图限制、错误码与限流详见 [问题反馈](feedback.md)。
+
+账号服务的所有响应都带 `X-Kkindle-Server-Time`（ISO 8601 UTC）。客户端用请求往返中点估算本机与服务器的时钟偏移，并限制在 ±30 天内，用于校准同步使用的混合逻辑时钟；服务器仍不解析、不解密快照内容，只提供时间参考。自建 S3/WebDAV 没有该响应头时，客户端退回本机时钟。同步时序规则见[扩展 S3 同步内容](s3-sync-extension.md)。
 
 注册/登录返回 `region`、`user: { id, username, email, emailVerified }`、`token`、`expiresAt`，旧账号的 `email` 可为空。
 错误密码和不存在的账号统一返回 401；重复注册返回 409；同一来源每分钟最多 10 次

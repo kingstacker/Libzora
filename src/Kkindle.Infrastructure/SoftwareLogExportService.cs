@@ -4,8 +4,10 @@ using System.Text;
 namespace Kkindle.Infrastructure;
 
 /// <summary>
-/// Packages runtime logs for support without copying the application's
-/// settings, library, database, backups, or browser data.
+/// Packages the bounded, sanitized software log together with environment
+/// diagnostics for support. Raw debug and crash logs are deliberately excluded:
+/// they are not sanitized and can contain book titles, local paths, or other
+/// user content. This is the same log that feedback attaches.
 /// </summary>
 public sealed class SoftwareLogExportService
 {
@@ -32,9 +34,9 @@ public sealed class SoftwareLogExportService
         IReadOnlyDictionary<string, string>? metadata,
         CancellationToken cancellationToken)
     {
-        var sources = DiscoverLogFiles(paths, out var discoveryWarnings);
+        var sources = DiscoverLogFiles(paths);
         var included = new List<IncludedLog>();
-        var skipped = new List<string>(discoveryWarnings);
+        var skipped = new List<string>();
         var destination = Path.GetFullPath(destinationPath);
         var destinationDirectory = Path.GetDirectoryName(destination);
         if (string.IsNullOrWhiteSpace(destinationDirectory))
@@ -90,42 +92,23 @@ public sealed class SoftwareLogExportService
         }
     }
 
-    private static List<LogSource> DiscoverLogFiles(AppPaths paths, out List<string> warnings)
+    private static List<LogSource> DiscoverLogFiles(AppPaths paths)
     {
-        warnings = [];
         var sources = new List<LogSource>();
         var archivePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+        // Only the sanitized software log is exported. Everything else under
+        // the logs directory is a raw developer log and may contain user data.
         AddIfExists(
             sources,
             archivePaths,
-            Path.Combine(paths.Root, "kkindle-crash.log"),
-            "logs/kkindle-crash.log");
-
-        if (!Directory.Exists(paths.Logs)) return sources;
-
-        try
-        {
-            foreach (var filePath in Directory.EnumerateFiles(
-                         paths.Logs,
-                         "*.log",
-                         SearchOption.AllDirectories)
-                     .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
-            {
-                var relativePath = Path.GetRelativePath(paths.Logs, filePath);
-                var archivePath = ToArchivePath("logs", relativePath);
-                if (archivePaths.Add(archivePath))
-                    sources.Add(new LogSource(filePath, archivePath));
-            }
-        }
-        catch (IOException exception)
-        {
-            warnings.Add($"log directory enumeration ({exception.GetType().Name})");
-        }
-        catch (UnauthorizedAccessException exception)
-        {
-            warnings.Add($"log directory enumeration ({exception.GetType().Name})");
-        }
+            Path.Combine(paths.Logs, SoftwareLog.FileName),
+            $"logs/{SoftwareLog.FileName}");
+        AddIfExists(
+            sources,
+            archivePaths,
+            Path.Combine(paths.Logs, SoftwareLog.ArchiveFileName),
+            $"logs/{SoftwareLog.ArchiveFileName}");
 
         return sources;
     }
@@ -138,17 +121,6 @@ public sealed class SoftwareLogExportService
     {
         if (File.Exists(filePath) && archivePaths.Add(archivePath))
             sources.Add(new LogSource(filePath, archivePath));
-    }
-
-    private static string ToArchivePath(string prefix, string relativePath)
-    {
-        var segments = relativePath
-            .Split(
-                new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
-                StringSplitOptions.RemoveEmptyEntries)
-            .Where(segment => segment is not "." and not "..")
-            .Select(segment => segment.Replace(":", "_", StringComparison.Ordinal));
-        return $"{prefix}/{string.Join('/', segments)}";
     }
 
     private static long AddFileEntry(
@@ -213,9 +185,9 @@ public sealed class SoftwareLogExportService
 
         builder.AppendLine();
         builder.AppendLine(
-            "Excluded by design: application settings and secrets (including email/SMTP passwords and API keys), database, book files, backups, and browser data.");
+            "Only the sanitized software log is included. Raw debug logs, crash logs, application settings and secrets (including email/SMTP passwords and API keys), database, book files, backups, and browser data are excluded.");
         builder.AppendLine(
-            "Log contents may still contain book titles or local file paths; review the archive before sharing it.");
+            "The software log is sanitized before it is written: accounts, emails, book titles, notes, reading content, file paths, URLs, and secrets are removed.");
         return builder.ToString();
     }
 

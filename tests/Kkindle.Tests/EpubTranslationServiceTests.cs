@@ -30,6 +30,7 @@ public sealed class EpubTranslationServiceTests
             };
 
             var paths = new AppPaths(Path.Combine(root, "app"));
+            TranslationTestBook.ConfigureModel(paths);
             using var service = new EpubTranslationService(
                 paths,
                 new TestHelpers.PlaintextSecretProtector());
@@ -88,25 +89,16 @@ public sealed class EpubTranslationServiceTests
             var sourcePath = Path.Combine(root, "navigation.epub");
             CreateEpubWithNavigation(sourcePath);
             var paths = new AppPaths(Path.Combine(root, "app"));
+            TranslationTestBook.ConfigureModel(paths);
             using var service = new EpubTranslationService(
                 paths,
                 new TestHelpers.PlaintextSecretProtector(),
                 httpHandler: new TestHelpers.StubHttpMessageHandler(request =>
                 {
-                    var query = request.RequestUri!.Query;
-                    var queryStart = query.IndexOf("q=", StringComparison.Ordinal);
-                    var queryEnd = query.IndexOf('&', queryStart + 2);
-                    var source = Uri.UnescapeDataString(
-                        query[(queryStart + 2)..(queryEnd < 0 ? query.Length : queryEnd)]);
+                    using var payload = JsonDocument.Parse(request.Content!.ReadAsStringAsync().GetAwaiter().GetResult());
+                    var source = payload.RootElement.GetProperty("messages").EnumerateArray().Last().GetProperty("content").GetString()!;
                     var translated = source.Replace("Chapter title", "章节标题", StringComparison.Ordinal);
-                    var encoded = JsonSerializer.Serialize(translated);
-                    return new HttpResponseMessage
-                    {
-                        Content = new StringContent(
-                            $"[[[{encoded}]]]",
-                            Encoding.UTF8,
-                            "application/json")
-                    };
+                    return TranslationServiceTests.ModelReply(translated);
                 }));
 
             var result = await service.TranslateAsync(
@@ -145,6 +137,7 @@ public sealed class EpubTranslationServiceTests
             CreateEpub(sourcePath);
             var outputDirectory = Path.Combine(root, "translations");
             var paths = new AppPaths(Path.Combine(root, "app"));
+            TranslationTestBook.ConfigureModel(paths);
             using var service = new EpubTranslationService(
                 paths,
                 new TestHelpers.PlaintextSecretProtector(),
@@ -176,6 +169,7 @@ public sealed class EpubTranslationServiceTests
             CreateEpub(sourcePath);
             var outputDirectory = Path.Combine(root, "translations");
             var paths = new AppPaths(Path.Combine(root, "app"));
+            TranslationTestBook.ConfigureModel(paths);
             using var service = new EpubTranslationService(
                 paths,
                 new TestHelpers.PlaintextSecretProtector(),
@@ -220,7 +214,7 @@ public sealed class EpubTranslationServiceTests
     }
 
     [Fact]
-    public async Task ResumesFailedSegmentsWithAnotherProviderAndRemovesCacheAfterSuccess()
+    public async Task ResumesFailedSegmentsWithConfiguredModelAndRemovesCacheAfterSuccess()
     {
         var root = TestHelpers.CreateTempDirectory();
         try
@@ -229,6 +223,7 @@ public sealed class EpubTranslationServiceTests
             CreateEpub(sourcePath);
             var outputDirectory = Path.Combine(root, "translations");
             var paths = new AppPaths(Path.Combine(root, "app"));
+            TranslationTestBook.ConfigureModel(paths);
             var firstSettings = new BookTranslationSettings
             {
                 Provider = BookTranslationProvider.BingFree,
@@ -266,23 +261,13 @@ public sealed class EpubTranslationServiceTests
                 httpHandler: new TestHelpers.StubHttpMessageHandler(request =>
                 {
                     requestCount++;
-                    var query = request.RequestUri!.Query;
-                    var queryStart = query.IndexOf("q=", StringComparison.Ordinal);
-                    var queryEnd = query.IndexOf('&', queryStart + 2);
-                    var source = Uri.UnescapeDataString(
-                        query[(queryStart + 2)..(queryEnd < 0 ? query.Length : queryEnd)]);
+                    using var payload = JsonDocument.Parse(request.Content!.ReadAsStringAsync().GetAwaiter().GetResult());
+                    var source = payload.RootElement.GetProperty("messages").EnumerateArray().Last().GetProperty("content").GetString()!;
                     var translated = source
                         .Replace("Chapter title", "章节标题", StringComparison.Ordinal)
                         .Replace("Hello", "你好", StringComparison.Ordinal)
                         .Replace("world", "世界", StringComparison.Ordinal);
-                    var encoded = JsonSerializer.Serialize(translated);
-                    return new HttpResponseMessage
-                    {
-                        Content = new StringContent(
-                            $"[[[{encoded}]]]",
-                            Encoding.UTF8,
-                            "application/json")
-                    };
+                    return TranslationServiceTests.ModelReply(translated);
                 }));
 
             var result = await secondService.TranslateAsync(
@@ -303,170 +288,33 @@ public sealed class EpubTranslationServiceTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task TranslatesWholeBookThroughGoogleFreeEndpointWithSegmentBatching(bool legacy)
+    [InlineData(BookTranslationProvider.GoogleFree)]
+    [InlineData(BookTranslationProvider.BingFree)]
+    public async Task LegacySettingsUseOnlyTheConfiguredModelEndpoint(BookTranslationProvider legacyProvider)
     {
-        var root = TestHelpers.CreateTempDirectory();
-        try
-        {
-            var sourcePath = Path.Combine(root, "google.epub");
-            CreateEpub(sourcePath);
-            var requestCount = 0;
-            var paths = new AppPaths(Path.Combine(root, "app"));
-            using var service = new EpubTranslationService(
-                paths,
-                new TestHelpers.PlaintextSecretProtector(),
-                httpHandler: new TestHelpers.StubHttpMessageHandler(request =>
-                {
-                    requestCount++;
-                    if (legacy && request.RequestUri?.Host == "translate.googleapis.com")
-                        return new HttpResponseMessage(HttpStatusCode.TooManyRequests);
-                    Assert.Equal(legacy ? "clients5.google.com" : "translate.googleapis.com", request.RequestUri?.Host);
-                    var query = request.RequestUri!.Query;
-                    var queryStart = query.IndexOf("q=", StringComparison.Ordinal);
-                    Assert.True(queryStart >= 0);
-                    var translated = Uri.UnescapeDataString(query[(queryStart + 2)..])
-                        .Replace("Chapter title", "章节标题", StringComparison.Ordinal)
-                        .Replace("Hello", "你好", StringComparison.Ordinal)
-                        .Replace("world", "世界", StringComparison.Ordinal);
-                    var encoded = JsonSerializer.Serialize(translated);
-                    return new HttpResponseMessage
-                    {
-                        Content = new StringContent(
-                            legacy ? $"[[{encoded},\"en\"]]" : $"[[[{encoded}]]]",
-                            Encoding.UTF8,
-                            "application/json")
-                    };
-                }));
-
-            var result = await service.TranslateAsync(
-                sourcePath,
-                Path.Combine(root, "translations"),
-                new BookTranslationSettings
-                {
-                    Provider = BookTranslationProvider.GoogleFree,
-                    SourceLanguage = "en",
-                    TargetLanguage = "zh-CN",
-                    OutputMode = BookTranslationOutputMode.Translated
-                });
-
-            Assert.Single(result.OutputPaths);
-            Assert.Equal(legacy ? 2 : 1, requestCount);
-            var markup = ReadArchiveEntry(result.OutputPaths[0], "OEBPS/chapter.xhtml");
-            Assert.Contains("你好", markup);
-            Assert.Contains("世界", markup);
-            Assert.Contains("章节标题", markup);
-        }
-        finally
-        {
-            TestHelpers.TryDelete(root);
-        }
+        using var book = new TranslationTestBook("<p>Hello world.</p><p>Chapter title</p>");
+        var handler = new TranslationTestBook.ModelHandler(text => text.Replace("Hello world.", "你好，世界。").Replace("Chapter title", "章节标题"));
+        using var service = book.Service(handler);
+        var result = await service.TranslateAsync(book.Source, book.Output, TranslationTestBook.Settings with { Provider = legacyProvider });
+        Assert.NotEmpty(handler.Inputs);
+        Assert.Contains("你好，世界。", TranslationTestBook.Body(Assert.Single(result.OutputPaths)).Value);
     }
 
-    [Theory]
-    [InlineData("cn.bing.com")]
-    [InlineData("www.bing.com")]
-    public async Task TranslatesWholeBookThroughBingFreeEndpointUsingTemporaryPageCredentials(string pageHost)
+    [Fact]
+    public async Task MissingModelSettingsFailWithoutWebRequests()
     {
         var root = TestHelpers.CreateTempDirectory();
         try
         {
-            var sourcePath = Path.Combine(root, "bing.epub");
+            var sourcePath = Path.Combine(root, "missing.epub");
             CreateEpub(sourcePath);
-            var requests = new List<HttpRequestMessage>();
-            var paths = new AppPaths(Path.Combine(root, "app"));
-            using var service = new EpubTranslationService(
-                paths,
-                new TestHelpers.PlaintextSecretProtector(),
-                httpHandler: new TestHelpers.StubHttpMessageHandler(request =>
-                {
-                    requests.Add(request);
-                    if (request.Method == HttpMethod.Get)
-                    {
-                        return new HttpResponseMessage
-                        {
-                            RequestMessage = new HttpRequestMessage(HttpMethod.Get, $"https://{pageHost}/translator"),
-                            Content = new StringContent(
-                                "window._G={IG:\"test-impression\"}; data-iid=\"translator.5025\"; "
-                                + "var params_AbusePreventionHelper = [12345, \"test-token\", 3600000];",
-                                Encoding.UTF8,
-                                "text/html")
-                        };
-                    }
-
-                    Assert.Equal(HttpMethod.Post, request.Method);
-                    Assert.Equal(pageHost, request.RequestUri!.Host);
-                    Assert.Equal($"https://{pageHost}/translator", request.Headers.Referrer!.AbsoluteUri);
-                    Assert.Equal($"https://{pageHost}", Assert.Single(request.Headers.GetValues("Origin")));
-                    Assert.Contains("IID=translator.5025", request.RequestUri!.Query);
-                    var form = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
-                    Assert.Contains("token=test-token", form);
-                    Assert.Contains("key=12345", form);
-                    var textStart = form.IndexOf("text=", StringComparison.Ordinal) + 5;
-                    var textEnd = form.IndexOf('&', textStart);
-                    var source = Uri.UnescapeDataString(
-                        form[(textStart)..(textEnd < 0 ? form.Length : textEnd)]).Replace('+', ' ');
-                    var translated = source
-                        .Replace("Chapter title", "章节标题", StringComparison.Ordinal)
-                        .Replace("Hello", "你好", StringComparison.Ordinal)
-                        .Replace("world", "世界", StringComparison.Ordinal);
-                    return new HttpResponseMessage
-                    {
-                        Content = new StringContent(
-                            $"[{{\"translations\":[{{\"text\":{JsonSerializer.Serialize(translated)}}}]}}]",
-                            Encoding.UTF8,
-                            "application/json")
-                    };
-                }));
-
-            var result = await service.TranslateAsync(
-                sourcePath,
-                Path.Combine(root, "translations"),
-                new BookTranslationSettings
-                {
-                    Provider = BookTranslationProvider.BingFree,
-                    SourceLanguage = "en",
-                    TargetLanguage = "zh-CN",
-                    OutputMode = BookTranslationOutputMode.Translated
-                });
-
-            Assert.Single(result.OutputPaths);
-            Assert.Equal(2, requests.Count);
-            var markup = ReadArchiveEntry(result.OutputPaths[0], "OEBPS/chapter.xhtml");
-            Assert.Contains("你好", markup);
-            Assert.Contains("世界", markup);
-            Assert.Contains("章节标题", markup);
-        }
-        finally
-        {
-            TestHelpers.TryDelete(root);
-        }
-    }
-
-    [Theory]
-    [InlineData("")]
-    [InlineData("[[[\" \"]]]")]
-    public async Task EmptyGoogleBookTranslationShowsRecoveryAdvice(string responseBody)
-    {
-        var root = TestHelpers.CreateTempDirectory();
-        try
-        {
-            var sourcePath = Path.Combine(root, "empty.epub");
-            CreateEpub(sourcePath);
-            using var service = new EpubTranslationService(
-                new AppPaths(Path.Combine(root, "app")), new TestHelpers.PlaintextSecretProtector(),
-                httpHandler: new TestHelpers.StubHttpMessageHandler(_ => new HttpResponseMessage
-                {
-                    Content = new StringContent(responseBody)
-                }));
-            var error = await Assert.ThrowsAsync<InvalidOperationException>(() => service.TranslateAsync(
-                sourcePath, Path.Combine(root, "translations"), new BookTranslationSettings
-                {
-                    Provider = BookTranslationProvider.GoogleFree, SourceLanguage = "en", TargetLanguage = "zh-CN"
-                }));
-            Assert.Contains("空结果", error.Message);
-            Assert.Contains("代理设置", error.Message);
+            var requests = 0;
+            using var service = new EpubTranslationService(new AppPaths(Path.Combine(root, "app")),
+                new TestHelpers.PlaintextSecretProtector(), httpHandler: new TestHelpers.StubHttpMessageHandler(_ =>
+                { requests++; throw new InvalidOperationException("No web request allowed"); }));
+            await Assert.ThrowsAsync<InvalidOperationException>(() => service.TranslateAsync(sourcePath,
+                Path.Combine(root, "out"), new BookTranslationSettings { Provider = BookTranslationProvider.GoogleFree }));
+            Assert.Equal(0, requests);
         }
         finally { TestHelpers.TryDelete(root); }
     }

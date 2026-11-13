@@ -34,9 +34,14 @@ public sealed class TtsService : IDisposable
     public const string PreviewText = "你好，这是声音试听。";
     private static readonly TimeSpan DefaultStopTimeout = TimeSpan.FromSeconds(2);
 
-    public static string GetPreviewText(string voice)
+    public static string GetPreviewText(string voice, string? culture = null)
         => TtsSelectionVoicePolicy.IsAmericanEnglishVoice(voice)
-            ? "Hello, this is an American English voice preview."
+            || (!string.IsNullOrWhiteSpace(culture)
+                && culture.StartsWith("en", StringComparison.OrdinalIgnoreCase))
+            || TtsModelCatalog.TryParseVoiceId(voice, out var packageId, out var speakerId)
+                && packageId.StartsWith("kokoro", StringComparison.OrdinalIgnoreCase)
+                && speakerId <= 2
+            ? "Hello, this is an English voice preview."
             : PreviewText;
 
     private readonly ITtsEngine? _engine;
@@ -102,16 +107,26 @@ public sealed class TtsService : IDisposable
     public event EventHandler<TtsStateChangedEventArgs>? StateChanged;
     public event EventHandler? EnvironmentChanged;
 
-    /// <summary>True only when both edge-tts and audio output are ready.</summary>
+    /// <summary>True only when both the configured engine and audio output are ready.</summary>
     public bool IsAvailable =>
         !_disposed
         && _engine?.IsAvailable == true
         && _player?.IsAvailable == true;
 
-    /// <summary>
-    /// Allows the reader to open the settings popup even when edge-tts is
-    /// missing, so the installation instructions remain visible.
-    /// </summary>
+    /// <summary>The active platform engine, independent of legacy saved provider settings.</summary>
+    public string? EngineId => _engine?.Id;
+
+    private TtsOptions BuildOptions(TtsSettings settings)
+    {
+        var options = settings.ToOptions();
+        return options with
+        {
+            Provider = _engine?.Id ?? options.Provider,
+            AudioFormat = _engine?.Id == "local-system-tts" ? "wav" : options.AudioFormat
+        };
+    }
+
+    /// <summary>Keep settings accessible even when system voices are missing.</summary>
     public bool CanOpen => !_disposed && _player is not null;
 
     /// <summary>
@@ -424,8 +439,8 @@ public sealed class TtsService : IDisposable
                 }
 
                 var generated = await _engine.SynthesizeAsync(
-                        GetPreviewText(normalized.Voice),
-                        normalized.ToOptions(),
+                        GetPreviewText(normalized.Voice, normalized.VoiceCulture),
+                        BuildOptions(normalized),
                         cancellationToken)
                     .ConfigureAwait(false);
                 temporaryPath = generated.AudioPath;
@@ -984,7 +999,7 @@ public sealed class TtsService : IDisposable
                     SetCurrentSegment(index, segments.Count, generation);
                     var segment = segments[index];
                     var navigationVersion = Volatile.Read(ref _navigationVersion);
-                    var options = settings.ToOptions();
+                    var options = BuildOptions(settings);
                     var item = new TtsQueueItem(
                         document.BookKey ?? document.Key,
                         document.ChapterKey ?? document.Key,
@@ -1140,6 +1155,7 @@ public sealed class TtsService : IDisposable
         }
         catch (Exception exception)
         {
+            SoftwareLog.ErrorWithoutMessage("tts.playback", exception);
             try { _player?.Stop(); }
             catch { }
             SetState(
@@ -1233,7 +1249,7 @@ public sealed class TtsService : IDisposable
             var nextSegments = TtsTextSegmenter.SplitPlainTextSentences(
                 nextDocument.Text,
                 settings.MaxCharactersPerRequest);
-            var options = settings.ToOptions();
+            var options = BuildOptions(settings);
             _queue?.Prefetch(
                 nextSegments
                     .Take(settings.PrefetchCount)

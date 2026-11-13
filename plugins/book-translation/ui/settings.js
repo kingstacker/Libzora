@@ -7,10 +7,8 @@
     windowTitle: '设置',
     lead: '这里只保存翻译和注音窗口的默认选项。AI 服务的地址、模型、密钥和网络开关请在应用设置里配置。',
     provider: '默认翻译服务',
-    providerHint: '免费服务不需要 AI 设置。',
+    providerHint: '使用应用设置中配置的模型服务，也支持本机模型；不提供网页免费接口。',
     providerAi: 'AI 翻译',
-    providerBing: 'Bing 免费翻译',
-    providerGoogle: 'Google 免费翻译',
     target: '默认目标语言',
     output: '默认生成结果',
     translated: '单译版',
@@ -38,10 +36,8 @@
     windowTitle: 'Settings',
     lead: 'Defaults for the translation and pinyin windows. Configure the AI endpoint, model, key and network access in the app settings.',
     provider: 'Default translation service',
-    providerHint: 'Free services do not need the AI settings.',
+    providerHint: 'Uses the configured model API, including local models. Free web endpoints are not provided.',
     providerAi: 'AI translation',
-    providerBing: 'Bing free',
-    providerGoogle: 'Google free',
     target: 'Default target language',
     output: 'Default output',
     translated: 'Translated only',
@@ -80,8 +76,6 @@
     providerTitle: document.getElementById('providerTitle'),
     provider: document.getElementById('provider'),
     providerAi: document.getElementById('providerAi'),
-    providerBing: document.getElementById('providerBing'),
-    providerGoogle: document.getElementById('providerGoogle'),
     providerHint: document.getElementById('providerHint'),
     targetTitle: document.getElementById('targetTitle'),
     target: document.getElementById('target'),
@@ -134,8 +128,6 @@
     dom.lead.textContent = text.lead;
     dom.providerTitle.textContent = text.provider;
     dom.providerAi.textContent = text.providerAi;
-    dom.providerBing.textContent = text.providerBing;
-    dom.providerGoogle.textContent = text.providerGoogle;
     dom.providerHint.textContent = text.providerHint;
     dom.targetTitle.textContent = text.target;
     dom.outputTitle.textContent = text.output;

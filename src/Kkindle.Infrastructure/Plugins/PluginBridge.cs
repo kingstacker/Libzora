@@ -185,6 +185,7 @@ public sealed class PluginBridge : IDisposable
         }
         catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
+            SoftwareLog.ErrorWithoutMessage("plugin.call", exception);
             var text = exception is OperationCanceledException or TaskCanceledException
                 ? "请求超时或已取消。"
                 : exception.Message;
@@ -1334,8 +1335,8 @@ public sealed class PluginBridge : IDisposable
         var provider = (OptionalString(parameters, "provider") ?? "ai").ToLowerInvariant() switch
         {
             "ai" => "ai",
-            "bing" or "bing-free" => "bing",
-            "google" or "google-free" => "google",
+            "bing" or "bing-free" => throw new NotSupportedException("Bing 网页免费翻译已停用，请选择模型翻译。"),
+            "google" or "google-free" => throw new NotSupportedException("Google 网页免费翻译已停用，请选择模型翻译。"),
             _ => throw new ArgumentException("不支持的翻译服务。")
         };
         var request = new PluginTranslationRequest(

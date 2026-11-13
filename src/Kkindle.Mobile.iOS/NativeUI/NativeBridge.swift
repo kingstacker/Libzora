@@ -23,6 +23,7 @@ struct MobilePreferences: Codable, Equatable {
     var galleryMode = false
     var colorfulMode = false
     var showBookSyncStatus = false
+    var showBookRating = false
     var collectionsView = false
     var pdfZoom = 1.0
     var sort = 0
@@ -35,6 +36,7 @@ struct MobilePreferences: Codable, Equatable {
     var readerParagraphIndent = false
     var readerVerticalWriting = false
     var readerPageAnimation = 1
+    var readerProgressDisplay = 0
 
     var colorScheme: ColorScheme? {
         themeMode == 1 ? .light : themeMode == 2 ? .dark : nil
@@ -111,6 +113,7 @@ struct ReaderSnapshot: Decodable, Equatable {
     var speechState = 0
     var speechStatus = ""
     var selectedText: String?
+    var selectionBounds: NativeSelectionBounds?
 }
 
 private struct NativeEvent: Decodable {
@@ -127,6 +130,8 @@ private struct NativeEvent: Decodable {
     let sessionId: String?
     let text: String?
     let enabled: Bool?
+    let bookId: String?
+    let tab: Int?
 }
 
 /// Reader state changes on page turns, speech progress and every AI token.
@@ -167,6 +172,10 @@ final class NativeStore: ObservableObject {
     @Published var busyMessage = ""
     @Published var txtReview: TxtReview?
     @Published var syncStatus = ""
+    @Published var requestedTab: Int?
+    private static let lastReaderKey = "kkindle.reader.lastBookId"
+    private var pendingReaderRestore: String?
+    private var pendingOpenBookId: String?
     private var nextId: Int64 = 0
     private var pending: [Int64: (Data) -> Void] = [:]
     private var toastTask: Task<Void, Never>?
@@ -177,6 +186,9 @@ final class NativeStore: ObservableObject {
     init(handler: @escaping ManagedRequest, readerController: UIViewController) {
         self.handler = handler
         self.readerController = readerController
+        if !ProcessInfo.processInfo.arguments.contains("--kkindle-disable-restore") {
+            pendingReaderRestore = UserDefaults.standard.string(forKey: Self.lastReaderKey)
+        }
     }
 
     func request<Value: Decodable>(_ command: String, _ args: [String: Any] = [:]) async throws -> Value {
@@ -229,6 +241,9 @@ final class NativeStore: ObservableObject {
         case "restart": restartRequired = true
         case "toast": showToast(event.message ?? "")
         case "accountInvalidated": account = nil
+        case "openBook": if let id = event.bookId { openRequestedBook(id) }
+        case "openTab": if let tab = event.tab { requestedTab = tab }
+        case "closeReader": if readerBook != nil { perform { await self.closeReader() } }
         default: break
         }
     }
@@ -246,6 +261,48 @@ final class NativeStore: ObservableObject {
             preferences = value.preferences
         }
         if continueBookId != value.continueBookId { continueBookId = value.continueBookId }
+        openPendingReaderIfNeeded()
+        restorePendingReaderIfNeeded()
+    }
+
+    /// A widget can deep-link into a book before the shelf has loaded, or
+    /// while another book is open. Keep the request until a fresh library
+    /// snapshot can resolve it and the reader is free.
+    func openRequestedBook(_ bookId: String) {
+        pendingOpenBookId = bookId
+        pendingReaderRestore = nil
+        if readerBook != nil {
+            perform { await self.closeReader() }
+        } else if !library.isEmpty {
+            openPendingReaderIfNeeded()
+        } else {
+            perform { try await self.refreshLibrary() }
+        }
+    }
+
+    private func openPendingReaderIfNeeded() {
+        guard let bookId = pendingOpenBookId, !library.isEmpty,
+              readerBook == nil, !openingReader, !restartRequired else { return }
+        pendingOpenBookId = nil
+        guard let book = library.first(where: { $0.id == bookId }) else { return }
+        // An explicit widget tap wins over restoring the last reader session.
+        Task { try? await self.openReader(book) }
+    }
+
+    /// The shelf's first successful load is the safe moment to reopen the
+    /// book that was on screen when the app was last quit.
+    private func restorePendingReaderIfNeeded() {
+        guard let bookId = pendingReaderRestore, !library.isEmpty,
+              readerBook == nil, !openingReader, !restartRequired,
+              pendingOpenBookId == nil else { return }
+        pendingReaderRestore = nil
+        guard let book = library.first(where: { $0.id == bookId }) else {
+            UserDefaults.standard.removeObject(forKey: Self.lastReaderKey)
+            return
+        }
+        // An unstructured task outlives the refresh that triggered it, so a
+        // cancelled pull-to-refresh cannot eat the reader restoration.
+        Task { try? await self.openReader(book) }
     }
 
     /// A Binding setter updates the native control immediately. Persistence and
@@ -288,12 +345,14 @@ final class NativeStore: ObservableObject {
         if let location { args["location"] = location }
         let _: Done = try await request("reader.open", args)
         readerBook = book
+        UserDefaults.standard.set(book.id, forKey: Self.lastReaderKey)
     }
 
     func closeReader() async {
         do { let _: Done = try await request("reader.close") }
         catch { if !Task.isCancelled { failure = error.localizedDescription }; return }
         readerBook = nil
+        UserDefaults.standard.removeObject(forKey: Self.lastReaderKey)
         do { try await refreshLibrary() }
         catch { if !Task.isCancelled { failure = error.localizedDescription } }
     }

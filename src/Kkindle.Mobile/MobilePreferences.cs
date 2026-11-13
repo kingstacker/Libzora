@@ -27,6 +27,14 @@ public enum MobilePageAnimation
     Wave = 3
 }
 
+public enum MobileReaderProgressDisplay
+{
+    Pages = 0,
+    Chapters = 1,
+    ChapterTimeRemaining = 2,
+    BookTimeRemaining = 3
+}
+
 /// <summary>Phone-only interface choices; shared library data stays in the database.</summary>
 public sealed record MobilePreferences
 {
@@ -37,6 +45,8 @@ public sealed record MobilePreferences
     /// <summary>Use colours sampled from book covers for the native app background.</summary>
     public bool ColorfulMode { get; init; }
     public bool ShowBookSyncStatus { get; init; }
+    /// <summary>Overlay each book's rating on its cover in the library.</summary>
+    public bool ShowBookRating { get; init; }
     public bool CollectionsView { get; init; }
     public double PdfZoom { get; init; } = 1;
     public MobileBookSort Sort { get; init; }
@@ -53,6 +63,7 @@ public sealed record MobilePreferences
     /// <summary>Vertical right-to-left typesetting, the traditional CJK layout.</summary>
     public bool ReaderVerticalWriting { get; init; }
     public MobilePageAnimation ReaderPageAnimation { get; init; } = MobilePageAnimation.Fade;
+    public MobileReaderProgressDisplay ReaderProgressDisplay { get; init; } = MobileReaderProgressDisplay.Pages;
 
     public ReaderTheme ResolveReaderTheme(bool darkAppearance) => ReaderThemeFollowsAppearance
         ? (darkAppearance ? Kkindle.Core.ReaderTheme.Ink : Kkindle.Core.ReaderTheme.Classic)
@@ -84,7 +95,11 @@ public sealed class MobilePreferencesStore(AppPaths paths)
                     && root.TryGetProperty(nameof(MobilePreferences.ReaderTheme), out _)
                     && !root.TryGetProperty(nameof(MobilePreferences.ReaderThemeFollowsAppearance), out _))
                     current = current with { ReaderThemeFollowsAppearance = false };
-                Current = current;
+                Current = current with
+                {
+                    ReaderProgressDisplay = Enum.IsDefined(current.ReaderProgressDisplay)
+                        ? current.ReaderProgressDisplay : MobileReaderProgressDisplay.Pages
+                };
             }
         }
         catch (Exception exception) when (exception is IOException or JsonException

@@ -21,6 +21,24 @@ a particular build may not use every listed package.
 The existing KingHwaOldSong source/permission record is separate; this bundle does not
 replace the font author's original custom license or certify that record as an original agreement.
 
+## Downloadable AI model licenses
+
+Kkindle does not bundle these model weights. The application downloads them on
+demand from Hugging Face after the user selects a model, and verifies the pinned
+size or SHA-256 before installation. The following upstream licenses and
+attributions apply to those downloaded models:
+
+| Model | Upstream | License | Attribution | Source and notice |
+| --- | --- | --- | --- | --- |
+| BGE Small 中文语义模型 | `BAAI/bge-small-zh-v1.5` | MIT | BAAI; ONNX conversion by Qdrant | [Model card](https://huggingface.co/BAAI/bge-small-zh-v1.5), [ONNX conversion](https://huggingface.co/Qdrant/bge-small-zh-v1.5), [MIT text](ThirdParty/Notices/models/bge-small-zh-v1.5-MIT.txt) |
+| Multilingual E5 Small | `intfloat/multilingual-e5-small` | MIT | intfloat | [Model card](https://huggingface.co/intfloat/multilingual-e5-small), [MIT text](ThirdParty/Notices/models/multilingual-e5-small-MIT.txt) |
+
+The BGE model card states that the released models can be used for commercial
+purposes free of charge. The models produce numeric embeddings for local
+retrieval and are not used to generate or reproduce copyrighted text. See
+[the model notice](ThirdParty/Notices/models/NOTICE.md) for pinned revisions
+and full attribution.
+
 ## NuGet package licenses and copyright notices
 
 License expressions and copyright entries below are copied from the publishers'
@@ -116,7 +134,9 @@ integration and is excluded from Release binaries; its upstream FAQ is included.
 | Microsoft.Extensions.Primitives | 10.0.10 | MIT | © Microsoft Corporation. All rights reserved. | [LICENSE.TXT](ThirdParty/Notices/packages/Microsoft.Bcl.Cryptography/10.0.13/LICENSE.TXT), [THIRD-PARTY-NOTICES.TXT](ThirdParty/Notices/packages/Microsoft.Bcl.Cryptography/10.0.13/THIRD-PARTY-NOTICES.TXT) |
 | Microsoft.IO.RecyclableMemoryStream | 3.0.1 | MIT | © Microsoft Corporation. All rights reserved. | [LICENSE](ThirdParty/Notices/packages/Microsoft.IO.RecyclableMemoryStream/3.0.1/LICENSE) |
 | Microsoft.ML.OnnxRuntime | 1.23.2 | LICENSE | © Microsoft Corporation. All rights reserved. | [LICENSE](ThirdParty/Notices/packages/Microsoft.ML.OnnxRuntime/1.23.2/LICENSE), [ThirdPartyNotices.txt](ThirdParty/Notices/packages/Microsoft.ML.OnnxRuntime/1.23.2/ThirdPartyNotices.txt) |
+| Microsoft.ML.OnnxRuntime | 1.27.1 | LICENSE | © Microsoft Corporation. All rights reserved. | [LICENSE](ThirdParty/Notices/packages/Microsoft.ML.OnnxRuntime/1.23.2/LICENSE), [ThirdPartyNotices.txt](ThirdParty/Notices/packages/Microsoft.ML.OnnxRuntime/1.27.1/ThirdPartyNotices.txt) |
 | Microsoft.ML.OnnxRuntime.Managed | 1.23.2 | LICENSE.txt | © Microsoft Corporation. All rights reserved. | [LICENSE](ThirdParty/Notices/packages/Microsoft.ML.OnnxRuntime/1.23.2/LICENSE), [ThirdPartyNotices.txt](ThirdParty/Notices/packages/Microsoft.ML.OnnxRuntime/1.23.2/ThirdPartyNotices.txt) |
+| Microsoft.ML.OnnxRuntime.Managed | 1.27.1 | LICENSE.txt | © Microsoft Corporation. All rights reserved. | [LICENSE](ThirdParty/Notices/packages/Microsoft.ML.OnnxRuntime/1.23.2/LICENSE), [ThirdPartyNotices.txt](ThirdParty/Notices/packages/Microsoft.ML.OnnxRuntime/1.27.1/ThirdPartyNotices.txt) |
 | Microsoft.ML.Tokenizers | 2.0.0 | MIT | © Microsoft Corporation. All rights reserved. | [LICENSE.txt](ThirdParty/Notices/packages/Microsoft.AspNetCore.App.Runtime.win-x64/10.0.11/LICENSE.txt), [THIRD-PARTY-NOTICES.TXT](ThirdParty/Notices/packages/Microsoft.ML.Tokenizers/2.0.0/THIRD-PARTY-NOTICES.TXT) |
 | Microsoft.NET.ILLink.Tasks | 10.0.11 | MIT | © Microsoft Corporation. All rights reserved. | [LICENSE.TXT](ThirdParty/Notices/packages/Microsoft.Bcl.Cryptography/10.0.13/LICENSE.TXT), [THIRD-PARTY-NOTICES.TXT](ThirdParty/Notices/packages/Microsoft.Bcl.Cryptography/10.0.13/THIRD-PARTY-NOTICES.TXT) |
 | Microsoft.NETCore.App.Runtime.linux-arm64 | 10.0.11 | MIT | © Microsoft Corporation. All rights reserved. | [LICENSE.txt](ThirdParty/Notices/packages/Microsoft.AspNetCore.App.Runtime.linux-arm64/10.0.11/LICENSE.txt), [THIRD-PARTY-NOTICES.TXT](ThirdParty/Notices/packages/Microsoft.NETCore.App.Runtime.linux-arm64/10.0.11/THIRD-PARTY-NOTICES.TXT) |
@@ -140,6 +160,16 @@ integration and is excluded from Release binaries; its upstream FAQ is included.
 | NAudio.WinForms | 3.0.1 | MIT | © Mark Heath 2026 | [LICENSE](ThirdParty/Notices/packages/NAudio/3.0.1/LICENSE) |
 | NAudio.WinMM | 3.0.1 | MIT | © Mark Heath 2026 | [LICENSE](ThirdParty/Notices/packages/NAudio/3.0.1/LICENSE) |
 | NeoSmart.Hashing | 2.0.0 | MIT | Copyright NeoSmart Technologies 2017-2022 | [LICENSE](ThirdParty/Notices/packages/NeoSmart.Hashing/2.0.0/LICENSE) |
+| org.k2fsa.sherpa.onnx | 1.13.5 | Apache-2.0 | Copyright 2019-2023 Xiaomi Corporation | [Apache-2.0.txt](ThirdParty/Notices/licenses/Apache-2.0.txt), [LICENSE](ThirdParty/Notices/packages/org.k2fsa.sherpa.onnx/1.13.5/LICENSE) |
+| org.k2fsa.sherpa.onnx.runtime.android-arm64 | 1.13.5 | Apache-2.0 | sherpa-onnx | [Apache-2.0.txt](ThirdParty/Notices/licenses/Apache-2.0.txt), [LICENSE](ThirdParty/Notices/packages/org.k2fsa.sherpa.onnx/1.13.5/LICENSE) |
+| org.k2fsa.sherpa.onnx.runtime.android-x64 | 1.13.5 | Apache-2.0 | sherpa-onnx | [Apache-2.0.txt](ThirdParty/Notices/licenses/Apache-2.0.txt), [LICENSE](ThirdParty/Notices/packages/org.k2fsa.sherpa.onnx/1.13.5/LICENSE) |
+| org.k2fsa.sherpa.onnx.runtime.linux-arm64 | 1.13.5 | Apache-2.0 | sherpa-onnx | [Apache-2.0.txt](ThirdParty/Notices/licenses/Apache-2.0.txt), [LICENSE](ThirdParty/Notices/packages/org.k2fsa.sherpa.onnx/1.13.5/LICENSE) |
+| org.k2fsa.sherpa.onnx.runtime.linux-x64 | 1.13.5 | Apache-2.0 | sherpa-onnx | [Apache-2.0.txt](ThirdParty/Notices/licenses/Apache-2.0.txt), [LICENSE](ThirdParty/Notices/packages/org.k2fsa.sherpa.onnx/1.13.5/LICENSE) |
+| org.k2fsa.sherpa.onnx.runtime.osx-arm64 | 1.13.5 | Apache-2.0 | sherpa-onnx | [Apache-2.0.txt](ThirdParty/Notices/licenses/Apache-2.0.txt), [LICENSE](ThirdParty/Notices/packages/org.k2fsa.sherpa.onnx/1.13.5/LICENSE) |
+| org.k2fsa.sherpa.onnx.runtime.osx-x64 | 1.13.5 | Apache-2.0 | sherpa-onnx | [Apache-2.0.txt](ThirdParty/Notices/licenses/Apache-2.0.txt), [LICENSE](ThirdParty/Notices/packages/org.k2fsa.sherpa.onnx/1.13.5/LICENSE) |
+| org.k2fsa.sherpa.onnx.runtime.win-arm64 | 1.13.5 | Apache-2.0 | sherpa-onnx | [Apache-2.0.txt](ThirdParty/Notices/licenses/Apache-2.0.txt), [LICENSE](ThirdParty/Notices/packages/org.k2fsa.sherpa.onnx/1.13.5/LICENSE) |
+| org.k2fsa.sherpa.onnx.runtime.win-x64 | 1.13.5 | Apache-2.0 | sherpa-onnx | [Apache-2.0.txt](ThirdParty/Notices/licenses/Apache-2.0.txt), [LICENSE](ThirdParty/Notices/packages/org.k2fsa.sherpa.onnx/1.13.5/LICENSE) |
+| org.k2fsa.sherpa.onnx.runtime.win-x86 | 1.13.5 | Apache-2.0 | sherpa-onnx | [Apache-2.0.txt](ThirdParty/Notices/licenses/Apache-2.0.txt), [LICENSE](ThirdParty/Notices/packages/org.k2fsa.sherpa.onnx/1.13.5/LICENSE) |
 | PdfPig | 0.1.15 | Apache-2.0 | UglyToad | [Apache-2.0.txt](ThirdParty/Notices/licenses/Apache-2.0.txt), [LICENSE](ThirdParty/Notices/packages/PdfPig/0.1.15/LICENSE) |
 | SharpZipLib | 1.4.2 | MIT | Copyright © 2000-2022 SharpZipLib Contributors | [LICENSE.txt](ThirdParty/Notices/packages/SharpZipLib/1.4.2/LICENSE.txt) |
 | SkiaSharp | 3.119.4 | MIT | © Microsoft Corporation. All rights reserved. | [LICENSE.txt](ThirdParty/Notices/packages/HarfBuzzSharp/8.3.1.3/LICENSE.txt) |
@@ -149,13 +179,13 @@ integration and is excluded from Release binaries; its upstream FAQ is included.
 | SkiaSharp.NativeAssets.macOS | 3.119.4 | MIT | © Microsoft Corporation. All rights reserved. | [THIRD-PARTY-NOTICES.txt](ThirdParty/Notices/packages/HarfBuzzSharp.NativeAssets.Android/8.3.1.3/THIRD-PARTY-NOTICES.txt), [LICENSE.txt](ThirdParty/Notices/packages/HarfBuzzSharp/8.3.1.3/LICENSE.txt) |
 | SkiaSharp.NativeAssets.WebAssembly | 3.119.4 | MIT | © Microsoft Corporation. All rights reserved. | [THIRD-PARTY-NOTICES.txt](ThirdParty/Notices/packages/HarfBuzzSharp.NativeAssets.Android/8.3.1.3/THIRD-PARTY-NOTICES.txt), [LICENSE.txt](ThirdParty/Notices/packages/HarfBuzzSharp/8.3.1.3/LICENSE.txt) |
 | SkiaSharp.NativeAssets.Win32 | 3.119.4 | MIT | © Microsoft Corporation. All rights reserved. | [THIRD-PARTY-NOTICES.txt](ThirdParty/Notices/packages/HarfBuzzSharp.NativeAssets.Android/8.3.1.3/THIRD-PARTY-NOTICES.txt), [LICENSE.txt](ThirdParty/Notices/packages/HarfBuzzSharp/8.3.1.3/LICENSE.txt) |
-| SQLitePCLRaw.bundle_e_sqlite3 | 2.1.12 | Apache-2.0 | Copyright 2014-2024 SourceGear, LLC | [Apache-2.0.txt](ThirdParty/Notices/licenses/Apache-2.0.txt), [LICENSE.TXT](ThirdParty/Notices/packages/SQLitePCLRaw.bundle_e_sqlite3/2.1.12/LICENSE.TXT) |
-| SQLitePCLRaw.core | 2.1.12 | Apache-2.0 | Copyright 2014-2024 SourceGear, LLC | [Apache-2.0.txt](ThirdParty/Notices/licenses/Apache-2.0.txt), [LICENSE.TXT](ThirdParty/Notices/packages/SQLitePCLRaw.bundle_e_sqlite3/2.1.12/LICENSE.TXT) |
-| SQLitePCLRaw.lib.e_sqlite3 | 2.1.12 | Apache-2.0 | Copyright 2014-2024 SourceGear, LLC | [Apache-2.0.txt](ThirdParty/Notices/licenses/Apache-2.0.txt), [LICENSE.TXT](ThirdParty/Notices/packages/SQLitePCLRaw.bundle_e_sqlite3/2.1.12/LICENSE.TXT) |
-| SQLitePCLRaw.lib.e_sqlite3.android | 2.1.12 | Apache-2.0 | Copyright 2014-2024 SourceGear, LLC | [Apache-2.0.txt](ThirdParty/Notices/licenses/Apache-2.0.txt), [LICENSE.TXT](ThirdParty/Notices/packages/SQLitePCLRaw.bundle_e_sqlite3/2.1.12/LICENSE.TXT) |
-| SQLitePCLRaw.lib.e_sqlite3.ios | 2.1.12 | Apache-2.0 | Copyright 2014-2024 SourceGear, LLC | [Apache-2.0.txt](ThirdParty/Notices/licenses/Apache-2.0.txt), [LICENSE.TXT](ThirdParty/Notices/packages/SQLitePCLRaw.bundle_e_sqlite3/2.1.12/LICENSE.TXT) |
-| SQLitePCLRaw.provider.e_sqlite3 | 2.1.12 | Apache-2.0 | Copyright 2014-2024 SourceGear, LLC | [Apache-2.0.txt](ThirdParty/Notices/licenses/Apache-2.0.txt), [LICENSE.TXT](ThirdParty/Notices/packages/SQLitePCLRaw.bundle_e_sqlite3/2.1.12/LICENSE.TXT) |
-| SQLitePCLRaw.provider.internal | 2.1.12 | Apache-2.0 | Copyright 2014-2024 SourceGear, LLC | [Apache-2.0.txt](ThirdParty/Notices/licenses/Apache-2.0.txt), [LICENSE.TXT](ThirdParty/Notices/packages/SQLitePCLRaw.bundle_e_sqlite3/2.1.12/LICENSE.TXT) |
+| SQLitePCLRaw.bundle_e_sqlite3 | 2.1.12 | Apache-2.0 | Copyright 2014-2024 SourceGear, LLC | [Apache-2.0.txt](ThirdParty/Notices/licenses/Apache-2.0.txt), [LICENSE](ThirdParty/Notices/packages/org.k2fsa.sherpa.onnx/1.13.5/LICENSE) |
+| SQLitePCLRaw.core | 2.1.12 | Apache-2.0 | Copyright 2014-2024 SourceGear, LLC | [Apache-2.0.txt](ThirdParty/Notices/licenses/Apache-2.0.txt), [LICENSE](ThirdParty/Notices/packages/org.k2fsa.sherpa.onnx/1.13.5/LICENSE) |
+| SQLitePCLRaw.lib.e_sqlite3 | 2.1.12 | Apache-2.0 | Copyright 2014-2024 SourceGear, LLC | [Apache-2.0.txt](ThirdParty/Notices/licenses/Apache-2.0.txt), [LICENSE](ThirdParty/Notices/packages/org.k2fsa.sherpa.onnx/1.13.5/LICENSE) |
+| SQLitePCLRaw.lib.e_sqlite3.android | 2.1.12 | Apache-2.0 | Copyright 2014-2024 SourceGear, LLC | [Apache-2.0.txt](ThirdParty/Notices/licenses/Apache-2.0.txt), [LICENSE](ThirdParty/Notices/packages/org.k2fsa.sherpa.onnx/1.13.5/LICENSE) |
+| SQLitePCLRaw.lib.e_sqlite3.ios | 2.1.12 | Apache-2.0 | Copyright 2014-2024 SourceGear, LLC | [Apache-2.0.txt](ThirdParty/Notices/licenses/Apache-2.0.txt), [LICENSE](ThirdParty/Notices/packages/org.k2fsa.sherpa.onnx/1.13.5/LICENSE) |
+| SQLitePCLRaw.provider.e_sqlite3 | 2.1.12 | Apache-2.0 | Copyright 2014-2024 SourceGear, LLC | [Apache-2.0.txt](ThirdParty/Notices/licenses/Apache-2.0.txt), [LICENSE](ThirdParty/Notices/packages/org.k2fsa.sherpa.onnx/1.13.5/LICENSE) |
+| SQLitePCLRaw.provider.internal | 2.1.12 | Apache-2.0 | Copyright 2014-2024 SourceGear, LLC | [Apache-2.0.txt](ThirdParty/Notices/licenses/Apache-2.0.txt), [LICENSE](ThirdParty/Notices/packages/org.k2fsa.sherpa.onnx/1.13.5/LICENSE) |
 | Sylinko.CSharpMath.Avalonia | 12.0.0 | MIT | © CSharpMath Contributors 2020; © Sylinko 2025 | [License](ThirdParty/Notices/packages/Sylinko.CSharpMath.Avalonia/12.0.0/License), [LICENSE.md](ThirdParty/Notices/components/Typography/LICENSE.md), [TextBreak-LICENSE.txt](ThirdParty/Notices/components/Typography/TextBreak-LICENSE.txt), [FreeType-FTL.txt](ThirdParty/Notices/components/Typography/FreeType-FTL.txt), [ICU-LICENSE.txt](ThirdParty/Notices/components/Typography/ICU-LICENSE.txt), [NOTICE.md](ThirdParty/Notices/components/Typography/NOTICE.md) |
 | System.Diagnostics.EventLog | 10.0.10 | MIT | © Microsoft Corporation. All rights reserved. | [LICENSE.TXT](ThirdParty/Notices/packages/Microsoft.Bcl.Cryptography/10.0.13/LICENSE.TXT), [THIRD-PARTY-NOTICES.TXT](ThirdParty/Notices/packages/Microsoft.Bcl.Cryptography/10.0.13/THIRD-PARTY-NOTICES.TXT) |
 | System.Formats.Asn1 | 10.0.13 | MIT | © Microsoft Corporation. All rights reserved. | [LICENSE.TXT](ThirdParty/Notices/packages/Microsoft.Bcl.Cryptography/10.0.13/LICENSE.TXT), [THIRD-PARTY-NOTICES.TXT](ThirdParty/Notices/packages/Microsoft.Bcl.Cryptography/10.0.13/THIRD-PARTY-NOTICES.TXT) |

@@ -350,7 +350,20 @@ public partial class MainWindow
             _aiSettingsStore,
             _g2pwModelDownloader,
             () => _appSettings,
-            EnsureBookFileAvailableAsync);
+            EnsureBookFileAvailableAsync,
+            async (ai, token) => await Dispatcher.UIThread.InvokeAsync(async () =>
+            {
+                token.ThrowIfCancellationRequested();
+                Activate();
+                var dataNotice = ai.IsLocalEndpoint
+                    ? T("整书正文将发送至本机模型服务 {0}。", ai.Destination)
+                    : T("整书正文将发送至 {0} 进行翻译，可能产生服务费用。请勿发送无权提供的个人信息或保密内容。", ai.Destination);
+                var approved = await ConfirmAsync(T("翻译与导出书籍"), dataNotice + "\n\n"
+                    + T("请确认有权翻译该作品。购买电子书不等于获得译本发行权；未经许可，请勿公开传播或售卖生成的译本。"),
+                    T("确认并开始"), cancellationToken: token, allowDiagnosticAutoConfirm: false, cancelText: T("取消"));
+                token.ThrowIfCancellationRequested();
+                return approved;
+            }));
 
     private async void PluginWindow_BooksUpdated(object? sender, IReadOnlyCollection<Guid> bookIds)
     {

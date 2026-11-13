@@ -136,6 +136,7 @@ public partial class App : Application
         object? sender,
         DispatcherUnhandledExceptionEventArgs e)
     {
+        SoftwareLog.ErrorWithoutMessage("app.unhandled.ui", e.Exception);
         try
         {
             var payload = $"[{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss}] UnhandledUiException{Environment.NewLine}{e.Exception}{Environment.NewLine}{Environment.NewLine}";

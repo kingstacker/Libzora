@@ -52,7 +52,7 @@ internal sealed class S3SyncSnapshot : S3SyncExtensibleData
     public Dictionary<string, DateTimeOffset> LocalDeletionTimes { get; set; } = [];
 }
 
-internal sealed class S3SyncBook : S3SyncExtensibleData
+internal sealed class S3SyncBook : S3SyncVersionedData
 {
     public Guid Id { get; set; }
     public string Title { get; set; } = string.Empty;
@@ -82,7 +82,7 @@ internal sealed class S3SyncBook : S3SyncExtensibleData
     public string? LocalCoverPath { get; set; }
 }
 
-internal sealed class S3SyncBookFile : S3SyncExtensibleData
+internal sealed class S3SyncBookFile : S3SyncVersionedData
 {
     public Guid Id { get; set; }
     public Guid BookId { get; set; }
@@ -93,7 +93,7 @@ internal sealed class S3SyncBookFile : S3SyncExtensibleData
     public DateTimeOffset ModifiedAt { get; set; }
 }
 
-internal sealed class S3SyncCollection : S3SyncExtensibleData
+internal sealed class S3SyncCollection : S3SyncVersionedData
 {
     public Guid Id { get; set; }
     public string Name { get; set; } = string.Empty;
@@ -101,14 +101,14 @@ internal sealed class S3SyncCollection : S3SyncExtensibleData
     public DateTimeOffset UpdatedAt { get; set; }
 }
 
-internal sealed class S3SyncCollectionItem : S3SyncExtensibleData
+internal sealed class S3SyncCollectionItem : S3SyncVersionedData
 {
     public Guid CollectionId { get; set; }
     public Guid BookId { get; set; }
     public DateTimeOffset AddedAt { get; set; }
 }
 
-internal sealed class S3SyncAnnotation : S3SyncExtensibleData
+internal sealed class S3SyncAnnotation : S3SyncVersionedData
 {
     public Guid Id { get; set; }
     public Guid BookId { get; set; }
@@ -127,7 +127,7 @@ internal sealed class S3SyncAnnotation : S3SyncExtensibleData
     public DateTimeOffset UpdatedAt { get; set; }
 }
 
-internal sealed class S3SyncBookReflection : S3SyncExtensibleData
+internal sealed class S3SyncBookReflection : S3SyncVersionedData
 {
     public Guid BookId { get; set; }
     public string Content { get; set; } = string.Empty;
@@ -135,7 +135,7 @@ internal sealed class S3SyncBookReflection : S3SyncExtensibleData
     public DateTimeOffset UpdatedAt { get; set; }
 }
 
-internal sealed class S3SyncProgress : S3SyncExtensibleData
+internal sealed class S3SyncProgress : S3SyncVersionedData
 {
     public Guid BookId { get; set; }
     public Guid BookFileId { get; set; }
@@ -150,7 +150,7 @@ internal sealed class S3SyncProgress : S3SyncExtensibleData
     public DateTimeOffset UpdatedAt { get; set; }
 }
 
-internal sealed class S3SyncBookmark : S3SyncExtensibleData
+internal sealed class S3SyncBookmark : S3SyncVersionedData
 {
     public Guid Id { get; set; }
     public Guid BookId { get; set; }
@@ -167,7 +167,7 @@ internal sealed class S3SyncBookmark : S3SyncExtensibleData
     public DateTimeOffset CreatedAt { get; set; }
 }
 
-internal sealed class S3SyncLayout : S3SyncExtensibleData
+internal sealed class S3SyncLayout : S3SyncVersionedData
 {
     public Guid BookId { get; set; }
     public Guid BookFileId { get; set; }
@@ -188,9 +188,16 @@ internal sealed class S3SyncLayout : S3SyncExtensibleData
     public DateTimeOffset? ProfileUpdatedAt { get; set; }
     public DateTimeOffset? LayoutUpdatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
+    // The layout grid and the appearance profile are edited independently, so
+    // each half has its own hybrid-clock version. Older clients ignore these
+    // fields and keep using the two UpdatedAt values above.
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? LayoutPartVersion { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ProfilePartVersion { get; set; }
 }
 
-internal sealed class S3SyncReadingStats : S3SyncExtensibleData
+internal sealed class S3SyncReadingStats : S3SyncVersionedData
 {
     public Guid BookId { get; set; }
     public Guid BookFileId { get; set; }
@@ -206,7 +213,7 @@ internal sealed class S3SyncReadingStats : S3SyncExtensibleData
     public DateTimeOffset UpdatedAt { get; set; }
 }
 
-internal sealed class S3SyncTombstone : S3SyncExtensibleData
+internal sealed class S3SyncTombstone : S3SyncVersionedData
 {
     public string EntityType { get; set; } = string.Empty;
     public string Key { get; set; } = string.Empty;
@@ -292,6 +299,20 @@ internal sealed class S3SyncState
     // snapshot is not re-uploaded, so other devices do not download it again (official cloud traffic is metered).
     public string? LastSnapshotContentHash { get; set; }
     public DateTimeOffset? LastSnapshotUploadAt { get; set; }
+}
+
+// Hybrid logical clock version for a portable row or tombstone. Older clients
+// preserve it through JsonExtensionData but keep using UpdatedAt internally;
+// newer clients use it as the conflict ordering source.
+internal abstract class S3SyncVersionedData : S3SyncExtensibleData, ISyncVersionedRow
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? SyncVersion { get; set; }
+}
+
+internal interface ISyncVersionedRow
+{
+    string? SyncVersion { get; set; }
 }
 
 // Unknown optional fields survive capture, baseline persistence and re-upload.

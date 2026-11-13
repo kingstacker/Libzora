@@ -15,6 +15,7 @@ internal static class Program
         ConfigureLinuxWebViewRendering();
         var configurationDirectory = LinuxAppData.ResolveConfigurationDirectory();
         var paths = new AppPaths(AppRootConfiguration.ResolveRoot(configurationDirectory, LinuxAppData.ResolveRoot()));
+        SoftwareLog.Configure(paths, ApplicationVersion.GetDisplayVersion(typeof(Program).Assembly));
         BuildAvaloniaApp(BuildServices(paths, configurationDirectory)).StartWithClassicDesktopLifetime(args);
     }
 

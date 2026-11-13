@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using Kkindle.Core;
@@ -13,6 +14,8 @@ public sealed class AccountService : IDisposable
     public static string DefaultServerUrl => AccountRegions.DefaultServerUrl(AccountRegion.China);
     private readonly HttpClient _http;
     private readonly bool _ownsHttp;
+    private readonly HttpClient _transferHttp;
+    private readonly bool _ownsTransferHttp;
     private readonly AccountSessionStore _store;
     private readonly DeviceIdentityStore _identity;
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -26,13 +29,18 @@ public sealed class AccountService : IDisposable
     private AccountSessionResponse? _session;
 
     public AccountService(AppPaths paths, ISecretProtector protector, HttpClient? http = null, TimeProvider? clock = null,
-        AccountRegion? dataRegion = null, Func<AccountRegion, string>? defaultServerUrl = null)
+        AccountRegion? dataRegion = null, Func<AccountRegion, string>? defaultServerUrl = null, HttpClient? transferHttp = null)
     {
         _store = new(paths, protector);
         _identity = new(paths, protector);
         _ownsHttp = http is null;
         // A redirect must never forward a password or a bearer token to another host.
         _http = http ?? new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(15) };
+        _ownsTransferHttp = transferHttp is null;
+        // Screenshot submissions carry several megabytes; uploads need a longer
+        // deadline than the small authentication requests above.
+        _transferHttp = transferHttp ?? new HttpClient(new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false })
+            { Timeout = TimeSpan.FromSeconds(90) };
         _clock = clock ?? TimeProvider.System;
         _dataRegion = dataRegion;
         _defaultServerUrl = defaultServerUrl ?? AccountRegions.DefaultServerUrl;
@@ -126,6 +134,11 @@ public sealed class AccountService : IDisposable
         "invalid_activation_kind" => "激活码仅支持永久功能会员或 1 年 Plus。",
         "lifetime_already_active" => "此账号已永久解锁功能，无需再次购买或兑换。",
         "rate_limited" => "请求过于频繁，请稍后再试。",
+        "feedback_rate_limited" => "提交过于频繁，请稍后再试。",
+        "invalid_feedback" => "反馈内容无效，请检查后重试。",
+        "invalid_feedback_attachment" => "截图格式或大小无效，仅支持 JPEG、PNG 或 WebP。",
+        "feedback_too_large" => "截图总大小超过限制，请减少图片数量或大小。",
+        "feedback_not_found" => "反馈不存在或已被删除。",
         "registration_limit_reached" => "此网络的注册次数已达上限，请稍后再试或联系管理员。",
         "registration_blocked" => "此网络或账号信息暂不支持注册，请联系管理员。",
         "username_blocked" => "此用户名暂不可用，请选择其他用户名。",
@@ -184,6 +197,140 @@ public sealed class AccountService : IDisposable
         var status = await GetStatusAsync(cancellationToken: token);
         if (status.Region != dataRegion || status.RequiresDataRestart)
             throw new InvalidOperationException("区域已切换，请重新打开应用后使用该区域的独立书库和同步。");
+    }
+
+    /// <summary>Submits one feedback item and up to three screenshots through the signed-in account.</summary>
+    public Task<FeedbackReceipt> SubmitFeedbackAsync(FeedbackDraft draft, IReadOnlyList<FeedbackImage> images,
+        CancellationToken cancellationToken = default) =>
+        SubmitFeedbackAsync(draft, images, softwareLog: null, cancellationToken);
+
+    /// <summary>
+    /// Submits feedback with an optional, already sanitized software log. The
+    /// server stores it as a plain text attachment next to the screenshots.
+    /// </summary>
+    public async Task<FeedbackReceipt> SubmitFeedbackAsync(FeedbackDraft draft, IReadOnlyList<FeedbackImage> images,
+        string? softwareLog, CancellationToken cancellationToken = default)
+    {
+        if (FeedbackValidation.ValidateDraft(draft) is { } invalid) throw new ArgumentException(invalid, nameof(draft));
+        if (FeedbackValidation.ValidateImages(images) is { } imageInvalid) throw new ArgumentException(imageInvalid, nameof(images));
+        if (FeedbackValidation.ValidateSoftwareLog(softwareLog) is { } logInvalid)
+            throw new ArgumentException(logInvalid, nameof(softwareLog));
+        var logText = string.IsNullOrWhiteSpace(softwareLog) ? null : softwareLog.Trim();
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            await LoadAsync(cancellationToken);
+            if (_session is null) throw new InvalidOperationException("请先登录当前区域的账号后提交反馈。");
+            if (Status().RequiresDataRestart)
+                throw new InvalidOperationException("区域已切换，请重新打开应用后提交反馈。");
+            using var content = new MultipartFormDataContent();
+            AddFeedbackField(content, "requestId", draft.RequestId.ToString());
+            AddFeedbackField(content, "type", draft.Type);
+            AddFeedbackField(content, "content", draft.Content);
+            AddFeedbackField(content, "contact", draft.Contact ?? "");
+            AddFeedbackField(content, "appVersion", draft.AppVersion);
+            AddFeedbackField(content, "platform", draft.Platform);
+            AddFeedbackField(content, "platformVersion", draft.PlatformVersion);
+            AddFeedbackField(content, "deviceModel", draft.DeviceModel);
+            if (logText is not null) AddFeedbackField(content, "softwareLog", logText);
+            for (var index = 0; index < images.Count; index++)
+            {
+                var image = images[index];
+                var part = new ByteArrayContent(image.Bytes);
+                part.Headers.ContentType = new MediaTypeHeaderValue(image.ContentType);
+                content.Add(part, "attachments", FeedbackFileName(image, index));
+            }
+            using var request = FeedbackRequest(HttpMethod.Post, _serverUrl, "", _session.Token);
+            request.Content = content;
+            using var response = await SendTransferAsync(request, cancellationToken);
+            await ThrowFeedbackFailureAsync(response, cancellationToken);
+            return await ReadAsync(response, AccountJsonContext.Default.FeedbackReceipt, cancellationToken);
+        }
+        finally { _gate.Release(); }
+    }
+
+    /// <summary>Returns feedback owned by the signed-in account; the server also verifies ownership.</summary>
+    public async Task<FeedbackItem[]> GetFeedbackAsync(CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            await LoadAsync(cancellationToken);
+            if (_session is null) throw new InvalidOperationException("请先登录当前区域的账号后查看反馈。");
+            using var request = FeedbackRequest(HttpMethod.Get, _serverUrl, "", _session.Token);
+            using var response = await SendAsync(request, cancellationToken);
+            await ThrowFeedbackFailureAsync(response, cancellationToken);
+            return await ReadAsync(response, AccountJsonContext.Default.FeedbackItemArray, cancellationToken, maximumBytes: 256 * 1024);
+        }
+        finally { _gate.Release(); }
+    }
+
+    public async Task<FeedbackItem> GetFeedbackAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        if (id == Guid.Empty) throw new ArgumentException("反馈编号无效。", nameof(id));
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            await LoadAsync(cancellationToken);
+            if (_session is null) throw new InvalidOperationException("请先登录当前区域的账号后查看反馈。");
+            using var request = FeedbackRequest(HttpMethod.Get, _serverUrl, id.ToString("N"), _session.Token);
+            using var response = await SendAsync(request, cancellationToken);
+            await ThrowFeedbackFailureAsync(response, cancellationToken);
+            return await ReadAsync(response, AccountJsonContext.Default.FeedbackItem, cancellationToken, maximumBytes: 64 * 1024);
+        }
+        finally { _gate.Release(); }
+    }
+
+    private static void AddFeedbackField(MultipartFormDataContent content, string name, string value) =>
+        content.Add(new StringContent(value, Encoding.UTF8), name);
+
+    private static string FeedbackFileName(FeedbackImage image, int index) =>
+        $"screenshot-{index + 1}{FeedbackValidation.ExtensionFor(image.ContentType)}";
+
+    private HttpRequestMessage FeedbackRequest(HttpMethod method, string server, string suffix, string bearer)
+    {
+        var request = new HttpRequestMessage(method,
+            new Uri(AccountValidation.ServerUri(server), "api/v1/feedback" + (suffix.Length == 0 ? "" : "/" + suffix)));
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearer);
+        request.Headers.Add("X-Kkindle-Region", AccountRegions.Slug(_region));
+        return request;
+    }
+
+    private async Task<HttpResponseMessage> SendTransferAsync(HttpRequestMessage request, CancellationToken token)
+    {
+        try { return await _transferHttp.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token); }
+        catch (HttpRequestException) { throw new InvalidOperationException("无法连接账号服务，请检查服务地址和网络。"); }
+        catch (OperationCanceledException) when (!token.IsCancellationRequested)
+        { throw new InvalidOperationException("反馈提交超时，请检查网络后重试。"); }
+    }
+
+    private async Task ThrowFeedbackFailureAsync(HttpResponseMessage response, CancellationToken token)
+    {
+        if (response.IsSuccessStatusCode) return;
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await InvalidateAsync(token);
+            throw new InvalidOperationException("登录状态已失效，请重新登录后提交反馈。");
+        }
+        var code = response.Headers.TryGetValues("X-Kkindle-Error", out var values) ? values.FirstOrDefault() : null;
+        if (code is not null && ApiMessage(code) is { } mapped) throw new InvalidOperationException(mapped);
+        string? message = null;
+        try
+        {
+            await response.Content.LoadIntoBufferAsync(4096);
+            message = (await response.Content.ReadFromJsonAsync(AccountJsonContext.Default.AccountApiError, token))?.Message;
+        }
+        catch (Exception exception) when (exception is JsonException or HttpRequestException or NotSupportedException) { }
+        if (!string.IsNullOrWhiteSpace(message)) throw new InvalidOperationException(message);
+        throw new InvalidOperationException(response.StatusCode switch
+        {
+            HttpStatusCode.BadRequest => "反馈内容无效，请检查后重试。",
+            HttpStatusCode.Forbidden => "账号服务区域不匹配，请检查所选区域和服务地址。",
+            HttpStatusCode.RequestEntityTooLarge => "截图过大，请减少图片数量或大小后重试。",
+            HttpStatusCode.TooManyRequests => "提交过于频繁，请稍后再试。",
+            HttpStatusCode.NotFound => "反馈不存在或已被删除。",
+            _ => "反馈服务暂时不可用，请稍后重试。"
+        });
     }
 
     internal async Task AuthorizeSyncRequestAsync(HttpRequestMessage request, S3SyncSettings settings, CancellationToken token)
@@ -570,6 +717,7 @@ public sealed class AccountService : IDisposable
     public void Dispose()
     {
         if (_ownsHttp) _http.Dispose();
+        if (_ownsTransferHttp) _transferHttp.Dispose();
     }
 }
 

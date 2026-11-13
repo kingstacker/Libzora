@@ -28,6 +28,19 @@
       </Border>
     </c:NativeSegmentGroup>
 
+    <TextBlock Classes="label" Text="底部进度" Margin="0,14,0,0" />
+    <c:NativeSegmentGroup>
+      <Border Classes="segments">
+        <Grid ColumnDefinitions="*,*,*,*">
+          <Button Grid.Column="0" Name="ProgressPages" Classes="seg" Content="页码" Click="OnProgressClick" />
+          <Button Grid.Column="1" Name="ProgressChapters" Classes="seg" Content="章节" Click="OnProgressClick" />
+          <Button Grid.Column="2" Name="ProgressChapterTime" Classes="seg" Content="本章剩余" Click="OnProgressClick" />
+          <Button Grid.Column="3" Name="ProgressBookTime" Classes="seg" Content="全书剩余" Click="OnProgressClick" />
+        </Grid>
+      </Border>
+    </c:NativeSegmentGroup>
+    <TextBlock Name="ProgressTimeHint" Classes="muted" FontSize="12" Text="阅读时间按正文长度估算" IsVisible="False" />
+
     <StackPanel Name="PdfOptions" Spacing="8" IsVisible="False">
       <TextBlock Classes="label" Text="缩放" Margin="0,14,0,0" />
       <c:NativeSegmentGroup>

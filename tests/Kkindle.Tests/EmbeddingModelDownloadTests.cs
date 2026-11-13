@@ -7,6 +7,19 @@ namespace Kkindle.Tests;
 public sealed class EmbeddingModelDownloadTests
 {
     [Fact]
+    public void SupportedPackagesDeclareTheirMitLicenseAndUpstreamSource()
+    {
+        Assert.Equal(2, EmbeddingModelPackage.Supported.Count);
+        Assert.All(EmbeddingModelPackage.Supported, package =>
+        {
+            Assert.Equal("MIT", package.LicenseName);
+            Assert.NotNull(package.LicenseUri);
+            Assert.Equal("huggingface.co", package.LicenseUri!.Host);
+            Assert.False(string.IsNullOrWhiteSpace(package.Attribution));
+        });
+    }
+
+    [Fact]
     public void ExposesMultilingualE5AsAnXlmRobertaEmbeddingPackage()
     {
         var package = EmbeddingModelPackage.Find(" intfloat/multilingual-e5-small ");

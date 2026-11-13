@@ -7,6 +7,30 @@ namespace Kkindle.Tests;
 public sealed class TtsTests
 {
     [Fact]
+    public async Task LocalEngineIgnoresLegacyOnlineProviderAndUsesSeparateWaveCache()
+    {
+        var root = CreateTemporaryDirectory();
+        try
+        {
+            var engine = new FakeEngine { EngineId = LocalSystemTtsEngine.ProviderId };
+            var player = new ClockPlayer();
+            var cache = new TtsCacheManager(root);
+            var document = new ReaderTtsDocument("chapter", "本地朗读。", 0,
+                (_, _) => Task.CompletedTask, () => { });
+            using var service = new TtsService(engine, cache, player, () => document);
+            await service.StartAsync(new TtsSettings { AutoAdvance = false, PrefetchCount = 0 });
+            await player.Started.Task.WaitAsync(TimeSpan.FromSeconds(3));
+            var request = Assert.Single(engine.Requests);
+            Assert.Equal(LocalSystemTtsEngine.ProviderId, request.Options.Provider);
+            Assert.Equal("wav", request.Options.AudioFormat);
+            Assert.Single(Directory.GetFiles(root, "*.wav", SearchOption.AllDirectories));
+            Assert.Empty(Directory.GetFiles(root, "*.mp3", SearchOption.AllDirectories));
+            await service.StopAsync();
+        }
+        finally { DeleteTemporaryDirectory(root); }
+    }
+
+    [Fact]
     public async Task TimingCacheRejectsMissingOrChangedAudio()
     {
         var root = CreateTemporaryDirectory();
@@ -225,10 +249,15 @@ public sealed class TtsTests
     }
 
     [Theory]
-    [InlineData("en-US-AriaNeural", "American English")]
-    [InlineData("zh-CN-XiaoxiaoNeural", "声音试听")]
-    public void VoicePreviewUsesTheSelectedLanguage(string voice, string expected)
-        => Assert.Contains(expected, TtsService.GetPreviewText(voice));
+    [InlineData("en-US-AriaNeural", null, "English")]
+    [InlineData("zh-CN-XiaoxiaoNeural", null, "声音试听")]
+    [InlineData("Samantha", "en-US", "English")]
+    [InlineData("Tingting", "zh-CN", "声音试听")]
+    public void VoicePreviewUsesTheSelectedLanguage(
+        string voice,
+        string? culture,
+        string expected)
+        => Assert.Contains(expected, TtsService.GetPreviewText(voice, culture));
 
     [Theory]
     [InlineData("word")]
@@ -917,7 +946,8 @@ public sealed class TtsTests
 
         public int SynthesisCount => Volatile.Read(ref _synthesisCount);
 
-        public string Id => TtsSettings.DefaultProvider;
+        public string EngineId { get; init; } = TtsSettings.DefaultProvider;
+        public string Id => EngineId;
         public bool IsAvailable => true;
 
         public Task<TtsAvailability> CheckAvailabilityAsync(

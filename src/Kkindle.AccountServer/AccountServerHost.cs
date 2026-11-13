@@ -30,6 +30,9 @@ public static class AccountServerHost
             options.AddPolicy("credentials", context => RateLimitPartition.GetFixedWindowLimiter(
                 context.Connection.RemoteIpAddress?.ToString() ?? "unknown", _ => new FixedWindowRateLimiterOptions
                 { PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0, AutoReplenishment = true }));
+            options.AddPolicy("feedback", context => RateLimitPartition.GetFixedWindowLimiter(
+                context.Connection.RemoteIpAddress?.ToString() ?? "unknown", _ => new FixedWindowRateLimiterOptions
+                { PermitLimit = 10, Window = TimeSpan.FromMinutes(10), QueueLimit = 0, AutoReplenishment = true }));
             options.OnRejected = async (context, token) =>
             {
                 context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
@@ -43,6 +46,7 @@ public static class AccountServerHost
         var regionDirectory = Path.Combine(directory, AccountRegions.Slug(region));
         var store = new AccountDatabase(regionDirectory, clock ?? TimeProvider.System, region);
         var objects = new AccountSyncStorage(Path.Combine(regionDirectory, "sync"));
+        var feedback = new FeedbackStorage(regionDirectory);
         await store.InitializeAsync();
         builder.Services.AddSingleton(store);
         var app = builder.Build();
@@ -52,7 +56,12 @@ public static class AccountServerHost
         app.Use(async (context, next) =>
         {
             context.Response.Headers.CacheControl = "no-store";
+            // The client uses this as a reference clock for hybrid logical
+            // ordering; the server still never inspects encrypted snapshots.
+            context.Response.Headers["X-Kkindle-Server-Time"] =
+                DateTimeOffset.UtcNow.ToString("O");
             var authenticatedApi = context.Request.Path.StartsWithSegments("/api/accounts") || context.Request.Path.StartsWithSegments("/api/sync")
+                || context.Request.Path.StartsWithSegments("/api/v1/feedback")
                 || context.Request.Path.StartsWithSegments("/sync-blobs");
             if (authenticatedApi && !context.Request.IsHttps
                 && (context.Connection.RemoteIpAddress is not { } address || !IPAddress.IsLoopback(address)))
@@ -71,7 +80,8 @@ public static class AccountServerHost
         });
         app.Use(async (context, next) =>
         {
-            if ((context.Request.Path.StartsWithSegments("/api/accounts") || context.Request.Path.StartsWithSegments("/api/sync"))
+            if ((context.Request.Path.StartsWithSegments("/api/accounts") || context.Request.Path.StartsWithSegments("/api/sync")
+                || context.Request.Path.StartsWithSegments("/api/v1/feedback"))
                 && context.Request.Headers["X-Kkindle-Region"] != AccountRegions.Slug(region))
                 throw new AccountRequestException(StatusCodes.Status403Forbidden, "账号服务区域不匹配。");
             await next(context);
@@ -188,10 +198,11 @@ public static class AccountServerHost
             objects.Delete(session.User.Id, key);
             return Results.NoContent();
         });
+        FeedbackEndpoints.Map(app, store, feedback);
         return app;
     }
 
-    private static string Bearer(HttpContext context)
+    internal static string Bearer(HttpContext context)
     {
         var header = context.Request.Headers.Authorization.ToString();
         if (!header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))

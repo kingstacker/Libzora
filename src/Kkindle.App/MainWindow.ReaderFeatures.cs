@@ -344,6 +344,7 @@ public partial class MainWindow
         catch (Exception exception)
         {
             if (token.IsCancellationRequested) return;
+            SoftwareLog.ErrorWithoutMessage("reader.open", exception, ("format", "pdf"));
             await CloseReaderAsync();
             SetTaskStatus(T("打开 PDF 阅读器失败：{0}", UiText.Localize(exception.Message)));
             await ShowMessageAsync(T("无法打开书籍"), UiText.Localize(exception.Message));

@@ -23,6 +23,7 @@ internal sealed class PluginBookTaskService : IPluginBookTaskHost
     private readonly G2PWModelDownloadService _pinyinModels;
     private readonly Func<AppSettings?> _appSettings;
     private readonly Func<BookFile, CancellationToken, Task<string?>> _resolveFile;
+    private readonly Func<AiConnectionSettings, CancellationToken, Task<bool>>? _confirmTranslation;
     private readonly SemaphoreSlim _taskGate = new(1, 1);
 
     public PluginBookTaskService(
@@ -34,7 +35,8 @@ internal sealed class PluginBookTaskService : IPluginBookTaskHost
         AiSettingsStore aiSettings,
         G2PWModelDownloadService pinyinModels,
         Func<AppSettings?> appSettings,
-        Func<BookFile, CancellationToken, Task<string?>> resolveFile)
+        Func<BookFile, CancellationToken, Task<string?>> resolveFile,
+        Func<AiConnectionSettings, CancellationToken, Task<bool>>? confirmTranslation = null)
     {
         _paths = paths;
         _library = library;
@@ -45,6 +47,7 @@ internal sealed class PluginBookTaskService : IPluginBookTaskHost
         _pinyinModels = pinyinModels;
         _appSettings = appSettings;
         _resolveFile = resolveFile;
+        _confirmTranslation = confirmTranslation;
     }
 
     private async Task RunExclusiveAsync(Func<Task> action)
@@ -82,22 +85,19 @@ internal sealed class PluginBookTaskService : IPluginBookTaskHost
         IProgress<PluginTaskProgress>? progress,
         CancellationToken cancellationToken)
     {
+        if (request.Provider != "ai")
+            throw new NotSupportedException("网页免费翻译已停用，请选择模型翻译服务或本地模型。");
         var settings = _appSettings();
-        if (settings is not null && !settings.NetworkEnabled)
+        var aiSettings = await _aiSettings.LoadAsync(cancellationToken);
+        if (settings is not null && !settings.NetworkEnabled && !aiSettings.IsLocalEndpoint)
             throw new InvalidOperationException(UiText.Get("网络访问已关闭，无法翻译书籍。"));
-        if (settings is not null
-            && request.Provider == "ai"
-            && !settings.AiEnabled)
+        if (settings is not null && !settings.AiEnabled)
             throw new InvalidOperationException(UiText.Get("AI 功能已关闭，无法翻译书籍。"));
-        if (request.Provider == "ai")
-        {
-            // Fail at the start rather than after the first EPUB page has been
-            // parsed: a missing key would otherwise surface mid-translation.
-            var aiSettings = await _aiSettings.LoadAsync(cancellationToken);
-            if (!aiSettings.IsConfigured)
-                throw new InvalidOperationException(
-                    UiText.Get("请先在“阅读 → AI 设置”中配置 AI 服务、模型和 API Key。"));
-        }
+        if (!aiSettings.IsConfigured)
+            throw new InvalidOperationException("请先配置模型服务地址和模型；远程服务还需要 API Key。");
+        if (_confirmTranslation is not null && !await _confirmTranslation(aiSettings, cancellationToken))
+            return new JsonObject { ["cancelled"] = true };
+        cancellationToken.ThrowIfCancellationRequested();
 
         var book = await _library.GetBookAsync(bookId, cancellationToken)
             ?? throw new InvalidOperationException(UiText.Get("书籍不存在或已被删除。"));
@@ -114,12 +114,7 @@ internal sealed class PluginBookTaskService : IPluginBookTaskHost
         var translationSettings = BookTranslationSettings.Normalize(
             (settings?.Translation ?? new BookTranslationSettings()) with
             {
-                Provider = request.Provider switch
-                {
-                    "bing" => BookTranslationProvider.BingFree,
-                    "google" => BookTranslationProvider.GoogleFree,
-                    _ => BookTranslationProvider.Ai
-                },
+                Provider = BookTranslationProvider.Ai,
                 SourceLanguage = request.SourceLanguage,
                 TargetLanguage = request.TargetLanguage,
                 OutputMode = outputMode,

@@ -136,6 +136,9 @@ public partial class ReaderPage : UserControl
         {
             // Compact spacing makes paragraph lines follow the normal line pitch.
             ParagraphSpacingMatchesLineHeight = normalized.ParagraphSpacing <= 0,
+            OverridePublisherLineHeight = true,
+            OverridePublisherParagraphSpacing = true,
+            AvoidWidowsAndOrphans = false,
             ParagraphIndent = preferences.ReaderParagraphIndent,
             BodyPadding = Math.Clamp(preferences.ReaderBodyPadding, 16, 64)
         };
@@ -242,7 +245,9 @@ public partial class ReaderPage : UserControl
         _chapterIndex = Math.Clamp(restore?.ChapterIndex ?? 0, 0, _epubDocument.Chapters.Count - 1);
         _epubPosition = restore?.ScrollPosition ?? 0;
 
-        var host = new NativeReaderHost { Focusable = false, PreservePageStartOnSettingsChange = true };
+        // Keep the current text visible after reflow, without inserting a hard
+        // page break at the old page's first word and leaving the preceding page empty.
+        var host = new NativeReaderHost { Focusable = false };
         _readerHost = host;
         host.SetAppearance(new ReaderAppearanceSettings { Theme = CurrentTheme });
         host.WebMessageReceived += OnReaderWebMessage;
@@ -479,7 +484,7 @@ public partial class ReaderPage : UserControl
     {
         var percent = $"{_overallProgress * 100:0}%";
         FooterChapter.Text = title;
-        FooterPosition.Text = $"{position}  ·  {percent}";
+        FooterPosition.Text = $"{ProgressDetail(position)}  ·  {percent}";
         ChapterText.Text = title;
         if (_sliderActive) return;
         PercentText.Text = percent;
@@ -512,6 +517,7 @@ public partial class ReaderPage : UserControl
     private void BuildPdfToc(PdfDocumentInfo? info)
     {
         _tocEntries.Clear();
+        _hasPdfOutline = info?.Outline is { Count: > 0 };
         if (info?.Outline is { Count: > 0 })
         {
             foreach (var item in info.Outline)
@@ -773,15 +779,18 @@ public partial class ReaderPage : UserControl
     private void HandleSwipe(double dx)
     {
         if (IsChromeVisible) SetChromeVisible(false);
-        else _ = TurnAsync(dx < 0 ? 1 : -1);
+        else _ = TurnAsync(MobileReaderPagingPolicy.SwipeDirection(dx, _layout.VerticalWriting, _isPdf));
     }
 
     private void HandleTap(double ratio)
     {
         if (IsChromeVisible) SetChromeVisible(false);
-        else if (ratio < 1d / 3) _ = TurnAsync(-1);
-        else if (ratio > 2d / 3) _ = TurnAsync(1);
-        else SetChromeVisible(true);
+        else
+        {
+            var direction = MobileReaderPagingPolicy.TapDirection(ratio, _layout.VerticalWriting, _isPdf);
+            if (direction == 0) SetChromeVisible(true);
+            else _ = TurnAsync(direction);
+        }
     }
 
     /// <summary>Turns one page, crossing into the neighboring chapter at its edge.</summary>
@@ -810,7 +819,8 @@ public partial class ReaderPage : UserControl
             var surface = new ReaderTransitionSurface(
                 ReaderHostSlot, TransitionSnapshot, TransitionTrail, TransitionFront, TransitionEdge, ReaderPaper);
             var animation = (int)_shell.Preferences.Current.ReaderPageAnimation;
-            await ReaderTransitionPlayer.RunAsync(surface, animation, direction, async () =>
+            await ReaderTransitionPlayer.RunAsync(surface, animation,
+                MobileReaderPagingPolicy.VisualDirection(direction, _layout.VerticalWriting, _isPdf), async () =>
             {
                 if (_isPdf)
                 {
@@ -1243,7 +1253,11 @@ public partial class ReaderPage : UserControl
         if (_readerHost is NativePdfReaderHost pdf && pdf.Zoom != PdfZoom) await ApplyPdfZoomAsync(pdf);
 
         var layout = BuildLayout(_shell.Preferences.Current);
-        if (layout == _layout) return;
+        if (layout == _layout)
+        {
+            RefreshPositionLabels();
+            return;
+        }
         _tts?.NotifyManualNavigation();
         _layout = layout;
         if (_readerHost is not IReaderConfiguredHost configured) return;

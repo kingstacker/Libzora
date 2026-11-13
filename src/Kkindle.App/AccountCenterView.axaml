@@ -1,6 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="using:Kkindle" xmlns:converters="using:Avalonia.Data.Converters" x:Class="Kkindle.AccountCenterView"
-             Background="{DynamicResource PaperBrush}" FontFamily="{StaticResource DefaultAppFontFamily}">
+             Background="Transparent" FontFamily="{StaticResource DefaultAppFontFamily}">
   <UserControl.Styles>
     <Style Selector="TextBlock.accountMuted">
       <Setter Property="Foreground" Value="{DynamicResource MutedInkBrush}" />

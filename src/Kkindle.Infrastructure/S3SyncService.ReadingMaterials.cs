@@ -36,9 +36,7 @@ public sealed partial class S3SyncService
         // Live book metadata is also useful when an older peer has not yet seen a deletion.
         var books = sources.SelectMany(s => s.ReadingMaterialBooks.Concat(s.Books))
             .Where(b => annotated.Contains(b.Id)).GroupBy(b => b.Id)
-            .Select(g => g.OrderByDescending(b => b.UpdatedAt)
-                .ThenByDescending(b => b.Title, StringComparer.Ordinal)
-                .ThenByDescending(b => b.CoverHash ?? "", StringComparer.Ordinal).First());
+            .Select(g => LatestVersioned(g, b => b.UpdatedAt, b => b.SyncVersion)!);
         var prepared = new List<S3SyncBook>();
         foreach (var book in books)
         {

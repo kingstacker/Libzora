@@ -29,7 +29,7 @@ public sealed class EpubTranslationRegressionTests
             ["Parent item"] = "父项", ["Child item"] = "子项",
             ["Cell before."] = "单元格前文。", ["Cell inside."] = "单元格内部。", ["Cell after."] = "单元格后文。"
         };
-        var handler = new GoogleHandler(text => map.Aggregate(text, (value, pair) => value.Replace(pair.Key, pair.Value, StringComparison.Ordinal)));
+        var handler = new ModelHandler(text => map.Aggregate(text, (value, pair) => value.Replace(pair.Key, pair.Value, StringComparison.Ordinal)));
         using var service = book.Service(handler);
         var result = await service.TranslateAsync(book.Source, book.Output, Settings with { OutputMode = mode });
         var body = Body(Assert.Single(result.OutputPaths));
@@ -55,7 +55,7 @@ public sealed class EpubTranslationRegressionTests
         using var book = new TranslationTestBook("""
             <p id="p1">Important <a href="notes.xhtml#fn1" epub:type="noteref" id="ref1">1</a> sentence with <em id="em1">emphasis</em> and <a href="https://example.test/guide">a link</a>.</p>
             """);
-        var handler = new GoogleHandler(text => text.Replace("Important", "重要").Replace("sentence with", "句子带有")
+        var handler = new ModelHandler(text => text.Replace("Important", "重要").Replace("sentence with", "句子带有")
             .Replace("emphasis", "强调").Replace(" and ", " 和 ").Replace("a link", "链接"));
         using var service = book.Service(handler);
         var updates = new List<BookTranslationProgress>();
@@ -82,7 +82,7 @@ public sealed class EpubTranslationRegressionTests
     public async Task FallsBackToTextRunsWhenProviderRemovesInlineMarkers()
     {
         using var book = new TranslationTestBook("<p>Important <a href=\"notes.xhtml#fn1\" epub:type=\"noteref\">1</a> sentence with <em>emphasis</em>.</p>");
-        var handler = new GoogleHandler(text => Regex.Replace(text, @"__KKINDLE_INLINE_\d+__", "")
+        var handler = new ModelHandler(text => Regex.Replace(text, @"__KKINDLE_INLINE_\d+__", "")
             .Replace("Important", "重要").Replace("sentence with", "句子带有").Replace("emphasis", "强调"));
         using var service = book.Service(handler);
         var result = await service.TranslateAsync(book.Source, book.Output, Settings);
@@ -97,7 +97,7 @@ public sealed class EpubTranslationRegressionTests
     public async Task EmojiAndCombiningCharactersSurviveRenderingAndCachedResume()
     {
         using var book = new TranslationTestBook("<p>Happy <em>birthday</em>🎂 👨‍👩‍👧‍👦 é</p>");
-        var handler = new GoogleHandler(text => text.Replace("Happy", "生日").Replace("birthday", "快乐"));
+        var handler = new ModelHandler(text => text.Replace("Happy", "生日").Replace("birthday", "快乐"));
         using var service = book.Service(handler);
         using var cancel = new CancellationTokenSource();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.TranslateAsync(
@@ -108,7 +108,7 @@ public sealed class EpubTranslationRegressionTests
             }), cancel.Token));
         Assert.Equal(1, (await service.FindResumeAsync(book.Source, book.Output, Settings))!.CompletedSegments);
 
-        var noNetwork = new GoogleHandler(_ => throw new InvalidOperationException("Completed text must be reused"));
+        var noNetwork = new ModelHandler(_ => throw new InvalidOperationException("Completed text must be reused"));
         using var resumedService = book.Service(noNetwork);
         var result = await resumedService.TranslateAsync(book.Source, book.Output, Settings, resumeMode: BookTranslationResumeMode.Resume);
         Assert.Empty(noNetwork.Inputs);
@@ -125,7 +125,7 @@ public sealed class EpubTranslationRegressionTests
     public async Task TranslatesRubyBaseWithoutSendingOrReplacingPronunciations(BookTranslationOutputMode mode)
     {
         using var book = new TranslationTestBook("<p><ruby>银<rp>(</rp><rt>yín</rt><rp>)</rp></ruby><ruby><rb>行</rb><rt>háng</rt></ruby></p>");
-        var handler = new GoogleHandler(_ => "bank");
+        var handler = new ModelHandler(_ => "bank");
         using var service = book.Service(handler);
         var result = await service.TranslateAsync(book.Source, book.Output, Settings with
         {
@@ -148,16 +148,16 @@ public sealed class EpubTranslationRegressionTests
     [Fact]
     public async Task ResumesOnlyTheFailedPartOfALongParagraph()
     {
-        var source = new string('A', 1399) + "." + new string('B', 1399) + "." + new string('C', 100) + ".";
+        var source = new string('A', 5499) + "." + new string('B', 5499) + "." + new string('C', 100) + ".";
         using var book = new TranslationTestBook("<p>" + source + "</p>");
-        var firstHandler = new GoogleHandler(text => text[0] switch
+        var firstHandler = new ModelHandler(text => text[0] switch
         {
             'A' => "第一部分。", 'B' => "第二部分。", _ => throw new HttpRequestException("last part failed")
         });
         using (var service = book.Service(firstHandler))
             await Assert.ThrowsAsync<InvalidOperationException>(() => service.TranslateAsync(book.Source, book.Output, Settings));
         Assert.True(File.Exists(book.CachePath));
-        var retry = new GoogleHandler(_ => "第三部分。");
+        var retry = new ModelHandler(_ => "第三部分。");
         using var resumed = book.Service(retry);
         var result = await resumed.TranslateAsync(book.Source, book.Output, Settings, resumeMode: BookTranslationResumeMode.Resume);
         Assert.StartsWith("C", Assert.Single(retry.Inputs), StringComparison.Ordinal);
@@ -165,7 +165,7 @@ public sealed class EpubTranslationRegressionTests
     }
 
     [Fact]
-    public async Task SwitchingFromAiToSmallerWebRequestsReusesCompletedChunks()
+    public async Task ResumingWithAnotherConfiguredModelReusesCompletedChunks()
     {
         var source = new string('A', 5499) + "." + new string('B', 5499) + "." + new string('C', 500) + ".";
         using var book = new TranslationTestBook("<p>" + source + "</p>");
@@ -184,7 +184,7 @@ public sealed class EpubTranslationRegressionTests
             await Assert.ThrowsAsync<InvalidOperationException>(() => service.TranslateAsync(
                 book.Source, book.Output, Settings with { Provider = BookTranslationProvider.Ai }));
 
-        var retry = new GoogleHandler(_ => "第三部分。");
+        var retry = new ModelHandler(_ => "第三部分。");
         using var resumed = book.Service(retry);
         var result = await resumed.TranslateAsync(book.Source, book.Output, Settings, resumeMode: BookTranslationResumeMode.Resume);
         Assert.StartsWith("C", Assert.Single(retry.Inputs), StringComparison.Ordinal);
@@ -195,7 +195,7 @@ public sealed class EpubTranslationRegressionTests
     public async Task DoesNotTrustCompletedTextFromTheOldUncheckedCacheFormat()
     {
         using var book = new TranslationTestBook("<p>Hello.</p>");
-        var handler = new GoogleHandler(_ => "完整译文。");
+        var handler = new ModelHandler(_ => "完整译文。");
         using var service = book.Service(handler);
         using var cancel = new CancellationTokenSource();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.TranslateAsync(book.Source, book.Output, Settings,
@@ -223,7 +223,7 @@ public sealed class EpubTranslationRegressionTests
     public async Task StopsBatchingAfterTheFirstMarkerValidationFailure()
     {
         using var book = new TranslationTestBook("<p>First.</p><p>Second.</p><p>Third.</p><p>Fourth.</p>");
-        var handler = new GoogleHandler(_ => "译文。");
+        var handler = new ModelHandler(_ => "译文。");
         using var service = book.Service(handler);
         var result = await service.TranslateAsync(book.Source, book.Output, Settings);
         Assert.Equal(4, result.SegmentCount);
@@ -234,13 +234,13 @@ public sealed class EpubTranslationRegressionTests
     [Fact]
     public async Task CountsMarkersTowardRequestLimitAndKeepsUnicodeGraphemesWhole()
     {
-        using var book = new TranslationTestBook("<p>" + new string('A', 1399) + "👨‍👩‍👧‍👦" + new string('B', 1400) + "</p><p>Short paragraph.</p>");
-        var handler = new GoogleHandler(text => text);
+        using var book = new TranslationTestBook("<p>" + new string('A', 5499) + "👨‍👩‍👧‍👦" + new string('B', 5500) + "</p><p>Short paragraph.</p>");
+        var handler = new ModelHandler(text => text);
         using var service = book.Service(handler);
         await service.TranslateAsync(book.Source, book.Output, Settings);
         Assert.All(handler.Inputs, text =>
         {
-            Assert.True(text.Length <= 1400);
+            Assert.True(text.Length <= 5500);
             Assert.Equal(text, XmlConvert.VerifyXmlChars(text));
             if (text.Contains("👨", StringComparison.Ordinal)) Assert.Contains("👨‍👩‍👧‍👦", text, StringComparison.Ordinal);
         });
@@ -250,7 +250,7 @@ public sealed class EpubTranslationRegressionTests
     public async Task UpdatesNcxOnlyTocAndLanguageMetadataForBothOutputModes()
     {
         using var book = new TranslationTestBook("<h1>Chapter one</h1><p lang=\"en\" xml:lang=\"en\">Hello world.</p>", "Chapter one");
-        var handler = new GoogleHandler(text => text.Replace("Chapter one", "第一章").Replace("Hello world.", "你好，世界。"));
+        var handler = new ModelHandler(text => text.Replace("Chapter one", "第一章").Replace("Hello world.", "你好，世界。"));
         using var service = book.Service(handler);
         var result = await service.TranslateAsync(book.Source, book.Output, Settings with
         {
@@ -285,7 +285,7 @@ public sealed class EpubTranslationRegressionTests
     public async Task AddsMissingPackageLanguage()
     {
         using var book = new TranslationTestBook("<p>Hello.</p>", hasLanguage: false);
-        using var service = book.Service(new GoogleHandler(_ => "你好。"));
+        using var service = book.Service(new ModelHandler(_ => "你好。"));
         var result = await service.TranslateAsync(book.Source, book.Output, Settings);
         Assert.Equal("zh-CN", ReadXml(result.OutputPaths[0], "OEBPS/content.opf").Descendants().Single(element => element.Name.LocalName == "language").Value);
     }
@@ -337,7 +337,7 @@ public sealed class EpubTranslationRegressionTests
     public async Task ScanningProgressAndRenderingRunOutsideTheCallingUiContext()
     {
         using var book = new TranslationTestBook(string.Concat(Enumerable.Range(0, 200).Select(index => $"<p>Paragraph {index}.</p>")));
-        using var service = book.Service(new GoogleHandler(text => text.Replace("Paragraph", "段落")));
+        using var service = book.Service(new ModelHandler(text => text.Replace("Paragraph", "段落")));
         var context = new TestUiContext();
         var callbacks = new List<(string Stage, bool OnUi)>();
         var previous = SynchronizationContext.Current;

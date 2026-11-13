@@ -268,6 +268,8 @@ public partial class MainWindow : Window
         PromoteModalOverlays();
         InitializeKindleEmailClipboardSupport();
         ApplyMainAppearance();
+        InitializeAmbientBackground();
+        InitializeWidgetSnapshots();
         InitializeReaderAppearance();
         InitializeReaderToolbarAutoHide();
         InitializeReaderSelectionToolTips();
@@ -526,6 +528,7 @@ public partial class MainWindow : Window
             viewer.Classes.Add("scrolling");
             idleTimer.Stop();
             idleTimer.Start();
+            ScheduleAmbientRefresh();
         };
         viewer.DetachedFromVisualTree += (_, _) =>
         {
@@ -819,6 +822,9 @@ public partial class MainWindow : Window
             await RefreshCollectionsAsync();
             _filterControlsReady = true;
             UpdateLibraryUi();
+            InvalidateAmbientFallback();
+            ScheduleAmbientRefresh();
+            _widgetSnapshots?.Schedule();
             SetTaskStatus(ViewModel.StatusText);
             ShowOnboardingIfNeeded();
             StartAutomaticUpdateCheck();
@@ -887,6 +893,7 @@ public partial class MainWindow : Window
         }
         catch (Exception exception)
         {
+            SoftwareLog.ErrorWithoutMessage("library.initialize", exception);
             SetTaskStatus(T("无法读取本地书库：{0}", UiText.Localize(exception.Message)));
             EmptyLibraryTitleText.Text = T("本地书库暂时不可用");
             EmptyLibraryMessageText.Text = T("请检查数据目录后重启 Kkindle。");
@@ -1048,6 +1055,7 @@ public partial class MainWindow : Window
         _s3LocalChangeSyncTimer.Stop();
         UiText.LanguageChanged -= MainWindowLanguageChanged;
         UiText.LanguageChanged -= TrayLanguageChanged;
+        UiText.LanguageChanged -= MacMenuLanguageChanged;
         _stage3Timer.Stop();
         _deviceChangeDebounceTimer.Stop();
         DisposeDeviceChangeNotifier();
@@ -1090,6 +1098,8 @@ public partial class MainWindow : Window
         _readerSession.Cancel();
         _embeddingModelDownloadCancellation?.Cancel();
         _lifetimeCancellation.Cancel();
+        _widgetSnapshots?.Dispose();
+        _widgetSnapshots = null;
         if (_embeddingModelDownloadTask is { } embeddingModelDownloadTask)
         {
             try
@@ -1245,11 +1255,13 @@ public partial class MainWindow : Window
             {
                 ApplyCollectionSearchFilter();
                 UpdateLibraryUi();
+                ScheduleAmbientRefresh();
             });
             return;
         }
         ApplyCollectionSearchFilter();
         UpdateLibraryUi();
+        ScheduleAmbientRefresh();
     }
 
     private void ApplyCollectionSearchFilter()
@@ -1377,6 +1389,7 @@ public partial class MainWindow : Window
             _ => LibraryGridGlyphData
         });
         UpdateLibraryUi();
+        ScheduleAmbientRefresh();
         if (persist && mode != LibraryViewMode.Collections)
             ScheduleAppSettingsAutoSave(showSavedStatus: false);
     }
@@ -1428,6 +1441,7 @@ public partial class MainWindow : Window
         _bookCardControls[control] = card;
         _visibleBookCards.Add(card);
         card.LoadCover();
+        ScheduleAmbientRefresh();
         if (card.CoverImage is null
             && card.Book.Files.Any(file => string.Equals(file.Format, "pdf", StringComparison.OrdinalIgnoreCase)))
         {
@@ -1446,6 +1460,7 @@ public partial class MainWindow : Window
     private void ReleaseBookCardControl(Control control, BookCardViewModel card)
     {
         _bookCardControls.Remove(control);
+        ScheduleAmbientRefresh();
         // Grid and list can both retain a visual for the same card. One
         // view recycling its visual must not release the other view's cover.
         if (_bookCardControls.ContainsValue(card)) return;
@@ -2026,6 +2041,7 @@ public partial class MainWindow : Window
         catch (Exception exception)
         {
             HideTaskProgressPopup();
+            SoftwareLog.ErrorWithoutMessage("library.import", exception);
             SetTaskStatus(T("导入失败：{0}", UiText.Localize(exception.Message)));
             await ShowMessageAsync(T("导入失败"), UiText.Localize(exception.Message));
         }
@@ -2470,6 +2486,7 @@ public partial class MainWindow : Window
             }
             catch (Exception exception)
             {
+                SoftwareLog.ErrorWithoutMessage("reader.open", exception, ("format", file.Format));
                 SetTaskStatus(T("准备阅读缓存失败：{0}", UiText.Localize(exception.Message)));
                 await ShowMessageAsync(T("无法打开书籍"), UiText.Localize(exception.Message));
             }
@@ -2483,6 +2500,7 @@ public partial class MainWindow : Window
         }
         catch (Exception exception)
         {
+            SoftwareLog.ErrorWithoutMessage("reader.open", exception, ("format", file.Format));
             SetTaskStatus(T("打开文件失败：{0}", UiText.Localize(exception.Message)));
             await ShowMessageAsync(T("无法打开书籍"), UiText.Localize(exception.Message));
         }

@@ -38,7 +38,21 @@ struct NativeReaderPage: View {
     @State private var searchGeneration = 0
     @State private var showingSearchResults = false
     @State private var jumpingToSearch = false
+    @State private var speechExpanded = true
+    private let chromeSideInset: CGFloat = 8
+    private let footerHeight: CGFloat = 24
     private var reader: ReaderSnapshot { session.state }
+    private var speechActive: Bool { reader.speechState != 0 && reader.speechState != 4 }
+    /// The footer is drawn over the bottom of the reader surface. The page
+    /// already keeps its own bottom margin, so only the part of the footer
+    /// strip that the margin does not cover has to be reserved. Reserving the
+    /// whole footer height again left a blank band under the last line and
+    /// pushed lines that would otherwise fit onto the next page.
+    private var readerBottomInset: CGFloat {
+        guard !reader.isPdf else { return footerHeight }
+        let bodyInset = min(64, max(16, store.preferences.readerBodyPadding))
+        return max(0, footerHeight - CGFloat(bodyInset))
+    }
     private var currentAppColorScheme: ColorScheme {
         store.preferences.readerThemeFollowsAppearance ? readerColorEnvironment : appColorScheme
     }
@@ -49,6 +63,14 @@ struct NativeReaderPage: View {
         store.preferences.readerThemeFollowsAppearance ? store.preferences.colorScheme : (store.preferences.readerTheme == 5 ? .dark : .light)
     }
     private var paper: Color { store.preferences.paper(for: effectiveReaderTheme) }
+    // Assistant conversations take the full screen; the other reader tools
+    // remain page sheets so the reading context stays visible.
+    private var sheetPanel: Binding<ReaderPanel?> {
+        Binding(get: { panel == .assistant ? nil : panel }, set: { panel = $0 })
+    }
+    private var assistantPanel: Binding<ReaderPanel?> {
+        Binding(get: { panel == .assistant ? panel : nil }, set: { panel = $0 })
+    }
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -68,13 +90,14 @@ struct NativeReaderPage: View {
                 }
                 Spacer(minLength: 0)
             }
+
         }
         .ignoresSafeArea(.keyboard)
         .font(NativeTheme.font()).foregroundStyle(NativeTheme.ink).tint(NativeTheme.ink)
         .environment(\.symbolVariants, .none)
         .preferredColorScheme(readerColorScheme)
         .interactiveDismissDisabled(true)
-        .sheet(item: $panel) { panel in
+        .sheet(item: sheetPanel) { panel in
             Group {
                 if panel == .typography {
                     NativeTypographyPanel(store: store, isPdf: reader.isPdf) { self.panel = nil }
@@ -84,8 +107,25 @@ struct NativeReaderPage: View {
                             .navigationTitle(panel.title).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
                             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("完成") { self.panel = nil } } }
                     }.navigationViewStyle(.stack)
+                        .modifier(NativeReaderTocSheetBackground(
+                            enabled: panel == .toc, paper: paper,
+                            usesAmbient: store.preferences.readerThemeFollowsAppearance && store.preferences.colorfulMode,
+                            ambientOpacity: readerColorEnvironment == .dark ? 0.14 : 0.10))
                 }
             }
+            .font(NativeTheme.font()).foregroundStyle(NativeTheme.ink).tint(NativeTheme.ink)
+            .preferredColorScheme(readerColorScheme)
+        }
+        .fullScreenCover(item: assistantPanel) { panel in
+            // The assistant is a conversation, so it owns the whole screen
+            // instead of leaving a strip of the reader's toolbar visible.
+            NavigationView {
+                panelContent(panel)
+                    .navigationTitle(panel.title).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
+                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("完成") { self.panel = nil } } }
+            }
+            .navigationViewStyle(.stack)
+            .background(NativeTheme.page.ignoresSafeArea())
             .font(NativeTheme.font()).foregroundStyle(NativeTheme.ink).tint(NativeTheme.ink)
             .preferredColorScheme(readerColorScheme)
         }
@@ -127,11 +167,7 @@ struct NativeReaderPage: View {
     private var readerContent: some View {
         ZStack {
             paper.ignoresSafeArea()
-            ReaderSurface(controller: store.readerController).padding(.bottom, 24)
-            if store.preferences.colorfulMode {
-                NativeAmbientWash().opacity(readerColorEnvironment == .dark ? 0.14 : 0.10)
-                    .ignoresSafeArea().allowsHitTesting(false)
-            }
+            ReaderSurface(controller: store.readerController).padding(.bottom, readerBottomInset)
             if !reader.ready {
                 VStack(spacing: 16) {
                     Text(book.title).font(NativeTheme.font(21, relativeTo: .title2)).multilineTextAlignment(.center)
@@ -143,14 +179,40 @@ struct NativeReaderPage: View {
                 Spacer(minLength: 0)
                 // Toasts sit above whichever reader toolbars are showing instead of covering them.
                 if let toast = store.toast { NativeToast(text: toast).padding(.bottom, 12) }
-                if let text = reader.selectedText { selectionBar(text) }
-                if reader.speechState != 0 && reader.speechState != 4 { speechBar }
+                if speechActive {
+                    NativeReaderSpeechControls(state: reader.speechState, status: reader.speechStatus,
+                        suspended: panel != nil || showingSearchResults, expanded: $speechExpanded,
+                        settings: { panel = .speech }, pause: { run("speechPause") }, stop: { run("speechStop") })
+                }
                 if reader.chromeVisible && reader.ready { bottomBar }
                 else {
                     HStack {
-                        Text(reader.chapter).lineLimit(1); Spacer(); Text(reader.position).monospacedDigit().accessibilityIdentifier("reader.position")
-                    }.font(NativeTheme.font(11.5, relativeTo: .caption2)).foregroundStyle(NativeTheme.muted).padding(.horizontal, 24).frame(height: 24)
+                        Text(reader.chapter).lineLimit(1)
+                        Spacer(minLength: 12)
+                        Text(reader.position).monospacedDigit().lineLimit(1).minimumScaleFactor(0.85)
+                            .layoutPriority(1).accessibilityIdentifier("reader.position")
+                    }.font(NativeTheme.font(11.5, relativeTo: .caption2)).foregroundStyle(NativeTheme.muted).padding(.horizontal, 24).frame(height: footerHeight)
                         .background(paper).allowsHitTesting(false)
+                }
+            }
+        }
+        .overlay {
+            if store.preferences.readerThemeFollowsAppearance && store.preferences.colorfulMode {
+                // One continuous wash covers both the rendered page and the
+                // progress/footer paper, so following appearance never leaves a seam.
+                NativeAmbientWash().opacity(readerColorEnvironment == .dark ? 0.14 : 0.10)
+                    .ignoresSafeArea().allowsHitTesting(false)
+            }
+        }
+        .overlay {
+            GeometryReader { geometry in
+                if let text = reader.selectedText, panel == nil, !showingSearchResults {
+                    selectionBar(text)
+                        .frame(width: NativeSelectionToolbarLayout.width(in: geometry.size),
+                               height: NativeSelectionToolbarLayout.height)
+                        .position(NativeSelectionToolbarLayout.position(bounds: reader.selectionBounds,
+                            in: geometry.size, chromeVisible: reader.chromeVisible,
+                            speechVisible: speechActive && speechExpanded))
                 }
             }
         }
@@ -185,7 +247,7 @@ struct NativeReaderPage: View {
                 closing = true
                 Task { await store.closeReader(); closing = false }
             } label: { Group { if closing { ProgressView() } else { Image(systemName: "chevron.left") } }.frame(width: 44, height: 44) }
-                .disabled(closing).accessibilityLabel("返回书籍详情").accessibilityIdentifier("reader.close")
+                .disabled(closing).accessibilityLabel("退出阅读").accessibilityIdentifier("reader.close")
             ZStack(alignment: .trailing) {
                 if searching {
                     NativeSearchField(text: $searchQuery, prompt: "搜索全书", focused: $searchFocused,
@@ -209,7 +271,9 @@ struct NativeReaderPage: View {
             Button { run("bookmark") } label: { Image(systemName: reader.bookmark ? "bookmark.fill" : "bookmark").frame(width: 44, height: 44) }
                 .disabled(!reader.ready).accessibilityLabel("书签").accessibilityIdentifier("reader.bookmark")
         }.font(.system(size: 19, weight: .regular)).buttonStyle(.plain).padding(4)
-            .modifier(NativeFloatingSurface()).padding(.horizontal, 12).padding(.top, 8)
+            .modifier(NativeFloatingSurface())
+            .accessibilityElement(children: .contain).accessibilityIdentifier("reader.topToolbar")
+            .padding(.horizontal, chromeSideInset).padding(.top, 8)
     }
     private var bottomBar: some View {
         VStack(spacing: 0) {
@@ -230,26 +294,41 @@ struct NativeReaderPage: View {
                 tool(reader.isPdf ? "显示" : "排版", "Aa") { panel = .typography }
             }
         }.padding(.horizontal, 18).padding(.top, 14).padding(.bottom, 6)
-            .modifier(NativeFloatingSurface()).padding(.horizontal, 12)
-    }
-    private var speechBar: some View {
-        HStack(spacing: 18) {
-            Image(systemName: "headphones")
-            Text(reader.speechStatus).font(NativeTheme.font(12, relativeTo: .caption)).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
-            Button("设置") { panel = .speech }.font(NativeTheme.font(12, relativeTo: .caption))
-            Button { run("speechPause") } label: { Image(systemName: reader.speechState == 3 ? "play.fill" : "pause.fill") }.accessibilityLabel("暂停或继续朗读")
-            Button { run("speechStop") } label: { Image(systemName: "xmark") }.accessibilityLabel("停止朗读")
-        }.buttonStyle(.plain).padding(12).modifier(NativeFloatingSurface()).padding(.horizontal, 12).padding(.bottom, 8)
+            .modifier(NativeFloatingSurface())
+            .accessibilityElement(children: .contain).accessibilityIdentifier("reader.toolbar")
+            .padding(.horizontal, chromeSideInset)
     }
     private func selectionBar(_ text: String) -> some View {
-        HStack(spacing: 0) {
-            tool("划线", "highlighter") { run("annotate") }
-            tool("笔记", "square.and.pencil") { selectedText = text; dialog = nil; panel = .note }
-            tool("词典", "book.closed") { selectedText = text; panel = .dictionary }
-            tool("翻译", "character.bubble") { selectedText = text; panel = .translation }
-            tool("AI", "sparkles") { selectedText = text; panel = .assistant }
-            tool("复制", "doc.on.doc") { UIPasteboard.general.string = text; run("clearSelection"); store.showToast("已复制") }
-        }.padding(4).modifier(NativeFloatingSurface()).padding(.horizontal, 12).padding(.bottom, 8)
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 0) {
+                selectionAction("复制", "doc.on.doc") {
+                    UIPasteboard.general.string = text; run("clearSelection"); store.showToast("已复制")
+                }
+                selectionAction("划线", "underline") { run("annotate") }
+                selectionAction("笔记", "square.and.pencil") { selectedText = text; dialog = nil; panel = .note }
+                selectionAction("搜索", "magnifyingglass") {
+                    store.perform {
+                        try await store.command("reader.clearSelection")
+                        try await store.command("reader.showChrome")
+                        searching = true; searchQuery = text; submitSearch()
+                    }
+                }
+                selectionAction("词典", "book.closed") { selectedText = text; panel = .dictionary }
+                selectionAction("AI", "sparkles") { selectedText = text; panel = .assistant }
+                selectionAction("翻译", "character.bubble") { selectedText = text; panel = .translation }
+                selectionAction("朗读", "speaker.wave.2") { run("selectionSpeech") }
+            }.padding(4)
+        }
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18).stroke(NativeTheme.divider.opacity(0.6), lineWidth: 0.5))
+        .shadow(color: .black.opacity(0.12), radius: 12, y: 5)
+        .accessibilityElement(children: .contain).accessibilityIdentifier("reader.selection.toolbar")
+    }
+    private func selectionAction(_ title: String, _ symbol: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol).font(.system(size: 19, weight: .regular))
+                .frame(width: 44, height: 44).contentShape(Rectangle())
+        }.buttonStyle(.plain).accessibilityLabel(title).accessibilityIdentifier("reader.\(title)")
     }
     private func tool(_ title: String, _ image: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
@@ -263,7 +342,10 @@ struct NativeReaderPage: View {
     }
     @ViewBuilder private func panelContent(_ panel: ReaderPanel) -> some View {
         switch panel {
-        case .toc: NativeReaderTocView(store: store, close: { self.panel = nil })
+        case .toc: NativeReaderTocView(store: store, paper: paper,
+                                      usesAmbient: store.preferences.readerThemeFollowsAppearance && store.preferences.colorfulMode,
+                                      ambientOpacity: readerColorEnvironment == .dark ? 0.14 : 0.10,
+                                      close: { self.panel = nil })
         case .typography: NativeTypography(store: store, isPdf: reader.isPdf)
         case .speech: NativeSpeechSettings(store: store, close: { self.panel = nil })
         case .dictionary: NativeDictionary(store: store, initialTerm: selectedText)
@@ -304,6 +386,18 @@ struct NativeTypography: View {
                 row("翻页动画") {
                     Picker("翻页动画", selection: preference(\.readerPageAnimation)) { Text("无").tag(0); Text("淡入").tag(1); Text("滑动").tag(2); Text("墨水").tag(3) }.pickerStyle(.segmented)
                 }
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("底部进度").font(NativeTheme.font(13)).foregroundStyle(NativeTheme.secondary)
+                    Picker("底部进度", selection: preference(\.readerProgressDisplay)) {
+                        Text("页码").tag(0); Text("章节").tag(1)
+                        Text("本章剩余").tag(2); Text("全书剩余").tag(3)
+                    }.pickerStyle(.segmented).accessibilityIdentifier("typography.progressDisplay")
+                    if store.preferences.readerProgressDisplay >= 2 {
+                        Text("阅读时间按正文长度估算")
+                            .font(NativeTheme.font(11, relativeTo: .caption))
+                            .foregroundStyle(NativeTheme.muted)
+                    }
+                }.padding(.vertical, 10)
                 if isPdf {
                     row("缩放") {
                         Picker("缩放", selection: preference(\.pdfZoom)) { Text("整页").tag(1.0); Text("1.5 倍").tag(1.5); Text("2 倍").tag(2.0) }.pickerStyle(.segmented)
@@ -320,10 +414,11 @@ struct NativeTypography: View {
                         }.buttonStyle(.plain).background(NativeTheme.sunk, in: Capsule())
                     }
                     row("行距") {
-                        Picker("行距", selection: preference(\.readerLineHeight)) { Text("紧凑").tag(1.5); Text("标准").tag(1.75); Text("宽松").tag(2.1) }.pickerStyle(.segmented)
+                        Picker("行距", selection: preference(\.readerLineHeight)) { Text("紧凑").tag(1.5); Text("标准").tag(1.75); Text("宽松").tag(2.1) }
+                            .pickerStyle(.segmented).accessibilityIdentifier("typography.lineHeight")
                     }
                     row("段间距") {
-                        Picker("段间距", selection: preference(\.readerParagraphSpacing)) { Text("紧凑").tag(0.0); Text("标准").tag(0.25); Text("宽松").tag(0.5) }
+                        Picker("段间距", selection: preference(\.readerParagraphSpacing)) { Text("紧凑").tag(0.0); Text("标准").tag(0.5); Text("宽松").tag(1.0) }
                             .pickerStyle(.segmented).accessibilityIdentifier("typography.paragraphSpacing")
                     }
                     row("页边距") {
@@ -414,69 +509,128 @@ private struct NativeLegacyTypographyPresentation: UIViewControllerRepresentable
 
 struct NativeReaderTocView: View {
     @ObservedObject var store: NativeStore
+    let paper: Color
+    let usesAmbient: Bool
+    let ambientOpacity: Double
     let close: () -> Void
     @State private var items: [ReaderToc] = []
     @State private var collapsed: Set<Int> = []
 
-    private struct Row: Identifiable {
-        let item: ReaderToc
-        let hasChildren: Bool
-        var id: Int { item.id }
-    }
-
-    private var visibleRows: [Row] {
-        var rows: [Row] = []
-        var hiddenBelowLevel: Int?
-        for (index, item) in items.enumerated() {
-            if let level = hiddenBelowLevel {
-                if item.level > level { continue }
-                hiddenBelowLevel = nil
-            }
-            let hasChildren = index + 1 < items.count && items[index + 1].level > item.level
-            rows.append(Row(item: item, hasChildren: hasChildren))
-            if hasChildren && collapsed.contains(item.id) { hiddenBelowLevel = item.level }
-        }
-        return rows
+    private var parentIDs: Set<Int> { NativeReaderTocOutline.parentIDs(items) }
+    private var visibleRows: [NativeReaderTocOutline.Row] {
+        NativeReaderTocOutline.visibleRows(items, collapsed: collapsed)
     }
 
     var body: some View {
-        ScrollViewReader { proxy in
-            List(visibleRows) { row in
-                let item = row.item
-                HStack(spacing: 0) {
-                    if row.hasChildren {
-                        Button {
-                            if collapsed.contains(item.id) { collapsed.remove(item.id) }
-                            else { collapsed.insert(item.id) }
-                        } label: {
-                            Image(systemName: collapsed.contains(item.id) ? "chevron.right" : "chevron.down")
-                                .frame(width: 32, height: 44)
+        VStack(spacing: 0) {
+            ScrollViewReader { proxy in
+                List(visibleRows) { row in
+                    let item = row.item
+                    HStack(spacing: 0) {
+                        if row.hasChildren {
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.18)) {
+                                    if collapsed.contains(item.id) { collapsed.remove(item.id) }
+                                    else { collapsed.insert(item.id) }
+                                }
+                            } label: {
+                                Image(systemName: collapsed.contains(item.id) ? "chevron.right" : "chevron.down")
+                                    .font(.system(size: 12, weight: .medium)).frame(width: 32, height: 44)
+                            }
+                            .accessibilityLabel("\(collapsed.contains(item.id) ? "展开" : "收起")\(item.title)的子章节")
+                            .accessibilityIdentifier("reader.toc.toggle.\(item.id)")
+                        } else if !parentIDs.isEmpty {
+                            Color.clear.frame(width: 32, height: 1)
                         }
-                        .accessibilityLabel("\(collapsed.contains(item.id) ? "展开" : "收起")\(item.title)的子章节")
-                        .accessibilityIdentifier("reader.toc.toggle.\(item.id)")
-                    } else {
-                        Color.clear.frame(width: 32, height: 1)
+                        Button {
+                            store.perform { try await store.command("reader.jump", ["id": item.id]); close() }
+                        } label: {
+                            HStack {
+                                Text(item.title).multilineTextAlignment(.leading).padding(.vertical, 8)
+                                Spacer(minLength: 12)
+                                if item.selected { Image(systemName: "checkmark") }
+                            }.frame(minHeight: 44).contentShape(Rectangle())
+                        }
+                        .accessibilityIdentifier("reader.toc.\(item.id)")
+                        .accessibilityAddTraits(item.selected ? .isSelected : [])
                     }
-                    Button {
-                        store.perform { try await store.command("reader.jump", ["id": item.id]); close() }
-                    } label: {
-                        HStack {
-                            Text(item.title)
-                            Spacer()
-                            if item.selected { Image(systemName: "checkmark") }
-                        }.contentShape(Rectangle())
-                    }
-                    .accessibilityIdentifier("reader.toc.\(item.id)")
-                    .accessibilityAddTraits(item.selected ? .isSelected : [])
-                }.padding(.leading, CGFloat(max(0, item.level) * 12)).buttonStyle(.borderless)
+                    .padding(.leading, CGFloat(max(0, item.level) * 12)).buttonStyle(.borderless)
+                    .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                }
+                .listStyle(.plain)
+                .modifier(NativeReaderTocMargins())
+                .onChange(of: items.count) { _ in
+                    guard let current = items.first(where: \.selected) else { return }
+                    DispatchQueue.main.async { proxy.scrollTo(current.id, anchor: .center) }
+                }
             }
-            .onChange(of: items.count) { _ in
-                // Open at the current chapter. The rows exist after this update.
-                guard let current = items.first(where: \.selected) else { return }
-                DispatchQueue.main.async { proxy.scrollTo(current.id, anchor: .center) }
+        }
+        .background {
+            NativeReaderPaperBackground(paper: paper, usesAmbient: usesAmbient, ambientOpacity: ambientOpacity)
+        }
+        .modifier(NativeReaderTocNavigationBackground())
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if !parentIDs.isEmpty {
+                    let allCollapsed = parentIDs.isSubset(of: collapsed)
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.18)) {
+                            if allCollapsed { collapsed.removeAll() }
+                            else { collapsed = parentIDs }
+                        }
+                    } label: {
+                        Image(systemName: allCollapsed ? "chevron.down" : "chevron.up")
+                    }
+                    .accessibilityLabel(allCollapsed ? "展开全部子目录" : "收起全部子目录")
+                    .accessibilityIdentifier("reader.toc.toggleAll")
+                }
             }
         }
         .task { do { items = try await store.request("reader.toc") } catch { if !Task.isCancelled { store.failure = error.localizedDescription } } }
+    }
+}
+
+private struct NativeReaderTocMargins: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 17.0, *) {
+            content.scrollContentBackground(.hidden).contentMargins(.top, 0, for: .scrollContent)
+        } else if #available(iOS 16.0, *) { content.scrollContentBackground(.hidden) }
+        else { content }
+    }
+}
+
+private struct NativeReaderPaperBackground: View {
+    let paper: Color
+    let usesAmbient: Bool
+    let ambientOpacity: Double
+    var body: some View {
+        ZStack {
+            paper
+            if usesAmbient { NativeAmbientWash().opacity(ambientOpacity) }
+        }.ignoresSafeArea().allowsHitTesting(false).accessibilityHidden(true)
+    }
+}
+
+private struct NativeReaderTocNavigationBackground: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 16.0, *) { content.toolbarBackground(.hidden, for: .navigationBar) }
+        else { content }
+    }
+}
+
+private struct NativeReaderTocSheetBackground: ViewModifier {
+    let enabled: Bool
+    let paper: Color
+    let usesAmbient: Bool
+    let ambientOpacity: Double
+    func body(content: Content) -> some View {
+        if enabled, #available(iOS 16.4, *) {
+            content.presentationBackground {
+                NativeReaderPaperBackground(paper: paper, usesAmbient: usesAmbient, ambientOpacity: ambientOpacity)
+            }
+        } else { content }
     }
 }
 

@@ -404,7 +404,7 @@ public partial class ReaderPage
         return text.Length > MaxContextCharacters ? text[..MaxContextCharacters] : text;
     }
 
-    /// <summary>Uses the reader's own AI service when configured, otherwise a free online engine.</summary>
+    /// <summary>Uses only the configured model service; never falls back to a web translator.</summary>
     private async Task TranslateAsync(string text)
     {
         HideSelectionBar();
@@ -415,7 +415,12 @@ public partial class ReaderPage
             var chinese = text.Count(character => character is >= '一' and <= '鿿');
             var target = chinese * 3 > text.Length ? "en" : "zh-CN";
             var ai = await _modules.Ai.Settings.LoadAsync(_lifetime.Token);
-            var provider = ai.IsConfigured ? ReaderTranslationProvider.Ai : ReaderTranslationProvider.Bing;
+            if (!ai.IsConfigured) throw new InvalidOperationException("请先配置模型服务地址和模型；远程服务还需要 API Key。");
+            if (!ai.IsLocalEndpoint && !await _shell.ConfirmAsync("发送文本进行翻译",
+                $"所选正文将发送至 {ai.Destination} 进行翻译，可能产生服务费用。请勿发送无权提供的个人信息或保密内容。", "同意并翻译")) return;
+            _lifetime.Token.ThrowIfCancellationRequested();
+            _shell.ShowSheet("翻译", sheet, ThemeScope.RequestedThemeVariant);
+            var provider = ReaderTranslationProvider.Ai;
             var translated = await _modules.Ai.Translation.TranslateAsync(text, provider, target, ai, _lifetime.Token);
             sheet.Present(translated, text);
         }

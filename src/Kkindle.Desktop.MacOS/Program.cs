@@ -1,8 +1,10 @@
 using System.Diagnostics;
 using Avalonia;
+using Kkindle.Core;
 using Kkindle.Infrastructure;
 using Kkindle.Platform.Common;
 using Kkindle.Platform.MacOS;
+using Kkindle.Tts.Sherpa;
 
 namespace Kkindle.Desktop.MacOS;
 
@@ -16,6 +18,17 @@ internal static class Program
         // Mirror the Windows head: any unhandled exception is written next to
         // the executable and in the data logs directory before the process
         // dies, so startup failures on a user's Mac are diagnosable.
+        try
+        {
+            var startupPaths = new AppPaths(AppRootConfiguration.ResolveRoot(
+                MacOSAppData.ResolveConfigurationDirectory(),
+                MacOSAppData.ResolveRoot()));
+            SoftwareLog.Configure(startupPaths, ApplicationVersion.GetDisplayVersion(typeof(Program).Assembly));
+        }
+        catch
+        {
+            // The optional feedback log must never prevent startup.
+        }
         AppDomain.CurrentDomain.UnhandledException += (_, e) =>
             WriteCrashLog("UnhandledException", e.ExceptionObject as Exception);
         TaskScheduler.UnobservedTaskException += (_, e) =>
@@ -84,11 +97,46 @@ internal static class Program
     public static AppBuilder BuildAvaloniaApp() =>
         AppBuilder.Configure(() => new Kkindle.App(BuildServices()) { Name = "Kkindle" })
             .UsePlatformDetect()
+            // Avalonia's Metal pipeline fails to build on the NVIDIA driver used
+            // by this Hackintosh ("The GPU was lost"), which leaves the window
+            // blank. Real Macs keep GPU rendering; KKINDLE_MACOS_RENDERER can
+            // force metal, opengl or software explicitly.
+            .With(new AvaloniaNativePlatformOptions
+            {
+                RenderingMode = ResolveRenderingModes()
+            })
             .WithInterFont()
             .LogToTrace()
             // Activation requests from a second launch may arrive before the
             // UI thread exists; they wait for this signal before dispatching.
             .AfterSetup(_ => MacOSInstanceActivationServer.SignalUiReady());
+
+    private static IReadOnlyList<AvaloniaNativeRenderingMode> ResolveRenderingModes()
+    {
+        switch (Environment.GetEnvironmentVariable("KKINDLE_MACOS_RENDERER")?.Trim().ToLowerInvariant())
+        {
+            case "metal":
+                return [AvaloniaNativeRenderingMode.Metal, AvaloniaNativeRenderingMode.Software];
+            case "opengl" or "gl":
+                return [AvaloniaNativeRenderingMode.OpenGl, AvaloniaNativeRenderingMode.Software];
+            case "software":
+                return [AvaloniaNativeRenderingMode.Software];
+        }
+
+        var deviceName = MacOSGraphicsInfo.TryGetMetalDeviceName();
+        if (deviceName is not null
+            && deviceName.Contains("NVIDIA", StringComparison.OrdinalIgnoreCase))
+        {
+            return [AvaloniaNativeRenderingMode.Software];
+        }
+
+        return
+        [
+            AvaloniaNativeRenderingMode.Metal,
+            AvaloniaNativeRenderingMode.OpenGl,
+            AvaloniaNativeRenderingMode.Software
+        ];
+    }
 
     private static AppServices BuildServices()
     {
@@ -102,11 +150,9 @@ internal static class Program
         // Newer Kindles only expose MTP, which macOS cannot mount; libmtp
         // provides the same access path calibre uses on this platform.
         var mtp = new MtpKindleDeviceService(paths, metadata);
-        // Read-aloud uses the same Microsoft Edge TTS service as the Windows
-        // and Linux heads. The Python dependency is installed into Kkindle's
-        // own data directory on first use; playback uses the system AVFoundation.
-        var ttsEngine = new EdgeTtsEngine(
-            executablePath: TtsRuntimePaths.PreferredEdgeTtsPath(paths));
+        // Read-aloud uses installed system voices plus any explicitly
+        // downloaded offline voice packs; nothing leaves the device.
+        var ttsEngine = new LocalTtsEngine(paths);
         var ttsPlayer = new MacOSTtsAudioPlayer();
         return new AppServices(
             SecretProtector: new MacOSSecretProtector(),
@@ -121,10 +167,6 @@ internal static class Program
             UpdateInstaller: new MacOSAppUpdateInstaller(),
             TtsEngine: ttsEngine,
             TtsAudioPlayer: ttsPlayer,
-            TtsEnvironmentSetup: new TtsEnvironmentSetupService(
-                paths,
-                ttsEngine,
-                ttsPlayer),
             Paths: paths,
             RootConfigurationDirectory: configurationDirectory);
     }
@@ -157,6 +199,7 @@ internal static class Program
 
     private static void WriteCrashLog(string kind, Exception? exception)
     {
+        SoftwareLog.ErrorWithoutMessage("app.unhandled.process", exception, ("kind", kind));
         var payload = $"[{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss}] {kind}{Environment.NewLine}{exception}{Environment.NewLine}{Environment.NewLine}";
         var targets = new List<string>();
         // Never write inside Kkindle.app: an extra file in the sealed

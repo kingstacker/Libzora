@@ -129,6 +129,15 @@ public sealed record ReaderLayoutSettings(
     /// <summary>Keep consecutive paragraph lines at the normal line pitch.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public bool ParagraphSpacingMatchesLineHeight { get; init; }
+    /// <summary>Use the reader's body line height instead of publisher CSS.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool OverridePublisherLineHeight { get; init; }
+    /// <summary>Use the reader's paragraph gap instead of adjacent paragraph CSS margins.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool OverridePublisherParagraphSpacing { get; init; }
+    /// <summary>Keep at least two lines together at paragraph page boundaries.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool AvoidWidowsAndOrphans { get; init; } = true;
 }
 
 /// <summary>

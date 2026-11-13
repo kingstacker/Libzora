@@ -155,4 +155,7 @@ public static class AccountValidation
 [JsonSerializable(typeof(PurchaseOrder[]))]
 [JsonSerializable(typeof(ActivationCodeRedeemRequest))]
 [JsonSerializable(typeof(ActivationCodeRedemption))]
+[JsonSerializable(typeof(FeedbackReceipt))]
+[JsonSerializable(typeof(FeedbackItem))]
+[JsonSerializable(typeof(FeedbackItem[]))]
 public partial class AccountJsonContext : JsonSerializerContext;

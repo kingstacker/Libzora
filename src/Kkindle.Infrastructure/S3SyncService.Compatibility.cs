@@ -1,4 +1,5 @@
 using Kkindle.Core;
+using System.Globalization;
 using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -119,9 +120,29 @@ public sealed partial class S3SyncService
             {
                 var clockKey = prefix + name;
                 var fieldVersion = sourceData?.ExtensionDataVersions?.TryGetValue(clockKey, out var stored) == true ? stored : version;
-                if (targetData?.ExtensionDataVersions?.TryGetValue(clockKey, out var current) == true
+                var hasDestination = destination.TryGetValue(name, out var existing);
+                DateTimeOffset current = default;
+                var hasCurrent = targetData?.ExtensionDataVersions?.TryGetValue(clockKey, out current) == true;
+
+                // A future client may add a new collection (for example
+                // per-device listening time) as an opaque array. Merging the
+                // array by row ID keeps rows learned from every device even
+                // when an older client republishes the snapshot.
+                if (hasDestination
+                    && TryMergeVersionedArrays(existing, value, out var mergedArray))
+                {
+                    destination[name] = mergedArray;
+                    if (targetData is not null)
+                    {
+                        targetData.ExtensionDataVersions![clockKey] =
+                            hasCurrent ? Max(current, fieldVersion) : fieldVersion;
+                    }
+                    continue;
+                }
+
+                if (hasCurrent
                     && (current > fieldVersion || current == fieldVersion
-                        && destination.TryGetValue(name, out var existing)
+                        && hasDestination
                         && string.CompareOrdinal(existing.GetRawText(), value.GetRawText()) >= 0)) continue;
                 destination[name] = value.Clone();
                 if (targetData is not null) targetData.ExtensionDataVersions![clockKey] = fieldVersion;
@@ -137,6 +158,108 @@ public sealed partial class S3SyncService
     private static PropertyInfo? ExtensionProperty(Type type) => ExtensionProperties.GetOrAdd(type,
         static value => value.GetProperties().Where(property =>
             property.GetCustomAttribute<JsonExtensionDataAttribute>() is not null).ToArray()).FirstOrDefault();
+
+    private readonly record struct OpaqueRow(string Key, DateTimeOffset Version, JsonElement Row);
+
+    /// <summary>
+    /// Opaque arrays are merged row-wise when each row has a stable ID/key and
+    /// a timestamp. This is what lets an older client preserve a newer
+    /// client's additive collection (listening seconds, device counters, ...)
+    /// instead of replacing the whole array with the older copy.
+    /// </summary>
+    private static bool TryMergeVersionedArrays(
+        JsonElement existing,
+        JsonElement incoming,
+        out JsonElement merged)
+    {
+        merged = default;
+        if (existing.ValueKind != JsonValueKind.Array || incoming.ValueKind != JsonValueKind.Array)
+            return false;
+        if (!TryReadOpaqueRows(existing, out var rows) || !TryReadOpaqueRows(incoming, out var sourceRows))
+            return false;
+
+        foreach (var (key, source) in sourceRows)
+        {
+            if (!rows.TryGetValue(key, out var current)
+                || source.Version > current.Version
+                || source.Version == current.Version
+                && string.CompareOrdinal(source.Row.GetRawText(), current.Row.GetRawText()) > 0)
+            {
+                rows[key] = source;
+            }
+        }
+
+        merged = JsonSerializer.SerializeToElement(rows.Values
+            .OrderBy(row => row.Key, StringComparer.Ordinal)
+            .Select(row => row.Row)
+            .ToArray());
+        return true;
+    }
+
+    private static bool TryReadOpaqueRows(
+        JsonElement array,
+        out Dictionary<string, OpaqueRow> rows)
+    {
+        rows = new Dictionary<string, OpaqueRow>(StringComparer.OrdinalIgnoreCase);
+        foreach (var element in array.EnumerateArray())
+        {
+            if (element.ValueKind != JsonValueKind.Object
+                || !TryReadOpaqueRowKey(element, out var key)
+                || !TryReadOpaqueRowVersion(element, out var version))
+                return false;
+            rows[key] = new OpaqueRow(key, version, element.Clone());
+        }
+        return true;
+    }
+
+    private static bool TryReadOpaqueRowKey(JsonElement row, out string key)
+    {
+        key = string.Empty;
+        if (!TryGetJsonProperty(row, "id", out var value)
+            && !TryGetJsonProperty(row, "key", out value))
+            return false;
+        switch (value.ValueKind)
+        {
+            case JsonValueKind.String:
+                key = value.GetString() ?? string.Empty;
+                break;
+            case JsonValueKind.Number:
+                key = value.GetRawText();
+                break;
+            default:
+                return false;
+        }
+        return key.Length > 0;
+    }
+
+    private static bool TryReadOpaqueRowVersion(JsonElement row, out DateTimeOffset version)
+    {
+        version = DateTimeOffset.MinValue;
+        var found = false;
+        foreach (var name in new[] { "updatedAt", "modifiedAt", "deletedAt", "createdAt" })
+        {
+            if (!TryGetJsonProperty(row, name, out var value)
+                || value.ValueKind != JsonValueKind.String
+                || !DateTimeOffset.TryParse(value.GetString(), CultureInfo.InvariantCulture,
+                    DateTimeStyles.RoundtripKind, out var parsed))
+                continue;
+            if (!found || parsed > version) version = parsed;
+            found = true;
+        }
+        return found;
+    }
+
+    private static bool TryGetJsonProperty(JsonElement element, string name, out JsonElement value)
+    {
+        foreach (var property in element.EnumerateObject())
+        {
+            if (!string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase)) continue;
+            value = property.Value;
+            return true;
+        }
+        value = default;
+        return false;
+    }
 
     private static bool HasForwardCompatibleData(S3SyncSnapshot snapshot)
     {

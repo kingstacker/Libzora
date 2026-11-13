@@ -1794,6 +1794,84 @@ public sealed class KkindleLayoutEngineTests : IDisposable
             "expected a mixed line to widen its inter-character gaps");
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void DensePaginationUsesAvailableLineWithoutLosingParagraphText(bool avoidWidows, bool newParagraph)
+    {
+        var html = newParagraph
+            ? "<p>甲<br/>乙<br/>丙</p><p>丁<br/>戊</p>"
+            : "<p>甲<br/>乙<br/>丙<br/>丁<br/>戊</p>";
+        var chapter = new XhtmlChapterLoader().Load(WriteChapter(html));
+        using var engine = CreateEngine();
+        var layout = engine.Compose(chapter, new TypesetLayoutOptions
+        {
+            BaseFontSize = 17f, LineHeight = 1.75f,
+            ViewportWidth = 400f, ViewportHeight = 160f, InsetHorizontal = 16f, InsetVertical = 16f,
+            OverridePublisherLineHeight = true, OverridePublisherParagraphSpacing = true,
+            ParagraphSpacingEm = 0.5f, AvoidWidowsAndOrphans = avoidWidows
+        });
+        Assert.Equal(2, layout.Pages.Count);
+        Assert.Equal(avoidWidows ? 1 : 0, layout.GetPageIndexOfOffset(chapter.BodyText.IndexOf('丁')));
+        Assert.Equal(1, layout.GetPageIndexOfOffset(chapter.BodyText.IndexOf('戊')));
+        var offsets = layout.Pages.SelectMany(page => page.Runs)
+            .Where(run => run.TextStart >= 0 && run.TextLength > 0)
+            .SelectMany(run => Enumerable.Range(run.TextStart, run.TextLength)).ToArray();
+        Assert.Equal(offsets.Length, offsets.Distinct().Count());
+        foreach (var character in "甲乙丙丁戊")
+            Assert.Contains(chapter.BodyText.IndexOf(character), offsets);
+    }
+
+    [Theory]
+    [InlineData(1.5f)]
+    [InlineData(1.75f)]
+    [InlineData(2.1f)]
+    public void ReaderLineHeightOverridesPublisherBodyLineHeight(float height)
+    {
+        var text = string.Concat(Enumerable.Repeat("这是一段用来测量行距的文字。", 24));
+        var chapter = new XhtmlChapterLoader().Load(WriteChapter($"<p style=\"line-height:2.5\">{text}</p>"));
+        using var engine = CreateEngine();
+        var layout = engine.Compose(chapter, new TypesetLayoutOptions
+        {
+            BaseFontSize = 17f, LineHeight = height, OverridePublisherLineHeight = true,
+            ViewportWidth = 400f, ViewportHeight = 900f
+        });
+        var baselines = layout.Pages[0].Runs.Select(run => run.OriginY).Distinct().Order().ToArray();
+        Assert.True(baselines.Length > 2);
+        Assert.InRange(Math.Abs(baselines[1] - baselines[0] - 17f * height), 0, 0.05f);
+    }
+
+    [Theory]
+    [InlineData(TypesetWritingMode.HorizontalTb)]
+    [InlineData(TypesetWritingMode.VerticalRl)]
+    public void ReaderParagraphSpacingReplacesPublisherMarginsAndDoesNotChangeLinePitch(TypesetWritingMode mode)
+    {
+        var chapter = new XhtmlChapterLoader().Load(WriteChapter(
+            "<p style=\"margin-top:2em;margin-bottom:3em;line-height:2.5\">第一行<br/>第二行</p>" +
+            "<p style=\"margin-top:2em;margin-bottom:3em;line-height:2.5\">下一段</p>"));
+        using var engine = CreateEngine();
+        foreach (var spacing in new[] { 0f, 0.5f, 1f })
+        {
+            var options = new TypesetLayoutOptions
+            {
+                WritingMode = mode, BaseFontSize = 17f, LineHeight = 1.75f,
+                OverridePublisherLineHeight = true, OverridePublisherParagraphSpacing = true,
+                ParagraphSpacingEm = spacing, ParagraphSpacingMatchesLineHeight = spacing == 0,
+                ViewportWidth = 800f, ViewportHeight = 900f
+            };
+            var layout = engine.Compose(chapter, options);
+            var page = Assert.Single(layout.Pages);
+            var positions = page.Runs.Select(run => mode == TypesetWritingMode.HorizontalTb ? run.OriginY : -run.OriginX)
+                .Distinct().Order().ToArray();
+            Assert.Equal(3, positions.Length);
+            var linePitch = positions[1] - positions[0];
+            Assert.InRange(Math.Abs(linePitch - options.BodyLineHeight), 0, 0.05f);
+            Assert.InRange(Math.Abs(positions[2] - positions[1] - linePitch - spacing * 17f), 0, 0.05f);
+        }
+    }
+
     [Fact]
     public void PublisherLineHeightControlsBaselinePitch()
     {

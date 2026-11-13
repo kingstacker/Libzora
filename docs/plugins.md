@@ -384,17 +384,16 @@ const result = await kkindle.ui.readText();   // { text } 或 null
 
 ### 书籍翻译与注音
 
-整本书的翻译和注音由宿主引擎完成；插件负责收集选项、展示进度和结果。翻译沿用应用设置里的 AI 服务、免费翻译服务和网络开关，插件不需要保存 API Key。选择 AI 翻译时，如果应用里还没有配置好 AI 服务，会在开始前直接报错，不会等到扫描完书稿才失败。
+整本书的翻译和注音由宿主引擎完成；插件负责收集选项、展示进度和结果。翻译只使用应用设置里的模型服务，支持本机模型，插件不接触 API Key。Google／Bing 网页免费接口已停用，传入旧 provider 会直接报错，不会发送请求或切换服务。未配置好模型时会在开始前报错。本机回环模型可免 API Key 并在关闭外网功能时使用；远程服务需要 API Key。每次整书翻译前，宿主会提示接收地址、费用及译本版权边界，取消不会发送正文。
 
 ```js
 const result = await kkindle.library.translateBook(bookId, {
-  provider: "ai",             // ai / bing / google
+  provider: "ai",             // 仅支持配置的模型服务（含本机模型）
   sourceLanguage: "auto",     // 见 TranslationLanguageCatalog
   targetLanguage: "zh-CN",
   translated: true,           // 生成单译版
   bilingual: false,           // 生成双语对照版
   aiRequestsPerMinute: 0,     // 0 表示不限制
-  googleProxyAddress: "",
   resume: true                // 有缓存时继续
 });
 // { outputCount, added, skipped, failed, characters, segments, outputs } 或 { cancelled: true }

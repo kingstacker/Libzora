@@ -65,6 +65,24 @@ public partial class MainWindow
         }
     }
 
+    private void UpdateLocalTtsOnboardingTexts()
+    {
+        if (_readerTts.EngineId != LocalSystemTtsEngine.ProviderId) return;
+        var english = UiText.IsEnglish;
+        var values = new Dictionary<string, string>
+        {
+            ["TtsPrompt"] = english ? "Enable read-aloud (local system voices)" : "启用听书（系统本地语音）",
+            ["TtsHelp"] = english ? "Uses installed voices offline; book text stays on this device" : "使用已安装的系统语音，离线朗读，正文不上传",
+            ["TtsYes"] = english ? "Yes, check local voices" : "是，检查本地语音",
+            ["TtsNo"] = english ? "Not now" : "暂不检查",
+            ["TtsSkipped"] = english ? "Local voices can be checked when you open read-aloud" : "打开听书时可检查本地语音",
+            ["TtsDone"] = english ? "Local voices are ready" : "本地语音已就绪",
+            ["TtsFailed"] = english ? "Check system speech settings, then retry: {0}" : "请检查系统语音设置后重试：{0}",
+            ["TtsInstallLater"] = english ? "Install missing voices in system settings before using read-aloud" : "缺少语音时，请先在系统设置中安装所需语音"
+        };
+        foreach (var (key, value) in values) Resources["Ui.Onboarding." + key] = value;
+    }
+
     private async Task<bool> InstallOnboardingTtsAsync()
     {
         if (_onboardingInstallingTts || _onboardingInstallingCalibre || _calibreSetupBusy)
@@ -246,6 +264,7 @@ public partial class MainWindow
 
     private void UpdateOnboardingLanguageLabels()
     {
+        UpdateLocalTtsOnboardingTexts();
         if (OnboardingLanguageBox.Items.Count < 2) return;
         if (OnboardingLanguageBox.Items[0] is ComboBoxItem chineseItem)
             chineseItem.Content = "简体中文";
@@ -323,8 +342,10 @@ public partial class MainWindow
         ? value
         : null;
 
-    private static string GetOnboardingResource(string key, string fallback)
+    private string GetOnboardingResource(string key, string fallback)
     {
+        if (Resources.TryGetResource(key, ActualThemeVariant, out var localValue) && localValue is not null)
+            return localValue.ToString() ?? fallback;
         if (Application.Current?.TryGetResource(
                 key,
                 Application.Current.ActualThemeVariant,

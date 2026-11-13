@@ -35,8 +35,13 @@ internal sealed partial class IOSNativeFrontend
                 var text = Text(args, "text");
                 var chinese = text.Count(character => character is >= '一' and <= '鿿');
                 var ai = await _shell.Modules.Ai.Settings.LoadAsync(session.Token);
+                if (!ai.IsConfigured) throw new InvalidOperationException("请先配置模型服务地址和模型；远程服务还需要 API Key。");
+                if (!ai.IsLocalEndpoint && !await ConfirmAsync("发送文本进行翻译",
+                    $"所选正文将发送至 {ai.Destination} 进行翻译，可能产生服务费用。请勿发送无权提供的个人信息或保密内容。", "同意并翻译"))
+                    return Data(("text", "已取消翻译"));
+                session.Token.ThrowIfCancellationRequested();
                 var translated = await _shell.Modules.Ai.Translation.TranslateAsync(text,
-                    ai.IsConfigured ? ReaderTranslationProvider.Ai : ReaderTranslationProvider.Bing,
+                    ReaderTranslationProvider.Ai,
                     chinese * 3 > text.Length ? "en" : "zh-CN", ai, session.Token);
                 return Data(("text", translated));
             }
@@ -59,6 +64,8 @@ internal sealed partial class IOSNativeFrontend
                 case "reader.search": return await reader.NativeSearchAsync(Text(args, "query"), session.Token);
                 case "reader.searchJump": await reader.NativeJumpToSearchAsync(Number(args, "id")); break;
                 case "reader.speech": await reader.NativeToggleSpeechAsync(); break;
+                case "reader.selectionSpeech": await reader.NativeSpeakSelectionAsync(); break;
+                case "reader.showChrome": reader.SetChromeVisible(true); break;
                 case "reader.speechPause": reader.NativePauseSpeech(); break;
                 case "reader.speechStop": await reader.NativeStopSpeechAsync(); break;
                 case "reader.clearSelection": reader.NativeClearSelection(); break;

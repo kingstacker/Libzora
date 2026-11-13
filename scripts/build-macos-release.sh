@@ -52,6 +52,15 @@ app_macos="$app_root/Contents/MacOS"
 mtp_source_bundle="$app_root/Contents/Resources/CorrespondingSource/MTP"
 mkdir -p "$app_macos" "$app_root/Contents/Resources" "$mtp_source_bundle"
 
+# WidgetKit extensions are architecture-independent here: the same universal
+# .appex serves both payloads. The bridge dylib is copied next to each payload
+# executable so the managed app can request an immediate timeline reload.
+widget_build="$work_root/widgets"
+zsh "$repo_root/src/Kkindle.Widgets/build-macos-widgets.sh" "x86_64 arm64" \
+  "$widget_build" "$short_version" "$build_version"
+mkdir -p "$app_root/Contents/PlugIns"
+cp -a "$widget_build/KkindleWidgets.appex" "$app_root/Contents/PlugIns/"
+
 for payload_rid in "${payload_rids[@]}"; do
   arch="$(payload_arch "$payload_rid")"
   if (( universal )); then
@@ -67,6 +76,7 @@ for payload_rid in "${payload_rids[@]}"; do
     -p:Version="$version" -p:PublishSingleFile=false \
     -o "$publish_root"
   cp -a "$publish_root/." "$payload_dir/"
+  cp "$widget_build/libKkindleWidgetBridge.dylib" "$payload_dir/"
 
   # The MCP server is a separate executable. Ship a self-contained build in
   # the payload's mcp directory, the location Settings > MCP probes.
@@ -165,8 +175,12 @@ fi
 
 cp "$repo_root/LICENSE" "$app_root/Contents/Resources/LICENSE"
 cp "$repo_root/THIRD-PARTY-NOTICES.md" "$app_root/Contents/Resources/THIRD-PARTY-NOTICES.md"
-# Keep the notice index's relative links readable from Resources as well as
-# from each executable payload. These directories contain license materials.
+# Keep the notice index's relative links readable from Resources. A per-payload
+# copy would also work at runtime, but `codesign --deep` treats everything under
+# Contents/MacOS as nested code and mistakes dotted package folders such as
+# `packages/Microsoft.Extensions.DependencyInjection.Abstractions` for bundles.
+# Ship one pristine copy in Resources and remove the payload duplicates before
+# signing.
 notice_payload="$app_macos"
 if (( universal )); then
   notice_payload="$app_macos/$(payload_arch "${payload_rids[0]}")"
@@ -176,6 +190,16 @@ mkdir -p "$app_root/Contents/Resources/ThirdParty" \
 cp -a "$notice_payload/ThirdParty/." "$app_root/Contents/Resources/ThirdParty/"
 cp "$notice_payload/Assets/Fonts/"*-LICENSE.txt "$app_root/Contents/Resources/Assets/Fonts/"
 cp "$notice_payload/Assets/Icons/Lucide-LICENSE.txt" "$app_root/Contents/Resources/Assets/Icons/"
+for payload_rid in "${payload_rids[@]}"; do
+  arch="$(payload_arch "$payload_rid")"
+  if (( universal )); then
+    payload_dir="$app_macos/$arch"
+  else
+    payload_dir="$app_macos"
+  fi
+  find "$payload_dir" -type d -name ThirdParty -prune -exec rm -rf {} +
+  find "$payload_dir" -type f \( -name LICENSE -o -name THIRD-PARTY-NOTICES.md \) -exec rm -f {} +
+done
 cp "$repo_root/src/Kkindle.App/Assets/Icons/Kkindle.ico" "$app_root/Contents/Resources/Kkindle.ico"
 
 # Compile the layered Icon Composer artwork for Liquid Glass appearances and
@@ -328,13 +352,24 @@ sign_args=(--force)
 if [[ "$signing_identity" != "-" ]]; then
   sign_args+=(--options runtime --timestamp)
 fi
+# Sign the widget extension as its own bundle with the App Group entitlement.
+# The outer app signature then seals the plugin; signing its executable again
+# in the loop below would break the nested CodeResources.
+widget_appex="$app_root/Contents/PlugIns/KkindleWidgets.appex"
+codesign "${sign_args[@]}" \
+  --entitlements "$repo_root/src/Kkindle.Widgets/KkindleWidgets.macOS.entitlements" \
+  --sign "$signing_identity" "$widget_appex"
 while IFS= read -r -d '' binary; do
   [[ "$binary" == "$app_macos/Kkindle" ]] && continue
-  # Original notices and corresponding source are data resources. The outer
-  # bundle signature seals them; signing them individually would add needless
-  # signature metadata to the originals and source archives.
   case "$binary" in
-    */ThirdParty/*|*/CorrespondingSource/*|*/LICENSE|*/THIRD-PARTY-NOTICES.md|*/Assets/Fonts/*-LICENSE.txt|*/Assets/Icons/*-LICENSE.txt) continue ;;
+    "$widget_appex"/*) continue ;;
+  esac
+  # Files under Contents/Resources are sealed by the outer bundle signature;
+  # `codesign --deep` does not require individual signatures for them.
+  # Everything under Contents/MacOS is treated as nested code and must be
+  # signed.
+  case "$binary" in
+    "$app_root/Contents/Resources/"*) continue ;;
   esac
   file_type="$(file -b "$binary")"
   if [[ "$file_type" == *Mach-O* ]]; then

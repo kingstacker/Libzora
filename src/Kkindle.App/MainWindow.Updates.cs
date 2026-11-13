@@ -218,6 +218,7 @@ public partial class MainWindow
         }
         catch (Exception exception)
         {
+            SoftwareLog.ErrorWithoutMessage("update.check", exception);
             AboutUpdateStatusText.Text = T("检查更新失败：{0}", UiText.Localize(exception.Message));
             if (userInitiated)
                 await ShowMessageAsync(T("更新失败"), UiText.Localize(exception.Message));
@@ -449,6 +450,7 @@ public partial class MainWindow
             }
             catch (Exception exception)
             {
+                SoftwareLog.ErrorWithoutMessage("update.install", exception);
                 _allowWindowCloseForPendingUpdate = false;
                 AboutUpdateStatusText.Text = T("安装未启动，更新包已保留，可点击更新按钮重试");
                 await ShowMessageAsync(T("更新失败"), T("{0}\n\n更新包已保留，可重试安装。安装日志：{1}", UiText.Localize(exception.Message), packagePath + ".install.log"));

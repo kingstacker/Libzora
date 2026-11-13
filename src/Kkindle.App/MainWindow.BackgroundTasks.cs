@@ -355,21 +355,18 @@ public partial class MainWindow
             var menuButton = _taskHistoryMenuButton;
             menuButton.Click += (_, _) => menu.ShowAt(menuButton);
 
-            var clockIcon = CreateTaskHistoryIcon("M 8,2 A 6,6 0 1 1 7.99,2 M 8,4 L 8,8 L 11,10", 16);
-            clockIcon.Stroke = AppAppearanceResources.GetBrush("InkBrush");
             var header = new Grid
             {
-                ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"),
+                ColumnDefinitions = new ColumnDefinitions("*,Auto"),
                 ColumnSpacing = 8,
                 Children =
                 {
-                    clockIcon,
                     titleGroup,
                     _taskHistoryMenuButton
                 }
             };
-            Grid.SetColumn(titleGroup, 1);
-            Grid.SetColumn(_taskHistoryMenuButton, 2);
+            Grid.SetColumn(titleGroup, 0);
+            Grid.SetColumn(_taskHistoryMenuButton, 1);
             var content = new StackPanel
             {
                 Spacing = 0,
@@ -684,7 +681,7 @@ public partial class MainWindow
         return icon;
     }
 
-    private static Avalonia.Controls.Shapes.Path CreateTaskHistoryIcon(string geometry, double size = 12) => new()
+    private static Avalonia.Controls.Shapes.Path CreateTaskHistoryIcon(string geometry, double size = 14) => new()
     {
         Width = size, Height = size, Stretch = Avalonia.Media.Stretch.Uniform,
         Data = Avalonia.Media.Geometry.Parse(geometry),

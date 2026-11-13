@@ -42,6 +42,12 @@ public partial class ReaderSettingsSheet : UserControl
         AnimationFade.Classes.Set("on", current.ReaderPageAnimation == MobilePageAnimation.Fade);
         AnimationSlide.Classes.Set("on", current.ReaderPageAnimation == MobilePageAnimation.Slide);
         AnimationWave.Classes.Set("on", current.ReaderPageAnimation == MobilePageAnimation.Wave);
+        ProgressPages.Classes.Set("on", current.ReaderProgressDisplay == MobileReaderProgressDisplay.Pages);
+        ProgressChapters.Classes.Set("on", current.ReaderProgressDisplay == MobileReaderProgressDisplay.Chapters);
+        ProgressChapterTime.Classes.Set("on", current.ReaderProgressDisplay == MobileReaderProgressDisplay.ChapterTimeRemaining);
+        ProgressBookTime.Classes.Set("on", current.ReaderProgressDisplay == MobileReaderProgressDisplay.BookTimeRemaining);
+        ProgressTimeHint.IsVisible = current.ReaderProgressDisplay is MobileReaderProgressDisplay.ChapterTimeRemaining
+            or MobileReaderProgressDisplay.BookTimeRemaining;
         ZoomPage.Classes.Set("on", current.PdfZoom <= 1);
         ZoomMedium.Classes.Set("on", current.PdfZoom is > 1 and < 2);
         ZoomLarge.Classes.Set("on", current.PdfZoom >= 2);
@@ -118,6 +124,18 @@ public partial class ReaderSettingsSheet : UserControl
             _ => MobilePageAnimation.Fade
         };
         Change(value => value with { ReaderPageAnimation = animation });
+    }
+
+    private void OnProgressClick(object? sender, RoutedEventArgs e)
+    {
+        var display = sender switch
+        {
+            Button { Name: nameof(ProgressChapters) } => MobileReaderProgressDisplay.Chapters,
+            Button { Name: nameof(ProgressChapterTime) } => MobileReaderProgressDisplay.ChapterTimeRemaining,
+            Button { Name: nameof(ProgressBookTime) } => MobileReaderProgressDisplay.BookTimeRemaining,
+            _ => MobileReaderProgressDisplay.Pages
+        };
+        Change(value => value with { ReaderProgressDisplay = display });
     }
 
     private void OnDirectionClick(object? sender, RoutedEventArgs e)

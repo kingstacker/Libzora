@@ -10,22 +10,18 @@ namespace Kkindle;
 public partial class MainWindow
 {
     private string _readerTranslationTargetLanguage = "zh-CN";
-    private ReaderTranslationProvider _readerTranslationProvider = ReaderTranslationProvider.Google;
+    private ReaderTranslationProvider _readerTranslationProvider = ReaderTranslationProvider.Ai;
     private string _readerTranslationSource = string.Empty;
     private int _readerTranslationRequestSequence;
     private CancellationTokenSource? _readerTranslationCancellation;
     private bool _readerTranslationBusy;
+    private string? _approvedTranslationDestination;
     private bool _suppressReaderTranslationPopupClosed;
 
     private async void ReaderSelectionTranslationButton_Click(object? sender, RoutedEventArgs e)
     {
         var settings = BookTranslationSettings.Normalize(_appSettings.Translation);
-        _readerTranslationProvider = settings.Provider switch
-        {
-            BookTranslationProvider.BingFree => ReaderTranslationProvider.Bing,
-            BookTranslationProvider.GoogleFree => ReaderTranslationProvider.Google,
-            _ => ReaderTranslationProvider.Ai
-        };
+        _readerTranslationProvider = ReaderTranslationProvider.Ai;
         _readerTranslationTargetLanguage = TranslationLanguageCatalog.NormalizeTarget(settings.TargetLanguage);
         await TranslateReaderSelectionAsync(
             _readerTranslationProvider,
@@ -38,6 +34,7 @@ public partial class MainWindow
         int aiRequestsPerMinute,
         string googleProxyAddress)
     {
+        var translationAi = _readerAiSettings.Clone();
         var source = (_readerPendingSelection ?? string.Empty).Trim();
         if (source.Length == 0) return;
         if (_readerIsPdf)
@@ -61,7 +58,13 @@ public partial class MainWindow
         ReaderTranslationAnnotateButton.IsEnabled = false;
         ShowReaderTranslationPopup();
 
-        if (!_appSettings.NetworkEnabled)
+        if (provider != ReaderTranslationProvider.Ai)
+        {
+            ReaderTranslationStatusText.Text = T("网页免费翻译已停用，请配置模型翻译服务或本地模型。");
+            return;
+        }
+
+        if (!_appSettings.NetworkEnabled && !translationAi.IsLocalEndpoint)
         {
             ReaderTranslationStatusText.Text = T("网络访问已关闭，无法使用翻译。");
             return;
@@ -75,11 +78,25 @@ public partial class MainWindow
                 return;
             }
 
-            if (!_readerAiSettings.IsConfigured)
+            if (!translationAi.IsConfigured)
             {
-                ReaderTranslationStatusText.Text = T("AI 翻译需要先配置 AI 服务、模型和 API Key。");
+                ReaderTranslationStatusText.Text = T("请先配置模型服务地址和模型；远程服务还需要 API Key。");
                 return;
             }
+        }
+
+        if (!translationAi.IsLocalEndpoint && _approvedTranslationDestination != translationAi.Destination)
+        {
+            var destination = translationAi.Destination;
+            HideReaderTranslationPopup(clearSelection: false);
+            var approvalSequence = _readerTranslationRequestSequence;
+            var approvalToken = ReaderToken;
+            var approved = await ConfirmAsync(T("发送文本进行翻译"),
+                T("所选正文将发送至 {0} 进行翻译，可能产生服务费用。请勿发送无权提供的个人信息或保密内容。继续吗？", destination),
+                T("同意并翻译"), allowDiagnosticAutoConfirm: false, cancelText: T("取消"));
+            if (!approved || approvalToken.IsCancellationRequested || approvalSequence != _readerTranslationRequestSequence) return;
+            _approvedTranslationDestination = destination;
+            ShowReaderTranslationPopup();
         }
 
         _readerTranslationBusy = true;
@@ -93,7 +110,7 @@ public partial class MainWindow
                 source,
                 provider,
                 _readerTranslationTargetLanguage,
-                provider == ReaderTranslationProvider.Ai ? _readerAiSettings : null,
+                provider == ReaderTranslationProvider.Ai ? translationAi : null,
                 cancellation.Token,
                 aiRequestsPerMinute,
                 googleProxyAddress);
@@ -231,8 +248,8 @@ public partial class MainWindow
 
     private string GetReaderTranslationProviderLabel(ReaderTranslationProvider provider) => provider switch
     {
-        ReaderTranslationProvider.Google => T("Google 翻译"),
-        ReaderTranslationProvider.Bing => T("必应翻译（免费）"),
+        ReaderTranslationProvider.Google => T("已停用的网页翻译"),
+        ReaderTranslationProvider.Bing => T("已停用的网页翻译"),
         ReaderTranslationProvider.Ai => T("AI 翻译"),
         _ => T("翻译")
     };

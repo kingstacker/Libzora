@@ -160,6 +160,7 @@ public partial class MainWindow
         catch (Exception exception)
         {
             if (sessionToken.IsCancellationRequested) return;
+            SoftwareLog.ErrorWithoutMessage("reader.open", exception, ("format", "epub"));
             await CloseReaderAsync();
             SetTaskStatus(T("打开 EPUB 阅读器失败：{0}", UiText.Localize(exception.Message)));
             await ShowMessageAsync(T("无法打开书籍"), UiText.Localize(exception.Message));
@@ -1013,6 +1014,7 @@ public partial class MainWindow
         ReleaseReaderHosts();
         ReaderRoot.IsVisible = false;
         LibraryRoot.IsVisible = true;
+        ScheduleAmbientRefresh();
         WindowBrandText.IsVisible = false;
         ReaderLayoutSettingsPopup.IsOpen = false;
         ReaderInPageSearchBar.IsVisible = false;

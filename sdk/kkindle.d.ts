@@ -155,13 +155,12 @@ declare global {
     }
 
     interface TranslateOptions {
-      provider?: "ai" | "bing" | "google";
+      provider?: "ai"; // Configured model API, including loopback models.
       sourceLanguage?: string;
       targetLanguage?: string;
       translated?: boolean;
       bilingual?: boolean;
       aiRequestsPerMinute?: number;
-      googleProxyAddress?: string;
       resume?: boolean;
     }
 

@@ -16,7 +16,7 @@ internal sealed class TranslationTestBook : IDisposable
     public string CachePath => Path.Combine(Output, ".kkindle-translation-cache.jsonl");
     public static BookTranslationSettings Settings => new()
     {
-        Provider = BookTranslationProvider.GoogleFree,
+        Provider = BookTranslationProvider.Ai,
         SourceLanguage = "en", TargetLanguage = "zh-CN",
         OutputMode = BookTranslationOutputMode.Translated
     };
@@ -24,6 +24,7 @@ internal sealed class TranslationTestBook : IDisposable
     public TranslationTestBook(string body, string? ncxTitle = null, bool hasLanguage = true)
     {
         Source = Create("source.epub", body, ncxTitle, hasLanguage);
+        ConfigureModel(Paths);
     }
 
     public string Create(string name, string body, string? ncxTitle = null, bool hasLanguage = true)
@@ -51,6 +52,12 @@ internal sealed class TranslationTestBook : IDisposable
         return path;
     }
 
+    internal static void ConfigureModel(AppPaths paths) =>
+        new AiSettingsStore(paths, new TestHelpers.PlaintextSecretProtector()).SaveAsync(new AiConnectionSettings
+        {
+            Provider = "custom", BaseUrl = "http://127.0.0.1:11434/v1", Model = "old-model"
+        }).GetAwaiter().GetResult();
+
     public EpubTranslationService Service(HttpMessageHandler? handler = null, AiChatClient? ai = null) =>
         new(Paths, new TestHelpers.PlaintextSecretProtector(), ai, handler);
 
@@ -64,20 +71,18 @@ internal sealed class TranslationTestBook : IDisposable
     public static XElement Body(string path) => ReadXml(path).Descendants().Single(element => element.Name.LocalName == "body");
     public void Dispose() => TestHelpers.TryDelete(Root);
 
-    internal sealed class GoogleHandler(Func<string, string> reply) : HttpMessageHandler
+    internal sealed class ModelHandler(Func<string, string> reply) : HttpMessageHandler
     {
         public List<string> Inputs { get; } = [];
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var query = request.RequestUri!.Query;
-            var source = Uri.UnescapeDataString(query[(query.IndexOf("q=", StringComparison.Ordinal) + 2)..]);
+            Assert.Equal("/v1/chat/completions", request.RequestUri!.AbsolutePath);
+            using var payload = JsonDocument.Parse(request.Content!.ReadAsStringAsync().GetAwaiter().GetResult());
+            var source = payload.RootElement.GetProperty("messages").EnumerateArray().Last().GetProperty("content").GetString()!;
             Inputs.Add(source);
             var answer = reply(source);
-            return Task.FromResult(new HttpResponseMessage
-            {
-                Content = new StringContent("[[[" + JsonSerializer.Serialize(answer) + "]]]", Encoding.UTF8, "application/json")
-            });
+            return Task.FromResult(TranslationServiceTests.ModelReply(answer));
         }
     }
 }

@@ -112,6 +112,7 @@ internal sealed class HorizontalComposer
             .DefaultIfEmpty(0f)
             .Max();
         var lineHeight = block.LineHeightFactor > 0f
+            && !(_context.Options.OverridePublisherLineHeight && !isHeading)
             ? Math.Max(BaseFontSize * fontScale * block.LineHeightFactor, inkExtent + 1f)
             : isHeading
                 ? Math.Max(BaseFontSize * fontScale * 1.35f, inkExtent + 1f)
@@ -145,7 +146,7 @@ internal sealed class HorizontalComposer
             _cursorY = InsetV;
         }
         else if (!(block.Kind == BlockKind.Paragraph && followsParagraph
-            && _context.Options.ParagraphSpacingMatchesLineHeight))
+            && (_context.Options.ParagraphSpacingMatchesLineHeight || _context.Options.OverridePublisherParagraphSpacing)))
         {
             _cursorY += block.SpaceBeforeLines * BodyLineHeight
                 + block.MarginTopEm * BaseFontSize;
@@ -189,7 +190,7 @@ internal sealed class HorizontalComposer
             {
                 // Widow: a single line stranded at the bottom of a page is
                 // moved with its paragraph to the next page when possible.
-                if (capacity == 1
+                if (_context.Options.AvoidWidowsAndOrphans && capacity == 1
                     && remaining > 1
                     && _pages.CurrentPageHasContent)
                 {
@@ -201,7 +202,7 @@ internal sealed class HorizontalComposer
                 // Orphan: leave at least two lines for the following page
                 // instead of a single line starting a new page. When only two
                 // lines fit, reducing further would create a widow instead.
-                if (capacity >= 3 && remaining - capacity == 1)
+                if (_context.Options.AvoidWidowsAndOrphans && capacity >= 3 && remaining - capacity == 1)
                 {
                     capacity--;
                 }
@@ -249,7 +250,12 @@ internal sealed class HorizontalComposer
 
         // The last line already advanced the cursor by one line height. In
         // compact mode, consecutive paragraphs need no additional gap.
-        if (!(block.Kind == BlockKind.Paragraph && precedesParagraph
+        if (block.Kind == BlockKind.Paragraph && precedesParagraph
+            && _context.Options.OverridePublisherParagraphSpacing)
+        {
+            _cursorY += _context.Options.ParagraphSpacingEm * BaseFontSize;
+        }
+        else if (!(block.Kind == BlockKind.Paragraph && precedesParagraph
             && _context.Options.ParagraphSpacingMatchesLineHeight))
         {
             _cursorY += block.SpaceAfterLines * BodyLineHeight

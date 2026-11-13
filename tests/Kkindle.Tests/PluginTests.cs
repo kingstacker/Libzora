@@ -1312,6 +1312,25 @@ public sealed class PluginTests
         }
         """;
 
+    [Theory]
+    [InlineData("google")]
+    [InlineData("bing")]
+    public async Task BridgeRejectsRetiredWebTranslationProviders(string provider)
+    {
+        using var scope = new TempPluginScope();
+        var host = new FakeBookTaskHost();
+        await using var harness = await BridgeHarness.CreateAsync(scope, PluginLibraryAccess.Read,
+            seed: library => SeedBookAsync(library, scope.Root, "测试书", "作者"), manifestJson: TaskManifest, bookTasks: host);
+        var reply = await harness.CallAsync(Request(1, "library.translateBook", new()
+        {
+            ["bookId"] = Assert.Single(harness.Context.BookIds).ToString("D"),
+            ["provider"] = provider, ["targetLanguage"] = "zh-CN"
+        }));
+        Assert.False(reply.Ok);
+        Assert.Contains("已停用", reply.Error);
+        Assert.Null(host.LastTranslation);
+    }
+
     [Fact]
     public async Task BridgeTranslatesBookThroughTheHostAndReportsProgress()
     {

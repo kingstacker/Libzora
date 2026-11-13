@@ -628,6 +628,7 @@ public partial class MainWindow
         SettingsPage.IsVisible = false;
         AccountCenterHost.IsVisible = false;
         _accountCenterView?.Deactivate();
+        ScheduleAmbientRefresh();
     }
 
     private void ShowStage3Page(Control page, Button? activeButton = null)
@@ -663,6 +664,7 @@ public partial class MainWindow
         SettingsPage.IsVisible = ReferenceEquals(page, SettingsPage);
         AccountCenterHost.IsVisible = ReferenceEquals(page, AccountCenterHost);
         if (!AccountCenterHost.IsVisible) _accountCenterView?.Deactivate();
+        ScheduleAmbientRefresh();
     }
 
     private bool BlockNavigationWhileTransferring()
@@ -4768,7 +4770,7 @@ public partial class MainWindow
                         : _readerTts.CanOpen
                         ? PlatformDiagnosticStatus.Warning
                         : PlatformDiagnosticStatus.Unavailable,
-                    tts.IsAvailable ? "edge-tts 与音频输出已就绪。" : tts.Message,
+                    tts.Message,
                     tts.IsAvailable || !_readerTts.CanRepairEnvironment
                         ? PlatformDiagnosticRepairKind.None
                         : PlatformDiagnosticRepairKind.InstallTts));
@@ -5197,6 +5199,8 @@ public partial class MainWindow
         {
             MainThemeBox.SelectedIndex = (int)_appSettings.MainTheme;
             ApplyMainAppearance();
+            ColorfulModeCheck.IsChecked = _appSettings.ColorfulMode;
+            UpdateColorfulMode(_appSettings.ColorfulMode, forceRefresh: true);
             PreferredOpenFormatBox.SelectedIndex = _appSettings.PreferredOpenFormat switch
             {
                 "pdf" => 1,
@@ -5595,6 +5599,7 @@ public partial class MainWindow
         }
 
         if (_lifetimeCancellation.IsCancellationRequested) return;
+        _widgetSnapshots?.Schedule();
         _lastInProcessDataChangeUtc = DateTime.UtcNow;
         _localSyncChanges.MarkChanged();
         _s3DeletionConfirmationPending = false;
@@ -5611,6 +5616,8 @@ public partial class MainWindow
         }
         if (kind == LocalDataChangeKind.Library)
         {
+            InvalidateAmbientFallback();
+            ScheduleAmbientRefresh();
             _ = RefreshBookSyncStatusesAsync(_lifetimeCancellation.Token);
         }
         if (!_s3SyncBusy && _s3SyncStoredSettings.Settings is { Enabled: true, IsConfigured: true })
@@ -5717,6 +5724,7 @@ public partial class MainWindow
         }
         catch (Exception exception)
         {
+            SoftwareLog.ErrorWithoutMessage("sync.auto", exception);
             var error = UiText.Localize(exception.Message);
             S3SyncStatusText.Text = T("自动 云端同步失败：{0}", error);
             UpdateS3SyncIndicator(S3SyncIndicatorState.Failed, error);
@@ -5795,6 +5803,7 @@ public partial class MainWindow
         }
         catch (Exception exception)
         {
+            SoftwareLog.ErrorWithoutMessage("sync.auto", exception);
             var error = UiText.Localize(exception.Message);
             S3SyncStatusText.Text = T("自动 云端同步失败：{0}", error);
             UpdateS3SyncIndicator(S3SyncIndicatorState.Failed, error);
@@ -5976,6 +5985,7 @@ public partial class MainWindow
         }
         catch (Exception exception)
         {
+            SoftwareLog.ErrorWithoutMessage("sync.run", exception, ("silent", silent));
             var error = UiText.Localize(exception.Message);
             var status = T("云端同步失败：{0}", error);
             SetS3SyncStatus(status, silent);
@@ -6062,6 +6072,11 @@ public partial class MainWindow
         if (_appSettingsAutoSaveConfigured) return;
         _appSettingsAutoSaveConfigured = true;
         ConfigureS3SettingsDraftTracking();
+        ColorfulModeCheck.IsCheckedChanged += (_, _) =>
+        {
+            UpdateColorfulMode(ColorfulModeCheck.IsChecked == true, forceRefresh: true);
+            ScheduleAppSettingsAutoSave();
+        };
         AiEnabledCheck.IsCheckedChanged += (_, _) => ScheduleAppSettingsAutoSave();
         NetworkEnabledCheck.IsCheckedChanged += (_, _) => ScheduleAppSettingsAutoSave();
         AutoUpdateCheck.IsCheckedChanged += (_, _) => ScheduleAppSettingsAutoSave();
@@ -6601,6 +6616,7 @@ public partial class MainWindow
         return AppSettings.Normalize(_appSettings with
         {
             MainTheme = ReadMainThemeFromControls(),
+            ColorfulMode = ColorfulModeCheck.IsChecked == true,
             UiLanguage = UiText.NormalizeLanguage(UiLanguageBox.SelectedItem is ComboBoxItem languageItem
                 ? languageItem.Tag?.ToString()
                 : _appSettings.UiLanguage),

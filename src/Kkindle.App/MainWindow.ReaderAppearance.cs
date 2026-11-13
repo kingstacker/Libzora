@@ -80,6 +80,7 @@ public partial class MainWindow
         (_readerActiveHost as IReaderAppearanceHost)?.SetAppearance(appearance);
         (_readerPreloadHost as IReaderAppearanceHost)?.SetAppearance(appearance);
         UpdateReaderTitleAppearance();
+        UpdateReaderAmbientOpacity();
         // Updating marker brushes leaves the rail's scroll offset and hover
         // wave intact; rebuilding its ItemsSource would move the chapter map.
         foreach (var item in ReaderTocCompactList.ItemsSource?.OfType<ReaderTocMarker>() ?? [])

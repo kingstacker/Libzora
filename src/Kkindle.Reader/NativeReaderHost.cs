@@ -1263,6 +1263,9 @@ public sealed class NativeReaderHost : Control, IReaderHost, IReaderPageSnapshot
             && options.ParagraphIndent == expected.ParagraphIndent
             && Math.Abs(options.ParagraphSpacingEm - expected.ParagraphSpacingEm) < 0.001f
             && options.ParagraphSpacingMatchesLineHeight == expected.ParagraphSpacingMatchesLineHeight
+            && options.OverridePublisherLineHeight == expected.OverridePublisherLineHeight
+            && options.OverridePublisherParagraphSpacing == expected.OverridePublisherParagraphSpacing
+            && options.AvoidWidowsAndOrphans == expected.AvoidWidowsAndOrphans
             && Math.Abs(options.ViewportWidth - expected.ViewportWidth) < 0.5f
             && Math.Abs(options.ViewportHeight - expected.ViewportHeight) < 0.5f
             && Math.Abs(options.InsetHorizontal - expected.InsetHorizontal) < 0.5f
@@ -1439,6 +1442,9 @@ public sealed class NativeReaderHost : Control, IReaderHost, IReaderPageSnapshot
         || settings.ParagraphIndent != _settings.ParagraphIndent
         || Math.Abs(settings.ParagraphSpacing - _settings.ParagraphSpacing) > 0.001
         || settings.ParagraphSpacingMatchesLineHeight != _settings.ParagraphSpacingMatchesLineHeight
+        || settings.OverridePublisherLineHeight != _settings.OverridePublisherLineHeight
+        || settings.OverridePublisherParagraphSpacing != _settings.OverridePublisherParagraphSpacing
+        || settings.AvoidWidowsAndOrphans != _settings.AvoidWidowsAndOrphans
         || !string.Equals(settings.FontFamily, _settings.FontFamily, StringComparison.OrdinalIgnoreCase)
         || settings.FlowMode != _settings.FlowMode
         || settings.TwoPageMode != _settings.TwoPageMode
@@ -1847,6 +1853,9 @@ public sealed class NativeReaderHost : Control, IReaderHost, IReaderPageSnapshot
             ParagraphIndent = settings.ParagraphIndent,
             ParagraphSpacingEm = (float)settings.ParagraphSpacing,
             ParagraphSpacingMatchesLineHeight = settings.ParagraphSpacingMatchesLineHeight,
+            OverridePublisherLineHeight = settings.OverridePublisherLineHeight,
+            OverridePublisherParagraphSpacing = settings.OverridePublisherParagraphSpacing,
+            AvoidWidowsAndOrphans = settings.AvoidWidowsAndOrphans,
             ViewportWidth = (float)width,
             ViewportHeight = (float)height,
             InsetHorizontal = (float)horizontalInset,
@@ -1928,6 +1937,9 @@ public sealed class NativeReaderHost : Control, IReaderHost, IReaderPageSnapshot
         hash.Add(settings.ParagraphIndent);
         hash.Add(settings.ParagraphSpacing);
         hash.Add(settings.ParagraphSpacingMatchesLineHeight);
+        hash.Add(settings.OverridePublisherLineHeight);
+        hash.Add(settings.OverridePublisherParagraphSpacing);
+        hash.Add(settings.AvoidWidowsAndOrphans);
         hash.Add(settings.FontScale);
         hash.Add(settings.LineHeight);
         hash.Add(settings.MaxWidth);

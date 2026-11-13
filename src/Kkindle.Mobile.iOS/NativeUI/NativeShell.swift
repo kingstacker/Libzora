@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import Combine
 import ImageIO
 
 struct NativeShell: View {
@@ -51,6 +52,11 @@ struct NativeShell: View {
             let colors = await Task.detached(priority: .utility) { NativeAmbientPalette.extract(paths: paths) }.value
             guard !Task.isCancelled else { return }
             store.fallbackAmbientColors = colors
+        }
+        .onReceive(store.$requestedTab) { tab in
+            guard let tab else { return }
+            selectedTab = tab
+            store.requestedTab = nil
         }
         .environmentObject(store)
         .overlay {

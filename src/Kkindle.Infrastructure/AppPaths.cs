@@ -13,6 +13,7 @@ public sealed class AppPaths
         ReaderCache = Path.Combine(Data, "reader-cache");
         EmbeddingModels = Path.Combine(Data, "embedding-models");
         PinyinModels = Path.Combine(Data, "pinyin-models");
+        TtsModels = Path.Combine(Data, "tts-models");
         Fonts = Path.Combine(Data, "fonts");
         Dictionaries = Path.Combine(Data, "dictionaries");
         Backups = Path.Combine(Root, "backups");
@@ -34,6 +35,7 @@ public sealed class AppPaths
     public string ReaderCache { get; }
     public string EmbeddingModels { get; }
     public string PinyinModels { get; }
+    public string TtsModels { get; }
     public string Fonts { get; }
     public string Dictionaries { get; }
     public string Backups { get; }
@@ -53,6 +55,7 @@ public sealed class AppPaths
         Directory.CreateDirectory(ReaderCache);
         Directory.CreateDirectory(EmbeddingModels);
         Directory.CreateDirectory(PinyinModels);
+        Directory.CreateDirectory(TtsModels);
         Directory.CreateDirectory(Fonts);
         Directory.CreateDirectory(Dictionaries);
         Directory.CreateDirectory(Backups);

@@ -1,7 +1,5 @@
 using System.Globalization;
 using System.IO.Compression;
-using System.Net;
-using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -14,39 +12,20 @@ namespace Kkindle.Infrastructure;
 
 /// <summary>
 /// Translates EPUB XHTML while keeping the archive's images, stylesheets and
-/// navigation files intact. The web translators intentionally live here, next
-/// to the existing AI client, so the UI only needs one EPUB-level contract.
+/// navigation files intact. Translation uses only the explicitly configured model API.
 /// </summary>
 public sealed class EpubTranslationService : IEpubTranslationService
 {
-    private const string BingTranslatorUrl = "https://www.bing.com/translator";
-    private const string GoogleTranslatorUrl = "https://translate.googleapis.com/translate_a/single";
-    private const string GoogleLegacyTranslatorUrl = "https://clients5.google.com/translate_a/t";
-    private const int GoogleRequestCharacterLimit = 1_400;
-    private const int BingRequestCharacterLimit = 950;
     private const int AiRequestCharacterLimit = 5_500;
     private const int MaxArchiveEntryBytes = 64 * 1024 * 1024;
     private const int MaxRetryCount = 2;
     private const int TranslationCacheVersion = 2;
     private const string TranslationCacheFileName = ".kkindle-translation-cache.jsonl";
-    private static readonly TimeSpan BingSessionLifetime = TimeSpan.FromMinutes(25);
     private static readonly JsonSerializerOptions TranslationCacheJsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
     };
 
-    private static readonly Regex BingIgPattern = new(
-        @"window\._G\s*=\s*\{.*?\bIG\s*:\s*""(?<ig>[^""\r\n]+)""",
-        RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.CultureInvariant | RegexOptions.Compiled);
-    private static readonly Regex BingFallbackIgPattern = new(
-        @"[""']IG[""']\s*:\s*[""'](?<ig>[^""'\r\n]+)",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
-    private static readonly Regex BingIidPattern = new(
-        @"data-iid\s*=\s*[""'](?<iid>translator\.[^""']+)[""']",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
-    private static readonly Regex BingAbusePattern = new(
-        @"params_AbusePreventionHelper\s*=\s*\[\s*(?<key>\d+)\s*,\s*""(?<token>[^""\r\n]+)""",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private static readonly Regex SegmentMarkerPattern = new(
         @"__KKINDLE_SEG_(?<id>\d{1,6})__",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
@@ -62,12 +41,7 @@ public sealed class EpubTranslationService : IEpubTranslationService
     private readonly AiSettingsStore _aiSettingsStore;
     private readonly AiChatClient _aiChatClient;
     private readonly bool _ownsAiChatClient;
-    private readonly HttpClient _httpClient;
-    private readonly SemaphoreSlim _bingSessionGate = new(1, 1);
     private readonly AiRequestsPerMinuteLimiter _aiRequestsPerMinuteLimiter = new();
-    private readonly object _googleProxyClientsGate = new();
-    private readonly Dictionary<string, HttpClient> _googleProxyClients = new(StringComparer.OrdinalIgnoreCase);
-    private BingSession? _bingSession;
     private bool _disposed;
 
     public EpubTranslationService(
@@ -78,24 +52,9 @@ public sealed class EpubTranslationService : IEpubTranslationService
     {
         _paths = paths;
         _aiSettingsStore = new AiSettingsStore(paths, secretProtector);
-        _aiChatClient = aiChatClient ?? new AiChatClient();
+        _aiChatClient = aiChatClient ?? new AiChatClient(httpHandler);
         _ownsAiChatClient = aiChatClient is null;
-        if (httpHandler is null)
-        {
-            var defaultHandler = new HttpClientHandler
-            {
-                AllowAutoRedirect = true,
-                AutomaticDecompression = DecompressionMethods.All,
-                UseCookies = true,
-                CookieContainer = new CookieContainer()
-            };
-            _httpClient = new HttpClient(defaultHandler, disposeHandler: true);
-        }
-        else
-        {
-            _httpClient = new HttpClient(httpHandler, disposeHandler: true);
-        }
-        ConfigureHttpClient(_httpClient);
+        if (aiChatClient is not null) httpHandler?.Dispose();
     }
 
     public Task<BookTranslationResumeInfo?> FindResumeAsync(
@@ -863,16 +822,8 @@ public sealed class EpubTranslationService : IEpubTranslationService
             lastFailure);
     }
 
-    private async Task<string> TranslateSingleAsync(
-        string text,
-        TranslationRequestContext context,
-        CancellationToken cancellationToken) => context.Settings.Provider switch
-        {
-            BookTranslationProvider.Ai => await TranslateWithAiAsync(text, context, cancellationToken),
-            BookTranslationProvider.BingFree => await TranslateWithBingAsync(text, context.Settings, cancellationToken),
-            BookTranslationProvider.GoogleFree => await TranslateWithGoogleAsync(text, context.Settings, cancellationToken),
-            _ => throw new NotSupportedException("未知的翻译服务。 ")
-        };
+    private Task<string> TranslateSingleAsync(string text, TranslationRequestContext context,
+        CancellationToken cancellationToken) => TranslateWithAiAsync(text, context, cancellationToken);
 
     private async Task<string> TranslateWithAiAsync(
         string text,
@@ -899,175 +850,6 @@ public sealed class EpubTranslationService : IEpubTranslationService
             text,
             Array.Empty<AiConversationTurn>(),
             cancellationToken);
-    }
-
-    private async Task<string> TranslateWithGoogleAsync(
-        string text,
-        BookTranslationSettings settings,
-        CancellationToken cancellationToken)
-    {
-        var source = Uri.EscapeDataString(ToGoogleLanguageCode(settings.SourceLanguage));
-        var target = Uri.EscapeDataString(ToGoogleLanguageCode(settings.TargetLanguage));
-        var query = Uri.EscapeDataString(text);
-        var endpoint = $"{GoogleTranslatorUrl}?client=gtx&sl={source}&tl={target}&dt=t&q={query}";
-        using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-        var httpClient = GetGoogleHttpClient(settings.GoogleProxyAddress);
-        using var response = await GoogleTranslationResponse.SendAsync(httpClient, request, cancellationToken);
-        var body = await response.Content.ReadAsStringAsync(cancellationToken);
-        if (response.StatusCode == HttpStatusCode.TooManyRequests)
-        {
-            return await TranslateWithGoogleLegacyAsync(
-                text,
-                settings,
-                httpClient,
-                cancellationToken);
-        }
-        EnsureSuccess(response, body, "Google 免费翻译");
-        return GoogleTranslationResponse.Parse(body);
-    }
-
-    private async Task<string> TranslateWithGoogleLegacyAsync(
-        string text,
-        BookTranslationSettings settings,
-        HttpClient httpClient,
-        CancellationToken cancellationToken)
-    {
-        var source = Uri.EscapeDataString(ToGoogleLanguageCode(settings.SourceLanguage));
-        var target = Uri.EscapeDataString(ToGoogleLanguageCode(settings.TargetLanguage));
-        var query = Uri.EscapeDataString(text);
-        var endpoint = $"{GoogleLegacyTranslatorUrl}?client=dict-chrome-ex&sl={source}&tl={target}&q={query}";
-        using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-        request.Headers.Referrer = new Uri("https://translate.google.com/");
-        using var response = await GoogleTranslationResponse.SendAsync(httpClient, request, cancellationToken);
-        var body = await response.Content.ReadAsStringAsync(cancellationToken);
-        EnsureSuccess(response, body, "Google 免费翻译备用接口");
-        return GoogleTranslationResponse.Parse(body);
-    }
-
-    private async Task<string> TranslateWithBingAsync(
-        string text,
-        BookTranslationSettings settings,
-        CancellationToken cancellationToken)
-    {
-        var session = await GetBingSessionAsync(forceRefresh: false, cancellationToken);
-        var translated = await TryTranslateWithBingSessionAsync(session, text, settings, cancellationToken);
-        if (translated is not null) return translated;
-
-        session = await GetBingSessionAsync(forceRefresh: true, cancellationToken);
-        return await TryTranslateWithBingSessionAsync(session, text, settings, cancellationToken)
-            ?? throw new InvalidDataException("Bing 免费翻译返回了无法识别的结果。 ");
-    }
-
-    private async Task<string?> TryTranslateWithBingSessionAsync(
-        BingSession session,
-        string text,
-        BookTranslationSettings settings,
-        CancellationToken cancellationToken)
-    {
-        var endpoint =
-            $"{session.Host}/ttranslatev3?isVertical=1&IG={Uri.EscapeDataString(session.Ig)}"
-            + $"&IID={Uri.EscapeDataString(session.Iid)}";
-        using var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
-        {
-            Content = new FormUrlEncodedContent(new Dictionary<string, string>
-            {
-                ["fromLang"] = TranslationLanguageCatalog.Find(settings.SourceLanguage).BingCode,
-                ["to"] = TranslationLanguageCatalog.Find(settings.TargetLanguage).BingCode,
-                ["text"] = text,
-                ["token"] = session.Token,
-                ["key"] = session.Key,
-                ["tryFetchingGenderDebiasedTranslations"] = "true"
-            })
-        };
-        request.Headers.Referrer = new Uri($"{session.Host}/translator");
-        request.Headers.TryAddWithoutValidation("Origin", session.Host);
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-        using var response = await _httpClient.SendAsync(
-            request,
-            HttpCompletionOption.ResponseHeadersRead,
-            cancellationToken);
-        var body = await response.Content.ReadAsStringAsync(cancellationToken);
-        if (!response.IsSuccessStatusCode) return null;
-        return ParseBingTranslation(body);
-    }
-
-    private async Task<BingSession> GetBingSessionAsync(
-        bool forceRefresh,
-        CancellationToken cancellationToken)
-    {
-        await _bingSessionGate.WaitAsync(cancellationToken);
-        try
-        {
-            if (!forceRefresh
-                && _bingSession is { } cached
-                && cached.ExpiresAt > DateTimeOffset.UtcNow)
-                return cached;
-
-            using var request = new HttpRequestMessage(HttpMethod.Get, BingTranslatorUrl);
-            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/html"));
-            request.Headers.Referrer = new Uri("https://www.bing.com/");
-            using var response = await _httpClient.SendAsync(
-                request,
-                HttpCompletionOption.ResponseHeadersRead,
-                cancellationToken);
-            var html = await response.Content.ReadAsStringAsync(cancellationToken);
-            EnsureSuccess(response, html, "Bing 免费翻译");
-
-            var ig = BingIgPattern.Match(html).Groups["ig"].Value;
-            if (ig.Length == 0)
-                ig = BingFallbackIgPattern.Match(html).Groups["ig"].Value;
-            var iidMatches = BingIidPattern.Matches(html);
-            var iid = iidMatches
-                .Cast<Match>()
-                .Select(match => match.Groups["iid"].Value)
-                .FirstOrDefault(value => value.Equals("translator.5025", StringComparison.OrdinalIgnoreCase))
-                ?? iidMatches.Cast<Match>().Select(match => match.Groups["iid"].Value).LastOrDefault();
-            var abuse = BingAbusePattern.Match(html);
-            if (ig.Length == 0 || string.IsNullOrWhiteSpace(iid) || !abuse.Success)
-                throw new InvalidDataException("Bing 翻译页面缺少临时访问参数。 ");
-
-            var pageUri = response.RequestMessage?.RequestUri ?? request.RequestUri!;
-            _bingSession = new BingSession(
-                pageUri.GetLeftPart(UriPartial.Authority),
-                ig,
-                iid!,
-                abuse.Groups["key"].Value,
-                abuse.Groups["token"].Value,
-                DateTimeOffset.UtcNow.Add(BingSessionLifetime));
-            return _bingSession;
-        }
-        finally
-        {
-            _bingSessionGate.Release();
-        }
-    }
-
-    private HttpClient GetGoogleHttpClient(string? proxyAddress)
-    {
-        var normalizedAddress = TranslationProxy.NormalizeAddress(proxyAddress);
-        if (normalizedAddress.Length == 0) return _httpClient;
-
-        lock (_googleProxyClientsGate)
-        {
-            if (_googleProxyClients.TryGetValue(normalizedAddress, out var existing))
-                return existing;
-
-            var client = new HttpClient(
-                TranslationProxy.CreateHandler(normalizedAddress),
-                disposeHandler: true);
-            ConfigureHttpClient(client);
-            _googleProxyClients[normalizedAddress] = client;
-            return client;
-        }
-    }
-
-    private static void ConfigureHttpClient(HttpClient client)
-    {
-        client.Timeout = TimeSpan.FromSeconds(90);
-        client.DefaultRequestHeaders.UserAgent.ParseAdd(
-            "Mozilla/5.0 (compatible; Kkindle EPUB Translator/1.0)");
     }
 
     private static IReadOnlyDictionary<string, byte[]> RenderPages(
@@ -1470,84 +1252,9 @@ public sealed class EpubTranslationService : IEpubTranslationService
         return true;
     }
 
-    private static string? ParseBingTranslation(string body)
-    {
-        try
-        {
-            using var document = JsonDocument.Parse(body);
-            var root = document.RootElement;
-            if (root.ValueKind == JsonValueKind.Array)
-            {
-                foreach (var item in root.EnumerateArray())
-                {
-                    if (!item.TryGetProperty("translations", out var translations)
-                        || translations.ValueKind != JsonValueKind.Array)
-                        continue;
-                    foreach (var translation in translations.EnumerateArray())
-                    {
-                        if (translation.TryGetProperty("text", out var text)
-                            && text.ValueKind == JsonValueKind.String)
-                            return text.GetString();
-                    }
-                }
-
-                return null;
-            }
-
-            return root.TryGetProperty("translations", out var objectTranslations)
-                && objectTranslations.ValueKind == JsonValueKind.Array
-                ? objectTranslations.EnumerateArray()
-                    .Select(item => item.TryGetProperty("text", out var text)
-                        && text.ValueKind == JsonValueKind.String
-                        ? text.GetString()
-                        : null)
-                    .FirstOrDefault(text => !string.IsNullOrWhiteSpace(text))
-                : null;
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
-        catch (InvalidOperationException)
-        {
-            return null;
-        }
-    }
-
-    private static void EnsureSuccess(HttpResponseMessage response, string body, string provider)
-    {
-        if (response.IsSuccessStatusCode) return;
-        var detail = body.Length > 400 ? body[..400] : body;
-        throw new HttpRequestException(
-            $"{provider} 请求失败（HTTP {(int)response.StatusCode}）：{detail}");
-    }
-
-    private static int GetBatchCharacterLimit(BookTranslationProvider provider) => provider switch
-    {
-        BookTranslationProvider.GoogleFree => GoogleRequestCharacterLimit,
-        BookTranslationProvider.BingFree => BingRequestCharacterLimit,
-        _ => AiRequestCharacterLimit
-    };
-
-    /// <summary>
-    /// In-flight request budget per provider. The pipeline only prefetches one
-    /// batch ahead, so two is the effective ceiling; free web endpoints are
-    /// kept at the same conservative value and any failed prefetch is replayed
-    /// through the serial fallback.
-    /// </summary>
-    private static int GetTranslationConcurrency(BookTranslationProvider provider) => provider switch
-    {
-        BookTranslationProvider.GoogleFree => 2,
-        BookTranslationProvider.BingFree => 2,
-        _ => 2
-    };
-
-    private static int GetSingleRequestCharacterLimit(BookTranslationProvider provider) => provider switch
-    {
-        BookTranslationProvider.GoogleFree => GoogleRequestCharacterLimit,
-        BookTranslationProvider.BingFree => BingRequestCharacterLimit,
-        _ => AiRequestCharacterLimit
-    };
+    private static int GetBatchCharacterLimit(BookTranslationProvider provider) => AiRequestCharacterLimit;
+    private static int GetTranslationConcurrency(BookTranslationProvider provider) => 2;
+    private static int GetSingleRequestCharacterLimit(BookTranslationProvider provider) => AiRequestCharacterLimit;
 
     private static IReadOnlyList<string> SplitText(string text, int maxLength)
     {
@@ -1595,22 +1302,7 @@ public sealed class EpubTranslationService : IEpubTranslationService
     private static string CreateSegmentKey(string entryName, int ordinal) =>
         $"{entryName}\u001F{ordinal.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
 
-    private static string ToGoogleLanguageCode(string code) =>
-        TranslationLanguageCatalog.Find(code).Code switch
-        {
-            "zh-CN" => "zh-CN",
-            "zh-TW" => "zh-TW",
-            "auto" => "auto",
-            var normalized => normalized
-        };
-
-    private static string GetProviderDisplayName(BookTranslationProvider provider) => provider switch
-    {
-        BookTranslationProvider.Ai => "AI",
-        BookTranslationProvider.BingFree => "Bing 免费翻译",
-        BookTranslationProvider.GoogleFree => "Google 免费翻译",
-        _ => "翻译服务"
-    };
+    private static string GetProviderDisplayName(BookTranslationProvider provider) => "模型翻译";
 
     private static string GetOutputModeLabel(BookTranslationOutputMode mode) =>
         mode == BookTranslationOutputMode.Bilingual ? "双语对照" : "单翻译";
@@ -1813,16 +1505,6 @@ public sealed class EpubTranslationService : IEpubTranslationService
         if (_disposed) return;
         _disposed = true;
         _aiRequestsPerMinuteLimiter.Dispose();
-        _bingSessionGate.Dispose();
-        HttpClient[] proxyClients;
-        lock (_googleProxyClientsGate)
-        {
-            proxyClients = _googleProxyClients.Values.ToArray();
-            _googleProxyClients.Clear();
-        }
-        foreach (var proxyClient in proxyClients)
-            proxyClient.Dispose();
-        _httpClient.Dispose();
         if (_ownsAiChatClient) _aiChatClient.Dispose();
     }
 
@@ -1968,13 +1650,7 @@ public sealed class EpubTranslationService : IEpubTranslationService
             : new(splitPlans, StringComparer.Ordinal);
     }
 
-    private sealed record BingSession(
-        string Host,
-        string Ig,
-        string Iid,
-        string Key,
-        string Token,
-        DateTimeOffset ExpiresAt);
+
 
     private sealed class Utf8StringWriter(
         StringBuilder builder) : StringWriter(builder, System.Globalization.CultureInfo.InvariantCulture)

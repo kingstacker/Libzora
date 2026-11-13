@@ -624,13 +624,13 @@ public sealed partial class SettingsTests(SettingsUiSession session)
         ToolTip.SetIsOpen(helpTarget, true);
         await Render();
         var helpText = Assert.IsType<TextBlock>(Assert.Single(help.Children));
-        Assert.Contains("不会打包邮箱密码", helpText.Text);
+        Assert.Contains("与反馈中自动附加的日志一致", helpText.Text);
         Assert.True(string.IsNullOrEmpty(scope.Get<TextBlock>("AboutLogsStatusText").Text));
 
         ((Kkindle.App)Application.Current!).ApplyLanguage("en-US");
         await Render();
         Assert.Equal("Export software logs", button.Content?.ToString());
-        Assert.Contains("Email passwords", helpText.Text);
+        Assert.Contains("the same log attached to feedback", helpText.Text);
         ToolTip.SetIsOpen(helpTarget, false);
         ((Kkindle.App)Application.Current!).ApplyLanguage("zh-CN");
     });

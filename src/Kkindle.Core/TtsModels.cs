@@ -77,12 +77,22 @@ public sealed class TtsSettings
     public string Provider { get; set; } = DefaultProvider;
     public string Model { get; set; } = string.Empty;
     public string Voice { get; set; } = TtsOptions.DefaultVoice;
+    /// <summary>
+    /// Culture of the selected voice, when the engine exposes it. Used to pick
+    /// a matching preview sentence (for example an English system voice).
+    /// </summary>
+    public string VoiceCulture { get; set; } = string.Empty;
     public string AudioFormat { get; set; } = TtsOptions.DefaultAudioFormat;
     public int SampleRate { get; set; }
     public double Speed { get; set; } = 1.0;
     public int Volume { get; set; } = 100;
     public int Pitch { get; set; }
     public bool AutoAdvance { get; set; } = true;
+    /// <summary>
+    /// When false, the local voice picker shows a short recommended list.
+    /// This is deliberately not applied to online providers.
+    /// </summary>
+    public bool ShowAllVoices { get; set; }
     public int MaxCharactersPerRequest { get; set; } = 420;
     public int PrefetchCount { get; set; } = 2;
 
@@ -129,6 +139,7 @@ public sealed class TtsSettings
             Provider = DefaultProvider,
             Model = settings.Model?.Trim() ?? string.Empty,
             Voice = voice,
+            VoiceCulture = settings.VoiceCulture?.Trim() ?? string.Empty,
             AudioFormat = TtsOptions.Normalize(new TtsOptions
             {
                 AudioFormat = settings.AudioFormat
@@ -140,6 +151,7 @@ public sealed class TtsSettings
             Volume = Math.Clamp(settings.Volume, 0, 200),
             Pitch = Math.Clamp(settings.Pitch, -100, 100),
             AutoAdvance = settings.AutoAdvance,
+            ShowAllVoices = settings.ShowAllVoices,
             MaxCharactersPerRequest = Math.Clamp(
                 settings.MaxCharactersPerRequest,
                 120,

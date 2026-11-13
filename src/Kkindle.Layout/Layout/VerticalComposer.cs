@@ -129,7 +129,7 @@ internal sealed class VerticalComposer
             _cursorX = ContentRight;
         }
         else if (!(block.Kind == BlockKind.Paragraph && followsParagraph
-            && _context.Options.ParagraphSpacingMatchesLineHeight))
+            && (_context.Options.ParagraphSpacingMatchesLineHeight || _context.Options.OverridePublisherParagraphSpacing)))
         {
             _cursorX -= block.SpaceBeforeLines * ColumnPitch;
         }
@@ -173,7 +173,12 @@ internal sealed class VerticalComposer
         }
 
         // Each column has already advanced the cursor by its pitch.
-        if (!(block.Kind == BlockKind.Paragraph && precedesParagraph
+        if (block.Kind == BlockKind.Paragraph && precedesParagraph
+            && _context.Options.OverridePublisherParagraphSpacing)
+        {
+            _cursorX -= _context.Options.ParagraphSpacingEm * _context.Options.BaseFontSize;
+        }
+        else if (!(block.Kind == BlockKind.Paragraph && precedesParagraph
             && _context.Options.ParagraphSpacingMatchesLineHeight))
         {
             _cursorX -= block.SpaceAfterLines * ColumnPitch;

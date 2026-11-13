@@ -6,21 +6,28 @@ namespace Kkindle.Tests;
 public sealed class SoftwareLogExportTests
 {
     [Fact]
-    public async Task ExportsRuntimeLogsAndDiagnosticsWithoutSettings()
+    public async Task ExportsOnlyTheSanitizedSoftwareLogAndDiagnostics()
     {
         var root = TestHelpers.CreateTempDirectory();
         try
         {
             var paths = new AppPaths(root);
             paths.EnsureDirectories();
+            var sanitizedLog =
+                "# Kkindle software log / 软件日志\n" +
+                "ERROR reader.open exception=System.IO.IOException\n  at <app>/reader\n";
+            await File.WriteAllTextAsync(Path.Combine(paths.Logs, SoftwareLog.FileName), sanitizedLog);
+            await File.WriteAllTextAsync(
+                Path.Combine(paths.Logs, SoftwareLog.ArchiveFileName),
+                "ERROR sync.run exception=System.TimeoutException\n");
             await File.WriteAllTextAsync(
                 Path.Combine(paths.Logs, "send-diagnostic.log"),
-                "SMTP connection failed.");
+                "SMTP connection failed for reader@example.invalid");
             var readerLogDirectory = Path.Combine(paths.Logs, "reader");
             Directory.CreateDirectory(readerLogDirectory);
             await File.WriteAllTextAsync(
                 Path.Combine(readerLogDirectory, "reader-timing.log"),
-                "reader timing");
+                "《三体》 timing");
             await File.WriteAllTextAsync(
                 Path.Combine(paths.Root, "kkindle-crash.log"),
                 "crash details");
@@ -38,15 +45,20 @@ public sealed class SoftwareLogExportTests
 
             using var archive = ZipFile.OpenRead(destination);
             var names = archive.Entries.Select(entry => entry.FullName).ToArray();
-            Assert.Contains("logs/send-diagnostic.log", names);
-            Assert.Contains("logs/reader/reader-timing.log", names);
-            Assert.Contains("logs/kkindle-crash.log", names);
+            Assert.Contains($"logs/{SoftwareLog.FileName}", names);
+            Assert.Contains($"logs/{SoftwareLog.ArchiveFileName}", names);
             Assert.Contains("diagnostics.txt", names);
+            Assert.DoesNotContain("logs/send-diagnostic.log", names);
+            Assert.DoesNotContain("logs/reader/reader-timing.log", names);
+            Assert.DoesNotContain("logs/kkindle-crash.log", names);
             Assert.DoesNotContain(names, name => name.Contains("app-settings", StringComparison.OrdinalIgnoreCase));
+
+            Assert.Equal(sanitizedLog, await ReadEntryAsync(archive, $"logs/{SoftwareLog.FileName}"));
 
             var diagnostics = await ReadEntryAsync(archive, "diagnostics.txt");
             Assert.Contains("debug-test", diagnostics, StringComparison.Ordinal);
             Assert.Contains("email/SMTP passwords", diagnostics, StringComparison.Ordinal);
+            Assert.Contains("sanitized software log", diagnostics, StringComparison.Ordinal);
             Assert.DoesNotContain("email-secret", diagnostics, StringComparison.Ordinal);
         }
         finally

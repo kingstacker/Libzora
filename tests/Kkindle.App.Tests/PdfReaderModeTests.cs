@@ -518,7 +518,7 @@ public sealed class PdfReaderModeTests(SettingsUiSession session)
         Assert.Contains('\n', selected);
         // Network is disabled in this scope: inspect the source shown and used
         // by the translation entry point without contacting an external service.
-        await scope.Call<Task>("TranslateReaderSelectionAsync", ReaderTranslationProvider.Google, 0, "");
+        await scope.Call<Task>("TranslateReaderSelectionAsync", ReaderTranslationProvider.Ai, 0, "");
         const string expected = "Select this text for a note. Underline and highlight this line. Search this text again.\n\nNested section";
         Assert.Equal(expected, scope.Get<TextBlock>("ReaderTranslationSourceText").Text);
         Assert.Equal(expected, scope.Field<string>("_readerTranslationSource"));

@@ -9,6 +9,9 @@ namespace Kkindle;
 
 public partial class MainWindow
 {
+    private readonly List<NativeMenuItemBase> _macApplicationItems = [];
+    private readonly Dictionary<NativeMenuItem, string> _macSystemMenuHeaders = [];
+
     /// <summary>
     /// Installs the standard macOS menu bar. Without an application menu,
     /// Avalonia falls back to its own menu containing "About Avalonia", which
@@ -31,28 +34,61 @@ public partial class MainWindow
     {
         if (Application.Current is not { } application) return;
 
-        var applicationItems = new NativeMenu();
-        var applicationMenu = new NativeMenuItem("Kkindle")
+        // The application exporter is already attached by the time the window
+        // starts. Mutate its existing menu so native updates keep flowing.
+        var applicationItems = NativeMenu.GetMenu(application) ?? new NativeMenu();
+        foreach (var item in _macApplicationItems) applicationItems.Items.Remove(item);
+        _macApplicationItems.Clear();
+        var frameworkAbout = applicationItems.Items.OfType<NativeMenuItem>()
+            .FirstOrDefault(item => item.Header == "About Avalonia");
+        if (frameworkAbout is not null) applicationItems.Items.Remove(frameworkAbout);
+
+        // macOS populates Services with actions from unrelated installed apps.
+        // Kkindle does not expose system Services from its application menu.
+        var servicesItem = applicationItems.Items.OfType<NativeMenuItem>()
+            .FirstOrDefault(item => item.Header is "Services" or "服务");
+        if (servicesItem is not null)
         {
-            Menu = applicationItems
-        };
-        applicationItems.Items.Add(MacMenuItem(
-            T("关于 Kkindle"),
-            ShowAboutFromMacMenu));
-        applicationItems.Items.Add(new NativeMenuItemSeparator());
-        applicationItems.Items.Add(MacMenuItem(
-            T("设置…"),
-            ShowSettingsFromMacMenu,
+            var index = applicationItems.Items.IndexOf(servicesItem);
+            applicationItems.Items.RemoveAt(index);
+            if (index < applicationItems.Items.Count
+                && applicationItems.Items[index] is NativeMenuItemSeparator)
+                applicationItems.Items.RemoveAt(index);
+            _macSystemMenuHeaders.Remove(servicesItem);
+        }
+
+        _macApplicationItems.Add(MacMenuItem(T("关于 Kkindle"), ShowAboutFromMacMenu));
+        _macApplicationItems.Add(new NativeMenuItemSeparator());
+        _macApplicationItems.Add(MacMenuItem(T("设置…"), ShowSettingsFromMacMenu,
             new KeyGesture(Key.OemComma, KeyModifiers.Meta)));
+        for (var index = 0; index < _macApplicationItems.Count; index++)
+            applicationItems.Items.Insert(index, _macApplicationItems[index]);
+
+        foreach (var item in applicationItems.Items.OfType<NativeMenuItem>())
+        {
+            if (_macApplicationItems.Contains(item)) continue;
+            if (!_macSystemMenuHeaders.TryGetValue(item, out var original))
+                _macSystemMenuHeaders[item] = original = item.Header ?? string.Empty;
+            item.Header = original switch
+            {
+                "Hide Kkindle" => T("隐藏 Kkindle"),
+                "Hide Others" => T("隐藏其他"),
+                "Show All" => T("显示全部"),
+                "Quit" => T("退出 Kkindle"),
+                _ => original
+            };
+            if (original == "Hide Others")
+                item.Gesture = new KeyGesture(Key.H, KeyModifiers.Alt | KeyModifiers.Meta);
+        }
 
         var menu = new NativeMenu();
-        menu.Items.Add(applicationMenu);
         menu.Items.Add(BuildMacFileMenu());
         menu.Items.Add(BuildMacWindowMenu());
         menu.Items.Add(BuildMacHelpMenu());
-        // Avalonia 12's macOS exporter observes NativeDock.MenuProperty on
-        // Application; NativeMenu.SetMenu only routes TopLevel/window menus.
-        NativeDock.SetMenu(application, menu);
+        // Application items are a flat menu; Avalonia supplies the Kkindle
+        // heading and standard macOS commands. Window menus belong to the window.
+        NativeMenu.SetMenu(application, applicationItems);
+        NativeMenu.SetMenu(this, menu);
     }
 
     private NativeMenuItem BuildMacFileMenu()

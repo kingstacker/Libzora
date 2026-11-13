@@ -13,10 +13,16 @@ internal static class DesktopApplicationBootstrap
         IBookFormatConverter? formatConverter = null,
         AppServices? services = null,
         AppSettings? startupSettings = null)
-        => new(new ApplicationModuleOptions
+    {
+        var resolvedPaths = paths ?? services?.Paths
+            ?? new AppPaths(AppRootConfiguration.ResolveRoot(AppContext.BaseDirectory));
+        // The feedback log starts with a session header and records only
+        // explicit failure events; see SoftwareLog for the sanitizing rules.
+        SoftwareLog.Configure(resolvedPaths,
+            ApplicationVersion.GetDisplayVersion(typeof(DesktopApplicationBootstrap).Assembly));
+        return new(new ApplicationModuleOptions
         {
-            Paths = paths ?? services?.Paths
-                ?? new AppPaths(AppRootConfiguration.ResolveRoot(AppContext.BaseDirectory)),
+            Paths = resolvedPaths,
             SecretProtector = services?.SecretProtector ?? new PreviewSecretProtector(),
             Library = library,
             MetadataService = new BookMetadataService(services?.PdfDocumentFactory),
@@ -27,6 +33,7 @@ internal static class DesktopApplicationBootstrap
             TtsCacheDirectory = services?.TtsCacheDirectory,
             RetrievalLog = message => Debug.WriteLine($"[RAG] {message}")
         });
+    }
 
     public static ApplicationModules CreateForStartup(AppServices? services)
     {

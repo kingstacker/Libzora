@@ -2,6 +2,7 @@ using Avalonia;
 using Kkindle.Core;
 using Kkindle.Infrastructure;
 using Kkindle.Platform.Windows;
+using Kkindle.Tts.Sherpa;
 using System.Runtime.InteropServices;
 
 namespace Kkindle.Desktop.Windows;
@@ -29,6 +30,15 @@ internal static class Program
         // Any unhandled exception is written to a crash log next to the exe
         // (and in the data logs directory) before the process dies, so remote
         // startup failures can be diagnosed from the user machine.
+        try
+        {
+            var startupPaths = new AppPaths(AppRootConfiguration.ResolveRoot(AppContext.BaseDirectory));
+            SoftwareLog.Configure(startupPaths, ApplicationVersion.GetDisplayVersion(typeof(Program).Assembly));
+        }
+        catch
+        {
+            // The optional feedback log must never prevent startup.
+        }
         AppDomain.CurrentDomain.UnhandledException += (_, e) =>
             WriteCrashLog("UnhandledException", e.ExceptionObject as Exception);
         TaskScheduler.UnobservedTaskException += (_, e) =>
@@ -82,6 +92,7 @@ internal static class Program
 
     private static void WriteCrashLog(string kind, Exception? exception)
     {
+        SoftwareLog.ErrorWithoutMessage("app.unhandled.process", exception, ("kind", kind));
         var payload = $"[{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss}] {kind}{Environment.NewLine}{exception}{Environment.NewLine}{Environment.NewLine}";
         var targets = new List<string>();
         try
@@ -126,8 +137,7 @@ internal static class Program
     private static AppServices BuildServices()
     {
         var paths = new AppPaths(AppRootConfiguration.ResolveRoot(AppContext.BaseDirectory));
-        var ttsEngine = new EdgeTtsEngine(
-            executablePath: TtsRuntimePaths.PreferredEdgeTtsPath(paths));
+        var ttsEngine = new LocalTtsEngine(paths);
         var ttsPlayer = new WindowsTtsAudioPlayer();
         return new AppServices(
             SecretProtector: new WindowsSecretProtector(),
@@ -137,11 +147,7 @@ internal static class Program
             KindleWebFileInput: new WindowsKindleWebFileInput(),
             UpdateInstaller: new WindowsAppUpdateInstaller(),
             TtsEngine: ttsEngine,
-            TtsAudioPlayer: ttsPlayer,
-            TtsEnvironmentSetup: new TtsEnvironmentSetupService(
-                paths,
-                ttsEngine,
-                ttsPlayer));
+            TtsAudioPlayer: ttsPlayer);
     }
 
     private static void ConfigureWebView2(IntPtr coreWebView2Pointer)

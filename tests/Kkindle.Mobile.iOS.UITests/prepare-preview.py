@@ -44,6 +44,23 @@ def main() -> None:
     with info_path.open("wb") as stream:
         plistlib.dump(info, stream, fmt=plistlib.FMT_BINARY)
 
+    # A nested widget extension keeps its own bundle identifier, and its
+    # prefix must match the isolated preview app. It shares the same App
+    # Group entitlement as the production extension.
+    widget_appex = preview_app / "PlugIns" / "KkindleWidgets.appex"
+    if widget_appex.is_dir():
+        with (widget_appex / "Info.plist").open("rb") as stream:
+            widget_info = plistlib.load(stream)
+        widget_info["CFBundleIdentifier"] = preview_id + ".widgets"
+        with (widget_appex / "Info.plist").open("wb") as stream:
+            plistlib.dump(widget_info, stream, fmt=plistlib.FMT_BINARY)
+        # Sign the renamed extension before sealing the outer app. Signing the
+        # app with --deep alone can retain the extension's old signing
+        # identifier, leaving it out of step with the new Info.plist.
+        run("codesign", "--force", "--preserve-metadata=entitlements",
+            "--identifier", preview_id + ".widgets", "--sign", "-",
+            str(widget_appex))
+
     seed_root = output / "Kkindle"
     seed_data = seed_root / "data"
     seed_data.mkdir(parents=True)
@@ -74,7 +91,11 @@ def main() -> None:
             ("筛选作者12, 筛选作者甲, 筛选作者乙", "测试标签", "测试分类", fixture["epub"]),
         )
 
-    run("codesign", "--force", "--deep", "--sign", "-", str(preview_app))
+    # Preserve the App Group entitlement while changing the app identity;
+    # without it the preview cannot read the widget snapshot container. The
+    # extension was already re-signed above, so do not use --deep here.
+    run("codesign", "--force", "--preserve-metadata=entitlements",
+        "--sign", "-", str(preview_app))
     if args.upgrade_preview:
         # Artificial local preferences make an unintended reset during upgrade
         # observable. They contain no connection configuration or credentials.

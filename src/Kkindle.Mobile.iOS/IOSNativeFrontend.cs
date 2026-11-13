@@ -8,6 +8,7 @@ using Avalonia.iOS;
 using Avalonia.Threading;
 using Foundation;
 using Kkindle.Core;
+using Kkindle.Infrastructure;
 using Kkindle.Mobile;
 using Kkindle.Mobile.Views;
 using UIKit;
@@ -24,7 +25,9 @@ internal sealed partial class IOSNativeFrontend
 {
     private static readonly NativeRequest Callback = OnRequest;
     private static IOSNativeFrontend? _current;
+    private static Uri? _pendingUrl;
     private readonly MobileShell _shell;
+    private readonly WidgetSnapshotCoordinator _widgetSnapshots;
     private readonly AvaloniaView _readerSurface;
     private readonly UIWindow _window;
     private readonly Dictionary<long, CancellationTokenSource> _requests = [];
@@ -55,10 +58,107 @@ internal sealed partial class IOSNativeFrontend
         _observers.Add(UIApplication.Notifications.ObserveDidBecomeActive((_, _) => { _reader?.Resume(); _ = shell.CheckDevicesIfDueAsync(); }));
         _observers.Add(UIApplication.Notifications.ObserveWillResignActive((_, _) =>
         {
-            if (_reader is not { } reader) return;
-            if (shell.Services.BackgroundWork is { } background) background.Run(reader.PauseAsync);
-            else _ = reader.PauseAsync();
+            if (_reader is not { } reader)
+            {
+                _widgetSnapshots.Schedule();
+                return;
+            }
+            if (shell.Services.BackgroundWork is { } background) background.Run(() => PauseReaderAndPublishWidgetsAsync(reader));
+            else _ = PauseReaderAndPublishWidgetsAsync(reader);
         }));
+
+        _widgetSnapshots = new WidgetSnapshotCoordinator(
+            publish: PublishWidgetSnapshotAsync,
+            published: ReloadWidgets);
+        shell.Modules.Library.Books.DataChanged += (_, _) => _widgetSnapshots.Schedule();
+        shell.Modules.Reader.Data.DataChanged += (_, _) => _widgetSnapshots.Schedule();
+        // The shelf is usually initialized after this constructor returns, so
+        // this first pass is mostly a placeholder; library.get schedules the
+        // populated snapshot once the native shelf has loaded.
+        _widgetSnapshots.Schedule();
+    }
+
+    private async Task PauseReaderAndPublishWidgetsAsync(ReaderPage reader)
+    {
+        try
+        {
+            await reader.PauseAsync();
+        }
+        finally
+        {
+            _widgetSnapshots.Schedule();
+        }
+    }
+
+    private Task PublishWidgetSnapshotAsync(CancellationToken cancellationToken) =>
+        WidgetSnapshotPublisher.PublishAsync(
+            _shell.Modules.Paths,
+            _shell.Modules.Library.Books,
+            _shell.Modules.Reader.Data,
+            _shell.Preferences.Current.ColorfulMode,
+            (int)_shell.Preferences.Current.ThemeMode,
+            IOSWidgetPaths.Resolve(_shell.Modules.Paths),
+            cancellationToken);
+
+    private static void ReloadWidgets()
+    {
+        try
+        {
+            kk_ios_reload_widgets();
+        }
+        catch (Exception)
+        {
+            // The extension may not be installed, or the app may be shutting
+            // down; WidgetKit will still pick up the snapshot on its next pass.
+        }
+    }
+
+    [DllImport("__Internal")]
+    private static extern void kk_ios_reload_widgets();
+
+    /// <summary>Routes a kkindle:// link delivered by a widget or another app.</summary>
+    internal static bool HandleUrl(string? value)
+    {
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var url)
+            || !string.Equals(url.Scheme, "kkindle", StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (_current is { } frontend)
+            Dispatcher.UIThread.Post(() => frontend.OpenUrl(url));
+        else
+            _pendingUrl = url;
+        return true;
+    }
+
+    private void OpenUrl(Uri url)
+    {
+        switch (url.Host.ToLowerInvariant())
+        {
+            case "read":
+                var id = url.AbsolutePath.Trim('/');
+                if (Guid.TryParse(id, out var bookId))
+                    Publish(Data(("type", "openBook"), ("bookId", bookId.ToString())));
+                break;
+            case "dashboard":
+                ShowTab(2);
+                break;
+            case "materials":
+                ShowTab(1);
+                break;
+            case "profile":
+                ShowTab(3);
+                break;
+            case "library":
+                ShowTab(0);
+                break;
+        }
+    }
+
+    private void ShowTab(int tab)
+    {
+        // A tab link must land on the tab even if a book was open when the
+        // widget was tapped; Swift dismisses its reader cover and then selects.
+        Publish(Data(("type", "closeReader")));
+        Publish(Data(("type", "openTab"), ("tab", tab)));
     }
 
     internal static void Attach(UIWindow window)
@@ -92,6 +192,11 @@ internal sealed partial class IOSNativeFrontend
         Console.WriteLine("Kkindle native: SwiftUI root created.");
 #endif
         ReleaseShell(pointer);
+        if (_pendingUrl is { } pendingUrl)
+        {
+            _pendingUrl = null;
+            frontend.OpenUrl(pendingUrl);
+        }
         shell.StartDeviceChecks();
         lifetime.MainView = null;
         if (MobileDataCoordinator.IsRestartRequired) Publish(Data(("type", "restart")));
@@ -175,6 +280,7 @@ internal sealed partial class IOSNativeFrontend
                 {
                     _shell.Preferences.Update(_ => NormalizePreferences(preferences));
                     _shell.ApplyThemeMode();
+                    _widgetSnapshots.Schedule();
                     if (_reader is { } currentReader) await currentReader.NativeApplySettingsAsync();
                 }
                 finally { _readerGate.Release(); }
@@ -202,6 +308,12 @@ internal sealed partial class IOSNativeFrontend
                         _ => _window.TraitCollection.UserInterfaceStyle == UIUserInterfaceStyle.Dark
                     };
                     _reader.NativeSetAppAppearance(darkAppearance, 0);
+                    // SwiftUI already places this surface inside the window's
+                    // safe area and the reader page applies its own margins.
+                    // Avalonia's automatic safe-area padding would otherwise
+                    // subtract the bottom inset a second time, shortening the
+                    // text column and leaving a blank band above the footer.
+                    TopLevel.SetAutoSafeAreaPadding(_reader, false);
                     _readerSurface.Content = _reader;
                 }
                 finally { _readerGate.Release(); }
@@ -249,6 +361,7 @@ internal sealed partial class IOSNativeFrontend
         _readerCancellation?.Dispose();
         _readerCancellation = null;
         _shell.RequestAutoSync(MobileShell.AutoSyncGap.AfterReading);
+        _widgetSnapshots.Schedule();
     }
 
     private async Task<object> GetLibraryAsync(CancellationToken token)
@@ -277,6 +390,7 @@ internal sealed partial class IOSNativeFrontend
                 // An unavailable sync baseline must not prevent opening the library.
             }
         }
+        _widgetSnapshots.Schedule();
         return Data(
             ("books", books.Select(book => BookData(book, progress.GetValueOrDefault(book.Id),
                 syncStatuses != null && syncStatuses.TryGetValue(book.Id, out var status) ? status : null)).ToArray()),
@@ -378,6 +492,7 @@ internal sealed partial class IOSNativeFrontend
         Sort = Enum.IsDefined(value.Sort) ? value.Sort : MobileBookSort.Recent,
         ReaderTheme = Enum.IsDefined(value.ReaderTheme) ? value.ReaderTheme : ReaderTheme.Classic,
         ReaderPageAnimation = Enum.IsDefined(value.ReaderPageAnimation) ? value.ReaderPageAnimation : MobilePageAnimation.Fade,
+        ReaderProgressDisplay = Enum.IsDefined(value.ReaderProgressDisplay) ? value.ReaderProgressDisplay : MobileReaderProgressDisplay.Pages,
         PdfZoom = double.IsFinite(value.PdfZoom) ? Math.Clamp(value.PdfZoom, 1, 4) : 1,
         ReaderFontScale = double.IsFinite(value.ReaderFontScale)
             ? Math.Clamp(value.ReaderFontScale, ReaderLayoutDefaults.MinFontScale, ReaderLayoutDefaults.MaxFontScale) : 1.35,

@@ -72,6 +72,13 @@ internal sealed partial class IOSNativeFrontend
             case "settings.developer.toggle":
                 if (!_shell.TryToggleDeveloperMode(Text(args, "password"))) throw new InvalidOperationException("密码错误");
                 break;
+            case "settings.feedback.submit":
+                return await modules.Accounts.Service.SubmitFeedbackAsync(
+                    NativeFeedbackRequest.ReadDraft(args,
+                        ApplicationVersion.GetDisplayVersion(typeof(MobileApp).Assembly)),
+                    NativeFeedbackRequest.ReadImages(args),
+                    NativeFeedbackRequest.ReadAttachLogs(args) ? SoftwareLog.CaptureFeedbackLog() : null,
+                    token);
             case "settings.profile":
                 await modules.Library.Books.InitializeAsync(token);
                 var profileBooks = await modules.Library.Books.SearchAsync(cancellationToken: token);

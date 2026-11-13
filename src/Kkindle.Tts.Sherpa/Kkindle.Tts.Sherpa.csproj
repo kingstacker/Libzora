@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Kkindle.Tts.Sherpa</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Kkindle.Core\Kkindle.Core.csproj" />
+    <ProjectReference Include="..\Kkindle.Infrastructure\Kkindle.Infrastructure.csproj" />
+    <PackageReference Include="org.k2fsa.sherpa.onnx" Version="1.13.5" />
+    <!-- sherpa-onnx 1.13.5 is linked against ONNX Runtime 1.27.1 and ships
+         its own libonnxruntime. Kkindle.Infrastructure references
+         Microsoft.ML.OnnxRuntime 1.23.2, whose native library has the same
+         file name and would otherwise shadow sherpa's copy, making model
+         loading fail with "requested API version [27] is not available".
+         Raising the version here unifies both managed and native sides on
+         ORT 1.27.1 for the desktop heads that use sherpa-onnx. -->
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.27.1" />
+  </ItemGroup>
+</Project>

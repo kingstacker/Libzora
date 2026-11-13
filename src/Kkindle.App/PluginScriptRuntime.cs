@@ -196,6 +196,7 @@ internal sealed class PluginScriptRuntime
         }
         catch (Exception exception) when (exception is not OperationCanceledException and not OutOfMemoryException)
         {
+            SoftwareLog.ErrorWithoutMessage("plugin.script", exception);
             return Failure(Truncate($"插件脚本出错：{exception.Message}", 1000));
         }
 

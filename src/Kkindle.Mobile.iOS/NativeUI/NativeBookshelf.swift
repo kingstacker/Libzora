@@ -20,7 +20,7 @@ struct NativeLibraryPage: View {
     @StateObject private var scrollState = NativeLibraryScrollState()
     @State private var pageVisible = false
     @State private var visibleCovers: [NativeVisibleCover] = []
-    @State private var visiblePositions: [NativeCoverPosition] = []
+    @State private var visibleRegions: [NativeAmbientCoverRegion] = []
     @State private var sampledColors: [NativeVisibleCover: NativeAmbientColor] = [:]
 
     /// Page labels sit on the colour wash rather than a card; keep them readable there.
@@ -35,7 +35,7 @@ struct NativeLibraryPage: View {
         return filterResult
     }
     private var filterPending: Bool { advancedFilter.count > 0 && currentFilterResult == nil }
-    private var floatingMasthead: Bool { scrollState.showMasthead || (searching && scrollState.offset > 64) }
+    private var floatingMasthead: Bool { scrollState.showMasthead }
     private var books: [LibraryBook] {
         if filterPending { return [] }
         let matchingIDs = currentFilterResult?.ids
@@ -58,33 +58,54 @@ struct NativeLibraryPage: View {
                 VStack(spacing: 0) {
                     NativeLibraryScrollReader(state: scrollState)
                     masthead(floating: false)
+                        .opacity(floatingMasthead ? 0 : 1)
+                        .accessibilityHidden(floatingMasthead)
                     if store.preferences.collectionsView { foldersView(width: geometry.size.width) }
                     else { booksView(width: geometry.size.width) }
+                }
+                .background {
+                    GeometryReader { content in
+                        Color.clear
+                            .onAppear { scrollState.updateBounds(contentHeight: content.size.height, viewportHeight: geometry.size.height) }
+                            .onChange(of: content.size.height) { height in
+                                scrollState.updateBounds(contentHeight: height, viewportHeight: geometry.size.height)
+                            }
+                            .onChange(of: geometry.size.height) { height in
+                                scrollState.updateBounds(contentHeight: content.size.height, viewportHeight: height)
+                            }
+                    }
                 }
             }.refreshable { await refresh() }
                 .coordinateSpace(name: NativeLibraryScrollState.space)
                 .onPreferenceChange(NativeCoverPositionKey.self) { positions in
                     guard isActive, pageVisible, store.readerBook == nil, store.preferences.colorfulMode,
                           !store.preferences.collectionsView else { return }
-                    let positions = positions.filter { $0.frame.maxY > 0 && $0.frame.minY < geometry.size.height }
+                    let viewport = CGRect(origin: .zero, size: geometry.size)
+                    let regions = positions.filter { $0.frame.intersects(viewport) }
                         .sorted { left, right in
                             if abs(left.frame.minY - right.frame.minY) > 1 { return left.frame.minY < right.frame.minY }
                             return left.frame.minX < right.frame.minX
                         }.prefix(18).map { position in
-                            NativeCoverPosition(cover: position.cover, frame: CGRect(
-                                x: position.frame.midX / max(1, geometry.size.width),
-                                y: (position.frame.midY + geometry.safeAreaInsets.top)
-                                    / max(1, geometry.size.height + geometry.safeAreaInsets.top + geometry.safeAreaInsets.bottom),
-                                width: 0, height: 0))
+                            let visible = position.frame.intersection(viewport)
+                            let fraction = visible.height / max(1, position.frame.height)
+                            return NativeAmbientCoverRegion(
+                                cover: position.cover,
+                                column: min(2, max(0, Int(position.frame.midX / max(1, viewport.width) * 3))),
+                                row: min(2, max(0, Int(visible.midY / max(1, viewport.height) * 3))),
+                                visibility: max(0.25, (Double(fraction) * 4).rounded() / 4))
                         }
-                    visiblePositions = positions
-                    let covers = positions.map(\.cover)
+                    // Quantise regions, not background positions, to avoid frame-by-frame drift.
+                    let covers = regions.map(\.cover)
                     if covers != visibleCovers { visibleCovers = covers }
-                    publishVisibleColors()
+                    if regions != visibleRegions {
+                        visibleRegions = regions
+                        publishVisibleColors()
+                    }
                 }
                 .overlay(alignment: .top) {
                     if floatingMasthead {
                         masthead(floating: true)
+                            .zIndex(1)
                             .transition(.move(edge: .top).combined(with: .opacity))
                     }
                 }
@@ -113,6 +134,7 @@ struct NativeLibraryPage: View {
         }
         .onAppear { pageVisible = true; publishVisibleColors() }
         .onDisappear { pageVisible = false }
+        .onChange(of: isActive) { active in if active { publishVisibleColors() } }
         .task {
             defer { loading = false }
             await refresh()
@@ -120,6 +142,9 @@ struct NativeLibraryPage: View {
         .task(id: filterRequest) { await updateFilterResults(for: filterRequest) }
         .task(id: visibleCovers) {
             guard store.preferences.colorfulMode else { return }
+            // Coalesce boundary changes without doing image decoding on each frame.
+            do { try await Task.sleep(nanoseconds: 120_000_000) }
+            catch { return }
             let missing = visibleCovers.filter { sampledColors[$0] == nil }
             let samples = await Task.detached(priority: .utility) {
                 missing.compactMap { cover -> (NativeVisibleCover, NativeAmbientColor)? in
@@ -128,7 +153,6 @@ struct NativeLibraryPage: View {
                 }
             }.value
             guard !Task.isCancelled else { return }
-            // Retain only the current viewport, rather than every cover scrolled past.
             sampledColors = sampledColors.filter { visibleCovers.contains($0.key) }
             for (cover, color) in samples { sampledColors[cover] = color }
             publishVisibleColors()
@@ -137,12 +161,14 @@ struct NativeLibraryPage: View {
     private func publishVisibleColors() {
         guard isActive, pageVisible, store.readerBook == nil, store.preferences.colorfulMode,
               !store.preferences.collectionsView else { return }
-        let colors = visiblePositions.compactMap { position -> NativeAmbientColor? in
-            guard var color = sampledColors[position.cover] else { return nil }
-            color.x = Double(position.frame.minX); color.y = Double(position.frame.minY)
-            return color
+        let samples = visibleRegions.compactMap { region -> NativeAmbientSample? in
+            guard let color = sampledColors[region.cover] else { return nil }
+            return NativeAmbientSample(color: color, column: region.column, row: region.row,
+                                       visibility: region.visibility)
         }
-        if store.visibleAmbientColors != colors { store.visibleAmbientColors = colors }
+        let colors = NativeAmbientPalette.regionalColors(samples)
+        guard !colors.isEmpty, store.visibleAmbientColors != colors else { return }
+        withAnimation(.easeInOut(duration: 0.8)) { store.visibleAmbientColors = colors }
     }
     private func masthead(floating: Bool) -> some View {
         HStack(spacing: 0) {
@@ -176,10 +202,11 @@ struct NativeLibraryPage: View {
             }.buttonStyle(.plain).disabled(importing || folderBusy)
                 .accessibilityLabel(store.preferences.collectionsView ? "新建收藏夹" : "导入书籍")
                 .accessibilityIdentifier("library.import")
-        }.padding(.leading, 24).padding(.trailing, 12).padding(.top, 16).padding(.bottom, floating ? 28 : 4)
+        }.padding(.leading, 24).padding(.trailing, 12).padding(.top, 16).padding(.bottom, 4)
             .background {
                 if floating {
                     NativeMastheadGlass(scroll: scrollState, colors: nil)
+                        .padding(.bottom, -64)
                         .ignoresSafeArea(edges: .top)
                 }
             }
@@ -306,11 +333,13 @@ struct NativeLibraryPage: View {
                 .font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(mutedText)
         }.padding(.horizontal, 24).padding(.top, 14).padding(.bottom, 28).disabled(folderBusy)
     }
-    @ViewBuilder private func bookActions(_ book: LibraryBook) -> some View {
-        Button("阅读") { store.perform { try await store.openReader(book) } }
-        Button(book.favorite ? "取消收藏" : "收藏") {
-            store.perform { try await store.command("book.favorite", ["bookId": book.id, "favorite": !book.favorite]); try await store.refreshLibrary() }
-        }
+    private func bookActions(_ book: LibraryBook) -> [NativeBookMenuItem] {
+        [
+            NativeBookMenuItem("阅读") { store.perform { try await store.openReader(book) } },
+            NativeBookMenuItem(book.favorite ? "取消收藏" : "收藏") {
+                store.perform { try await store.command("book.favorite", ["bookId": book.id, "favorite": !book.favorite]); try await store.refreshLibrary() }
+            }
+        ]
     }
     private func folderAction(_ operation: String, folder: LibraryFolder, target: String? = nil) {
         folderBusy = true
@@ -363,6 +392,13 @@ private struct NativeVisibleCover: Hashable {
     let version: String
 }
 
+private struct NativeAmbientCoverRegion: Equatable {
+    let cover: NativeVisibleCover
+    let column: Int
+    let row: Int
+    let visibility: Double
+}
+
 private struct NativeCoverPosition: Equatable {
     let cover: NativeVisibleCover
     let frame: CGRect
@@ -382,25 +418,57 @@ final class NativeLibraryScrollState: ObservableObject {
     @Published private(set) var showMasthead = false
     private var anchor: CGFloat?
     private var directionAnchor: CGFloat = 0
+    private var maximumOffset: CGFloat = 0
+    private var lastValue: CGFloat?
+    private var lastSample = ProcessInfo.processInfo.systemUptime
+    private var scrollSpeed: CGFloat = 0
 
-    /// The header surface appears within a few points of movement, matching
-    /// the system's scroll-edge transition.
-    var glassOpacity: Double { min(1, max(0, offset / 6)) }
+    /// Fade the material as the inline header meets the floating header.
+    var glassOpacity: Double { min(1, max(0, offset / 48)) }
+
+    /// Finish the masthead transition in the time it takes the shelf to cover
+    /// its height, so a flick snaps in and a slow drag eases with the finger.
+    private var mastheadDuration: TimeInterval {
+        min(0.26, max(0.05, 64 / Double(max(abs(scrollSpeed), 160))))
+    }
+
+    func updateBounds(contentHeight: CGFloat, viewportHeight: CGFloat) {
+        guard contentHeight.isFinite, viewportHeight.isFinite, viewportHeight > 0 else { return }
+        maximumOffset = max(0, contentHeight - viewportHeight)
+        directionAnchor = min(directionAnchor, maximumOffset)
+        if offset > maximumOffset {
+            offset = maximumOffset
+            showMasthead = false
+        }
+    }
 
     func update(top: CGFloat) {
         guard top.isFinite else { return }
         if anchor == nil { anchor = top }
         guard let anchor else { return }
-        let value = max(0, anchor - top)
+        // Rubber-band motion beyond either edge is not a scroll reversal.
+        // In particular, returning from bottom overscroll must not reveal the header.
+        let value = min(maximumOffset, max(0, anchor - top))
+        let now = ProcessInfo.processInfo.systemUptime
+        if let lastValue, now > lastSample {
+            let elapsed = now - lastSample
+            // A pause ends the gesture; the next move should not inherit it.
+            let instantaneous = (value - lastValue) / CGFloat(elapsed)
+            scrollSpeed = elapsed < 0.1 ? instantaneous : 0
+        }
+        lastValue = value
+        lastSample = now
         if abs(value - offset) > 0.5 {
-            if value < 64 {
+            if value <= 0.5 {
+                // Both headers have identical geometry here, so handing back to
+                // the inline header does not make its controls jump or vanish.
                 showMasthead = false
                 directionAnchor = value
             } else if value > directionAnchor + 12 {
-                if showMasthead { withAnimation(.easeInOut(duration: 0.2)) { showMasthead = false } }
+                if showMasthead { withAnimation(.easeOut(duration: mastheadDuration)) { showMasthead = false } }
                 directionAnchor = value
             } else if value < directionAnchor - 12 {
-                if !showMasthead { withAnimation(.easeInOut(duration: 0.2)) { showMasthead = true } }
+                if value >= 64 && !showMasthead { withAnimation(.easeOut(duration: mastheadDuration)) { showMasthead = true } }
                 directionAnchor = value
             }
             offset = value
@@ -412,9 +480,11 @@ private struct NativeLibraryScrollReader: View {
     @ObservedObject var state: NativeLibraryScrollState
     var body: some View {
         GeometryReader { proxy in
-            Color.clear.onChange(of: proxy.frame(in: .named(NativeLibraryScrollState.space)).minY) { top in
-                state.update(top: top)
-            }
+            Color.clear
+                .onAppear { state.update(top: proxy.frame(in: .named(NativeLibraryScrollState.space)).minY) }
+                .onChange(of: proxy.frame(in: .named(NativeLibraryScrollState.space)).minY) { top in
+                    state.update(top: top)
+                }
         }.frame(height: 0)
     }
 }
@@ -437,7 +507,10 @@ private struct NativeMastheadGlass: View {
             .mask {
                 LinearGradient(stops: [
                     .init(color: .black, location: 0),
-                    .init(color: .black, location: 0.80),
+                    .init(color: .black, location: 0.46),
+                    .init(color: .black.opacity(0.88), location: 0.60),
+                    .init(color: .black.opacity(0.5), location: 0.76),
+                    .init(color: .black.opacity(0.14), location: 0.91),
                     .init(color: .clear, location: 1)
                 ], startPoint: .top, endPoint: .bottom)
             }
@@ -484,17 +557,32 @@ enum NativeBookOrder {
     }
 }
 
+/// Menu entries are data rather than SwiftUI views because the menu is
+/// presented by UIKit, where the highlight preview's background can be cleared.
+struct NativeBookMenuItem {
+    let title: String
+    let destructive: Bool
+    let action: () -> Void
+
+    init(_ title: String, destructive: Bool = false, action: @escaping () -> Void) {
+        self.title = title; self.destructive = destructive; self.action = action
+    }
+}
+
 /// Both the library and an opened collection use the same cover geometry,
 /// text, spacing, navigation and persisted grid/list preference.
-struct NativeBookShelf<Actions: View>: View {
+struct NativeBookShelf: View {
     @ObservedObject var store: NativeStore
+    @State private var detailBookID: String?
+    @State private var showingDetail = false
+    @State private var liftedBookID: String?
     let books: [LibraryBook]
     let pageWidth: CGFloat
     let tracksVisibleCovers: Bool
-    private let actions: (LibraryBook) -> Actions
+    private let actions: (LibraryBook) -> [NativeBookMenuItem]
 
     init(store: NativeStore, books: [LibraryBook], pageWidth: CGFloat, tracksVisibleCovers: Bool = false,
-         @ViewBuilder actions: @escaping (LibraryBook) -> Actions) {
+         actions: @escaping (LibraryBook) -> [NativeBookMenuItem]) {
         self.store = store; self.books = books; self.pageWidth = pageWidth
         self.tracksVisibleCovers = tracksVisibleCovers; self.actions = actions
     }
@@ -515,13 +603,36 @@ struct NativeBookShelf<Actions: View>: View {
             }
         }.accessibilityElement(children: .contain)
             .accessibilityIdentifier(store.preferences.listView ? "books.list" : "books.grid")
+            .background {
+                NavigationLink(isActive: $showingDetail) {
+                    if let detailBookID { NativeBookDetailPage(store: store, bookId: detailBookID) }
+                } label: { EmptyView() }
+                    .hidden().accessibilityHidden(true)
+            }
     }
     private func bookLink(_ book: LibraryBook) -> some View {
-        NavigationLink { NativeBookDetailPage(store: store, bookId: book.id) } label: {
-            if store.preferences.listView { BookRow(book: book, showSyncStatus: store.preferences.showBookSyncStatus, muted: mutedText) }
+        let lifted = liftedBookID == book.id
+        return Button { store.perform { try await store.openReader(book) } } label: {
+            if store.preferences.listView { BookRow(book: book, showRating: store.preferences.showBookRating, showSyncStatus: store.preferences.showBookSyncStatus, muted: mutedText) }
             else { NativeBookTile(book: book, width: coverWidth, muted: mutedText, galleryMode: galleryMode,
+                                  showRating: store.preferences.showBookRating,
                                   showSyncStatus: store.preferences.showBookSyncStatus) }
-        }.buttonStyle(.plain).contextMenu { actions(book) }.accessibilityIdentifier("book.\(book.id)")
+        }.buttonStyle(.plain).disabled(store.openingReader)
+            .scaleEffect(lifted ? 1.08 : 1)
+            .shadow(color: .black.opacity(lifted ? 0.27 : 0), radius: lifted ? 17 : 0, x: 0, y: lifted ? 9 : 0)
+            .overlay {
+                NativeBookLink(enabled: !store.openingReader,
+                               actions: actions(book) + [NativeBookMenuItem("书籍详情") { detailBookID = book.id; showingDetail = true }],
+                               tap: { store.perform { try await store.openReader(book) } },
+                               onMenuWillShow: {
+                                   withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { liftedBookID = book.id }
+                               },
+                               onMenuWillHide: {
+                                   withAnimation(.easeOut(duration: 0.2)) { if liftedBookID == book.id { liftedBookID = nil } }
+                               })
+            }
+            .accessibilityHint("轻点阅读，长按查看更多操作")
+            .accessibilityIdentifier("book.\(book.id)")
             .background {
                 if tracksVisibleCovers, store.preferences.colorfulMode, let path = book.coverPath {
                     GeometryReader { proxy in
@@ -535,6 +646,108 @@ struct NativeBookShelf<Actions: View>: View {
                     }
                 }
             }
+            .zIndex(lifted ? 1 : 0)
+    }
+}
+
+/// UIKit's context menu morphs the menu out of a platter derived from the
+/// pressed view. SwiftUI's `contextMenu` always used the whole tile as that
+/// source, which flashed a grey rounded rectangle over the transparent tile.
+/// Presenting the system menu through `UIContextMenuInteraction` with an
+/// invisible highlight removes the platter; the shelf then lifts the pressed
+/// tile itself so the menu still floats out of an enlarged book.
+private struct NativeBookLink: UIViewRepresentable {
+    let enabled: Bool
+    let actions: [NativeBookMenuItem]
+    let tap: () -> Void
+    let onMenuWillShow: () -> Void
+    let onMenuWillHide: () -> Void
+
+    func makeUIView(context: Context) -> NativeBookLinkView {
+        NativeBookLinkView()
+    }
+
+    func updateUIView(_ view: NativeBookLinkView, context: Context) {
+        view.isEnabled = enabled
+        view.onTap = tap
+        view.actions = actions
+        view.onMenuWillShow = onMenuWillShow
+        view.onMenuWillHide = onMenuWillHide
+    }
+}
+
+private final class NativeBookLinkView: UIButton {
+    var onTap: (() -> Void)?
+    var onMenuWillShow: (() -> Void)?
+    var onMenuWillHide: (() -> Void)?
+    var actions: [NativeBookMenuItem] = []
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        // The SwiftUI button underneath stays the accessibility element; this
+        // transparent view only adds the long-press menu and tap forwarding.
+        isAccessibilityElement = false
+        backgroundColor = .clear
+        addInteraction(UIContextMenuInteraction(delegate: self))
+        addTarget(self, action: #selector(handleTap), for: .touchUpInside)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    @objc private func handleTap() { onTap?() }
+
+    override func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
+                                         configurationForMenuAtLocation location: CGPoint) -> UIContextMenuConfiguration? {
+        guard isEnabled else { return nil }
+        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
+            guard let self else { return nil }
+            return UIMenu(children: self.actions.map { item in
+                UIAction(title: item.title, attributes: item.destructive ? .destructive : []) { _ in item.action() }
+            })
+        }
+    }
+
+    override func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
+                                         willDisplayMenuFor configuration: UIContextMenuConfiguration,
+                                         animator: UIContextMenuInteractionAnimating?) {
+        onMenuWillShow?()
+    }
+
+    override func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
+                                         willEndFor configuration: UIContextMenuConfiguration,
+                                         animator: UIContextMenuInteractionAnimating?) {
+        onMenuWillHide?()
+    }
+
+    func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
+                                highlightPreviewForItemWithIdentifier identifier: NSCopying) -> UITargetedPreview? {
+        invisiblePreview()
+    }
+
+    func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
+                                dismissalPreviewForItemWithIdentifier identifier: NSCopying) -> UITargetedPreview? {
+        invisiblePreview()
+    }
+
+    @available(iOS, deprecated: 16.0)
+    override func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
+                                         previewForHighlightingMenuWithConfiguration configuration: UIContextMenuConfiguration) -> UITargetedPreview? {
+        invisiblePreview()
+    }
+
+    @available(iOS, deprecated: 16.0)
+    override func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
+                                         previewForDismissingMenuWithConfiguration configuration: UIContextMenuConfiguration) -> UITargetedPreview? {
+        invisiblePreview()
+    }
+
+    private func invisiblePreview() -> UITargetedPreview {
+        let parameters = UIPreviewParameters()
+        parameters.backgroundColor = .clear
+        let marker = UIView(frame: CGRect(x: 0, y: 0, width: 2, height: 2))
+        marker.backgroundColor = UIColor(white: 0, alpha: 0.01)
+        let target = UIPreviewTarget(container: self, center: CGPoint(x: bounds.midX, y: bounds.midY))
+        return UITargetedPreview(view: marker, parameters: parameters, target: target)
     }
 }
 
@@ -613,27 +826,31 @@ struct NativeBookTile: View {
     let width: CGFloat
     var muted = NativeTheme.muted
     var galleryMode = false
+    var showRating = false
     var showSyncStatus = false
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             BookCover(book: book, width: width)
-                .overlay(alignment: .topTrailing) {
-                    if showSyncStatus, let status = book.syncStatus {
+                .overlay(alignment: .topLeading) {
+                    if showRating, let rating = book.onlineRating {
+                        NativeBookRatingBadge(rating: rating).padding(5).accessibilityHidden(true)
+                    }
+                }
+                .overlay(alignment: .bottomTrailing) {
+                    if showSyncStatus, let status = book.syncStatus, NativeBookSyncBadge.isPending(status) {
                         NativeBookSyncBadge(status: status).padding(5).accessibilityHidden(true)
                     }
                 }
             if !galleryMode {
-                Group {
-                    if book.progress > 0 && book.progress < 99.5 { NativeThinProgress(value: book.progress) }
-                    else { Color.clear.frame(height: 2) }
-                }.padding(.top, 8)
                 Text(book.title).font(NativeTheme.font(13.5)).lineLimit(2).lineSpacing(3).padding(.top, 8)
                 Text(book.authors).font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(muted)
                     .lineLimit(1).padding(.top, 2)
             }
         }.frame(maxWidth: .infinity, alignment: .topLeading).contentShape(Rectangle())
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(book.title + (showSyncStatus ? NativeBookSyncBadge.description(book.syncStatus).map { "，\($0)" } ?? "" : ""))
+            .accessibilityLabel(book.title
+                + (showRating ? book.onlineRating.map { "，评分 \(NativeBookRatingBadge.text($0))" } ?? "" : "")
+                + (showSyncStatus && NativeBookSyncBadge.isPending(book.syncStatus) ? NativeBookSyncBadge.description(book.syncStatus).map { "，\($0)" } ?? "" : ""))
     }
 }
 
@@ -668,8 +885,27 @@ struct NativeFolderCard: View {
     }
 }
 
+private struct NativeBookRatingBadge: View {
+    let rating: Double
+
+    static func text(_ rating: Double) -> String { String(format: "%.1f", rating) }
+
+    var body: some View {
+        HStack(spacing: 2) {
+            Image(systemName: "star.fill").font(.system(size: 8.5, weight: .semibold))
+            Text(Self.text(rating)).font(NativeTheme.font(10, relativeTo: .caption2)).monospacedDigit()
+        }.foregroundStyle(NativeTheme.ink)
+            .padding(.horizontal, 5).padding(.vertical, 3)
+            .background(.regularMaterial, in: Capsule())
+            .accessibilityLabel("评分 \(Self.text(rating))")
+    }
+}
+
 private struct NativeBookSyncBadge: View {
     let status: Int
+
+    /// Settled books stay quiet: only unsynced or cloud-only books need a badge.
+    static func isPending(_ status: Int?) -> Bool { status == 0 || status == 2 }
 
     static func description(_ status: Int?) -> String? {
         switch status {
@@ -691,6 +927,7 @@ private struct NativeBookSyncBadge: View {
 
 struct BookRow: View {
     let book: LibraryBook
+    var showRating = false
     var showSyncStatus = false
     var muted = NativeTheme.muted
     var body: some View {
@@ -701,7 +938,8 @@ struct BookRow: View {
                 HStack(spacing: 10) {
                     Text(book.authors).font(NativeTheme.font(12.5, relativeTo: .caption)).lineLimit(1)
                     Spacer(minLength: 0)
-                    if showSyncStatus, let status = book.syncStatus { NativeBookSyncBadge(status: status) }
+                    if showRating, let rating = book.onlineRating { NativeBookRatingBadge(rating: rating) }
+                    if showSyncStatus, let status = book.syncStatus, NativeBookSyncBadge.isPending(status) { NativeBookSyncBadge(status: status) }
                     Text("\(book.progress, specifier: "%.0f")%").font(NativeTheme.font(12, relativeTo: .caption))
                 }.foregroundStyle(muted)
             }

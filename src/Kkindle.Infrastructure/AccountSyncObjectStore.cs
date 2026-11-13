@@ -11,7 +11,7 @@ namespace Kkindle.Infrastructure;
 /// authorises and indexes: object bytes go directly to and from its storage service (for example Qiniu Kodo)
 /// through short-lived signed URLs, which never receive the account session.
 /// </summary>
-internal sealed class AccountSyncObjectStore : ISyncObjectStore
+internal sealed class AccountSyncObjectStore : ISyncObjectStore, ISyncServerClockSource
 {
     private readonly AccountService _accounts;
     private readonly S3SyncSettings _settings;
@@ -19,6 +19,17 @@ internal sealed class AccountSyncObjectStore : ISyncObjectStore
     private readonly Uri _root;
     private readonly HttpClient _http;
     private readonly HttpClient _direct;
+    private long _serverClockOffsetTicks;
+    private int _hasServerClockOffset;
+
+    public TimeSpan? ServerClockOffset
+    {
+        get
+        {
+            if (Volatile.Read(ref _hasServerClockOffset) == 0) return null;
+            return TimeSpan.FromTicks(Interlocked.Read(ref _serverClockOffsetTicks));
+        }
+    }
 
     public AccountSyncObjectStore(S3SyncSettings settings, AccountService accounts, HttpMessageHandler? handler = null)
     {
@@ -212,8 +223,29 @@ internal sealed class AccountSyncObjectStore : ISyncObjectStore
     private async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
     {
         await _accounts.AuthorizeSyncRequestAsync(request, _settings, token);
-        try { return await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token); }
+        var sent = DateTimeOffset.UtcNow;
+        try
+        {
+            var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
+            ObserveServerClock(response, sent);
+            return response;
+        }
         catch (HttpRequestException) { throw new IOException("无法连接账号同步服务，请检查服务地址和网络。"); }
+    }
+
+    private void ObserveServerClock(HttpResponseMessage response, DateTimeOffset sent)
+    {
+        if (!response.Headers.TryGetValues("X-Kkindle-Server-Time", out var values)) return;
+        if (!DateTimeOffset.TryParse(
+                values.FirstOrDefault(),
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.RoundtripKind,
+                out var serverTime))
+            return;
+        var received = DateTimeOffset.UtcNow;
+        var midpointTicks = sent.UtcTicks + (received.UtcTicks - sent.UtcTicks) / 2;
+        Interlocked.Exchange(ref _serverClockOffsetTicks, serverTime.UtcTicks - midpointTicks);
+        Volatile.Write(ref _hasServerClockOffset, 1);
     }
 
     private async Task<HttpResponseMessage> SendDirectAsync(HttpRequestMessage request, CancellationToken token)

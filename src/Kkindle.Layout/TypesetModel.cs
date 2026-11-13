@@ -198,6 +198,9 @@ public sealed class TypesetLayoutOptions
     public float ParagraphSpacingEm { get; init; }
     /// <summary>Keep consecutive paragraph lines at the normal line pitch.</summary>
     public bool ParagraphSpacingMatchesLineHeight { get; init; }
+    public bool OverridePublisherLineHeight { get; init; }
+    public bool OverridePublisherParagraphSpacing { get; init; }
+    public bool AvoidWidowsAndOrphans { get; init; } = true;
     public float ViewportWidth { get; init; } = 800f;
     public float ViewportHeight { get; init; } = 600f;
     public float InsetHorizontal { get; init; } = 24f;

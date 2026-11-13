@@ -10,6 +10,9 @@ final class NativeFrontendTests: XCTestCase {
         print("KKINDLE_NATIVE_UI_REVIEW_20261107_V2")
         let bundle = name.contains("testLegacyUpgrade") ? "com.kingstacker.kkindle.nativeupgradepreview" : "com.kingstacker.kkindle.nativepreview"
         app = XCUIApplication(bundleIdentifier: bundle)
+        // Tests start on the shelf rather than reopening the last reading
+        // session left by an earlier run.
+        app.launchArguments = ["--kkindle-disable-restore"]
         app.launch()
         XCTAssertTrue(app.tabBars.buttons["书库"].waitForExistence(timeout: 30))
     }
@@ -20,6 +23,82 @@ final class NativeFrontendTests: XCTestCase {
             screenshot.lifetime = .keepAlways
             add(screenshot)
         }
+    }
+
+    func testBookTapReadsDirectlyAndLongPressOpensDetails() {
+        showLibrary()
+        let book = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'book.' AND label CONTAINS 'Native UI EPUB'")).firstMatch
+        for _ in 0..<8 {
+            if book.exists && book.isHittable { break }
+            app.swipeUp()
+        }
+        XCTAssertTrue(book.exists && book.isHittable)
+        book.tap()
+        XCTAssertTrue(app.staticTexts["reader.position"].waitForExistence(timeout: 40),
+                      "One tap must enter reading without visiting book details.")
+        XCTAssertFalse(app.buttons["book.read"].exists)
+        let close = app.buttons["reader.close"]
+        for _ in 0..<3 {
+            if close.exists && close.isHittable { break }
+            app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)).tap()
+            if close.waitForExistence(timeout: 2) && close.isHittable { break }
+        }
+        XCTAssertTrue(close.exists && close.isHittable)
+        app.buttons["reader.close"].tap()
+        XCTAssertTrue(book.waitForExistence(timeout: 15))
+        openBookDetails(book)
+        attachScreenshot("书籍-长按查看详情")
+        app.buttons["book.back"].tap()
+        XCTAssertTrue(app.buttons["library.display"].waitForExistence(timeout: 10))
+    }
+
+    func testSpeechControlsAutoDockAndRemainUsable() throws {
+        try openBook(containing: "银河系漫游指南")
+        let dock = app.buttons["reader.speech.dock"]
+        let pause = app.buttons["reader.speech.pause"]
+        let stop = app.buttons["reader.speech.stop"]
+        app.buttons["reader.听书"].tap()
+        XCTAssertTrue(pause.waitForExistence(timeout: 15))
+        attachScreenshot("朗读-展开")
+        XCTAssertTrue(dock.waitForExistence(timeout: 8), "Speech progress must not keep the controls expanded.")
+        XCTAssertFalse(pause.exists)
+        XCTAssertGreaterThanOrEqual(dock.frame.width, 44)
+        XCTAssertLessThanOrEqual(dock.frame.width, 48)
+        XCTAssertEqual(dock.frame.maxX, app.windows.firstMatch.frame.maxX, accuracy: 1)
+        attachScreenshot("朗读-自动收边")
+
+        dock.tap()
+        XCTAssertTrue(pause.waitForExistence(timeout: 2))
+        pause.tap()
+        XCTAssertTrue(waitUntil { pause.label == "继续朗读" })
+        XCTAssertTrue(dock.waitForExistence(timeout: 8), "Pause must restart the docking delay.")
+        XCTAssertEqual(dock.value as? String, "已暂停")
+        dock.tap()
+        XCTAssertTrue(pause.waitForExistence(timeout: 2))
+        app.buttons["reader.speech.settings"].tap()
+        let settings = app.navigationBars["朗读设置"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 5))
+        RunLoop.current.run(until: Date().addingTimeInterval(5))
+        settings.buttons["完成"].tap()
+        XCTAssertTrue(pause.waitForExistence(timeout: 2), "Controls must stay expanded while settings are open.")
+        pause.tap()
+        XCTAssertTrue(waitUntil { pause.label == "暂停朗读" })
+        stop.tap()
+        XCTAssertTrue(waitUntil { !pause.exists && !dock.exists })
+
+        app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)).tap()
+        let listen = app.buttons["reader.听书"]
+        XCTAssertTrue(listen.waitForExistence(timeout: 5))
+        listen.tap()
+        XCTAssertTrue(pause.waitForExistence(timeout: 15), "A new playback session must start expanded.")
+        XCTAssertTrue(dock.waitForExistence(timeout: 8))
+        dock.tap()
+        XCTAssertTrue(stop.waitForExistence(timeout: 2))
+        stop.tap()
+        XCTAssertTrue(waitUntil { !pause.exists && !dock.exists })
+        app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)).tap()
+        XCTAssertTrue(app.buttons["reader.close"].waitForExistence(timeout: 5))
+        app.buttons["reader.close"].tap()
     }
 
     func testNativeTabsAndNavigation() {
@@ -98,14 +177,121 @@ final class NativeFrontendTests: XCTestCase {
         })
     }
 
-    func testAboutKeepsVersionWithoutFeedbackLink() {
+    func testAboutShowsFeedbackEntryAndRequiresSignIn() {
         app.tabBars.buttons["我的"].tap()
         XCTAssertTrue(app.staticTexts["page.profile"].waitForExistence(timeout: 15))
         let version = app.staticTexts["版本"]
-        for _ in 0..<3 where !version.exists { app.swipeUp() }
-        XCTAssertTrue(version.waitForExistence(timeout: 5))
-        XCTAssertFalse(app.staticTexts["反馈问题"].exists)
-        attachScreenshot("我的-关于")
+        let feedback = app.buttons["profile.feedback"]
+        reveal(feedback)
+        XCTAssertTrue(version.exists)
+        XCTAssertTrue(feedback.exists && feedback.isHittable)
+        feedback.tap()
+        XCTAssertTrue(app.navigationBars["问题反馈"].waitForExistence(timeout: 10))
+        // The isolated preview has no credentials, so the form must stay gated
+        // on a signed-in account; a restored session may legitimately show it.
+        let notice = app.staticTexts["feedback.loginRequired"]
+        if notice.waitForExistence(timeout: 5) {
+            XCTAssertTrue(app.buttons["feedback.openAccount"].exists)
+            XCTAssertFalse(app.buttons["feedback.submit"].exists)
+        } else {
+            XCTAssertTrue(app.buttons["feedback.submit"].exists)
+        }
+        attachScreenshot("我的-问题反馈")
+    }
+
+    /// Requires the local China account server. Registers a disposable account,
+    /// submits feedback through 我的 → 关于 and checks the returned receipt.
+    func testFeedbackSubmissionUsesTheSignedInAccount() {
+        let username = "feedback_" + String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(10))
+        let password = "fictional-native-password"
+        print("KKINDLE_FICTIONAL_ACCOUNT:\(username)")
+        app.tabBars.buttons["我的"].tap()
+        XCTAssertTrue(app.staticTexts["page.profile"].waitForExistence(timeout: 15))
+        tapAccountElement(app.buttons["profile.account"])
+        let regions = app.segmentedControls["account.region"]
+        if app.staticTexts["account.username"].exists {
+            reveal(app.buttons["account.logout"]); tapAccountElement(app.buttons["account.logout"])
+        }
+        reveal(regions)
+        XCTAssertTrue(regions.waitForExistence(timeout: 15))
+        tapAccountElement(regions.buttons["中国区"])
+        XCTAssertTrue(waitUntil { regions.buttons["中国区"].isSelected })
+        scrollAccountToTop()
+        let mode = app.segmentedControls["account.mode"]
+        XCTAssertTrue(mode.waitForExistence(timeout: 15))
+        tapAccountElement(mode.buttons["注册"])
+        let email = app.textFields["account.emailField"]
+        reveal(email); email.tap(); email.typeText(username + "@example.invalid"); dismissKeyboard()
+        let user = app.textFields["account.usernameField"]
+        reveal(user); replaceText(user, with: username); dismissKeyboard()
+        enterPassword(app.secureTextFields["account.password"])
+        enterPassword(app.secureTextFields["account.confirmation"])
+        tapAccountElement(app.buttons["account.submit"])
+        XCTAssertTrue(app.staticTexts["account.username"].waitForExistence(timeout: 20))
+        XCTAssertEqual(app.staticTexts["account.username"].label, username)
+        tapAccountElement(app.navigationBars["用户账号"].buttons.firstMatch)
+        XCTAssertTrue(app.staticTexts["page.profile"].waitForExistence(timeout: 10))
+
+        let feedback = app.buttons["profile.feedback"]
+        reveal(feedback); tapAccountElement(feedback)
+        XCTAssertTrue(app.navigationBars["问题反馈"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.staticTexts["feedback.loginRequired"].exists)
+        XCTAssertTrue(app.staticTexts["feedback.account"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["feedback.account"].label.contains(username))
+        attachScreenshot("我的-反馈表单")
+
+        let type = app.buttons["feedback.type"]
+        reveal(type); type.tap()
+        let feature = app.buttons["功能建议"]
+        XCTAssertTrue(feature.waitForExistence(timeout: 5), app.debugDescription)
+        feature.tap()
+        XCTAssertTrue(waitUntil { type.label.contains("功能建议") })
+
+        let content = app.textViews["feedback.content"]
+        reveal(content); content.tap()
+        content.typeText("Native feedback smoke test.")
+        dismissKeyboard()
+
+        // The host seeds at least one photo into the simulator before running.
+        let add = app.buttons["feedback.addScreenshot"]
+        reveal(add); tapAccountElement(add)
+        // PHPicker renders its grid as images, not table cells.
+        let photo = app.images.matching(identifier: "PXGGridLayout-Info").firstMatch
+        XCTAssertTrue(photo.waitForExistence(timeout: 30), app.debugDescription)
+        // Remote picker views report the grid items as not hittable; tap the
+        // centre of the visible thumbnail instead.
+        photo.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        let confirm = app.buttons["完成"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(waitUntil { confirm.isEnabled })
+        confirm.tap()
+        XCTAssertTrue(app.buttons["feedback.removeScreenshot.0"].waitForExistence(timeout: 20),
+                      "The picked screenshot must appear in the form: \(app.debugDescription)")
+        attachScreenshot("我的-反馈截图")
+
+        let submit = app.buttons["feedback.submit"]
+        reveal(submit); tapAccountElement(submit)
+        XCTAssertTrue(app.staticTexts["feedback.success"].waitForExistence(timeout: 30), app.debugDescription)
+        XCTAssertTrue(app.staticTexts["feedback.number"].label.contains("#"))
+        attachScreenshot("我的-反馈已提交")
+        app.buttons["完成"].tap()
+        XCTAssertTrue(app.staticTexts["page.profile"].waitForExistence(timeout: 10))
+
+        // Leave the shared preview signed out for the remaining tests.
+        tapAccountElement(app.buttons["profile.account"])
+        reveal(app.buttons["account.logout"]); tapAccountElement(app.buttons["account.logout"])
+        XCTAssertTrue(mode.waitForExistence(timeout: 15))
+
+        func enterPassword(_ field: XCUIElement) {
+            reveal(field); field.tap(); field.typeText(String(password.prefix(1)))
+            let suggestion = app.staticTexts["使用强密码？"]
+            if suggestion.waitForExistence(timeout: 2) {
+                let close = app.buttons.matching(NSPredicate(format: "label IN {'关闭', 'Close', '取消', 'Cancel'}")).firstMatch
+                XCTAssertTrue(close.exists); close.tap(); XCTAssertTrue(waitUntil { !suggestion.exists })
+                field.typeText(XCUIKeyboardKey.delete.rawValue); field.typeText(password)
+            } else { field.typeText(String(password.dropFirst())) }
+            dismissKeyboard()
+        }
     }
 
     /// System-hosted segmented controls and tabs keep their native containers
@@ -179,6 +365,24 @@ final class NativeFrontendTests: XCTestCase {
         XCTAssertTrue(app.textFields["library.search"].waitForExistence(timeout: 5))
     }
 
+    /// Requires the long preview library; repeated swipes reach and bounce off its bottom.
+    func testLibraryBottomBounceDoesNotRevealHeader() {
+        showLibrary()
+        for _ in 0..<6 { app.swipeUp() }
+        let search = app.buttons.matching(identifier: "library.search.toggle")
+        XCTAssertTrue(waitUntil { !search.allElementsBoundByIndex.contains(where: { $0.isHittable }) },
+                      "Bottom rubber-band motion must not reveal the header.")
+        app.swipeUp()
+        XCTAssertTrue(waitUntil { !search.allElementsBoundByIndex.contains(where: { $0.isHittable }) })
+        attachScreenshot("书库-底部回弹不显示标题栏")
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
+        let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.48))
+        start.press(forDuration: 0.1, thenDragTo: end)
+        XCTAssertTrue(waitUntil { search.allElementsBoundByIndex.contains(where: { $0.isHittable }) },
+                      "Scrolling back into the books must still reveal the header.")
+        attachScreenshot("书库-底部主动回滑显示标题栏")
+    }
+
     func testLibraryGalleryModeShowsCoversOnlyAndPersists() {
         showLibrary()
         let epub = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'book.' AND label CONTAINS 'Native UI EPUB'")).firstMatch
@@ -225,7 +429,7 @@ final class NativeFrontendTests: XCTestCase {
     }
 
     /// Requires a long preview library with distinct cover colours.
-    func testColorfulBackgroundFollowsVisibleBooks() {
+    func testColorfulBackgroundChangesPaletteWhileScrolling() {
         openLibrarySettings()
         let colorful = app.switches["library.settings.colorful"]
         XCTAssertTrue(colorful.waitForExistence(timeout: 10))
@@ -248,8 +452,8 @@ final class NativeFrontendTests: XCTestCase {
         start.press(forDuration: 0.1, thenDragTo: end)
         XCTAssertTrue(waitUntil { self.app.buttons.matching(identifier: "library.search.toggle").allElementsBoundByIndex.contains(where: { $0.isHittable }) })
         attachScreenshot("炫彩滚动-工具栏")
-        // Other tabs must inherit the colours and positions of this viewport,
-        // including when they have already been opened before scrolling.
+        // Every tab inherits the new visible-cover palette after scrolling,
+        // while the background field positions remain fixed.
         for (tab, page, capture) in [
             ("阅读资料", "page.materials", "炫彩滚动后-阅读资料"),
             ("阅读数据", "page.dashboard", "炫彩滚动后-阅读数据")
@@ -929,7 +1133,7 @@ final class NativeFrontendTests: XCTestCase {
         XCTAssertTrue(waitUntil { collectedBook.frame.width > gridFrame.width * 2 })
         let listFrame = collectedBook.frame
         attachScreenshot("收藏夹同款图书列表")
-        collectedBook.tap()
+        openBookDetails(collectedBook)
         XCTAssertTrue(app.buttons["book.read"].waitForExistence(timeout: 10))
         app.buttons["book.back"].tap()
         XCTAssertTrue(app.buttons["collection.back"].waitForExistence(timeout: 10))
@@ -1057,6 +1261,152 @@ final class NativeFrontendTests: XCTestCase {
         XCTAssertTrue(app.buttons["reader.close"].isHittable)
     }
 
+    func testReaderToolbarMatchesSystemTypographySheet() throws {
+        try openBook(containing: "Native UI EPUB")
+        let toolbar = app.otherElements["reader.toolbar"]
+        XCTAssertTrue(toolbar.waitForExistence(timeout: 10))
+        app.buttons["reader.排版"].tap()
+        assertCompactTypographyPanel()
+        let panel = app.otherElements["typography.panel"]
+        let frame = panel.frame
+        print("SYSTEM_TYPOGRAPHY_FRAME: \(frame)")
+        attachScreenshot("阅读设置-恢复系统弹层")
+        app.buttons["typography.done"].tap()
+        XCTAssertTrue(toolbar.waitForExistence(timeout: 10))
+        XCTAssertTrue(waitUntil { abs(toolbar.frame.minX - frame.minX) <= 1 && abs(toolbar.frame.maxX - frame.maxX) <= 1 })
+        let topToolbar = app.otherElements["reader.topToolbar"]
+        XCTAssertTrue(topToolbar.waitForExistence(timeout: 10))
+        XCTAssertEqual(topToolbar.frame.minX, frame.minX, accuracy: 1)
+        XCTAssertEqual(topToolbar.frame.maxX, frame.maxX, accuracy: 1)
+        attachScreenshot("阅读工具栏-与系统弹层同宽")
+    }
+
+    func testReaderProgressDisplayModesPersist() throws {
+        try openBook(containing: "银河系漫游指南")
+        let typography = app.buttons["reader.排版"]
+        let picker = app.segmentedControls["typography.progressDisplay"]
+        let position = app.staticTexts["reader.position"]
+        let center = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45))
+        typography.tap()
+        reveal(picker)
+        let original = picker.buttons.allElementsBoundByIndex.first(where: { $0.isSelected })?.label ?? "页码"
+        for mode in ["页码", "章节", "本章剩余", "全书剩余"] {
+            XCTAssertTrue(picker.buttons[mode].isHittable)
+            picker.buttons[mode].tap()
+            XCTAssertTrue(picker.buttons[mode].isSelected)
+            app.buttons["typography.done"].tap()
+            XCTAssertTrue(typography.waitForExistence(timeout: 5))
+            center.tap()
+            XCTAssertTrue(position.waitForExistence(timeout: 10))
+            XCTAssertTrue(waitUntil {
+                let text = position.label
+                guard text.contains("%") else { return false }
+                switch mode {
+                case "章节": return text.hasPrefix("第 ") && text.contains(" 章")
+                case "本章剩余": return text.hasPrefix("本章剩余约 ")
+                case "全书剩余": return text.hasPrefix("全书剩余约 ")
+                default: return text.range(of: "^[0-9]+ / [0-9]+", options: .regularExpression) != nil
+                }
+            }, "Footer must apply \(mode) immediately: \(position.label)")
+            XCTAssertGreaterThan(position.frame.minY, app.frame.maxY - 100)
+            attachScreenshot("底部进度-\(mode)")
+            center.tap()
+            XCTAssertTrue(typography.waitForExistence(timeout: 5))
+            typography.tap()
+            reveal(picker)
+        }
+        app.buttons["typography.done"].tap()
+        app.buttons["reader.close"].tap()
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(app.tabBars.buttons["书库"].waitForExistence(timeout: 30))
+        try openBook(containing: "银河系漫游指南")
+        typography.tap()
+        reveal(picker)
+        XCTAssertTrue(picker.buttons["全书剩余"].isSelected, "Progress display must survive an app restart.")
+        picker.buttons[original].tap()
+        app.buttons["typography.done"].tap()
+        app.buttons["reader.close"].tap()
+    }
+
+    func testReaderSettingsWidthAndVerticalReadingDirection() throws {
+        try openBook(containing: "Native UI EPUB")
+        let typography = app.buttons["reader.排版"]
+        let progress = app.sliders["reader.progress"]
+        progress.adjust(toNormalizedSliderPosition: 0.45)
+        let toolbar = app.otherElements["reader.toolbar"]
+        XCTAssertTrue(toolbar.waitForExistence(timeout: 10))
+        typography.tap()
+        assertCompactTypographyPanel()
+        let panel = app.otherElements["typography.panel"]
+        let panelFrame = panel.frame
+        app.buttons["typography.done"].tap()
+        XCTAssertTrue(toolbar.waitForExistence(timeout: 10))
+        XCTAssertEqual(panelFrame.minX, toolbar.frame.minX, accuracy: 1)
+        XCTAssertEqual(panelFrame.maxX, toolbar.frame.maxX, accuracy: 1)
+        typography.tap()
+        XCTAssertTrue(panel.waitForExistence(timeout: 10))
+        for identifier in ["typography.lineHeight", "typography.paragraphSpacing"] {
+            let control = app.segmentedControls[identifier]
+            reveal(control)
+            XCTAssertTrue(control.isHittable)
+            let original = control.buttons.allElementsBoundByIndex.first(where: { $0.isSelected })?.label ?? "标准"
+            for label in ["紧凑", "标准", "宽松", original] {
+                control.buttons[label].tap()
+                XCTAssertTrue(waitUntil { control.buttons[label].isSelected })
+            }
+        }
+        let direction = app.segmentedControls["typography.direction"]
+        reveal(direction)
+        let wasVertical = direction.buttons["竖排"].isSelected
+        direction.buttons["竖排"].tap()
+        XCTAssertTrue(direction.buttons["竖排"].isSelected)
+        attachScreenshot("阅读设置-与工具栏同宽")
+        app.buttons["typography.done"].tap()
+        let window = app.windows.firstMatch
+        let center = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45))
+        center.tap()
+        let position = app.staticTexts["reader.position"]
+        XCTAssertTrue(position.waitForExistence(timeout: 10))
+        func pageNumber() -> Int {
+            Int(position.label.components(separatedBy: "/")[0].trimmingCharacters(in: .whitespaces)) ?? -1
+        }
+        let initialPage = pageNumber()
+        XCTAssertGreaterThan(initialPage, 0)
+        window.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.45)).tap()
+        XCTAssertTrue(waitUntil { pageNumber() == initialPage + 1 }, "Vertical reading must advance on a left-side tap.")
+        window.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.45)).tap()
+        XCTAssertTrue(waitUntil { pageNumber() == initialPage }, "A right-side tap must return to the previous page.")
+        let left = window.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.45))
+        let right = window.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.45))
+        left.press(forDuration: 0.05, thenDragTo: right)
+        XCTAssertTrue(waitUntil { pageNumber() == initialPage + 1 }, "A rightward swipe must advance in vertical reading.")
+        right.press(forDuration: 0.05, thenDragTo: left)
+        XCTAssertTrue(waitUntil { pageNumber() == initialPage })
+        attachScreenshot("竖排-左点前进右滑前进")
+        center.tap()
+        XCTAssertTrue(typography.waitForExistence(timeout: 10))
+        typography.tap()
+        reveal(direction)
+        direction.buttons[wasVertical ? "竖排" : "横排"].tap()
+        app.buttons["typography.done"].tap()
+    }
+
+    func testReaderNaturalPaginationNeighbouringPages() throws {
+        try openBook(containing: "Native UI EPUB")
+        let center = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45))
+        center.tap()
+        let position = app.staticTexts["reader.position"]
+        XCTAssertTrue(position.waitForExistence(timeout: 10))
+        let original = position.label.components(separatedBy: "·")[0]
+        app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.45)).tap()
+        XCTAssertTrue(waitUntil { position.label.components(separatedBy: "·")[0] != original })
+        attachScreenshot("连续分页-前一页")
+        app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.45)).tap()
+        XCTAssertTrue(waitUntil { position.label.components(separatedBy: "·")[0] == original })
+        attachScreenshot("连续分页-后一页")
+    }
+
     func testReaderParagraphSpacingThreeLevelsPersist() throws {
         try openBook(containing: "Native UI EPUB")
         let typography = app.buttons["reader.排版"]
@@ -1076,10 +1426,18 @@ final class NativeFrontendTests: XCTestCase {
         app.buttons["reader.close"].tap()
         XCTAssertTrue(app.buttons["book.read"].waitForExistence(timeout: 10))
         app.buttons["book.read"].tap()
-        XCTAssertTrue(typography.waitForExistence(timeout: 40))
+        XCTAssertTrue(app.staticTexts["reader.position"].waitForExistence(timeout: 40))
+        if !typography.exists {
+            app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)).tap()
+        }
+        XCTAssertTrue(typography.waitForExistence(timeout: 10))
         typography.tap()
         reveal(spacing)
         XCTAssertTrue(spacing.buttons["标准"].isSelected)
+        app.buttons["typography.done"].tap()
+        app.buttons["reader.close"].tap()
+        XCTAssertTrue(app.buttons["book.back"].waitForExistence(timeout: 10))
+        app.buttons["book.back"].tap()
     }
 
     func testReaderSettingsScrollAndBlockUnderlyingButtons() throws {
@@ -1236,6 +1594,14 @@ final class NativeFrontendTests: XCTestCase {
     /// The host runner compares the CoreSimulator captures: the SwiftUI paper
     /// around the page must use the same colour as the page rendered by C#.
     func testReaderPaperColorSurroundsThePage() throws {
+        openLibrarySettings()
+        let colorful = app.switches["library.settings.colorful"]
+        XCTAssertTrue(colorful.waitForExistence(timeout: 10))
+        let wasColorful = colorful.value as? String == "1"
+        if !wasColorful { colorful.tap() }
+        XCTAssertTrue(waitUntil { colorful.value as? String == "1" })
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.tabBars.buttons["书库"].tap()
         try openBook(containing: "Native UI EPUB")
         let typography = app.buttons["reader.排版"]
         XCTAssertTrue(typography.waitForExistence(timeout: 40))
@@ -1253,6 +1619,75 @@ final class NativeFrontendTests: XCTestCase {
             center.tap()
             XCTAssertTrue(waitUntil { !typography.exists })
             attachScreenshot("纸张-\(paper)")
+        }
+        center.tap()
+        XCTAssertTrue(typography.waitForExistence(timeout: 10))
+        typography.tap()
+        let paperPicker = app.segmentedControls["typography.paper"]
+        XCTAssertTrue(paperPicker.waitForExistence(timeout: 10))
+        paperPicker.buttons["跟随"].tap()
+        XCTAssertTrue(paperPicker.buttons["跟随"].isSelected)
+        app.buttons["typography.done"].tap()
+        XCTAssertTrue(waitUntil { !paperPicker.exists })
+        center.tap()
+        XCTAssertTrue(waitUntil { !typography.exists })
+        attachScreenshot("纸张跟随-正文与底部连续炫彩")
+        center.tap()
+        XCTAssertTrue(app.buttons["reader.close"].waitForExistence(timeout: 10))
+        app.buttons["reader.close"].tap()
+        XCTAssertTrue(app.buttons["book.back"].waitForExistence(timeout: 10))
+        app.buttons["book.back"].tap()
+        if !wasColorful {
+            openLibrarySettings()
+            XCTAssertTrue(colorful.waitForExistence(timeout: 10))
+            colorful.tap()
+            XCTAssertTrue(waitUntil { colorful.value as? String == "0" })
+            app.navigationBars.buttons.element(boundBy: 0).tap()
+            app.tabBars.buttons["书库"].tap()
+        }
+    }
+
+    func testReaderSelectionToolbarUsesDesktopOrderAndStaysNearSelection() throws {
+        try openBook(containing: "Native UI EPUB")
+        let typography = app.buttons["reader.排版"]
+        typography.tap()
+        let direction = app.segmentedControls["typography.direction"]
+        reveal(direction)
+        let wasVertical = direction.buttons["竖排"].isSelected
+        direction.buttons["横排"].tap()
+        app.buttons["typography.done"].tap()
+        app.sliders["reader.progress"].adjust(toNormalizedSliderPosition: 0.45)
+        let center = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45))
+        center.tap()
+        XCTAssertTrue(waitUntil { !typography.exists })
+        selectText()
+        let bar = app.descendants(matching: .any).matching(identifier: "reader.selection.toolbar").firstMatch
+        XCTAssertTrue(bar.waitForExistence(timeout: 10))
+        XCTAssertLessThan(bar.frame.height, 70)
+        XCTAssertLessThan(bar.frame.maxY, app.frame.maxY - 80, "Selection actions must not be docked to the bottom.")
+        var previousX: CGFloat = -.infinity
+        for title in ["复制", "划线", "笔记", "搜索", "词典", "AI", "翻译", "朗读"] {
+            let action = app.buttons["reader.\(title)"]
+            XCTAssertTrue(action.exists && action.isHittable)
+            XCTAssertGreaterThan(action.frame.midX, previousX)
+            previousX = action.frame.midX
+        }
+        attachScreenshot("选中文字-桌面顺序与就近浮窗")
+        app.buttons["reader.复制"].tap()
+        XCTAssertTrue(waitUntil { !bar.exists })
+        selectText()
+        app.buttons["reader.搜索"].tap()
+        let query = app.textFields["reader.search.query"]
+        XCTAssertTrue(query.waitForExistence(timeout: 10))
+        XCTAssertFalse((query.value as? String ?? "").isEmpty)
+        attachScreenshot("选中文字-搜索所选文字")
+        app.buttons["reader.search.close"].tap()
+        if wasVertical {
+            XCTAssertTrue(typography.waitForExistence(timeout: 10))
+            typography.tap()
+            reveal(direction)
+            direction.buttons["竖排"].tap()
+            app.buttons["typography.done"].tap()
         }
     }
 
@@ -1312,6 +1747,40 @@ final class NativeFrontendTests: XCTestCase {
                        "Material locations must not show EPUB file paths.")
     }
 
+    func testReaderTocGlobalExpandAndCollapse() throws {
+        try openBook(containing: "Native UI EPUB")
+        app.buttons["reader.排版"].tap()
+        let paper = app.segmentedControls["typography.paper"]
+        XCTAssertTrue(paper.waitForExistence(timeout: 10))
+        paper.buttons["米"].tap()
+        app.buttons["typography.done"].tap()
+        XCTAssertTrue(waitUntil { !paper.exists })
+        app.buttons["reader.目录"].tap()
+        let navigation = app.navigationBars["目录"]
+        XCTAssertTrue(navigation.waitForExistence(timeout: 10))
+        let toggle = app.buttons["reader.toc.toggleAll"]
+        guard toggle.waitForExistence(timeout: 5) else {
+            throw XCTSkip("需要包含子章节的 EPUB 测试数据")
+        }
+        XCTAssertTrue(toggle.isHittable)
+        XCTAssertGreaterThanOrEqual(toggle.frame.midY, navigation.frame.minY)
+        XCTAssertLessThanOrEqual(toggle.frame.midY, navigation.frame.maxY)
+        XCTAssertTrue(toggle.label.contains("收起"))
+        toggle.tap()
+        XCTAssertTrue(waitUntil { toggle.label.contains("展开") })
+        attachScreenshot("目录纸张-米")
+        toggle.tap()
+        XCTAssertTrue(waitUntil { toggle.label.contains("收起") })
+        attachScreenshot("目录-全部展开")
+        app.buttons["完成"].tap()
+        XCTAssertTrue(waitUntil { !navigation.exists })
+        app.buttons["reader.排版"].tap()
+        XCTAssertTrue(paper.waitForExistence(timeout: 10))
+        paper.buttons["跟随"].tap()
+        app.buttons["typography.done"].tap()
+        XCTAssertTrue(waitUntil { !paper.exists })
+    }
+
     /// Uses an isolated EPUB fixture with three nested navigation levels.
     func testReaderTocExpandsAndCollapsesSubchapters() throws {
         try openBook(containing: "Native UI EPUB")
@@ -1347,7 +1816,9 @@ final class NativeFrontendTests: XCTestCase {
         XCTAssertTrue(toc.waitForExistence(timeout: 40))
         let progress = app.sliders["reader.progress"]
         let before = progress.value as? String
-        progress.adjust(toNormalizedSliderPosition: 0.95)
+        let percent = Double((before ?? "0").replacingOccurrences(of: "%", with: "")) ?? 0
+        // Choose a different part of the book so this test is repeatable with saved progress.
+        progress.adjust(toNormalizedSliderPosition: percent >= 50 ? 0.15 : 0.95)
         XCTAssertTrue(waitUntil { progress.value as? String != before })
         toc.tap()
         XCTAssertTrue(app.navigationBars["目录"].waitForExistence(timeout: 10))
@@ -1376,8 +1847,6 @@ final class NativeFrontendTests: XCTestCase {
         showLibrary()
     }
 
-    /// The library and its collections share one page; switch views from the
-    /// display menu instead of a separate tab.
     private func showLibrary(_ collections: Bool = false, returnToList: Bool = false) {
         let title = collections ? "收藏夹" : "书库"
         if app.staticTexts[title].exists { return }
@@ -1388,11 +1857,23 @@ final class NativeFrontendTests: XCTestCase {
         XCTAssertTrue(app.staticTexts[title].waitForExistence(timeout: 10))
     }
 
+    private func openBookDetails(_ book: XCUIElement) {
+        book.press(forDuration: 0.8)
+        let details = app.buttons["书籍详情"]
+        XCTAssertTrue(details.waitForExistence(timeout: 5))
+        details.tap()
+        XCTAssertTrue(app.buttons["book.read"].waitForExistence(timeout: 10))
+    }
+
     private func openBook(containing title: String, revealControls: Bool = true) throws {
         showLibrary()
         let book = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'book.' AND label CONTAINS %@", title)).firstMatch
-        XCTAssertTrue(book.waitForExistence(timeout: 15), "Expected a local test book containing \(title).\n\(app.debugDescription)")
-        book.tap()
+        for _ in 0..<12 {
+            if book.exists && book.isHittable { break }
+            app.swipeUp()
+        }
+        XCTAssertTrue(book.exists && book.isHittable, "Expected a local test book containing \(title).\n\(app.debugDescription)")
+        openBookDetails(book)
         XCTAssertTrue(app.buttons["book.read"].waitForExistence(timeout: 10))
         attachScreenshot("书籍详情")
         app.buttons["book.read"].tap()
@@ -1492,5 +1973,33 @@ final class NativeFrontendTests: XCTestCase {
     private func waitUntil(_ predicate: @escaping () -> Bool) -> Bool {
         let expectation = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in predicate() }, object: nil)
         return XCTWaiter.wait(for: [expectation], timeout: 10) == .completed
+    }
+}
+
+
+/// Temporary probe for reviewing the monochrome widgets on the seeded home
+/// screen pages. Removed once the visual pass is complete.
+final class WidgetHomeScreenProbe: XCTestCase {
+    func testProbeMonochromeWidgets() {
+        XCUIDevice.shared.press(.home)
+        let home = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        XCTAssertTrue(home.wait(for: .runningForeground, timeout: 15))
+        RunLoop.current.run(until: Date().addingTimeInterval(2))
+        for _ in 0..<6 {
+            home.swipeRight()
+            RunLoop.current.run(until: Date().addingTimeInterval(1))
+        }
+        let pageControl = home.pageIndicators["Page control"]
+        for target in 3...4 {
+            for _ in 0..<8 {
+                if (pageControl.value as? String ?? "").contains("第\(target)页") { break }
+                home.swipeLeft()
+                RunLoop.current.run(until: Date().addingTimeInterval(1.5))
+            }
+            print("PROBE_PAGE \(pageControl.value ?? "nil")")
+            RunLoop.current.run(until: Date().addingTimeInterval(2))
+            print("KKINDLE_VISUAL_CHECKPOINT:黑白-第\(target)页")
+            RunLoop.current.run(until: Date().addingTimeInterval(2))
+        }
     }
 }

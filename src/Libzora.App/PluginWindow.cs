@@ -218,7 +218,7 @@ internal sealed class PluginWindow : Window, IPluginUiHost
         Background = new SolidColorBrush(Color.Parse(theme.Paper));
         var script = "(function () { var style = document.getElementById('libzora-theme'); "
             + "if (style) style.textContent = " + JsonSerializer.Serialize(PluginPageComposer.BuildThemeCss(theme)) + "; "
-            + "document.documentElement.setAttribute('data-kk-theme', "
+            + "document.documentElement.setAttribute('data-lz-theme', "
             + (theme.IsDark ? "'dark'" : "'light'") + "); })();";
         Dispatcher.UIThread.Post(async () =>
         {

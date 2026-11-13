@@ -4,8 +4,8 @@ import WidgetKit
 /// reloads all Libzora timelines so the home screen reflects a just-finished
 /// book or a newly selected colourful-mode setting without waiting for the
 /// next scheduled refresh.
-@_cdecl("kk_ios_reload_widgets")
-public func kkReloadWidgets() {
+@_cdecl("lz_ios_reload_widgets")
+public func lzReloadWidgets() {
     if #available(iOS 14.0, *) {
         WidgetCenter.shared.reloadAllTimelines()
     }

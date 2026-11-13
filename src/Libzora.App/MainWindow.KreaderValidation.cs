@@ -939,7 +939,7 @@ public partial class MainWindow
                 rect.width.toFixed(2),
                 rect.height.toFixed(2),
                 bar.querySelectorAll(':scope > button').length,
-                bar.querySelectorAll('.kk-sel-sep').length,
+                bar.querySelectorAll('.lz-sel-sep').length,
                 buttonStyle.display,
                 buttonStyle.fontFamily,
                 buttonStyle.fontSize,
@@ -1128,8 +1128,8 @@ public partial class MainWindow
         var rawButtonRect = DecodeReaderScriptString(await host.InvokeScriptAsync("""
             (() => {
               const bar = document.getElementById('libzora-selection-bar');
-              const button = document.getElementById('kk-sel-highlight');
-              const panel = document.getElementById('kk-sel-styles');
+              const button = document.getElementById('lz-sel-highlight');
+              const panel = document.getElementById('lz-sel-styles');
               if (!bar || !button || !panel) return null;
               if (!window.__libzoraValidationPointerInstalled) {
                 window.__libzoraValidationPointerInstalled = true;
@@ -1192,7 +1192,7 @@ public partial class MainWindow
 
         var rawPanelRect = DecodeReaderScriptString(await host.InvokeScriptAsync("""
             (() => {
-              const panel = document.getElementById('kk-sel-styles');
+              const panel = document.getElementById('lz-sel-styles');
               if (!panel) return null;
               const rect = panel.getBoundingClientRect();
               return JSON.stringify({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
@@ -1213,8 +1213,8 @@ public partial class MainWindow
             var diagnostic = DecodeReaderScriptString(await host.InvokeScriptAsync("""
                 (() => {
                   const bar = document.getElementById('libzora-selection-bar');
-                  const button = document.getElementById('kk-sel-highlight');
-                  const panel = document.getElementById('kk-sel-styles');
+                  const button = document.getElementById('lz-sel-highlight');
+                  const panel = document.getElementById('lz-sel-styles');
                   const pointer = window.__libzoraValidationPointer || { x: -1, y: -1, target: '' };
                   const rect = element => {
                     const value = element?.getBoundingClientRect();
@@ -1244,7 +1244,7 @@ public partial class MainWindow
         await host.InvokeScriptAsync("""
             (() => {
               const bar = document.getElementById('libzora-selection-bar');
-              document.getElementById('kk-sel-styles')?.classList.remove('open', 'above');
+              document.getElementById('lz-sel-styles')?.classList.remove('open', 'above');
               if (bar) bar.style.display = 'none';
               window.getSelection()?.removeAllRanges();
             })();
@@ -1255,7 +1255,7 @@ public partial class MainWindow
     private static async Task<bool> IsKreaderHighlightMenuOpenAsync(IReaderHost host)
     {
         var value = DecodeReaderScriptString(await host.InvokeScriptAsync("""
-            document.getElementById('kk-sel-styles')?.classList.contains('open') ? 'open' : 'closed';
+            document.getElementById('lz-sel-styles')?.classList.contains('open') ? 'open' : 'closed';
             """));
         return string.Equals(value, "open", StringComparison.Ordinal);
     }

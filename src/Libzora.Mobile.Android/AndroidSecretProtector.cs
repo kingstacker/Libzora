@@ -22,7 +22,7 @@ namespace Libzora.AndroidHead;
 public sealed class AndroidSecretProtector : ISecretProtector
 {
     private static readonly object Gate = new();
-    private static readonly byte[] Header = [0x4B, 0x4B, 0x53, 0x01];
+    private static readonly byte[] Header = [0x4C, 0x5A, 0x53, 0x01];
     private const int KeySize = 32;
     private const int NonceSize = 12;
     private const int TagSize = 16;

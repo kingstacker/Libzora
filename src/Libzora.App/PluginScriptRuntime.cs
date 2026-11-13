@@ -128,19 +128,19 @@ internal sealed class PluginScriptRuntime
             options.TimeoutInterval(timeout);
             options.CancellationToken(token);
         });
-        engine.SetValue("__kkHostCall", new Func<string, string?>(message =>
+        engine.SetValue("__lzHostCall", new Func<string, string?>(message =>
         {
             var reply = bridge.HandleAsync(message, token).GetAwaiter().GetResult();
             return reply is { } value
                 ? new JsonObject { ["id"] = value.Id, ["payload"] = JsonNode.Parse(value.Reply) }.ToJsonString()
                 : null;
         }));
-        engine.SetValue("__kkDone", new Action<string>(json => completion = json));
-        engine.SetValue("__kkTimer", new Action<int, double>((timerId, delay) =>
+        engine.SetValue("__lzDone", new Action<string>(json => completion = json));
+        engine.SetValue("__lzTimer", new Action<int, double>((timerId, delay) =>
             timers.Enqueue(timerId, clock.ElapsedMilliseconds + (long)Math.Clamp(double.IsNaN(delay) ? 0 : delay, 0, 60_000))));
-        engine.SetValue("__kkAtob", new Func<string, string>(value =>
+        engine.SetValue("__lzAtob", new Func<string, string>(value =>
             Encoding.Latin1.GetString(Convert.FromBase64String(value))));
-        engine.SetValue("__kkBtoa", new Func<string, string>(value =>
+        engine.SetValue("__lzBtoa", new Func<string, string>(value =>
         {
             if (value.Any(character => character > 0xFF))
                 throw new ArgumentException("btoa: 字符串包含 Latin-1 以外的字符。");
@@ -152,7 +152,7 @@ internal sealed class PluginScriptRuntime
             engine.Execute(Prelude);
             engine.Execute(PluginPageComposer.BuildBridgeScript(context, PluginTheme.Light, plugin.Manifest));
             engine.Execute(script, scriptPath);
-            engine.Invoke("__kkRun", $"{kind}:{id}", arguments.ToJsonString());
+            engine.Invoke("__lzRun", $"{kind}:{id}", arguments.ToJsonString());
             while (completion is null)
             {
                 token.ThrowIfCancellationRequested();
@@ -163,7 +163,7 @@ internal sealed class PluginScriptRuntime
                 var wait = due - clock.ElapsedMilliseconds;
                 if (wait > 0) token.WaitHandle.WaitOne(TimeSpan.FromMilliseconds(wait));
                 token.ThrowIfCancellationRequested();
-                engine.Invoke("__kkFire", timerId);
+                engine.Invoke("__lzFire", timerId);
             }
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
@@ -233,38 +233,38 @@ internal sealed class PluginScriptRuntime
             var id = ++nextTimer;
             var args = Array.prototype.slice.call(arguments, 2);
             timers[id] = function () { callback.apply(null, args); };
-            __kkTimer(id, Number(delay) || 0);
+            __lzTimer(id, Number(delay) || 0);
             return id;
           };
           globalThis.clearTimeout = function (id) { delete timers[id]; };
-          globalThis.__kkFire = function (id) {
+          globalThis.__lzFire = function (id) {
             var callback = timers[id];
             delete timers[id];
             if (callback) callback();
           };
-          globalThis.atob = function (value) { return __kkAtob(String(value)); };
-          globalThis.btoa = function (value) { return __kkBtoa(String(value)); };
+          globalThis.atob = function (value) { return __lzAtob(String(value)); };
+          globalThis.btoa = function (value) { return __lzBtoa(String(value)); };
           globalThis.addEventListener = function () { };
           globalThis.removeEventListener = function () { };
           globalThis.invokeCSharpAction = function (message) {
-            var reply = __kkHostCall(message);
+            var reply = __lzHostCall(message);
             if (!reply) return;
             var parsed = JSON.parse(reply);
             globalThis.__libzoraBridge.reply(parsed.id, parsed.payload);
           };
           var noop = function () { };
           globalThis.console = { log: noop, info: noop, warn: noop, error: noop, debug: noop };
-          globalThis.__kkRun = function (key, argsJson) {
+          globalThis.__lzRun = function (key, argsJson) {
             var handler = globalThis.__libzoraBridge.handlers[key];
             if (typeof handler !== 'function') {
-              __kkDone(JSON.stringify({ ok: false, error: 'Plugin script did not register "' + key + '".' }));
+              __lzDone(JSON.stringify({ ok: false, error: 'Plugin script did not register "' + key + '".' }));
               return;
             }
             var settled = false;
             function finish(payload) {
               if (settled) return;
               settled = true;
-              __kkDone(JSON.stringify(payload));
+              __lzDone(JSON.stringify(payload));
             }
             try {
               Promise.resolve(handler.apply(null, JSON.parse(argsJson))).then(

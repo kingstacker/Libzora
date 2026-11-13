@@ -1,7 +1,7 @@
 (function () {
   'use strict';
-  const kk = window.libzora;
-  const zh = !(kk.context.language || 'zh-CN').toLowerCase().startsWith('en');
+  const lz = window.libzora;
+  const zh = !(lz.context.language || 'zh-CN').toLowerCase().startsWith('en');
   const text = zh ? {
     lead: '为整本书的中文正文生成拼音注音，生成的文件会自动加入书库；重新生成会替换已有的注音版。注音进度保存在本机，中断后可继续。',
     engine: '注音引擎',
@@ -226,7 +226,7 @@
   async function refreshModelStatus() {
     modelError = '';
     try {
-      const status = await kk.pinyin.status();
+      const status = await lz.pinyin.status();
       g2pwInstalled = Boolean(status && status.g2pwInstalled);
     } catch (error) {
       g2pwInstalled = false;
@@ -239,7 +239,7 @@
   async function load() {
     applyText();
     try {
-      const stored = await kk.storage.get('settings');
+      const stored = await lz.storage.get('settings');
       if (stored && stored.pinyin && typeof stored.pinyin === 'object') {
         defaults = Object.assign(defaults, stored.pinyin);
       }
@@ -250,7 +250,7 @@
     syncControls();
 
     try {
-      const books = await kk.library.getBooks();
+      const books = await lz.library.getBooks();
       book = books && books.length ? books[0] : null;
     } catch (error) {
       showResult(text.readBook.replace('{0}', errorText(error)), true);
@@ -258,7 +258,7 @@
     if (!book && !dom.result.classList.contains('visible')) showResult(text.noBook, true);
     if (book) {
       if (book.title) dom.title.textContent = book.title;
-      kk.ui.setTitle((book.title ? book.title + ' · ' : '') + text.pageTitle).catch(() => {});
+      lz.ui.setTitle((book.title ? book.title + ' · ' : '') + text.pageTitle).catch(() => {});
     }
     await refreshModelStatus();
   }
@@ -270,7 +270,7 @@
       cancelling = true;
       syncControls();
       dom.stage.textContent = text.cancelling;
-      try { await kk.library.cancelTask(); } catch (error) { /* finished */ }
+      try { await lz.library.cancelTask(); } catch (error) { /* finished */ }
       return;
     }
     downloading = true;
@@ -284,7 +284,7 @@
     dom.counter.textContent = '';
     let installed = false;
     try {
-      const result = await kk.pinyin.downloadModel();
+      const result = await lz.pinyin.downloadModel();
       if (!result || result.cancelled) {
         showStatus(text.modelCancelled);
       } else {
@@ -322,7 +322,7 @@
     const aiRequested = dom.aiReview.checked;
     let finished = false;
     try {
-      const result = await kk.library.annotatePinyin(book.id, {
+      const result = await lz.library.annotatePinyin(book.id, {
         engine: dom.engine.value,
         outputStyle: dom.style.value,
         aiReview: aiRequested,
@@ -368,13 +368,13 @@
     syncControls();
     showStatus(text.cancelling);
     dom.stage.textContent = text.cancelling;
-    try { await kk.library.cancelTask(); } catch (error) { /* finished */ }
+    try { await lz.library.cancelTask(); } catch (error) { /* finished */ }
   }
 
   dom.engine.addEventListener('change', syncControls);
   dom.download.addEventListener('click', () => void downloadModel());
   dom.start.addEventListener('click', () => void start());
   dom.cancel.addEventListener('click', () => void cancel());
-  kk.events.on('task.progress', updateProgress);
+  lz.events.on('task.progress', updateProgress);
   load().catch(error => showResult(errorText(error), true));
 })();

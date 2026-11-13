@@ -108,7 +108,7 @@ public static partial class PluginPageComposer
         html = ScriptBlockRegex().Replace(html, match =>
         {
             scripts.Add(match.Value);
-            return $"@@KKSCRIPT{scripts.Count - 1}@@";
+            return $"@@LZSCRIPT{scripts.Count - 1}@@";
         });
         html = StylesheetRegex().Replace(html, match =>
         {
@@ -137,7 +137,7 @@ public static partial class PluginPageComposer
                     ? string.Empty
                     : $"<script>{EscapeScript(ReadAsset(reference, binary: false, out _))}\n</script>";
             }
-            html = html.Replace($"@@KKSCRIPT{index}@@", block, StringComparison.Ordinal);
+            html = html.Replace($"@@LZSCRIPT{index}@@", block, StringComparison.Ordinal);
         }
 
         var head = new StringBuilder()
@@ -173,94 +173,94 @@ public static partial class PluginPageComposer
         return $$"""
         :root {
           color-scheme: {{(theme.IsDark ? "dark" : "light")}};
-          --kk-paper: {{paper}};
-          --kk-ink: {{ink}};
-          --kk-muted: {{theme.MutedInk}};
-          --kk-hairline: {{theme.Hairline}};
-          --kk-pressed: {{theme.Pressed}};
-          --kk-hover: {{theme.SoftHover}};
-          --kk-strong-border: {{theme.StrongBorder ?? theme.MutedInk}};
-          --kk-accent: {{theme.Accent ?? ink}};
-          --kk-accent-hover: {{theme.AccentHover ?? theme.Accent ?? ink}};
-          --kk-accent-pressed: {{theme.AccentPressed ?? theme.Accent ?? ink}};
-          --kk-on-accent: {{theme.OnAccent ?? paper}};
-          --kk-danger: {{theme.Danger ?? (theme.IsDark ? "#EAA59B" : "#A7342F")}};
-          --kk-radius: 0px;
-          --kk-font: "KingHwaOldSong", "Songti SC", "STSong", "Noto Serif CJK SC", "Source Han Serif SC", "SimSun", "NSimSun", serif;
-          --kk-ui-font: var(--kk-font);
+          --lz-paper: {{paper}};
+          --lz-ink: {{ink}};
+          --lz-muted: {{theme.MutedInk}};
+          --lz-hairline: {{theme.Hairline}};
+          --lz-pressed: {{theme.Pressed}};
+          --lz-hover: {{theme.SoftHover}};
+          --lz-strong-border: {{theme.StrongBorder ?? theme.MutedInk}};
+          --lz-accent: {{theme.Accent ?? ink}};
+          --lz-accent-hover: {{theme.AccentHover ?? theme.Accent ?? ink}};
+          --lz-accent-pressed: {{theme.AccentPressed ?? theme.Accent ?? ink}};
+          --lz-on-accent: {{theme.OnAccent ?? paper}};
+          --lz-danger: {{theme.Danger ?? (theme.IsDark ? "#EAA59B" : "#A7342F")}};
+          --lz-radius: 0px;
+          --lz-font: "KingHwaOldSong", "Songti SC", "STSong", "Noto Serif CJK SC", "Source Han Serif SC", "SimSun", "NSimSun", serif;
+          --lz-ui-font: var(--lz-font);
         }
-        html, body { margin: 0; padding: 0; background: var(--kk-paper); color: var(--kk-ink); font: 14px/1.55 var(--kk-font); }
+        html, body { margin: 0; padding: 0; background: var(--lz-paper); color: var(--lz-ink); font: 14px/1.55 var(--lz-font); }
         * { box-sizing: border-box; }
         [hidden] { display: none !important; }
-        ::selection { background: var(--kk-ink); color: var(--kk-paper); }
-        :focus-visible { outline: 1px solid var(--kk-ink); outline-offset: 1px; }
+        ::selection { background: var(--lz-ink); color: var(--lz-paper); }
+        :focus-visible { outline: 1px solid var(--lz-ink); outline-offset: 1px; }
         h1, h2, h3 { font-weight: 600; }
-        .kk-muted { color: var(--kk-muted); }
-        .kk-danger { color: var(--kk-danger); }
-        .kk-title { font-size: 17px; font-weight: 600; margin: 0; }
-        .kk-hairline { border: 0; border-top: 1px solid var(--kk-hairline); margin: 0; }
+        .lz-muted { color: var(--lz-muted); }
+        .lz-danger { color: var(--lz-danger); }
+        .lz-title { font-size: 17px; font-weight: 600; margin: 0; }
+        .lz-hairline { border: 0; border-top: 1px solid var(--lz-hairline); margin: 0; }
 
-        .kk-button { font: inherit; font-size: 14px; line-height: 1.2; color: var(--kk-ink); background: var(--kk-paper);
-          border: 1px solid var(--kk-ink); border-radius: 0; min-height: 35px; padding: 7px 14px; cursor: pointer;
+        .lz-button { font: inherit; font-size: 14px; line-height: 1.2; color: var(--lz-ink); background: var(--lz-paper);
+          border: 1px solid var(--lz-ink); border-radius: 0; min-height: 35px; padding: 7px 14px; cursor: pointer;
           display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap;
           transition: background-color .15s, border-color .15s, color .15s; }
-        .kk-button:hover:not(:disabled) { background: var(--kk-hover); }
-        .kk-button:active:not(:disabled) { background: var(--kk-pressed); }
-        .kk-button.kk-primary { background: var(--kk-accent); color: var(--kk-on-accent); border-color: var(--kk-accent); }
-        .kk-button.kk-primary:hover:not(:disabled) { background: var(--kk-accent-hover); border-color: var(--kk-accent-hover); }
-        .kk-button.kk-primary:active:not(:disabled) { background: var(--kk-accent-pressed); border-color: var(--kk-accent-pressed); }
-        .kk-button.kk-quiet { border-color: transparent; background: transparent; }
-        .kk-button.kk-quiet:hover:not(:disabled) { background: var(--kk-hover); }
-        .kk-button.kk-danger { color: var(--kk-danger); border-color: var(--kk-danger); background: var(--kk-paper); }
-        .kk-button:disabled, .kk-button.kk-primary:disabled { background: var(--kk-hover); color: var(--kk-muted);
-          border-color: var(--kk-strong-border); cursor: default; }
-        .kk-button.kk-small { min-height: 28px; padding: 3px 10px; font-size: 13px; }
+        .lz-button:hover:not(:disabled) { background: var(--lz-hover); }
+        .lz-button:active:not(:disabled) { background: var(--lz-pressed); }
+        .lz-button.lz-primary { background: var(--lz-accent); color: var(--lz-on-accent); border-color: var(--lz-accent); }
+        .lz-button.lz-primary:hover:not(:disabled) { background: var(--lz-accent-hover); border-color: var(--lz-accent-hover); }
+        .lz-button.lz-primary:active:not(:disabled) { background: var(--lz-accent-pressed); border-color: var(--lz-accent-pressed); }
+        .lz-button.lz-quiet { border-color: transparent; background: transparent; }
+        .lz-button.lz-quiet:hover:not(:disabled) { background: var(--lz-hover); }
+        .lz-button.lz-danger { color: var(--lz-danger); border-color: var(--lz-danger); background: var(--lz-paper); }
+        .lz-button:disabled, .lz-button.lz-primary:disabled { background: var(--lz-hover); color: var(--lz-muted);
+          border-color: var(--lz-strong-border); cursor: default; }
+        .lz-button.lz-small { min-height: 28px; padding: 3px 10px; font-size: 13px; }
 
-        .kk-input { font: inherit; font-size: 14px; color: var(--kk-ink); background: transparent; border: 0;
-          border-bottom: 1px solid var(--kk-hairline); border-radius: 0; min-height: 35px; padding: 6px 2px; outline: none; }
-        .kk-input:hover:not(:disabled) { border-bottom-color: var(--kk-strong-border); }
-        .kk-input:focus, .kk-input:focus-visible { border-bottom-color: var(--kk-ink); outline: none; }
-        .kk-input::placeholder { color: var(--kk-muted); opacity: 1; }
-        .kk-input:disabled { color: var(--kk-muted); }
-        input.kk-input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
-        textarea.kk-input { min-height: 72px; resize: vertical; line-height: 1.55; }
-        select.kk-input { -webkit-appearance: none; appearance: none; border: 1px solid var(--kk-ink); background: var(--kk-paper)
+        .lz-input { font: inherit; font-size: 14px; color: var(--lz-ink); background: transparent; border: 0;
+          border-bottom: 1px solid var(--lz-hairline); border-radius: 0; min-height: 35px; padding: 6px 2px; outline: none; }
+        .lz-input:hover:not(:disabled) { border-bottom-color: var(--lz-strong-border); }
+        .lz-input:focus, .lz-input:focus-visible { border-bottom-color: var(--lz-ink); outline: none; }
+        .lz-input::placeholder { color: var(--lz-muted); opacity: 1; }
+        .lz-input:disabled { color: var(--lz-muted); }
+        input.lz-input[type=search]::-webkit-search-decoration { -webkit-appearance: none; }
+        textarea.lz-input { min-height: 72px; resize: vertical; line-height: 1.55; }
+        select.lz-input { -webkit-appearance: none; appearance: none; border: 1px solid var(--lz-ink); background: var(--lz-paper)
           url("{{chevron}}") no-repeat right 9px center / 12px 12px; padding: 6px 30px 6px 10px; cursor: pointer; }
-        select.kk-input:focus { border-color: var(--kk-ink); }
+        select.lz-input:focus { border-color: var(--lz-ink); }
 
         input[type=checkbox], input[type=radio] { -webkit-appearance: none; appearance: none; margin: 0; flex: none;
-          width: 16px; height: 16px; border: 1px solid var(--kk-ink); background: var(--kk-paper); cursor: pointer;
+          width: 16px; height: 16px; border: 1px solid var(--lz-ink); background: var(--lz-paper); cursor: pointer;
           display: inline-grid; place-content: center; vertical-align: -3px; }
         input[type=radio] { border-radius: 50%; }
-        input[type=checkbox]:checked { background: var(--kk-ink) url("{{check}}") no-repeat center / 14px 14px; }
-        input[type=radio]:checked::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--kk-ink); }
+        input[type=checkbox]:checked { background: var(--lz-ink) url("{{check}}") no-repeat center / 14px 14px; }
+        input[type=radio]:checked::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--lz-ink); }
         input[type=checkbox]:disabled, input[type=radio]:disabled { opacity: .45; cursor: default; }
 
         /* The main window's switch: a 20px line with a 10px dot. */
-        input[type=checkbox].kk-switch { width: 24px; height: 24px; border: 0; background: transparent; position: relative; }
-        input[type=checkbox].kk-switch::before { content: ""; position: absolute; left: 2px; right: 2px; top: 50%; height: 1px; background: #B0B0B0; }
-        input[type=checkbox].kk-switch::after { content: ""; position: absolute; left: 2px; top: 7px; width: 10px; height: 10px;
+        input[type=checkbox].lz-switch { width: 24px; height: 24px; border: 0; background: transparent; position: relative; }
+        input[type=checkbox].lz-switch::before { content: ""; position: absolute; left: 2px; right: 2px; top: 50%; height: 1px; background: #B0B0B0; }
+        input[type=checkbox].lz-switch::after { content: ""; position: absolute; left: 2px; top: 7px; width: 10px; height: 10px;
           border-radius: 50%; background: #B0B0B0; transition: left .15s; }
-        input[type=checkbox].kk-switch:checked { background: transparent; }
-        input[type=checkbox].kk-switch:checked::before { background: var(--kk-ink); }
-        input[type=checkbox].kk-switch:checked::after { left: 12px; background: var(--kk-ink); }
+        input[type=checkbox].lz-switch:checked { background: transparent; }
+        input[type=checkbox].lz-switch:checked::before { background: var(--lz-ink); }
+        input[type=checkbox].lz-switch:checked::after { left: 12px; background: var(--lz-ink); }
 
         /* A settings row: label and hint on the left, control on the right. */
-        .kk-row { display: flex; align-items: center; gap: 24px; min-height: 44px; padding: 6px 8px; margin: 0 -8px; }
-        label.kk-row { cursor: pointer; }
-        label.kk-row:hover { background: var(--kk-hover); }
-        .kk-row > .kk-row-text { flex: 1; min-width: 0; }
-        .kk-row-text strong { display: block; font-size: 14px; font-weight: 400; }
-        .kk-row-text span { display: block; font-size: 12px; color: var(--kk-muted); line-height: 1.5; margin-top: 2px; }
+        .lz-row { display: flex; align-items: center; gap: 24px; min-height: 44px; padding: 6px 8px; margin: 0 -8px; }
+        label.lz-row { cursor: pointer; }
+        label.lz-row:hover { background: var(--lz-hover); }
+        .lz-row > .lz-row-text { flex: 1; min-width: 0; }
+        .lz-row-text strong { display: block; font-size: 14px; font-weight: 400; }
+        .lz-row-text span { display: block; font-size: 12px; color: var(--lz-muted); line-height: 1.5; margin-top: 2px; }
 
-        .kk-progress { height: 4px; background: var(--kk-hairline); overflow: hidden; }
-        .kk-progress > span { display: block; height: 100%; width: 0; background: var(--kk-ink); transition: width .2s ease; }
-        .kk-spinner { display: inline-block; width: 12px; height: 12px; border: 1.5px solid var(--kk-hairline);
-          border-top-color: var(--kk-ink); border-radius: 50%; animation: kk-spin .8s linear infinite; vertical-align: -2px; }
-        @keyframes kk-spin { to { transform: rotate(360deg); } }
+        .lz-progress { height: 4px; background: var(--lz-hairline); overflow: hidden; }
+        .lz-progress > span { display: block; height: 100%; width: 0; background: var(--lz-ink); transition: width .2s ease; }
+        .lz-spinner { display: inline-block; width: 12px; height: 12px; border: 1.5px solid var(--lz-hairline);
+          border-top-color: var(--lz-ink); border-radius: 50%; animation: lz-spin .8s linear infinite; vertical-align: -2px; }
+        @keyframes lz-spin { to { transform: rotate(360deg); } }
 
         ::-webkit-scrollbar { width: 10px; height: 10px; background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #C9C9C9; border-radius: 0; border: 3px solid var(--kk-paper); }
+        ::-webkit-scrollbar-thumb { background: #C9C9C9; border-radius: 0; border: 3px solid var(--lz-paper); }
         ::-webkit-scrollbar-thumb:hover { background: #B4B4B4; }
         ::-webkit-scrollbar-corner { background: transparent; }
         """;
@@ -664,7 +664,7 @@ public static partial class PluginPageComposer
           });
 
           if (typeof document !== 'undefined' && document && document.documentElement) {
-            document.documentElement.setAttribute('data-kk-theme', context.theme);
+            document.documentElement.setAttribute('data-lz-theme', context.theme);
             document.documentElement.setAttribute('lang', context.language);
           }
         })();

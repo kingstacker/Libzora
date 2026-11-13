@@ -511,7 +511,7 @@ public sealed class PluginTests
             Assert.Contains("id=\"disclaimerDecline\"", html, StringComparison.Ordinal);
             Assert.Contains("ensureDisclaimer", script, StringComparison.Ordinal);
             Assert.Contains("disclaimerAccepted", script, StringComparison.Ordinal);
-            Assert.Contains("kk.ui.close()", script, StringComparison.Ordinal);
+            Assert.Contains("lz.ui.close()", script, StringComparison.Ordinal);
         }
     }
 

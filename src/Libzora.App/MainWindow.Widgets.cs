@@ -58,7 +58,7 @@ public partial class MainWindow
                 var library = NativeLibrary.Load(
                     Path.Combine(AppContext.BaseDirectory, "libLibzoraWidgetBridge.dylib"));
                 _reloadWidgets = Marshal.GetDelegateForFunctionPointer<ReloadWidgetsDelegate>(
-                    NativeLibrary.GetExport(library, "kk_macos_reload_widgets"));
+                    NativeLibrary.GetExport(library, "lz_macos_reload_widgets"));
             }
             _reloadWidgets();
         }

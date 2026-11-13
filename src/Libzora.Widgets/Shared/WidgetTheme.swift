@@ -121,7 +121,7 @@ struct KkCover: View {
     var body: some View {
         Group {
             if let image {
-                kkImage(image)
+                lzImage(image)
                     .resizable()
                     .scaledToFill()
             } else {
@@ -157,7 +157,7 @@ struct KkCover: View {
 }
 
 @ViewBuilder
-private func kkImage(_ image: CGImage) -> Image {
+private func lzImage(_ image: CGImage) -> Image {
     #if os(iOS)
     Image(uiImage: UIImage(cgImage: image))
     #else

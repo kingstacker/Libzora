@@ -104,7 +104,7 @@ internal sealed partial class IOSNativeFrontend
     {
         try
         {
-            kk_ios_reload_widgets();
+            lz_ios_reload_widgets();
         }
         catch (Exception)
         {
@@ -114,7 +114,7 @@ internal sealed partial class IOSNativeFrontend
     }
 
     [DllImport("__Internal")]
-    private static extern void kk_ios_reload_widgets();
+    private static extern void lz_ios_reload_widgets();
 
     /// <summary>Routes a libzora:// link delivered by a widget or another app.</summary>
     internal static bool HandleUrl(string? value)
@@ -551,13 +551,13 @@ internal sealed partial class IOSNativeFrontend
         else Dispatcher.UIThread.Post(() => PublishEvent(json));
     }
 
-    [DllImport("__Internal", EntryPoint = "kk_ios_create_shell")]
+    [DllImport("__Internal", EntryPoint = "lz_ios_create_shell")]
     private static extern IntPtr CreateShell(IntPtr handler, IntPtr readerController);
-    [DllImport("__Internal", EntryPoint = "kk_ios_release_shell")]
+    [DllImport("__Internal", EntryPoint = "lz_ios_release_shell")]
     private static extern void ReleaseShell(IntPtr pointer);
-    [DllImport("__Internal", EntryPoint = "kk_ios_resolve_request")]
+    [DllImport("__Internal", EntryPoint = "lz_ios_resolve_request")]
     private static extern void ResolveRequest(long id, [MarshalAs(UnmanagedType.LPUTF8Str)] string json);
-    [DllImport("__Internal", EntryPoint = "kk_ios_publish_event")]
+    [DllImport("__Internal", EntryPoint = "lz_ios_publish_event")]
     private static extern void PublishEvent([MarshalAs(UnmanagedType.LPUTF8Str)] string json);
 }
 #endif

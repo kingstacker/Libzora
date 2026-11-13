@@ -1,40 +1,40 @@
-/* Page-drawn dropdowns: every select.kk-input gets a menu drawn by the page,
+/* Page-drawn dropdowns: every select.lz-input gets a menu drawn by the page,
    so the popup looks the same on macOS, Windows and Linux instead of following
    the operating system. The select stays in the DOM as the value store, so page
    code keeps using .value, options and change events unchanged. */
 (function () {
   'use strict';
 
-  const CHEVRON = '<svg class="kk-dd-chevron" viewBox="0 0 12 12" fill="none" '
+  const CHEVRON = '<svg class="lz-dd-chevron" viewBox="0 0 12 12" fill="none" '
     + 'stroke="currentColor" stroke-width="1.4" stroke-linecap="round" '
     + 'stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4.5 L6 8 L9.5 4.5"/></svg>';
 
   function enhance(select) {
-    if (select.kkDropdownRoot) return;
+    if (select.lzDropdownRoot) return;
 
     const root = document.createElement('div');
-    root.className = 'kk-dd';
+    root.className = 'lz-dd';
     select.parentNode.insertBefore(root, select);
     root.appendChild(select);
 
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = 'kk-dd-button';
+    button.className = 'lz-dd-button';
     button.setAttribute('aria-haspopup', 'listbox');
     button.setAttribute('aria-expanded', 'false');
     const label = document.createElement('span');
-    label.className = 'kk-dd-label';
+    label.className = 'lz-dd-label';
     button.insertAdjacentHTML('beforeend', CHEVRON);
     button.insertBefore(label, button.firstChild);
 
     const menu = document.createElement('div');
-    menu.className = 'kk-dd-menu';
+    menu.className = 'lz-dd-menu';
     menu.setAttribute('role', 'listbox');
     menu.hidden = true;
 
     root.appendChild(button);
     root.appendChild(menu);
-    select.kkDropdownRoot = root;
+    select.lzDropdownRoot = root;
     select.setAttribute('aria-hidden', 'true');
     select.tabIndex = -1;
 
@@ -43,7 +43,7 @@
       Array.from(select.options).forEach(option => {
         const item = document.createElement('button');
         item.type = 'button';
-        item.className = 'kk-dd-option' + (option.selected ? ' selected' : '');
+        item.className = 'lz-dd-option' + (option.selected ? ' selected' : '');
         item.setAttribute('role', 'option');
         item.setAttribute('aria-selected', String(option.selected));
         item.textContent = option.text;
@@ -61,7 +61,7 @@
       const option = select.options[select.selectedIndex] || null;
       label.textContent = option ? option.text : '';
       button.disabled = select.disabled;
-      root.classList.toggle('kk-dd-disabled', select.disabled);
+      root.classList.toggle('lz-dd-disabled', select.disabled);
       if (!menu.hidden) build();
     }
 
@@ -75,7 +75,7 @@
       build();
       menu.hidden = false;
       button.setAttribute('aria-expanded', 'true');
-      const selected = menu.querySelector('.kk-dd-option.selected') || menu.firstElementChild;
+      const selected = menu.querySelector('.lz-dd-option.selected') || menu.firstElementChild;
       if (selected) selected.focus();
       document.addEventListener('mousedown', outside, true);
     }
@@ -131,7 +131,7 @@
   }
 
   function start() {
-    document.querySelectorAll('select.kk-input').forEach(enhance);
+    document.querySelectorAll('select.lz-input').forEach(enhance);
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);

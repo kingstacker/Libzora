@@ -46,7 +46,7 @@ struct KkContinueWidgetView: View {
             homeContent
             #endif
         }
-        .kkWidgetURL(url)
+        .lzWidgetURL(url)
     }
 
     @ViewBuilder
@@ -234,7 +234,7 @@ struct KkStatsWidgetView: View {
                 medium
             }
         }
-        .kkWidgetURL(URL(string: "libzora://dashboard"))
+        .lzWidgetURL(URL(string: "libzora://dashboard"))
     }
 
     private var medium: some View {
@@ -450,7 +450,7 @@ private extension KkReading {
 
 extension View {
     @ViewBuilder
-    func kkWidgetURL(_ url: URL?) -> some View {
+    func lzWidgetURL(_ url: URL?) -> some View {
         #if os(iOS)
         if let url {
             self.widgetURL(url)
@@ -463,7 +463,7 @@ extension View {
     }
 
     @ViewBuilder
-    func kkWidgetBackground() -> some View {
+    func lzWidgetBackground() -> some View {
         if #available(iOS 17.0, macOS 14.0, *) {
             self.containerBackground(for: .widget) {
                 KkBackdrop()

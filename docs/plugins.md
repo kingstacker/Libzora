@@ -483,21 +483,21 @@ libzora.events.on("theme.changed", ({ theme, paper, ink, mutedInk, accent }) => 
 宿主会注入主题变量和一组与主窗口一致的控件样式（黑白纸墨、直角、下划线输入框），页面直接使用即可跟随应用主题和配色：
 
 ```css
-body { color: var(--kk-ink); background: var(--kk-paper); font: 14px var(--kk-font); }
-/* 颜色：--kk-paper --kk-ink --kk-muted --kk-hairline --kk-strong-border --kk-hover --kk-pressed
-         --kk-accent --kk-accent-hover --kk-accent-pressed --kk-on-accent --kk-danger
-   其他：--kk-radius（0px） --kk-font */
+body { color: var(--lz-ink); background: var(--lz-paper); font: 14px var(--lz-font); }
+/* 颜色：--lz-paper --lz-ink --lz-muted --lz-hairline --lz-strong-border --lz-hover --lz-pressed
+         --lz-accent --lz-accent-hover --lz-accent-pressed --lz-on-accent --lz-danger
+   其他：--lz-radius（0px） --lz-font */
 ```
 
 | 类 | 用途 |
 | --- | --- |
-| `.kk-button` | 描边按钮；加 `.kk-primary` 为主操作（实心），`.kk-quiet` 为弱化按钮，`.kk-danger` 为危险操作，`.kk-small` 为紧凑尺寸 |
-| `.kk-input` | 输入框（只有下划线）；用在 `select` 上是带边框的下拉框，也适用于 `textarea` |
+| `.lz-button` | 描边按钮；加 `.lz-primary` 为主操作（实心），`.lz-quiet` 为弱化按钮，`.lz-danger` 为危险操作，`.lz-small` 为紧凑尺寸 |
+| `.lz-input` | 输入框（只有下划线）；用在 `select` 上是带边框的下拉框，也适用于 `textarea` |
 | `input[type=checkbox]` / `input[type=radio]` | 自动使用方形复选框和单选框 |
-| `input[type=checkbox].kk-switch` | 主窗口设置页样式的开关 |
-| `.kk-row` + `.kk-row-text`（内含 `strong`、`span`） | 设置行：左侧标题和说明，右侧控件；用 `label.kk-row` 时整行可点击并有悬停背景 |
-| `.kk-title` / `.kk-muted` / `.kk-danger` / `.kk-hairline` | 标题、次要文字、错误文字、分隔线 |
-| `.kk-progress > span` / `.kk-spinner` | 进度条（设置 `span` 的宽度）和加载指示 |
+| `input[type=checkbox].lz-switch` | 主窗口设置页样式的开关 |
+| `.lz-row` + `.lz-row-text`（内含 `strong`、`span`） | 设置行：左侧标题和说明，右侧控件；用 `label.lz-row` 时整行可点击并有悬停背景 |
+| `.lz-title` / `.lz-muted` / `.lz-danger` / `.lz-hairline` | 标题、次要文字、错误文字、分隔线 |
+| `.lz-progress > span` / `.lz-spinner` | 进度条（设置 `span` 的宽度）和加载指示 |
 
 带 `hidden` 属性的元素始终隐藏，不会被页面里的 `display` 规则覆盖。字体随应用使用宋体系字体；由于 CSP 只允许 `data:` 字体，不要引用外部字体文件。
 
@@ -639,7 +639,7 @@ examples/book-info/
   <title>书籍信息示例</title>
   <style>
     body { padding: 20px 22px; font-size: 14px; }
-    .book { border-top: 1px solid var(--kk-hairline); padding: 12px 0; }
+    .book { border-top: 1px solid var(--lz-hairline); padding: 12px 0; }
   </style>
 </head>
 <body>

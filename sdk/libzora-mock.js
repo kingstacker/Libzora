@@ -624,16 +624,16 @@
   var ink = dark ? '#E8E6E1' : '#1F1F1F';
   var paper = dark ? '#1E1F22' : '#FBFAF7';
   style.textContent = ':root{color-scheme:' + context.theme
-    + ';--kk-paper:' + paper + ';--kk-ink:' + ink
-    + ';--kk-muted:' + (dark ? '#9A9893' : '#6B6965')
-    + ';--kk-hairline:' + (dark ? '#3A3B3F' : '#E2DFD8')
-    + ';--kk-pressed:' + (dark ? '#2C2D31' : '#ECE9E2')
-    + ';--kk-hover:' + (dark ? '#26272A' : '#F3F1EC')
-    + ';--kk-strong-border:' + (dark ? '#9A9893' : '#6B6965')
-    + ';--kk-accent:' + ink + ';--kk-accent-hover:' + ink + ';--kk-accent-pressed:' + ink
-    + ';--kk-on-accent:' + paper + ';--kk-danger:' + (dark ? '#EAA59B' : '#A7342F')
-    + ';--kk-radius:0px;--kk-font:\"Songti SC\",\"Noto Serif CJK SC\",serif;--kk-ui-font:var(--kk-font)}'
-    + 'html,body{margin:0;padding:0;background:var(--kk-paper);color:var(--kk-ink);font:14px/1.55 var(--kk-font)}';
+    + ';--lz-paper:' + paper + ';--lz-ink:' + ink
+    + ';--lz-muted:' + (dark ? '#9A9893' : '#6B6965')
+    + ';--lz-hairline:' + (dark ? '#3A3B3F' : '#E2DFD8')
+    + ';--lz-pressed:' + (dark ? '#2C2D31' : '#ECE9E2')
+    + ';--lz-hover:' + (dark ? '#26272A' : '#F3F1EC')
+    + ';--lz-strong-border:' + (dark ? '#9A9893' : '#6B6965')
+    + ';--lz-accent:' + ink + ';--lz-accent-hover:' + ink + ';--lz-accent-pressed:' + ink
+    + ';--lz-on-accent:' + paper + ';--lz-danger:' + (dark ? '#EAA59B' : '#A7342F')
+    + ';--lz-radius:0px;--lz-font:\"Songti SC\",\"Noto Serif CJK SC\",serif;--lz-ui-font:var(--lz-font)}'
+    + 'html,body{margin:0;padding:0;background:var(--lz-paper);color:var(--lz-ink);font:14px/1.55 var(--lz-font)}';
   (document.head || document.documentElement).appendChild(style);
 
   window.libzoraMock = Object.freeze({

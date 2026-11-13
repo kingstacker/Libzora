@@ -771,7 +771,7 @@ public partial class MainWindow
                   const ignoredSelector = [
                     'script', 'style', 'noscript',
                     '#libzora-selection-bar', '#libzora-bookmark-corner',
-                    '#kk-slide', '#kk-wave', '.libzora-wave-sweep'
+                    '#lz-slide', '#lz-wave', '.libzora-wave-sweep'
                   ].join(',');
                   const intersectsViewport = rect => rect
                     && rect.width > 0

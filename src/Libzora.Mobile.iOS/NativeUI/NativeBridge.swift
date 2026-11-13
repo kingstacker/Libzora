@@ -487,7 +487,7 @@ private enum NativeRuntime {
     static var store: NativeStore?
 }
 
-@_cdecl("kk_ios_create_shell")
+@_cdecl("lz_ios_create_shell")
 @MainActor
 public func createNativeShell(_ handler: ManagedRequest?, _ readerPointer: UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer? {
     guard let handler, let readerPointer else { return nil }
@@ -501,19 +501,19 @@ public func createNativeShell(_ handler: ManagedRequest?, _ readerPointer: Unsaf
     return Unmanaged.passRetained(controller).toOpaque()
 }
 
-@_cdecl("kk_ios_release_shell")
+@_cdecl("lz_ios_release_shell")
 @MainActor
 public func releaseNativeShell(_ pointer: UnsafeMutableRawPointer?) {
     if let pointer { Unmanaged<UIViewController>.fromOpaque(pointer).release() }
 }
 
-@_cdecl("kk_ios_resolve_request")
+@_cdecl("lz_ios_resolve_request")
 @MainActor
 public func resolveNativeRequest(_ id: Int64, _ json: UnsafePointer<CChar>?) {
     if let json { NativeRuntime.store?.resolve(id, json: String(cString: json)) }
 }
 
-@_cdecl("kk_ios_publish_event")
+@_cdecl("lz_ios_publish_event")
 @MainActor
 public func publishNativeEvent(_ json: UnsafePointer<CChar>?) {
     if let json { NativeRuntime.store?.receive(String(cString: json)) }

@@ -30,7 +30,7 @@ struct KkContinueWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: KkProvider()) { entry in
             KkContinueWidgetView(entry: entry)
-                .kkWidgetBackground()
+                .lzWidgetBackground()
         }
         .configurationDisplayName("继续阅读")
         .description("在读的几本书，点哪一本就从哪一本继续。")
@@ -53,7 +53,7 @@ struct KkStatsWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: KkProvider()) { entry in
             KkStatsWidgetView(entry: entry)
-                .kkWidgetBackground()
+                .lzWidgetBackground()
         }
         .configurationDisplayName("阅读数据")
         .description("本周阅读时长、连续天数、读完的书与笔记数量。")

@@ -5,7 +5,7 @@
   <title>书籍翻译与注音 · 设置</title>
   <link rel="stylesheet" href="common.css">
   <style>
-    .footer { display: flex; gap: 8px; align-items: center; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--kk-hairline); flex-wrap: wrap; }
+    .footer { display: flex; gap: 8px; align-items: center; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--lz-hairline); flex-wrap: wrap; }
     .footer .grow { flex: 1; }
   </style>
 </head>
@@ -16,13 +16,13 @@
   <div class="section">
     <div class="row">
       <label for="provider"><span id="providerTitle"></span><span class="hint" id="providerHint"></span></label>
-      <select class="kk-input" id="provider">
+      <select class="lz-input" id="provider">
         <option value="ai" id="providerAi"></option>
       </select>
     </div>
     <div class="row">
       <label for="target"><span id="targetTitle"></span></label>
-      <select class="kk-input" id="target"></select>
+      <select class="lz-input" id="target"></select>
     </div>
     <div class="row">
       <span class="label" id="outputTitle"></span>
@@ -33,37 +33,37 @@
     </div>
     <div class="row">
       <label for="rpm"><span id="rpmTitle"></span><span class="hint" id="rpmHint"></span></label>
-      <input class="kk-input" type="number" id="rpm" min="0" max="65536" step="1" value="0">
+      <input class="lz-input" type="number" id="rpm" min="0" max="65536" step="1" value="0">
     </div>
   </div>
 
   <div class="section">
     <div class="row">
       <label for="engine"><span id="engineTitle"></span><span class="hint" id="engineHint"></span></label>
-      <select class="kk-input" id="engine">
+      <select class="lz-input" id="engine">
         <option value="dotnet-g2p" id="engineLocal"></option>
         <option value="g2pw" id="engineG2pw"></option>
       </select>
     </div>
     <div class="row">
       <label for="style"><span id="styleTitle"></span></label>
-      <select class="kk-input" id="style">
+      <select class="lz-input" id="style">
         <option value="tone-marked" id="styleMarked"></option>
         <option value="tone-number" id="styleNumber"></option>
         <option value="none" id="styleNone"></option>
       </select>
     </div>
-    <label class="kk-row" for="aiReview">
-      <span class="kk-row-text"><strong id="aiReviewTitle"></strong><span id="aiReviewHint"></span></span>
-      <input type="checkbox" class="kk-switch" id="aiReview" checked>
+    <label class="lz-row" for="aiReview">
+      <span class="lz-row-text"><strong id="aiReviewTitle"></strong><span id="aiReviewHint"></span></span>
+      <input type="checkbox" class="lz-switch" id="aiReview" checked>
     </label>
   </div>
 
   <div class="footer">
     <span class="status" id="status"></span>
     <span class="grow"></span>
-    <button class="kk-button" id="close"></button>
-    <button class="kk-button kk-primary" id="save"></button>
+    <button class="lz-button" id="close"></button>
+    <button class="lz-button lz-primary" id="save"></button>
   </div>
   <script src="dropdown.js"></script>
   <script src="settings.js"></script>

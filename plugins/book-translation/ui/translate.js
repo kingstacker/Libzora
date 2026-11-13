@@ -1,7 +1,7 @@
 (function () {
   'use strict';
-  const kk = window.libzora;
-  const zh = !(kk.context.language || 'zh-CN').toLowerCase().startsWith('en');
+  const lz = window.libzora;
+  const zh = !(lz.context.language || 'zh-CN').toLowerCase().startsWith('en');
   const text = zh ? {
     lead: '整本书会按段落翻译，完成后自动把生成的文件加入书库。翻译进度保存在本机，中断后可继续。',
     provider: '翻译服务',
@@ -250,7 +250,7 @@
     fillSelect(dom.source, LANGUAGES, defaults.source);
     fillSelect(dom.target, LANGUAGES.filter(item => item[0] !== 'auto'), defaults.target);
     try {
-      const stored = await kk.storage.get('settings');
+      const stored = await lz.storage.get('settings');
       if (stored && stored.translate && typeof stored.translate === 'object') {
         defaults = Object.assign(defaults, stored.translate);
       }
@@ -266,7 +266,7 @@
     syncProviderRows();
 
     try {
-      const books = await kk.library.getBooks();
+      const books = await lz.library.getBooks();
       book = books && books.length ? books[0] : null;
     } catch (error) {
       showResult(text.readBook.replace('{0}', errorText(error)), true);
@@ -277,7 +277,7 @@
       return;
     }
     if (book.title) dom.title.textContent = book.title;
-    kk.ui.setTitle((book.title ? book.title + ' · ' : '') + text.pageTitle).catch(() => {});
+    lz.ui.setTitle((book.title ? book.title + ' · ' : '') + text.pageTitle).catch(() => {});
     const formats = Array.isArray(book.formats) ? book.formats.map(f => String(f).toUpperCase()) : null;
     if (formats && !formats.includes('EPUB')) {
       book = null;
@@ -314,7 +314,7 @@
     setBar(0, true);
     let finished = false;
     try {
-      const result = await kk.library.translateBook(book.id, {
+      const result = await lz.library.translateBook(book.id, {
         provider: 'ai',
         sourceLanguage: dom.source.value,
         targetLanguage: dom.target.value,
@@ -361,7 +361,7 @@
     showStatus(text.cancelling);
     dom.cancel.disabled = true;
     dom.stage.textContent = text.cancelling;
-    try { await kk.library.cancelTask(); } catch (error) { /* already finished */ }
+    try { await lz.library.cancelTask(); } catch (error) { /* already finished */ }
   }
 
   dom.provider.addEventListener('change', syncProviderRows);
@@ -369,6 +369,6 @@
     input.addEventListener('change', () => { if (!running && dom.status.classList.contains('error')) showStatus(''); }));
   dom.start.addEventListener('click', () => void start());
   dom.cancel.addEventListener('click', () => void cancel());
-  kk.events.on('task.progress', updateProgress);
+  lz.events.on('task.progress', updateProgress);
   load().catch(error => showResult(errorText(error), true));
 })();

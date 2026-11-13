@@ -148,7 +148,7 @@ ID 开头（例如 `TEAMID.group.com.kingstacker.libzora`），并在签名 prof
 ## 刷新
 
 - WidgetKit 时间线每 20 分钟请求一次新快照。
-- 主应用写完快照后会请求立即刷新：iOS 通过 `kk_ios_reload_widgets`，
+- 主应用写完快照后会请求立即刷新：iOS 通过 `lz_ios_reload_widgets`，
   macOS 通过 `libLibzoraWidgetBridge.dylib` 调用
   `WidgetCenter.shared.reloadAllTimelines()`。
 - 调试版 macOS 不包含桥接 dylib 时会静默跳过，最多等待下一次时间线刷新。

@@ -1,7 +1,7 @@
 (function () {
   'use strict';
-  const kk = window.libzora;
-  const zh = !(kk.context.language || 'zh-CN').toLowerCase().startsWith('en');
+  const lz = window.libzora;
+  const zh = !(lz.context.language || 'zh-CN').toLowerCase().startsWith('en');
   const text = zh ? {
     title: '书籍翻译与注音',
     windowTitle: '设置',
@@ -148,7 +148,7 @@
     dom.save.textContent = text.save;
     dom.close.textContent = text.close;
     // The host already prefixes the plugin name.
-    kk.ui.setTitle(text.windowTitle).catch(() => {});
+    lz.ui.setTitle(text.windowTitle).catch(() => {});
     dom.target.innerHTML = '';
     LANGUAGES.forEach(([value, label]) => {
       const option = document.createElement('option');
@@ -161,7 +161,7 @@
   async function load() {
     applyText();
     let stored = {};
-    try { stored = (await kk.storage.get('settings')) || {}; } catch (error) { /* defaults */ }
+    try { stored = (await lz.storage.get('settings')) || {}; } catch (error) { /* defaults */ }
     const translate = Object.assign({
       provider: 'ai', target: 'zh-CN', translated: true, bilingual: false, aiRpm: 0
     }, stored.translate || {});
@@ -194,7 +194,7 @@
     dom.save.disabled = true;
     try {
       let stored = {};
-      try { stored = (await kk.storage.get('settings')) || {}; } catch (error) { /* defaults */ }
+      try { stored = (await lz.storage.get('settings')) || {}; } catch (error) { /* defaults */ }
       if (typeof stored !== 'object' || Array.isArray(stored)) stored = {};
       const settings = Object.assign({}, stored, {
         translate: Object.assign({}, stored.translate || {}, {
@@ -210,7 +210,7 @@
           aiReview: dom.aiReview.checked
         })
       });
-      await kk.storage.set('settings', settings);
+      await lz.storage.set('settings', settings);
       dom.rpm.value = String(rpm);
       showStatus(text.saved);
     } catch (error) {
@@ -221,6 +221,6 @@
   }
 
   dom.save.addEventListener('click', () => void save());
-  dom.close.addEventListener('click', () => { kk.ui.close().catch(() => {}); });
+  dom.close.addEventListener('click', () => { lz.ui.close().catch(() => {}); });
   load().catch(error => showStatus((error && error.message) || String(error), true));
 })();

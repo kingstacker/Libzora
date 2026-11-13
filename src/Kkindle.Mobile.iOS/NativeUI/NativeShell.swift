@@ -70,6 +70,17 @@ struct NativeShell: View {
             } else if store.dataBusy {
                 VStack(spacing: 18) { ProgressView(); Text(store.busyMessage).foregroundStyle(.secondary) }
                     .frame(maxWidth: .infinity, maxHeight: .infinity).background(.regularMaterial)
+            } else if store.restoringReader && store.readerBook == nil {
+                // The saved session opens on the first shelf snapshot. Cover
+                // the shelf meanwhile so launch goes straight into the book.
+                VStack(spacing: 16) {
+                    ProgressView()
+                    Text("正在继续阅读…")
+                        .font(NativeTheme.font(14, relativeTo: .subheadline))
+                        .foregroundStyle(NativeTheme.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(NativeTheme.page)
             }
         }
     }

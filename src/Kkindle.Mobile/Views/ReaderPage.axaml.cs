@@ -126,7 +126,7 @@ public partial class ReaderPage : UserControl
             LineHeight: preferences.ReaderLineHeight,
             MaxWidth: 900,
             BodyPadding: ReaderLayoutDefaults.DefaultBodyPadding,
-            FontFamily: ReaderFontDefaults.BundledFamily,
+            FontFamily: preferences.ReaderFontFamily,
             FlowMode: 1,
             VerticalWriting: preferences.ReaderVerticalWriting,
             TwoPageMode: false) { ParagraphSpacing = preferences.ReaderParagraphSpacing });
@@ -173,6 +173,12 @@ public partial class ReaderPage : UserControl
 
             var path = _modules.Library.Books.GetAbsoluteFilePath(_bookFile);
             await _shell.EnsureReaderDataAsync();
+            // Rebuild the absolute-path index for downloaded/imported fonts.
+            // The app container path changes across iOS updates, so the
+            // persisted preference stores only the catalog key.
+            try { await _modules.Library.Fonts.ListAsync(_lifetime.Token); }
+            catch (OperationCanceledException) { throw; }
+            catch { /* A damaged font manifest must not block opening a book. */ }
             if (!File.Exists(path) && await TryDownloadAsync(_bookFile) is { } downloaded) path = downloaded;
             if (!File.Exists(path))
             {
@@ -247,7 +253,7 @@ public partial class ReaderPage : UserControl
 
         // Keep the current text visible after reflow, without inserting a hard
         // page break at the old page's first word and leaving the preceding page empty.
-        var host = new NativeReaderHost { Focusable = false };
+        var host = new NativeReaderHost { Focusable = false, ReaderObjectsEnabled = _usesNativeFrontend };
         _readerHost = host;
         host.SetAppearance(new ReaderAppearanceSettings { Theme = CurrentTheme });
         host.WebMessageReceived += OnReaderWebMessage;
@@ -403,19 +409,28 @@ public partial class ReaderPage : UserControl
             if (!root.TryGetProperty("type", out var type)) return;
             if (type.GetString() == "scroll")
             {
+                var top = root.TryGetProperty("top", out var topElement) ? topElement.GetDouble() : 0;
                 var left = root.TryGetProperty("left", out var leftElement) ? leftElement.GetDouble() : 0;
+                _lastScrollTop = top;
+                _lastScrollLeft = left;
                 _epubPosition = Math.Max(0, left);
+                DismissFootnoteReturnIfReaderMoved(top, left);
                 UpdateEpubLabels();
                 _ = SaveProgressSoonAsync(force: false);
             }
             else if (type.GetString() == "link")
             {
                 _tapConsumed = true;
-                _ = HandleLinkAsync(
-                    root.TryGetProperty("href", out var href) ? href.GetString() : null,
-                    root.TryGetProperty("footnoteText", out var note) && note.ValueKind == JsonValueKind.String
-                        ? note.GetString()
-                        : null);
+                if (_usesNativeFrontend
+                    && root.TryGetProperty("footnote", out var footnote)
+                    && footnote.ValueKind == JsonValueKind.True)
+                    _ = ShowFootnoteAsync(root);
+                else
+                    _ = HandleLinkAsync(
+                        root.TryGetProperty("href", out var href) ? href.GetString() : null,
+                        root.TryGetProperty("footnoteText", out var note) && note.ValueKind == JsonValueKind.String
+                            ? note.GetString()
+                            : null);
             }
             // The PDF surface reports a first tap on a highlight as a selection.
             else if (type.GetString() is "annotationClick" or "annotationSelect")
@@ -423,6 +438,11 @@ public partial class ReaderPage : UserControl
                 _tapConsumed = true;
                 if (root.TryGetProperty("id", out var id) && id.TryGetGuid(out var annotationId))
                     ShowAnnotation(annotationId);
+            }
+            else if (type.GetString() == "readerObject" && _usesNativeFrontend)
+            {
+                _tapConsumed = true;
+                OpenReaderObject(root);
             }
             else if (type.GetString() == "selection" && _expectSelection)
             {
@@ -470,7 +490,7 @@ public partial class ReaderPage : UserControl
         _overallProgress = Math.Clamp((_chapterIndex + chapterRatio) / _epubDocument.Chapters.Count, 0, 1);
         var title = _epubDocument.ChapterTitles.ElementAtOrDefault(_chapterIndex)
             ?? Path.GetFileNameWithoutExtension(_epubDocument.Chapters[_chapterIndex]);
-        PresentPosition(title, $"{page + 1} / {pages}");
+        PresentPosition(title, BookPagePosition(page, pages));
     }
 
     private void UpdatePdfLabels()
@@ -597,6 +617,11 @@ public partial class ReaderPage : UserControl
         if (!_ready || _bookFile is null || _readerHost is null) return true;
         var now = DateTimeOffset.UtcNow;
         CountReadingTime(now);
+        // Browsing a note's definition is a detour, not a new reading
+        // position. Keep recording time, but never persist the notes chapter
+        // as "continue reading"; returning or an explicit TOC/slider jump
+        // lifts this guard.
+        if (_footnoteProgressSuppressed) return true;
         if (!force && now - _lastProgressSave < TimeSpan.FromSeconds(1.2)) return true;
         _lastProgressSave = now;
 
@@ -887,6 +912,13 @@ public partial class ReaderPage : UserControl
     private async Task HandleLinkAsync(string? href, string? footnoteText)
     {
         if (string.IsNullOrWhiteSpace(href)) return;
+        if (_footnoteJumpBacklink is { } backlink
+            && string.Equals(NormalizeFootnoteHref(href), backlink, StringComparison.Ordinal))
+        {
+            _footnoteJumpBacklink = null;
+            await NativeReturnFromFootnoteAsync();
+            return;
+        }
         if (!string.IsNullOrWhiteSpace(footnoteText))
         {
             if (_usesNativeFrontend)
@@ -908,6 +940,7 @@ public partial class ReaderPage : UserControl
 
             if (_readerHost is not NativeReaderHost host || _epubDocument is not { } document) return;
             _tts?.NotifyManualNavigation();
+            ClearFootnoteNavigation();
             var target = new Uri(new Uri(document.Chapters[_chapterIndex]), href);
             var path = Path.GetFullPath(target.LocalPath);
             var chapter = document.Chapters.ToList().FindIndex(item =>
@@ -1375,6 +1408,8 @@ public partial class ReaderPage : UserControl
             _shell.Services.SystemBars?.SetEdgeGesturesCaptured(false);
             _shell.ClearPaperSystemBars();
             _ = SaveAndSyncOnExitAsync();
+            StopReadingStatsTimer();
+            _bookPageCountCancellation?.Cancel();
             _lifetime.Cancel();
             if (_readerHost is not null)
             {

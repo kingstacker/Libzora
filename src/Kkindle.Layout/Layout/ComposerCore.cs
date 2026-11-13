@@ -177,6 +177,7 @@ internal sealed class PageBuilder
                 EndOfChapter = endOfChapter,
                 Runs = last.Runs,
                 Images = last.Images,
+                Tables = last.Tables,
                 Decorations = last.Decorations,
                 HotZones = last.HotZones,
                 DebugBoxes = last.DebugBoxes,
@@ -200,6 +201,12 @@ internal sealed class PageBuilder
         _used = true;
     }
 
+    public void AddTable(PlacedTable table)
+    {
+        _current.Tables.Add(table);
+        _used = true;
+    }
+
     public void AddDecoration(PlacedRect rect)
     {
         _current.Decorations.Add(rect);
@@ -219,6 +226,7 @@ internal sealed class PageBuilder
             && string.Equals(previous.Href, zone.Href, StringComparison.Ordinal)
             && previous.Kind == zone.Kind
             && string.Equals(previous.FootnoteText, zone.FootnoteText, StringComparison.Ordinal)
+            && string.Equals(previous.Marker, zone.Marker, StringComparison.Ordinal)
             && AreAdjacentOnFlowAxis(previous.Rect, zone.Rect))
         {
             _current.HotZones[^1] = new PlacedHotZone
@@ -231,6 +239,7 @@ internal sealed class PageBuilder
                     Math.Max(previous.Rect.Bottom, zone.Rect.Bottom)),
                 Href = previous.Href,
                 FootnoteText = previous.FootnoteText,
+                Marker = previous.Marker,
             };
             return;
         }

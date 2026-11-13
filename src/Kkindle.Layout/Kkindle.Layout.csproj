@@ -8,6 +8,9 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Font identity helpers and the installed-font registry live in Core so
+         both the reader and the platform font catalogs share one definition. -->
+    <ProjectReference Include="..\Kkindle.Core\Kkindle.Core.csproj" />
     <!-- The SkiaSharp/HarfBuzzSharp metapackages only declare Win32 and macOS
          natives; the Linux native libraries must be referenced explicitly or
          the engine cannot shape or rasterize on Linux. -->

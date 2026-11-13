@@ -344,6 +344,7 @@ internal sealed class VerticalComposer
                 Rect = OffsetY(zone.Rect, shift),
                 Href = zone.Href,
                 FootnoteText = zone.FootnoteText,
+                Marker = zone.Marker,
             };
         }
 
@@ -355,6 +356,7 @@ internal sealed class VerticalComposer
                 Path = image.Path,
                 Rect = OffsetY(image.Rect, shift),
                 RotationDegrees = image.RotationDegrees,
+                IsBlock = image.IsBlock,
                 LinkHref = image.LinkHref,
                 FootnoteHref = image.FootnoteHref,
                 FootnoteText = image.FootnoteText,
@@ -386,8 +388,19 @@ internal sealed class VerticalComposer
         float topHang = 0f)
     {
         var paintY = y - topHang;
+        // In vertical writing a footnote reference is not raised along the
+        // reading direction the way a Latin superscript is; it belongs at the
+        // upper-right of the base glyph. Keep only a slight upward nudge and
+        // put most of the displacement across the column so the reference
+        // does not collide with the preceding character.
+        var footnoteMarker = cell.FootnoteMarker && cell.Superscript;
         var superscriptShift = cell.Superscript
-            ? -(cell.FootnoteMarker ? _context.Options.BaseFontSize * 0.30f : cell.FontSize * 0.35f)
+            ? -(footnoteMarker ? _context.Options.BaseFontSize * 0.10f : cell.FontSize * 0.35f)
+            : 0f;
+        float MarkerShiftX(float freeSpace) => footnoteMarker
+            ? Math.Min(
+                _context.Options.BaseFontSize * 0.22f,
+                Math.Max(0f, freeSpace) * 0.45f)
             : 0f;
 
         if (!cell.IsSpace && _context.Options.CollectDebugBoxes)
@@ -409,10 +422,12 @@ internal sealed class VerticalComposer
                 : Math.Max(1f, cell.ImageHeight);
             var availableHeight = flowAdvance;
             var imageTop = paintY + Math.Max(0f, (availableHeight - imageHeight) / 2f) + superscriptShift;
+            var imageLeft = colCenter - imageWidth / 2f
+                + MarkerShiftX(BodyColumnWidth - imageWidth);
             var imageRect = new SKRect(
-                colCenter - imageWidth / 2f,
+                imageLeft,
                 imageTop,
-                colCenter + imageWidth / 2f,
+                imageLeft + imageWidth,
                 imageTop + imageHeight);
             _pages.AddImage(new PlacedImage
             {
@@ -432,6 +447,7 @@ internal sealed class VerticalComposer
                     Rect = imageRect,
                     Href = cell.FootnoteHref ?? cell.LinkHref!,
                     FootnoteText = cell.FootnoteText,
+                    Marker = cell.FootnoteHref is not null ? cell.Text : null,
                 });
             }
 
@@ -442,7 +458,7 @@ internal sealed class VerticalComposer
         {
             var ascent = cell.Ascent;
             var descent = cell.Descent;
-            var originX = colCenter - (ascent - descent) / 2f;
+            var originX = colCenter - (ascent - descent) / 2f + MarkerShiftX(BodyColumnWidth - cell.Advance);
             var originY = paintY + superscriptShift
                 + (cell.RubyAnnotation is not null ? Math.Max(0f, (flowAdvance - cell.Advance) / 2f) : 0f);
             var run = new PlacedRun
@@ -470,7 +486,9 @@ internal sealed class VerticalComposer
             var advance = Math.Max(1f, cell.Advance);
             var scale = Math.Min(1f, _context.Options.BaseFontSize / advance);
             var baseline = paintY + flowAdvance / 2f + (cell.Ascent - cell.Descent) / 2f + superscriptShift;
-            var originX = columnLeft + (BodyColumnWidth - advance * scale) / 2f;
+            var scaledAdvance = advance * scale;
+            var originX = columnLeft + (BodyColumnWidth - scaledAdvance) / 2f
+                + MarkerShiftX(BodyColumnWidth - scaledAdvance);
             var glyphX = new float[cell.GlyphX.Length];
             for (var i = 0; i < glyphX.Length; i++)
             {
@@ -508,7 +526,8 @@ internal sealed class VerticalComposer
             // font-size box leaves those glyphs visibly offset from the CJK
             // characters around them.
             var glyphAdvance = Math.Max(0f, cell.Advance);
-            var glyphOffsetX = (BodyColumnWidth - glyphAdvance) / 2f;
+            var glyphOffsetX = (BodyColumnWidth - glyphAdvance) / 2f
+                + MarkerShiftX(BodyColumnWidth - glyphAdvance);
             if (inkBounds is { } bounds
                 && (!TypesetText.IsPunctuation(cell.Text)
                     || TypesetText.IsVerticallyCenteredMark(cell.Text)))
@@ -591,6 +610,7 @@ internal sealed class VerticalComposer
                 Rect = new SKRect(columnLeft, top, columnLeft + ColumnPitch, top + height),
                 Href = cell.FootnoteHref ?? cell.LinkHref!,
                 FootnoteText = cell.FootnoteText,
+                Marker = cell.FootnoteHref is not null ? cell.Text : null,
             });
         }
 
@@ -917,6 +937,7 @@ internal sealed class VerticalComposer
         {
             Path = item.ImagePath,
             Rect = new SKRect(x, y, x + w, y + h),
+            IsBlock = true,
             LinkHref = item.LinkHref,
             FootnoteHref = item.FootnoteHref,
         });
@@ -928,6 +949,7 @@ internal sealed class VerticalComposer
                 Rect = new SKRect(x, y, x + w, y + h),
                 Href = item.FootnoteHref ?? item.LinkHref!,
                 FootnoteText = item.FootnoteText,
+                Marker = item.FootnoteHref is not null ? item.Text : null,
             });
         }
         _pages.Next();

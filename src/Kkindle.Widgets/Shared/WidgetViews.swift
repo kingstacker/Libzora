@@ -18,6 +18,12 @@ struct KkContinueWidgetView: View {
     @Environment(\.colorScheme) private var scheme
 
     private var book: KkBook? { entry.snapshot?.continueReading }
+    /// In-progress books, newest reading first. Newer snapshots list several;
+    /// older ones fall back to the single continueReading book.
+    private var books: [KkBook] {
+        if let listed = entry.snapshot?.continueBooks, !listed.isEmpty { return listed }
+        return book.map { [$0] } ?? []
+    }
     private var url: URL? {
         guard let id = book?.id else { return nil }
         return URL(string: "kkindle://read/\(id)")
@@ -47,11 +53,11 @@ struct KkContinueWidgetView: View {
     private var homeContent: some View {
         if !entry.hasData {
             KkEmptyState(title: "继续阅读", message: "打开 Kkindle，开始阅读")
-        } else if let book {
+        } else if !books.isEmpty {
             if family == .systemMedium {
-                medium(book)
+                medium(books)
             } else {
-                small(book)
+                small(books[0])
             }
         } else {
             KkEmptyState(title: "书架还空着", message: "导入一本书，开始阅读")
@@ -80,7 +86,29 @@ struct KkContinueWidgetView: View {
         .padding(16)
     }
 
-    private func medium(_ book: KkBook) -> some View {
+    /// The medium widget lists the books that are actively being read, so a
+    /// tap anywhere on a row opens that book rather than only the last one.
+    @ViewBuilder
+    private func medium(_ books: [KkBook]) -> some View {
+        if books.count == 1, let only = books.first {
+            mediumBook(only)
+        } else {
+            VStack(alignment: .leading, spacing: 0) {
+                heading
+                VStack(spacing: 5) {
+                    ForEach(Array(books.prefix(4))) { item in
+                        bookRow(item)
+                    }
+                }
+                .padding(.top, 7)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+        }
+    }
+
+    private func mediumBook(_ book: KkBook) -> some View {
         HStack(alignment: .center, spacing: 18) {
             KkCover(book: book, width: 86, height: 124)
             VStack(alignment: .leading, spacing: 0) {
@@ -99,6 +127,37 @@ struct KkContinueWidgetView: View {
             .frame(maxWidth: .infinity, maxHeight: 124, alignment: .leading)
         }
         .padding(18)
+    }
+
+    @ViewBuilder
+    private func bookRow(_ book: KkBook) -> some View {
+        if let destination = URL(string: "kkindle://read/\(book.id)") {
+            Link(destination: destination) { bookRowContent(book) }
+        } else {
+            bookRowContent(book)
+        }
+    }
+
+    private func bookRowContent(_ book: KkBook) -> some View {
+        HStack(spacing: 9) {
+            KkCover(book: book, width: 19, height: 26)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(book.title)
+                    .font(KkTheme.title(12))
+                    .foregroundStyle(KkTheme.ink(scheme))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+                KkProgressBar(progress: book.progress, height: 2)
+            }
+            Spacer(minLength: 8)
+            Text(KkFormat.percent(book.progress))
+                .font(KkTheme.label(10, weight: .semibold))
+                .foregroundStyle(KkTheme.secondaryInk(scheme))
+                .monospacedDigit()
+        }
+        .frame(height: 26)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
     }
 
     private var heading: some View {

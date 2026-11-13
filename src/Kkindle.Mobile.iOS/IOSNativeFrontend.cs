@@ -156,8 +156,9 @@ internal sealed partial class IOSNativeFrontend
     private void ShowTab(int tab)
     {
         // A tab link must land on the tab even if a book was open when the
-        // widget was tapped; Swift dismisses its reader cover and then selects.
-        Publish(Data(("type", "closeReader")));
+        // widget was tapped. Swift clears its saved-session restore, cancels
+        // an in-flight reader open, dismisses the reader cover and selects
+        // the tab, so no separate close event can race ahead of it.
         Publish(Data(("type", "openTab"), ("tab", tab)));
     }
 
@@ -273,6 +274,10 @@ internal sealed partial class IOSNativeFrontend
             case "library.import":
                 await ImportBooksAsync(token);
                 return Data();
+            case "reader.fonts":
+                return await GetReaderFontsAsync(token);
+            case "reader.fontDownload":
+                return await InstallReaderFontAsync(Text(args, "id"), token);
             case "preferences.save":
                 var preferences = Read(args.GetProperty("preferences"), new MobilePreferences(), IOSNativeJsonContext.Default.MobilePreferences);
                 await _readerGate.WaitAsync(token);
@@ -300,6 +305,8 @@ internal sealed partial class IOSNativeFrontend
                     _reader = new ReaderPage(book, _shell.Modules, _shell, jump);
                     _reader.NativeStateChanged += state => Publish(Data(("type", "reader"), ("reader", state)));
                     _reader.NativeDialogRequested += dialog => Publish(Data(("type", "readerDialog"), ("dialog", dialog)));
+                    _reader.NativeReaderMediaRequested += media => Publish(Data(("type", "readerMedia"), ("media", media)));
+                    _reader.NativeFootnoteRequested += footnote => Publish(Data(("type", "readerFootnote"), ("footnote", footnote)));
                     _reader.UseNativeFrontend();
                     var darkAppearance = _shell.Preferences.Current.ThemeMode switch
                     {
@@ -492,15 +499,51 @@ internal sealed partial class IOSNativeFrontend
         Sort = Enum.IsDefined(value.Sort) ? value.Sort : MobileBookSort.Recent,
         ReaderTheme = Enum.IsDefined(value.ReaderTheme) ? value.ReaderTheme : ReaderTheme.Classic,
         ReaderPageAnimation = Enum.IsDefined(value.ReaderPageAnimation) ? value.ReaderPageAnimation : MobilePageAnimation.Fade,
-        ReaderProgressDisplay = Enum.IsDefined(value.ReaderProgressDisplay) ? value.ReaderProgressDisplay : MobileReaderProgressDisplay.Pages,
+        ReaderProgressDisplay = MobilePreferences.NormalizeProgressDisplay(value.ReaderProgressDisplay),
         PdfZoom = double.IsFinite(value.PdfZoom) ? Math.Clamp(value.PdfZoom, 1, 4) : 1,
         ReaderFontScale = double.IsFinite(value.ReaderFontScale)
             ? Math.Clamp(value.ReaderFontScale, ReaderLayoutDefaults.MinFontScale, ReaderLayoutDefaults.MaxFontScale) : 1.35,
+        ReaderFontFamily = NormalizeReaderFontFamily(value.ReaderFontFamily),
         ReaderLineHeight = double.IsFinite(value.ReaderLineHeight) ? Math.Clamp(value.ReaderLineHeight, 1.2, 3) : 1.75,
         ReaderParagraphSpacing = double.IsFinite(value.ReaderParagraphSpacing)
             ? Math.Clamp(value.ReaderParagraphSpacing, 0, ReaderLayoutDefaults.MaxParagraphSpacing) : ReaderLayoutDefaults.DefaultParagraphSpacing,
         ReaderBodyPadding = double.IsFinite(value.ReaderBodyPadding) ? Math.Clamp(value.ReaderBodyPadding, 16, 64) : 24
     };
+
+    private static string NormalizeReaderFontFamily(string? value)
+    {
+        var family = value?.Trim();
+        if (string.IsNullOrEmpty(family)) return ReaderFontDefaults.DefaultFamily;
+
+        if (string.Equals(family, ReaderFontDefaults.BundledFamily, StringComparison.OrdinalIgnoreCase))
+        {
+            return ReaderFontDefaults.DefaultFamily;
+        }
+
+        if (family.StartsWith(ReaderFontDefaults.SystemFamilyPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            var name = family[ReaderFontDefaults.SystemFamilyPrefix.Length..].Trim();
+            return IsSafeReaderFontName(name)
+                ? ReaderFontDefaults.SystemFamilyPrefix + name
+                : ReaderFontDefaults.DefaultFamily;
+        }
+
+        if (family.StartsWith(ReaderFontDefaults.CatalogFamilyPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            var id = family[ReaderFontDefaults.CatalogFamilyPrefix.Length..].Trim();
+            return ReaderFontCatalog.Find(id) is { } entry
+                ? ReaderFontDefaults.CatalogFamilyPrefix + entry.Id
+                : ReaderFontDefaults.DefaultFamily;
+        }
+
+        return IsSafeReaderFontName(family) ? family : ReaderFontDefaults.DefaultFamily;
+    }
+
+    private static bool IsSafeReaderFontName(string value) =>
+        value.Length is > 0 and <= 160
+        && value.All(character => char.IsLetterOrDigit(character)
+            || character is ' ' or '-' or '.' or '_' or '+' or ',');
+
     private static void Publish(object value)
     {
         var json = Serialize(value);

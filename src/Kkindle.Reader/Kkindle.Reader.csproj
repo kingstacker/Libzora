@@ -18,6 +18,7 @@
          the control API a second shell should build on. -->
     <InternalsVisibleTo Include="Kkindle.App" />
     <InternalsVisibleTo Include="Kkindle.App.Tests" />
+    <InternalsVisibleTo Include="Kkindle.Tests" />
     <ProjectReference Include="..\Kkindle.Core\Kkindle.Core.csproj" />
     <ProjectReference Include="..\Kkindle.Application\Kkindle.Application.csproj" />
     <ProjectReference Include="..\Kkindle.Infrastructure\Kkindle.Infrastructure.csproj" />

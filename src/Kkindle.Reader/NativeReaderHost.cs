@@ -22,9 +22,16 @@ namespace Kkindle;
 /// translates input into the same JSON bridge protocol the WebKit reader used,
 /// so the surrounding reader pipeline keeps working unchanged.
 /// </summary>
-public sealed class NativeReaderHost : Control, IReaderHost, IReaderPageSnapshotProvider, IReaderAppearanceHost, IReaderConfiguredHost, IReaderLocationHost, IReaderLayoutNavigationHost, IReaderPaginationHost, IReaderAnnotationHost, IReaderSpeechHost, IReaderSelectionHost, IReaderAnnotationBoundsHost, IReaderFootnoteVisualHost, IReaderPageCountHost, IReaderVisualTransitionHost
+public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPageSnapshotProvider, IReaderAppearanceHost, IReaderConfiguredHost, IReaderLocationHost, IReaderLayoutNavigationHost, IReaderPaginationHost, IReaderAnnotationHost, IReaderSpeechHost, IReaderSelectionHost, IReaderAnnotationBoundsHost, IReaderFootnoteVisualHost, IReaderPageCountHost, IReaderVisualTransitionHost
 {
     public const string BundledFontFileName = "KingHwaOldSong-v3.0.ttf";
+
+    /// <summary>
+    /// Enables figure/table tap targets for shells that open their own viewer.
+    /// Avalonia shells leave this off so a tap on an illustration keeps its
+    /// existing page-turn/chrome behavior.
+    /// </summary>
+    public bool ReaderObjectsEnabled { get; set; }
 
     private const int ImageCacheCapacity = 12;
     private const int ImageDecodeMaxDimension = 2048;
@@ -43,6 +50,7 @@ public sealed class NativeReaderHost : Control, IReaderHost, IReaderPageSnapshot
     private CancellationTokenSource? _relayoutCts;
     internal Task RelayoutTask { get; private set; } = Task.CompletedTask;
     private ChapterContent? _content;
+    private readonly List<TableTextRange> _tableTextRanges = new();
     private ChapterLayout? _layout;
     private TypesetLayoutOptions? _options;
     private ReaderLayoutSettings _settings = new();
@@ -257,6 +265,7 @@ public sealed class NativeReaderHost : Control, IReaderHost, IReaderPageSnapshot
         }
         _layout = null;
         _content = null;
+        _tableTextRanges.Clear();
         _speechHighlight = null;
         InvalidateSpeechTextSnapshot();
         _bitmap?.Dispose();
@@ -1543,9 +1552,13 @@ public sealed class NativeReaderHost : Control, IReaderHost, IReaderPageSnapshot
                     previous?.Dispose();
                 }
                 _content = composed.content;
+                BuildTableTextRanges(composed.content);
                 _loadedFootnoteFragment = string.IsNullOrWhiteSpace(fragment) ? null : NormalizeFragment(fragment);
                 _options = composed.options;
                 _layout = composed.layout;
+                // The old layout is gone, so a platform face left over from a
+                // previous font choice no longer has a page to paint.
+                FontLibrary.ReleaseSystemFontsExcept(FontLibrary.MainFontPath);
                 InvalidateSpeechTextSnapshot();
                 _loadedParagraphIndent = settings.ParagraphIndent;
                 _composePending = false;
@@ -1704,6 +1717,17 @@ public sealed class NativeReaderHost : Control, IReaderHost, IReaderPageSnapshot
         if (string.IsNullOrWhiteSpace(family))
             return GetBundledFontPath();
 
+        // Platform faces have no file path; SelectReaderMainFont asks the
+        // font library to load them through the platform font manager.
+        if (TypesetFontLibrary.IsSystemFontKey(family))
+            return null;
+
+        // Catalog and imported fonts live in the app container. Their
+        // absolute paths are rebuilt at launch because iOS changes the
+        // container path on reinstall and update.
+        if (ReaderFontRegistry.TryResolve(family, out var userFontPath))
+            return userFontPath;
+
         foreach (var part in family.Split(
                      ',',
                      StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
@@ -1811,6 +1835,16 @@ public sealed class NativeReaderHost : Control, IReaderHost, IReaderPageSnapshot
 
     private static void SelectReaderMainFont(TypesetEngine engine, string? family)
     {
+        if (!string.IsNullOrWhiteSpace(family) && TypesetFontLibrary.IsSystemFontKey(family))
+        {
+            var systemFamily = family[ReaderFontDefaults.SystemFamilyPrefix.Length..].Trim();
+            if (engine.Fonts.TryEnsureSystemFont(systemFamily, out var systemKey)
+                && engine.Fonts.TrySetMainFont(systemKey))
+            {
+                return;
+            }
+        }
+
         var selected = ResolveReaderFontPath(family) ?? GetBundledFontPath();
         // Imported/user fonts are not part of the fallback candidate list, so
         // register the chosen face before making it the main one.
@@ -2273,6 +2307,9 @@ public sealed class NativeReaderHost : Control, IReaderHost, IReaderPageSnapshot
                 _options = options;
                 _layout = result;
                 previous?.Dispose();
+                // Switching fonts installs a new layout over the old one; the
+                // face it replaced is now safe to unload.
+                FontLibrary.ReleaseSystemFontsExcept(FontLibrary.MainFontPath);
             }
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { return; }
@@ -3157,6 +3194,13 @@ public sealed class NativeReaderHost : Control, IReaderHost, IReaderPageSnapshot
             // accidentally open a chapter or footnote.
             if (!wasDrag && ReferenceEquals(hotZone, releasedHotZone))
             {
+                // The tap point is what the finger used; the painted marker
+                // box is what the note card should point at. Both are in
+                // control coordinates so the native frontend can place the
+                // card without knowing the page/spread/scroll geometry.
+                var anchorPage = releasedMap?.Page ?? _pageIndex;
+                var pageOrigin = PageOrigin(anchorPage);
+                var zoneRect = hotZone.Rect;
                 Emit(new
                 {
                     type = "link",
@@ -3164,8 +3208,18 @@ public sealed class NativeReaderHost : Control, IReaderHost, IReaderPageSnapshot
                     footnote = hotZone.Kind == HotZoneKind.FootnoteMarker,
                     navigate = hotZone.Kind == HotZoneKind.FootnoteMarker && _pointerClickCount >= 2,
                     footnoteText = hotZone.FootnoteText,
+                    marker = hotZone.Marker,
                     x = position.X,
                     y = position.Y,
+                    anchor = new
+                    {
+                        x = pageOrigin.X + zoneRect.Left,
+                        y = pageOrigin.Y + zoneRect.Top,
+                        width = zoneRect.Width,
+                        height = zoneRect.Height,
+                        viewportWidth = Math.Max(1, Bounds.Width),
+                        viewportHeight = Math.Max(1, Bounds.Height),
+                    },
                 });
             }
             else if (hotZone.Kind == HotZoneKind.FootnoteMarker)
@@ -3197,6 +3251,12 @@ public sealed class NativeReaderHost : Control, IReaderHost, IReaderPageSnapshot
         if (clickedAnnotation is not null)
         {
             Emit(new { type = "annotationClick", id = clickedAnnotation.Id });
+        }
+        else if (releasedMap is { } objectMap && !wasDrag
+            && TryEmitReaderObject(objectMap.Page, objectMap.Local))
+        {
+            // The native frontend opens its own viewer for figures and tables,
+            // so this tap must not also turn the page or toggle the chrome.
         }
         else if (clickSide is not null)
         {

@@ -38,3 +38,8 @@ dist/
 *.jks
 AuthKey_*.p8
 *.keychain-db
+
+# Reader font catalog binaries are fetched locally by scripts/fetch-reader-fonts.sh.
+# Production serves the same files from the font host.
+/src/Kkindle.App/Assets/Fonts/catalog/**/*.ttf
+/src/Kkindle.App/Assets/Fonts/catalog/**/*.otf

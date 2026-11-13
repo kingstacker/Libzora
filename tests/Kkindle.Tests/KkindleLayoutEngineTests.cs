@@ -1079,6 +1079,99 @@ public sealed class KkindleLayoutEngineTests : IDisposable
     }
 
     [Fact]
+    public void Horizontal_FootnoteMarkerRisesAboveTheBaseline()
+    {
+        var path = Path.Combine(_tempDir, "footnote-baseline.xhtml");
+        File.WriteAllText(path, """
+            <?xml version="1.0" encoding="utf-8"?>
+            <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+              <body>
+                <p>春风吹过山林<a href="#fn1" epub:type="noteref">（1）</a>读书应当记住眼前这一行文字。</p>
+                <aside id="fn1" epub:type="footnote"><p>第一条脚注说明文字。</p></aside>
+              </body>
+            </html>
+            """);
+        var content = new XhtmlChapterLoader().Load(path);
+        using var engine = CreateEngine();
+        var options = new TypesetLayoutOptions
+        {
+            WritingMode = TypesetWritingMode.HorizontalTb,
+            BaseFontSize = 34f,
+            LineHeight = 1.8f,
+            ViewportWidth = 520f,
+            ViewportHeight = 720f,
+            InsetHorizontal = 28f,
+            InsetVertical = 28f,
+        };
+        var layout = engine.Compose(content, options);
+        var page = layout.Pages[0];
+        var markerOffset = content.Blocks
+            .SelectMany(block => block.Items)
+            .First(item => item.Kind == InlineKind.FootnoteMarker)
+            .TextStart;
+
+        var marker = Assert.Single(page.Runs, run => run.Style.Superscript
+            && run.TextStart <= markerOffset
+            && markerOffset < run.TextStart + run.TextLength);
+        var body = page.Runs
+            .Where(run => !run.Style.Superscript && run.TextLength > 0
+                && run.TextStart + run.TextLength == markerOffset)
+            .OrderByDescending(run => run.TextStart)
+            .First();
+
+        var expectedShift = options.BaseFontSize * 0.38f;
+        Assert.InRange(body.OriginY - marker.OriginY, expectedShift - 1.5f, expectedShift + 1.5f);
+    }
+
+    [Fact]
+    public void Vertical_FootnoteMarkerSitsOnTheRightEdgeOfItsColumn()
+    {
+        var path = Path.Combine(_tempDir, "footnote-vertical.xhtml");
+        File.WriteAllText(path, """
+            <?xml version="1.0" encoding="utf-8"?>
+            <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+              <body>
+                <p>春风吹过山林<a href="#fn1" epub:type="noteref">（1）</a>读书应当记住眼前这一行文字。</p>
+                <aside id="fn1" epub:type="footnote"><p>第一条脚注说明文字。</p></aside>
+              </body>
+            </html>
+            """);
+        var content = new XhtmlChapterLoader().Load(path);
+        using var engine = CreateEngine();
+        var options = new TypesetLayoutOptions
+        {
+            WritingMode = TypesetWritingMode.VerticalRl,
+            BaseFontSize = 34f,
+            LineHeight = 1.8f,
+            ViewportWidth = 520f,
+            ViewportHeight = 720f,
+            InsetHorizontal = 28f,
+            InsetVertical = 28f,
+        };
+        var layout = engine.Compose(content, options);
+        var page = layout.Pages[0];
+        var markerOffset = content.Blocks
+            .SelectMany(block => block.Items)
+            .First(item => item.Kind == InlineKind.FootnoteMarker)
+            .TextStart;
+
+        var marker = Assert.Single(page.Runs, run => run.Style.Superscript
+            && run.TextStart <= markerOffset
+            && markerOffset < run.TextStart + run.TextLength);
+        var zone = Assert.Single(page.HotZones, hotZone => hotZone.Kind == HotZoneKind.FootnoteMarker);
+
+        // A vertical note reference is a tate-chu-yoko unit: the cell is the
+        // column, but the compact glyphs must lean toward the upper-right of
+        // the base character instead of sitting in the column's centre.
+        var inkCenter = marker.OriginX + (marker.X[0] + marker.X[^1]) / 2f
+            + marker.FontSize * marker.Scale * 0.25f;
+        Assert.True(
+            inkCenter > zone.Rect.Left + zone.Rect.Width / 2f + 2f,
+            $"marker ink centre {inkCenter:F2} should sit right of column centre "
+            + $"{zone.Rect.Left + zone.Rect.Width / 2f:F2}");
+    }
+
+    [Fact]
     public void Loader_KeepsInlineImageFragmentOnTheImageBlock()
     {
         var imagePath = WritePng();
@@ -2116,6 +2209,57 @@ public sealed class KkindleLayoutEngineTests : IDisposable
     }
 
     [Fact]
+    public void BlockFiguresAndTablesExposeReaderTapTargets()
+    {
+        WritePng("tap.png");
+        var chapter = new XhtmlChapterLoader().Load(WriteChapter(
+            "<p>正文</p><p><img src=\"tap.png\" alt=\"插图\"/></p>"
+            + "<table>"
+            + "<tr><th>名称</th><th>数量</th></tr>"
+            + "<tr><td>左栏内容</td><td>右栏内容</td></tr>"
+            + "</table>"));
+
+        using var engine = CreateEngine();
+        var layout = engine.Compose(
+            chapter, Options(TypesetWritingMode.HorizontalTb, width: 420f, height: 600f));
+
+        var imagePage = layout.Pages.First(page => page.Images.Any(image => image.IsBlock));
+        var image = Assert.Single(imagePage.Images, item => item.IsBlock);
+        var imageCenter = new SKPoint(
+            (image.Rect.Left + image.Rect.Right) / 2f,
+            (image.Rect.Top + image.Rect.Bottom) / 2f);
+        Assert.Same(image, layout.GetBlockImageAt(imagePage.Index, imageCenter));
+        Assert.Null(layout.GetBlockImageAt(imagePage.Index, new SKPoint(-1f, -1f)));
+
+        var tablePage = layout.Pages.First(page => page.Tables.Count > 0);
+        var table = tablePage.Tables[0];
+        var tableCenter = new SKPoint(
+            (table.Rect.Left + table.Rect.Right) / 2f,
+            (table.Rect.Top + table.Rect.Bottom) / 2f);
+        Assert.Same(table, layout.GetTableAt(tablePage.Index, tableCenter));
+        Assert.Null(layout.GetTableAt(tablePage.Index, new SKPoint(-1f, -1f)));
+    }
+
+    [Fact]
+    public void VerticalBlockFigureExposesReaderTapTarget()
+    {
+        WritePng("tap-vertical.png");
+        var chapter = new XhtmlChapterLoader().Load(WriteChapter(
+            "<p>正文</p><p><img src=\"tap-vertical.png\" alt=\"插图\"/></p>"));
+
+        using var engine = CreateEngine();
+        var layout = engine.Compose(
+            chapter, Options(TypesetWritingMode.VerticalRl, width: 420f, height: 600f));
+
+        var page = layout.Pages.First(item => item.Images.Any(image => image.IsBlock));
+        var block = Assert.Single(page.Images, image => image.IsBlock);
+        var center = new SKPoint(
+            (block.Rect.Left + block.Rect.Right) / 2f,
+            (block.Rect.Top + block.Rect.Bottom) / 2f);
+        Assert.Same(block, layout.GetBlockImageAt(page.Index, center));
+    }
+
+    [Fact]
     public void TablesFallBackToTextFlowInVerticalWriting()
     {
         var chapter = new XhtmlChapterLoader().Load(WriteChapter(
@@ -2392,5 +2536,90 @@ public sealed class KkindleLayoutEngineTests : IDisposable
                     $"expected {style} annotation ink in {mode}, found no colored pixels");
             }
         }
+    }
+
+    [Fact]
+    public void SystemFontCanBeRegisteredWithoutAFile()
+    {
+        var face = SystemFontCatalog.CjkFonts.FirstOrDefault();
+        if (face is null)
+        {
+            // Headless CI images may not install a CJK system face.
+            return;
+        }
+
+        using var library = new TypesetFontLibrary(_fontPath);
+        Assert.True(library.TryEnsureSystemFont(face.Family, out var key));
+        Assert.Equal(TypesetFontLibrary.SystemFontKey(face.Family), key);
+        Assert.True(library.TrySetMainFont(key));
+        Assert.Equal(key, library.MainFontPath);
+        Assert.NotNull(library.GetTypeface(key));
+        Assert.True(library.GetUpem(key) > 0);
+
+        var shaper = new GlyphShaper(library);
+        var shaped = shaper.Shape("阅读测试", 0, 4, key, 16f);
+        Assert.False(shaped.ContainsNotdef);
+        Assert.True(shaped.TotalAdvance > 0);
+    }
+
+    [Fact]
+    public void SwitchingSystemFontReleasesThePreviousFace()
+    {
+        var faces = SystemFontCatalog.CjkFonts.ToArray();
+        if (faces.Length == 0)
+        {
+            // Headless CI images may not install a CJK system face.
+            return;
+        }
+
+        using var library = new TypesetFontLibrary(_fontPath);
+        Assert.True(library.TryEnsureSystemFont(faces[0].Family, out var first));
+        library.ReleaseSystemFontsExcept(first);
+        Assert.Contains(first, library.LoadedSystemFontKeys);
+
+        if (faces.Length > 1)
+        {
+            Assert.True(library.TryEnsureSystemFont(faces[1].Family, out var second));
+            Assert.True(library.TrySetMainFont(second));
+            library.ReleaseSystemFontsExcept(second);
+            Assert.DoesNotContain(first, library.LoadedSystemFontKeys);
+            Assert.Contains(second, library.LoadedSystemFontKeys);
+            Assert.True(library.TrySetMainFont(second));
+
+            // Switching back re-opens the released family on demand.
+            Assert.True(library.TryEnsureSystemFont(faces[0].Family, out var reopened));
+            Assert.Equal(first, reopened);
+            Assert.True(library.TrySetMainFont(reopened));
+        }
+
+        Assert.True(library.TrySetMainFont(_fontPath));
+        library.ReleaseSystemFontsExcept(null);
+        Assert.Empty(library.LoadedSystemFontKeys);
+        // File-backed faces and the bundled main font survive the release.
+        Assert.NotNull(library.GetTypeface(_fontPath));
+        var shaper = new GlyphShaper(library);
+        Assert.False(shaper.Shape("阅读测试", 0, 4, _fontPath, 16f).ContainsNotdef);
+    }
+
+    [Fact]
+    public void DeferredSystemFontReleaseWaitsForComposition()
+    {
+        var face = SystemFontCatalog.CjkFonts.FirstOrDefault();
+        if (face is null)
+        {
+            return;
+        }
+
+        using var library = new TypesetFontLibrary(_fontPath);
+        Assert.True(library.TryEnsureSystemFont(face.Family, out var key));
+        Assert.True(library.TrySetMainFont(_fontPath));
+        using (library.BeginComposition())
+        {
+            library.ReleaseSystemFontsExcept(null);
+            // The face stays readable while a composer still holds it.
+            Assert.Contains(key, library.LoadedSystemFontKeys);
+            Assert.NotNull(library.GetTypeface(key));
+        }
+        Assert.Empty(library.LoadedSystemFontKeys);
     }
 }

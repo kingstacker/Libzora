@@ -105,6 +105,10 @@ public static class ReaderFontDefaults
     public const string DefaultFamily = "京华老宋体";
     public const string BundledFamily = "KingHwaOldSong";
     public const string BundledFontFileName = "KingHwaOldSong-v3.0.ttf";
+    /// <summary>Prefix for a face exposed by the platform font manager, e.g. <c>system:PingFang SC</c>.</summary>
+    public const string SystemFamilyPrefix = "system:";
+    /// <summary>Prefix for a font installed from the downloadable reader catalog.</summary>
+    public const string CatalogFamilyPrefix = "catalog:";
 }
 
 public sealed record ReaderLayoutSettings(

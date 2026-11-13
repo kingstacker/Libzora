@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Kkindle.Core;
 using Kkindle.ApplicationServices.Tts;
 using Kkindle.Mobile.Views.Sheets;
@@ -7,7 +8,8 @@ namespace Kkindle.Mobile.Views;
 public sealed record NativeReaderState(
     bool Ready, bool ChromeVisible, bool IsPdf, string Title, string Chapter,
     string Position, double Progress, bool Bookmark, string? Error,
-    TtsPlaybackState SpeechState, string SpeechStatus, string? SelectedText)
+    TtsPlaybackState SpeechState, string SpeechStatus, string? SelectedText,
+    bool FootnoteReturnVisible = false)
 {
     public NativeReaderSelectionBounds? SelectionBounds { get; init; }
 }
@@ -15,9 +17,22 @@ public sealed record NativeReaderState(
 public sealed record NativeReaderSelectionBounds(double X, double Y, double Bottom,
     double ViewportWidth, double ViewportHeight);
 
+/// <summary>One in-page note card. Anchors use the reader surface's coordinates.</summary>
+public sealed record NativeReaderFootnote(long Id, bool Visible, string Title, string Href, string? Text,
+    bool Loading, bool CanJump, NativeReaderFootnoteAnchor Anchor, string? Error);
+
+public sealed record NativeReaderFootnoteAnchor(double X, double Y, double Width, double Height,
+    double ViewportWidth, double ViewportHeight)
+{
+    public static readonly NativeReaderFootnoteAnchor Empty = new(0, 0, 0, 0, 0, 0);
+}
+
 public sealed record NativeReaderTocItem(int Id, string Title, int Level, bool Selected);
 public sealed record NativeReaderSearchItem(int Id, string Title, string Excerpt);
 public sealed record NativeReaderDialog(string Kind, string Title, string Text, Guid? AnnotationId = null, string? Note = null);
+
+/// <summary>A figure or table the native frontend should show full screen.</summary>
+public sealed record NativeReaderMedia(Guid Id, string Kind, string Title, string Path);
 
 /// <summary>
 /// Data/actions for a native frontend around the existing rendering surface.
@@ -35,10 +50,73 @@ public partial class ReaderPage
 
     public event Action<NativeReaderState>? NativeStateChanged;
     public event Action<NativeReaderDialog>? NativeDialogRequested;
+    public event Action<NativeReaderMedia>? NativeReaderMediaRequested;
+
+    /// <summary>
+    /// Figures open immediately; tables are re-composed on a wide canvas in
+    /// the background because the phone page may have flattened them to text.
+    /// </summary>
+    private void OpenReaderObject(JsonElement root)
+    {
+        var kind = root.TryGetProperty("kind", out var kindElement) ? kindElement.GetString() : null;
+        if (kind == "image")
+        {
+            var path = root.TryGetProperty("path", out var pathElement) ? pathElement.GetString() : null;
+            if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
+            {
+                RaiseReaderMedia("image", path);
+            }
+            else
+            {
+                _shell.ShowToast("图片文件已丢失");
+            }
+
+            return;
+        }
+
+        if (kind == "table"
+            && root.TryGetProperty("blockIndex", out var indexElement)
+            && indexElement.TryGetInt32(out var blockIndex))
+        {
+            _ = OpenTablePreviewAsync(blockIndex);
+        }
+    }
+
+    private void RaiseReaderMedia(string kind, string path) =>
+        NativeReaderMediaRequested?.Invoke(
+            new NativeReaderMedia(Guid.NewGuid(), kind, _book.Title, path));
+
+    private async Task OpenTablePreviewAsync(int blockIndex)
+    {
+        if (_readerHost is not NativeReaderHost host) return;
+        try
+        {
+            var width = Math.Max(720, ReaderHostSlot.Bounds.Width * 2.4);
+            var path = await host.RenderTablePreviewAsync(blockIndex, width, _lifetime.Token);
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                _shell.ShowToast("这个表格暂时无法单独显示");
+                return;
+            }
+
+            RaiseReaderMedia("table", path);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception exception)
+        {
+            _shell.ShowToast("无法打开表格");
+            Console.WriteLine($"[Kkindle] table preview failed: {exception.Message}");
+        }
+    }
 
     public void UseNativeFrontend()
     {
         _usesNativeFrontend = true;
+        // The native shell opens its own viewer for figures and tables; the
+        // Avalonia shells keep the existing tap-to-turn behavior.
+        if (_readerHost is NativeReaderHost native) native.ReaderObjectsEnabled = true;
         TopChrome.IsVisible = false;
         BottomChrome.IsVisible = false;
         ReaderFooter.IsVisible = false;
@@ -56,7 +134,7 @@ public partial class ReaderPage
         FooterChapter.Text ?? string.Empty, FooterPosition.Text ?? string.Empty,
         _overallProgress * 100, FindCurrentBookmark() is not null, _nativeError,
         _tts?.State ?? TtsPlaybackState.Stopped, SpeechStatusText.Text ?? string.Empty,
-        _selection?.Text)
+        _selection?.Text, _footnoteReturn.Count > 0)
     {
         SelectionBounds = _selection is { X: { } x, Y: { } y } selected
             ? new(x, y, selected.Bottom ?? y, ReaderPaper.Bounds.Width, ReaderPaper.Bounds.Height)
@@ -77,11 +155,24 @@ public partial class ReaderPage
             new NativeReaderTocItem(index, item.Title, item.Level, index == selected)).ToArray();
     }
 
-    public Task NativeJumpToTocAsync(int index) => index >= 0 && index < _tocEntries.Count
-        ? JumpToAsync(_tocEntries[index]) : Task.CompletedTask;
+    public Task NativeJumpToTocAsync(int index)
+    {
+        ClearFootnoteNavigation();
+        return index >= 0 && index < _tocEntries.Count
+            ? JumpToAsync(_tocEntries[index]) : Task.CompletedTask;
+    }
 
-    public Task NativeSeekAsync(double percent) => SeekAsync(Math.Clamp(percent, 0, 100));
-    public Task NativeMoveChapterAsync(int direction) => MoveChapterAsync(Math.Sign(direction));
+    public Task NativeSeekAsync(double percent)
+    {
+        ClearFootnoteNavigation();
+        return SeekAsync(Math.Clamp(percent, 0, 100));
+    }
+
+    public Task NativeMoveChapterAsync(int direction)
+    {
+        ClearFootnoteNavigation();
+        return MoveChapterAsync(Math.Sign(direction));
+    }
     public Task NativeApplySettingsAsync() => ApplyReaderSettingsAsync();
 
     public void NativeSetAppAppearance(bool dark, int revision)

@@ -383,7 +383,12 @@ struct NativeLibraryPage: View {
     }
     private func refresh() async {
         do { try await store.refreshLibrary() }
-        catch { if !Task.isCancelled { store.failure = error.localizedDescription } }
+        catch {
+            if !Task.isCancelled {
+                store.releaseLaunchRestore()
+                store.failure = error.localizedDescription
+            }
+        }
     }
 }
 

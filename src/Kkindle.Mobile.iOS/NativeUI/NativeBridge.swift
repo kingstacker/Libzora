@@ -30,6 +30,7 @@ struct MobilePreferences: Codable, Equatable {
     var readerTheme = 0
     var readerThemeFollowsAppearance = true
     var readerFontScale = 1.35
+    var readerFontFamily = "京华老宋体"
     var readerLineHeight = 1.75
     var readerParagraphSpacing = 0.0
     var readerBodyPadding = 24.0
@@ -114,6 +115,29 @@ struct ReaderSnapshot: Decodable, Equatable {
     var speechStatus = ""
     var selectedText: String?
     var selectionBounds: NativeSelectionBounds?
+    var footnoteReturnVisible = false
+}
+
+struct ReaderFootnoteAnchor: Decodable, Equatable {
+    let x: Double
+    let y: Double
+    let width: Double
+    let height: Double
+    let viewportWidth: Double
+    let viewportHeight: Double
+}
+
+/// One in-page note card. The anchor is in the rendered reader surface's
+/// coordinates, which is the same space the selection toolbar already uses.
+struct ReaderFootnote: Decodable, Equatable, Identifiable {
+    let id: Int64
+    let visible: Bool
+    let title: String
+    let text: String?
+    let loading: Bool
+    let canJump: Bool
+    let anchor: ReaderFootnoteAnchor
+    let error: String?
 }
 
 private struct NativeEvent: Decodable {
@@ -124,6 +148,8 @@ private struct NativeEvent: Decodable {
     let preferences: MobilePreferences?
     let id: Int64?
     let dialog: ReaderDialog?
+    let media: ReaderMedia?
+    let footnote: ReaderFootnote?
     let txtImport: TxtReview?
     let busy: Bool?
     let channel: String?
@@ -140,6 +166,8 @@ private struct NativeEvent: Decodable {
 final class NativeReaderSession: ObservableObject {
     @Published var state = ReaderSnapshot()
     @Published var dialog: ReaderDialog?
+    @Published var media: ReaderMedia?
+    @Published var footnote: ReaderFootnote?
     @Published var aiStreams: [String: String] = [:]
     var appearanceSessionId = ""
 }
@@ -159,6 +187,9 @@ final class NativeStore: ObservableObject {
     @Published var continueBookId: String?
     @Published var readerBook: LibraryBook?
     @Published var openingReader = false
+    /// Hides the shelf until the launch restore either presents its book or
+    /// proves there is nothing to restore, so the library never flashes first.
+    @Published var restoringReader = false
     @Published var developerMode = false
     @Published var account: AccountStatus?
     let session = NativeReaderSession()
@@ -176,6 +207,8 @@ final class NativeStore: ObservableObject {
     private static let lastReaderKey = "kkindle.reader.lastBookId"
     private var pendingReaderRestore: String?
     private var pendingOpenBookId: String?
+    /// Bumped whenever a widget link supersedes the reader that is opening.
+    private var readerOpenGeneration = 0
     private var nextId: Int64 = 0
     private var pending: [Int64: (Data) -> Void] = [:]
     private var toastTask: Task<Void, Never>?
@@ -188,6 +221,7 @@ final class NativeStore: ObservableObject {
         self.readerController = readerController
         if !ProcessInfo.processInfo.arguments.contains("--kkindle-disable-restore") {
             pendingReaderRestore = UserDefaults.standard.string(forKey: Self.lastReaderKey)
+            restoringReader = pendingReaderRestore != nil
         }
     }
 
@@ -234,6 +268,9 @@ final class NativeStore: ObservableObject {
         case "confirm": if let prompt = event.prompt { self.prompt = prompt; NativeAlerts.confirm(prompt, store: self) }
         case "confirmDismissed": if let id = event.id { NativeAlerts.dismissPrompt(id); if prompt?.id == id { prompt = nil } }
         case "readerDialog": session.dialog = event.dialog
+        case "readerMedia": session.media = event.media
+        case "readerFootnote":
+            session.footnote = event.footnote?.visible == true ? event.footnote : nil
         case "txtImport": txtReview = event.txtImport
         case "dataBusy": dataBusy = event.busy ?? false; busyMessage = event.message ?? ""
         case "status": if event.channel == "sync" { syncStatus = event.message ?? "" }
@@ -242,7 +279,17 @@ final class NativeStore: ObservableObject {
         case "toast": showToast(event.message ?? "")
         case "accountInvalidated": account = nil
         case "openBook": if let id = event.bookId { openRequestedBook(id) }
-        case "openTab": if let tab = event.tab { requestedTab = tab }
+        case "openTab":
+            if let tab = event.tab {
+                // A tab link asks for the tab itself, so it must also cancel
+                // the saved reading session and any reader that is still
+                // opening. Otherwise the last book reopens over the tab.
+                pendingReaderRestore = nil
+                pendingOpenBookId = nil
+                requestedTab = tab
+                restoringReader = false
+                dismissReaderForTab()
+            }
         case "closeReader": if readerBook != nil { perform { await self.closeReader() } }
         default: break
         }
@@ -273,6 +320,10 @@ final class NativeStore: ObservableObject {
         pendingReaderRestore = nil
         if readerBook != nil {
             perform { await self.closeReader() }
+        } else if openingReader {
+            // The reader that is opening came from the saved-session restore
+            // or an older link; the newest widget tap wins.
+            readerOpenGeneration += 1
         } else if !library.isEmpty {
             openPendingReaderIfNeeded()
         } else {
@@ -280,11 +331,21 @@ final class NativeStore: ObservableObject {
         }
     }
 
+    /// Invalidates an in-flight reader open and dismisses a visible cover.
+    private func dismissReaderForTab() {
+        readerOpenGeneration += 1
+        restoringReader = false
+        if readerBook != nil { perform { await self.closeReader() } }
+    }
+
     private func openPendingReaderIfNeeded() {
         guard let bookId = pendingOpenBookId, !library.isEmpty,
               readerBook == nil, !openingReader, !restartRequired else { return }
         pendingOpenBookId = nil
-        guard let book = library.first(where: { $0.id == bookId }) else { return }
+        guard let book = library.first(where: { $0.id == bookId }) else {
+            restoringReader = false
+            return
+        }
         // An explicit widget tap wins over restoring the last reader session.
         Task { try? await self.openReader(book) }
     }
@@ -292,17 +353,29 @@ final class NativeStore: ObservableObject {
     /// The shelf's first successful load is the safe moment to reopen the
     /// book that was on screen when the app was last quit.
     private func restorePendingReaderIfNeeded() {
-        guard let bookId = pendingReaderRestore, !library.isEmpty,
+        guard let bookId = pendingReaderRestore,
               readerBook == nil, !openingReader, !restartRequired,
               pendingOpenBookId == nil else { return }
+        guard !library.isEmpty else {
+            // Keep waiting for a populated snapshot, but never trap the user
+            // behind the launch cover on a shelf that is still loading.
+            restoringReader = false
+            return
+        }
         pendingReaderRestore = nil
         guard let book = library.first(where: { $0.id == bookId }) else {
             UserDefaults.standard.removeObject(forKey: Self.lastReaderKey)
+            restoringReader = false
             return
         }
         // An unstructured task outlives the refresh that triggered it, so a
         // cancelled pull-to-refresh cannot eat the reader restoration.
         Task { try? await self.openReader(book) }
+    }
+
+    /// A failed first shelf load must not leave the launch cover on screen.
+    func releaseLaunchRestore() {
+        if readerBook == nil && !openingReader { restoringReader = false }
     }
 
     /// A Binding setter updates the native control immediately. Persistence and
@@ -338,17 +411,41 @@ final class NativeStore: ObservableObject {
         guard !openingReader, readerBook == nil else { return }
         openingReader = true
         defer { openingReader = false }
+        let generation = readerOpenGeneration
         session.state = ReaderSnapshot()
         session.dialog = nil
         session.appearanceSessionId = UUID().uuidString
         var args: [String: Any] = ["bookId": book.id, "sessionId": session.appearanceSessionId]
         if let location { args["location"] = location }
-        let _: Done = try await request("reader.open", args)
+        // Present the cover before the reader reports ready. Otherwise the
+        // shelf stays visible while the chapter engine opens the book.
         readerBook = book
-        UserDefaults.standard.set(book.id, forKey: Self.lastReaderKey)
+        restoringReader = false
+        do {
+            let _: Done = try await request("reader.open", args)
+            guard generation == readerOpenGeneration else {
+                // A widget link arrived while the reader was opening. A tab link
+                // must not be covered by this reader, and a newer book link
+                // should replace it, so close the stale reader first.
+                openingReader = false
+                let _: Done? = try? await request("reader.close")
+                openPendingReaderIfNeeded()
+                return
+            }
+            UserDefaults.standard.set(book.id, forKey: Self.lastReaderKey)
+        } catch {
+            if generation == readerOpenGeneration {
+                readerBook = nil
+                restoringReader = false
+                let _: Done? = try? await request("reader.close")
+                openPendingReaderIfNeeded()
+            }
+            throw error
+        }
     }
 
     func closeReader() async {
+        restoringReader = false
         do { let _: Done = try await request("reader.close") }
         catch { if !Task.isCancelled { failure = error.localizedDescription }; return }
         readerBook = nil

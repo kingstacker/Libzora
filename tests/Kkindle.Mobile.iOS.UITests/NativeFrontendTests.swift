@@ -1281,37 +1281,105 @@ final class NativeFrontendTests: XCTestCase {
         attachScreenshot("阅读工具栏-与系统弹层同宽")
     }
 
+    func testReaderFontPickerChoosesSystemAndInstallsCatalogFont() throws {
+        openNativeFixtureTextPage()
+        let typography = app.buttons["reader.排版"]
+        typography.tap()
+        let fontRow = app.buttons["typography.fontFamily"]
+        XCTAssertTrue(fontRow.waitForExistence(timeout: 5))
+        XCTAssertTrue(fontRow.label.contains("京华老宋体"), "Default body font: \(fontRow.label)")
+        attachScreenshot("阅读设置-正文字体入口")
+        fontRow.tap()
+
+        let done = app.buttons["fontPicker.done"]
+        XCTAssertTrue(done.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.staticTexts["内置字体"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["系统字体"].waitForExistence(timeout: 10))
+        let systemOption = app.buttons["fontPicker.option.system:PingFang SC"]
+        XCTAssertTrue(systemOption.waitForExistence(timeout: 10), "系统字体 must be listed: \(app.debugDescription)")
+        attachScreenshot("正文字体-内置与系统字体")
+
+        systemOption.tap()
+        XCTAssertTrue(waitUntil { !done.exists })
+        XCTAssertTrue(waitUntil { fontRow.label.contains("苹方") }, "System font must be applied: \(fontRow.label)")
+        attachScreenshot("正文字体-已选苹方")
+
+        fontRow.tap()
+        XCTAssertTrue(done.waitForExistence(timeout: 10))
+        let catalogOption = app.buttons["fontPicker.option.catalog:zhuque-fangsong"]
+        let list = app.descendants(matching: .any)["fontPicker.list"]
+        for _ in 0..<10 {
+            if catalogOption.exists && catalogOption.isHittable { break }
+            if list.exists { list.swipeUp() } else { app.swipeUp() }
+        }
+        XCTAssertTrue(catalogOption.exists && catalogOption.isHittable,
+                      "可下载字体 must be reachable: \(app.debugDescription)")
+        XCTAssertTrue(app.staticTexts["可下载字体"].exists)
+        attachScreenshot("正文字体-可下载字体")
+        catalogOption.tap()
+        XCTAssertTrue(waitUntil { !done.exists }, "Download must close the picker.")
+        XCTAssertTrue(waitUntil { fontRow.label.contains("朱雀仿宋") }, "Downloaded font must be applied: \(fontRow.label)")
+
+        app.buttons["typography.done"].tap()
+        app.buttons["reader.close"].tap()
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(app.tabBars.buttons["书库"].waitForExistence(timeout: 30))
+        openNativeFixtureTextPage()
+        XCTAssertTrue(typography.waitForExistence(timeout: 10))
+        typography.tap()
+        XCTAssertTrue(fontRow.waitForExistence(timeout: 5))
+        XCTAssertTrue(fontRow.label.contains("朱雀仿宋"),
+                      "Downloaded body font must survive a restart: \(fontRow.label)")
+        attachScreenshot("正文字体-重启后保持")
+
+        fontRow.tap()
+        XCTAssertTrue(done.waitForExistence(timeout: 10))
+        let builtin = app.buttons["fontPicker.option.京华老宋体"]
+        for _ in 0..<6 {
+            if builtin.exists && builtin.isHittable { break }
+            if list.exists { list.swipeDown() } else { app.swipeDown() }
+        }
+        XCTAssertTrue(builtin.exists && builtin.isHittable)
+        builtin.tap()
+        XCTAssertTrue(waitUntil { !done.exists })
+        XCTAssertTrue(waitUntil { fontRow.label.contains("京华老宋体") })
+        app.buttons["typography.done"].tap()
+        app.buttons["reader.close"].tap()
+    }
+
     func testReaderProgressDisplayModesPersist() throws {
         try openBook(containing: "银河系漫游指南")
         let typography = app.buttons["reader.排版"]
         let picker = app.segmentedControls["typography.progressDisplay"]
         let position = app.staticTexts["reader.position"]
-        let center = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45))
         typography.tap()
         reveal(picker)
         let original = picker.buttons.allElementsBoundByIndex.first(where: { $0.isSelected })?.label ?? "页码"
-        for mode in ["页码", "章节", "本章剩余", "全书剩余"] {
+        for mode in ["页码", "章节", "全书剩余"] {
             XCTAssertTrue(picker.buttons[mode].isHittable)
             picker.buttons[mode].tap()
             XCTAssertTrue(picker.buttons[mode].isSelected)
             app.buttons["typography.done"].tap()
             XCTAssertTrue(typography.waitForExistence(timeout: 5))
-            center.tap()
-            XCTAssertTrue(position.waitForExistence(timeout: 10))
+            XCTAssertTrue(toggleReaderChrome(until: position),
+                          "Chrome must hide over the resumed page.\n\(app.debugDescription)")
             XCTAssertTrue(waitUntil {
                 let text = position.label
                 guard text.contains("%") else { return false }
                 switch mode {
                 case "章节": return text.hasPrefix("第 ") && text.contains(" 章")
-                case "本章剩余": return text.hasPrefix("本章剩余约 ")
-                case "全书剩余": return text.hasPrefix("全书剩余约 ")
+                // The footer learns the reader's own pace; until enough time
+                // has been recorded it must say so instead of guessing.
+                case "全书剩余":
+                    return text.hasPrefix("全书剩余约 ") || text.hasPrefix("阅读速度估计中")
                 default: return text.range(of: "^[0-9]+ / [0-9]+", options: .regularExpression) != nil
                 }
             }, "Footer must apply \(mode) immediately: \(position.label)")
             XCTAssertGreaterThan(position.frame.minY, app.frame.maxY - 100)
             attachScreenshot("底部进度-\(mode)")
-            center.tap()
-            XCTAssertTrue(typography.waitForExistence(timeout: 5))
+            XCTAssertTrue(toggleReaderChrome(until: typography),
+                          "Chrome must return after the footer check.\n\(app.debugDescription)")
             typography.tap()
             reveal(picker)
         }
@@ -1872,6 +1940,31 @@ final class NativeFrontendTests: XCTestCase {
         showLibrary()
     }
 
+    /// A tap on a block figure presents the full-screen zoomable viewer, and
+    /// closing it returns to the same page. The book opens on its cover, which
+    /// is itself a block figure.
+    func testReaderFigureOpensFullScreenViewer() throws {
+        try openBook(containing: "Native UI EPUB", revealControls: false)
+        let window = app.windows.firstMatch
+        let close = app.buttons["reader.media.close"]
+        let center = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45))
+
+        // The first tap dismisses the initial chrome if it is still visible;
+        // after that the cover figure opens the full-screen viewer.
+        var opened = false
+        for _ in 0..<3 where !opened {
+            center.tap()
+            opened = close.waitForExistence(timeout: 4)
+        }
+        XCTAssertTrue(opened, "Tapping an illustration must open the full-screen viewer.\n\(app.debugDescription)")
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH '图片'")).firstMatch.exists)
+        attachScreenshot("图片查看器-打开")
+        window.pinch(withScale: 2.0, velocity: 1.0)
+        attachScreenshot("图片查看器-缩放")
+        close.tap()
+        XCTAssertTrue(waitUntil { !close.exists })
+    }
+
     private func showLibrary(_ collections: Bool = false, returnToList: Bool = false) {
         let title = collections ? "收藏夹" : "书库"
         if app.staticTexts[title].exists { return }
@@ -1904,9 +1997,69 @@ final class NativeFrontendTests: XCTestCase {
         app.buttons["book.read"].tap()
         if revealControls {
             XCTAssertTrue(app.staticTexts["reader.position"].waitForExistence(timeout: 40))
-            app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)).tap()
+            let window = app.windows.firstMatch
+            window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)).tap()
+            if app.buttons["reader.media.close"].exists {
+                // A figure sits under the center of the resumed page; that tap
+                // opened the full-screen viewer instead of the chrome.
+                app.buttons["reader.media.close"].tap()
+                window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.18)).tap()
+            }
             XCTAssertTrue(waitUntil { self.app.buttons["reader.排版"].exists || self.app.buttons["reader.显示"].exists })
         }
+    }
+
+    /// Toggles the reader chrome until `element` shows up. A tap that lands on
+    /// a block figure opens the full-screen image viewer instead of toggling
+    /// the toolbar, so close the viewer and try the paper above the figure.
+    @discardableResult
+    private func toggleReaderChrome(until element: XCUIElement) -> Bool {
+        let window = app.windows.firstMatch
+        let close = app.buttons["reader.media.close"]
+        for dy in [0.45, 0.18, 0.62, 0.30] {
+            if element.exists { return true }
+            if close.exists { close.tap() }
+            window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: dy)).tap()
+            if close.waitForExistence(timeout: 0.8) { close.tap() }
+            if element.waitForExistence(timeout: 1.5) { return true }
+        }
+        return element.waitForExistence(timeout: 10)
+    }
+
+    /// The seeded fixture opens on its cover illustration, where a center tap
+    /// opens the full-screen image viewer instead of the chrome. Reveal the
+    /// toolbar from the paper above the figure and turn to the next chapter so
+    /// the typography controls sit over body text.
+    private func openNativeFixtureTextPage() {
+        try? openBook(containing: "Native UI EPUB", revealControls: false)
+        XCTAssertTrue(app.staticTexts["reader.position"].waitForExistence(timeout: 40))
+        let window = app.windows.firstMatch
+        let next = app.buttons["下一章或下一页"]
+        let close = app.buttons["reader.media.close"]
+        let typography = app.buttons["reader.排版"]
+        var turned = false
+        for _ in 0..<6 {
+            if close.exists {
+                close.tap()
+                RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+            }
+            if next.exists && next.isHittable {
+                next.tap()
+                turned = true
+                break
+            }
+            window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.10)).tap()
+            RunLoop.current.run(until: Date().addingTimeInterval(0.7))
+        }
+        if !turned, next.waitForExistence(timeout: 3) {
+            next.tap()
+        }
+        for _ in 0..<4 where !(typography.exists && typography.isHittable) {
+            window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.10)).tap()
+            RunLoop.current.run(until: Date().addingTimeInterval(0.7))
+        }
+        XCTAssertTrue(typography.exists && typography.isHittable,
+                      "Reader chrome must be visible over a text page.\n\(app.debugDescription)")
     }
 
     /// Long-presses and drags across the first text lines. Illustration pages

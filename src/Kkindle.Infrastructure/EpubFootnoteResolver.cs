@@ -5,6 +5,13 @@ using System.Xml.Linq;
 
 namespace Kkindle.Infrastructure;
 
+/// <summary>
+/// A resolved note: the text shown in the preview and, when the publisher
+/// provides one, the absolute target of its backlink so a reader can return
+/// to the reference by tapping the note's ↩ marker.
+/// </summary>
+public sealed record EpubFootnoteDetail(string Text, string? Backlink);
+
 public sealed partial class EpubFootnoteResolver
 {
     public static string NormalizeTargetKey(string target)
@@ -39,7 +46,26 @@ public sealed partial class EpubFootnoteResolver
         IEnumerable<string> absoluteTargets,
         CancellationToken cancellationToken = default)
     {
-        var result = new Dictionary<string, string>(StringComparer.Ordinal);
+        var details = await ResolveDetailsAsync(epubRoot, absoluteTargets, cancellationToken);
+        return details.ToDictionary(item => item.Key, item => item.Value.Text, StringComparer.Ordinal);
+    }
+
+    /// <summary>Resolves one target, including the note's own backlink when present.</summary>
+    public async Task<EpubFootnoteDetail?> ResolveDetailAsync(
+        string epubRoot,
+        string absoluteTarget,
+        CancellationToken cancellationToken = default)
+    {
+        var details = await ResolveDetailsAsync(epubRoot, [absoluteTarget], cancellationToken);
+        return details.TryGetValue(NormalizeTargetKey(absoluteTarget), out var detail) ? detail : null;
+    }
+
+    private async Task<IReadOnlyDictionary<string, EpubFootnoteDetail>> ResolveDetailsAsync(
+        string epubRoot,
+        IEnumerable<string> absoluteTargets,
+        CancellationToken cancellationToken)
+    {
+        var result = new Dictionary<string, EpubFootnoteDetail>(StringComparer.Ordinal);
         var documents = new Dictionary<string, XDocument>(StringComparer.OrdinalIgnoreCase);
         foreach (var target in absoluteTargets.Distinct(StringComparer.Ordinal).Take(120))
         {
@@ -72,7 +98,11 @@ public sealed partial class EpubFootnoteResolver
                 var contentElement = SelectFootnoteContentElement(element);
                 var text = NormalizeText(contentElement.Value);
                 if (text.Length > 1200) text = text[..1200] + "…";
-                if (text.Length > 0) result[NormalizeTargetKey(target)] = text;
+                if (text.Length > 0)
+                {
+                    result[NormalizeTargetKey(target)] =
+                        new EpubFootnoteDetail(text, FindBacklink(contentElement, path));
+                }
             }
             catch (System.Xml.XmlException)
             {
@@ -151,6 +181,32 @@ public sealed partial class EpubFootnoteResolver
             || localName.Equals("section", StringComparison.OrdinalIgnoreCase)
             || localName.Equals("article", StringComparison.OrdinalIgnoreCase)
             || localName.Equals("div", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? FindBacklink(XElement content, string documentPath)
+    {
+        if (!Uri.TryCreate(documentPath, UriKind.Absolute, out var baseUri)) return null;
+        foreach (var anchor in content.DescendantsAndSelf().Where(element =>
+                     element.Name.LocalName.Equals("a", StringComparison.OrdinalIgnoreCase)))
+        {
+            var href = (string?)anchor.Attribute("href");
+            if (string.IsNullOrWhiteSpace(href)) continue;
+
+            var raw = anchor.Value.Trim();
+            var normalized = NormalizeText(raw);
+            var role = string.Join(' ', anchor.Attributes()
+                .Where(attribute => attribute.Name.LocalName is "role" or "type" or "rel" or "class")
+                .Select(attribute => attribute.Value));
+            var looksLikeBacklink = role.Contains("backlink", StringComparison.OrdinalIgnoreCase)
+                || normalized is "返回" or "返回原文" or "回到原文" or "回"
+                || (raw.Length > 0 && raw.All(character => "↩↵↑←⏎".Contains(character)));
+            if (!looksLikeBacklink) continue;
+            if (!Uri.TryCreate(baseUri, href, out var absolute)
+                || !absolute.IsFile
+                || string.IsNullOrEmpty(absolute.Fragment)) continue;
+            return NormalizeTargetKey(absolute.AbsoluteUri);
+        }
+        return null;
     }
 
     private static string NormalizeText(string value)

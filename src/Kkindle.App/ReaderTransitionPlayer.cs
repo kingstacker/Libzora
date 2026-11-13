@@ -97,6 +97,12 @@ internal static class ReaderTransitionPlayer
         {
             cancellationToken.ThrowIfCancellationRequested();
             Begin(surface, snapshot, backdrop!, animation);
+            // Let the compositor submit the outgoing frame before the live
+            // surface switches to the next page. The snapshot bitmap is large
+            // enough that its first upload can lag a frame; without this the
+            // new page shows through for an instant and the turn reads as a
+            // flash before the animation starts.
+            await Task.Delay(TimeSpan.FromMilliseconds(34), cancellationToken);
             // Keep the outgoing snapshot visible while the new content is
             // being composed/configured. Starting the clock before this task
             // completes could expose a blank or partially laid-out page on a

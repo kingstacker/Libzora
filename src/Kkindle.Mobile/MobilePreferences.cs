@@ -31,7 +31,6 @@ public enum MobileReaderProgressDisplay
 {
     Pages = 0,
     Chapters = 1,
-    ChapterTimeRemaining = 2,
     BookTimeRemaining = 3
 }
 
@@ -54,6 +53,11 @@ public sealed record MobilePreferences
     /// <summary>Follow the app's effective light or dark appearance for reader paper.</summary>
     public bool ReaderThemeFollowsAppearance { get; init; } = true;
     public double ReaderFontScale { get; init; } = 1.35;
+    /// <summary>
+    /// Bundled family name, <c>system:Family</c> for a platform face, or
+    /// <c>catalog:id</c> for a downloaded reader font.
+    /// </summary>
+    public string ReaderFontFamily { get; init; } = ReaderFontDefaults.DefaultFamily;
     public double ReaderLineHeight { get; init; } = 1.75;
     public double ReaderParagraphSpacing { get; init; } = ReaderLayoutDefaults.DefaultParagraphSpacing;
     /// <summary>Side margin of the reading column, in device-independent pixels.</summary>
@@ -64,6 +68,19 @@ public sealed record MobilePreferences
     public bool ReaderVerticalWriting { get; init; }
     public MobilePageAnimation ReaderPageAnimation { get; init; } = MobilePageAnimation.Fade;
     public MobileReaderProgressDisplay ReaderProgressDisplay { get; init; } = MobileReaderProgressDisplay.Pages;
+
+    /// <summary>
+    /// Stored values can outlive a retired option. Value 2 used to mean the
+    /// current chapter's remaining time; it now maps to the whole-book pace
+    /// estimate so an upgrade never falls back to a chapter-only guess.
+    /// </summary>
+    public static MobileReaderProgressDisplay NormalizeProgressDisplay(
+        MobileReaderProgressDisplay value) => value switch
+    {
+        (MobileReaderProgressDisplay)2 => MobileReaderProgressDisplay.BookTimeRemaining,
+        _ when Enum.IsDefined(value) => value,
+        _ => MobileReaderProgressDisplay.Pages
+    };
 
     public ReaderTheme ResolveReaderTheme(bool darkAppearance) => ReaderThemeFollowsAppearance
         ? (darkAppearance ? Kkindle.Core.ReaderTheme.Ink : Kkindle.Core.ReaderTheme.Classic)
@@ -97,8 +114,8 @@ public sealed class MobilePreferencesStore(AppPaths paths)
                     current = current with { ReaderThemeFollowsAppearance = false };
                 Current = current with
                 {
-                    ReaderProgressDisplay = Enum.IsDefined(current.ReaderProgressDisplay)
-                        ? current.ReaderProgressDisplay : MobileReaderProgressDisplay.Pages
+                    ReaderProgressDisplay = MobilePreferences.NormalizeProgressDisplay(
+                        current.ReaderProgressDisplay)
                 };
             }
         }

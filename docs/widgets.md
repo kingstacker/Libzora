@@ -9,14 +9,17 @@ SQLite。
 
 | 小组件 | 内容 | 尺寸 |
 | --- | --- | --- |
-| 继续阅读 | 封面、书名、作者、进度 | 小号、中号；iOS 另支持锁屏矩形/内联 |
+| 继续阅读 | 小号显示一本书；中号列出最近在读的四本；两者都含封面、书名和进度 | 小号、中号；iOS 另支持锁屏矩形/内联 |
 | 阅读数据 | 今日与累计时长、周趋势、读完/书签/划线数量 | 中号、大号 |
 
 小组件扩展的最低系统版本是 iOS 17 / macOS 14；主应用仍可在 iOS 15 或
 macOS 12 上运行，旧系统只是不显示小组件。
 
-点按「继续阅读」会通过 `kkindle://read/<bookId>` 打开对应
-书籍；点按统计类小组件会通过 `kkindle://dashboard` 切到「阅读数据」标签页。
+点按「继续阅读」中的某一本书会通过 `kkindle://read/<bookId>` 打开对应
+书籍；中号小组件的每一行是独立的链接，打开的是被点的那本，而不是固定的
+上次阅读书籍。点按统计类小组件会通过 `kkindle://dashboard` 切到「阅读数据」标签页。
+标签类链接会同时取消上次阅读会话的自动恢复、取消正在打开的阅读器并关闭
+已显示的阅读页，避免上次的正文页盖住目标标签。
 iOS 的 URL scheme 在主应用 `Info.plist` 注册，`AppDelegate` 与
 `IOSNativeSceneDelegate` 都会把链接交给 `IOSNativeFrontend.HandleUrl`。
 macOS 的小组件点击只负责重新打开应用，暂不路由到具体书籍。
@@ -54,6 +57,7 @@ iOS 通过 `UIAppFonts` 声明，视图入口同时按进程注册字体供 macO
     "id": "…", "title": "…", "authors": "…",
     "progress": 68.2, "cover": "covers/….jpg", "updatedAt": "…"
   },
+  "continueBooks": [ "…最近在读的 4 本，按阅读时间倒序…" ],
   "books": [ "…最近 9 本…" ],
   "reading": {
     "todaySeconds": 334, "streakDays": 3, "weekSeconds": 3822,

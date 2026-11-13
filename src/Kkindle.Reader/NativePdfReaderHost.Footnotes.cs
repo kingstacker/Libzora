@@ -15,28 +15,40 @@ public sealed partial class NativePdfReaderHost
     private Popup? _footnotePopup;
     private DispatcherTimer? _footnoteTimer;
     private (int Page, PdfFootnoteReference Note, Rect Anchor)? _footnoteTarget;
+    private (int Page, PdfFootnoteReference Note, Rect Anchor)? _pointerFootnote;
     private bool _openingFootnote;
+
+    /// <summary>The footnote reference under a page point, if any.</summary>
+    private (int Page, PdfFootnoteReference Note, Rect Anchor)? FootnoteAt(Point point)
+    {
+        var page = PageAtPoint(point);
+        if (page <= 0 || !_pages.TryGetValue(page, out var cached)) return null;
+        foreach (var note in cached.Footnotes)
+        {
+            var rectangles = GetRangeBounds(page, note.Offset, note.Offset + note.Marker.Length);
+            if (!rectangles.Any(rect => rect.Inflate(3).Contains(point))) continue;
+            return (page, note, rectangles.Aggregate((a, b) => a.Union(b)));
+        }
+        return null;
+    }
 
     private void UpdateFootnoteHover(Point point, bool enabled)
     {
-        var page = enabled ? PageAtPoint(point) : 0;
-        if (page > 0 && _pages.TryGetValue(page, out var cached))
+        var hit = enabled ? FootnoteAt(point) : null;
+        if (hit is { } found)
         {
-            foreach (var note in cached.Footnotes)
+            if (_footnoteTarget is { } target
+                && target.Page == found.Page
+                && target.Note.Offset == found.Note.Offset)
             {
-                var rectangles = GetRangeBounds(page, note.Offset, note.Offset + note.Marker.Length);
-                if (!rectangles.Any(rect => rect.Inflate(3).Contains(point))) continue;
-                if (_footnoteTarget is { } target && target.Page == page && target.Note.Offset == note.Offset)
-                {
-                    if (_footnotePopup is not null) _footnoteTimer?.Stop();
-                    else if (!_openingFootnote) ScheduleFootnotePreview(true);
-                    return;
-                }
-                CloseFootnotePreview();
-                _footnoteTarget = (page, note, rectangles.Aggregate((a, b) => a.Union(b)));
-                ScheduleFootnotePreview(true);
+                if (_footnotePopup is not null) _footnoteTimer?.Stop();
+                else if (!_openingFootnote) ScheduleFootnotePreview(true);
                 return;
             }
+            CloseFootnotePreview();
+            _footnoteTarget = found;
+            ScheduleFootnotePreview(true);
+            return;
         }
         if (_footnoteTarget is not null && (_openingFootnote || _footnoteTimer?.IsEnabled != true))
             ScheduleFootnotePreview(false);

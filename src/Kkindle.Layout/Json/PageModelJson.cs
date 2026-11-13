@@ -74,6 +74,11 @@ public static class PageModelJson
         return JsonSerializer.Serialize(dto, Options);
     }
 
+    private static string FontLabel(string path) =>
+        path.StartsWith("system:", StringComparison.Ordinal)
+            ? path["system:".Length..]
+            : Path.GetFileName(path);
+
     private static PageDto ToDto(LayoutPage page) => new(
         page.Index,
         page.WritingMode.ToString(),
@@ -82,7 +87,7 @@ public static class PageModelJson
         page.TextStartOffset,
         page.TextEndOffset,
         page.Runs.Select(r => new RunDto(
-            Path.GetFileName(r.FontPath),
+            FontLabel(r.FontPath),
             r.FontSize,
             r.Glyphs.Select(g => (int)g).ToArray(),
             r.X,

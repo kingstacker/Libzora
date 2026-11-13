@@ -15,6 +15,21 @@ internal sealed record NativeMaterial(string Id, Guid BookId, string BookTitle, 
     [JsonIgnore] public string ExportLocation { get; init; } = LocationText;
 }
 
+internal sealed record ReaderFontOption(
+    string Key,
+    string Name,
+    string Detail,
+    string Kind,
+    bool Installed,
+    long Bytes,
+    string? License,
+    string PreviewName,
+    string? Path);
+
+internal sealed record ReaderFontList(string Current, ReaderFontOption[] Fonts);
+
+internal sealed record ReaderFontInstall(string Key, string Path, string PreviewName);
+
 /// <summary>
 /// The native bridge uses an explicit metadata registry. Device AOT builds do
 /// not need reflection to discover anonymous response types or settings fields.
@@ -33,9 +48,13 @@ internal sealed record NativeMaterial(string Id, Guid BookId, string BookTitle, 
 [JsonSerializable(typeof(Guid[]))]
 [JsonSerializable(typeof(DateTimeOffset))]
 [JsonSerializable(typeof(MobilePreferences))]
+[JsonSerializable(typeof(ReaderFontList))]
+[JsonSerializable(typeof(ReaderFontInstall))]
 [JsonSerializable(typeof(ReaderProgressRow))]
 [JsonSerializable(typeof(NativeReaderState))]
 [JsonSerializable(typeof(NativeReaderDialog))]
+[JsonSerializable(typeof(NativeReaderMedia))]
+[JsonSerializable(typeof(NativeReaderFootnote))]
 [JsonSerializable(typeof(NativeReaderTocItem[]))]
 [JsonSerializable(typeof(NativeReaderSearchItem[]))]
 [JsonSerializable(typeof(NativeMaterial[]))]

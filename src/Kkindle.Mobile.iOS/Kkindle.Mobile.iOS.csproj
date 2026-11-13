@@ -75,6 +75,15 @@
                     LogicalName="ThirdParty/G2PW/%(Filename)%(Extension)" />
     <BundleResource Include="../Kkindle.App/Assets/Fonts/KingHwaOldSong-LICENSE.txt"
                     LogicalName="Assets/Fonts/KingHwaOldSong-LICENSE.txt" />
+    <!-- Optional reader fonts. Debug builds bundle the local catalog populated
+         by scripts/fetch-reader-fonts.sh; release builds fetch the same files
+         from ReaderFontCatalog.RemoteBaseUrl instead. -->
+    <BundleResource Include="../Kkindle.App/Assets/Fonts/catalog/*.ttf;../Kkindle.App/Assets/Fonts/catalog/*.otf"
+                    LogicalName="Assets/Fonts/catalog/%(Filename)%(Extension)"
+                    Condition="'$(Configuration)' == 'Debug' And Exists('../Kkindle.App/Assets/Fonts/catalog')" />
+    <BundleResource Include="../Kkindle.App/Assets/Fonts/catalog/licenses/*"
+                    LogicalName="Assets/Fonts/catalog/licenses/%(Filename)%(Extension)"
+                    Condition="Exists('../Kkindle.App/Assets/Fonts/catalog/licenses')" />
     <BundleResource Include="../Kkindle.App/Assets/Icons/Lucide-LICENSE.txt"
                     LogicalName="Assets/Icons/Lucide-LICENSE.txt" />
     <ProjectReference Include="..\Kkindle.Mobile\Kkindle.Mobile.csproj" />

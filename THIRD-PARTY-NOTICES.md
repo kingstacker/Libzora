@@ -21,6 +21,26 @@ a particular build may not use every listed package.
 The existing KingHwaOldSong source/permission record is separate; this bundle does not
 replace the font author's original custom license or certify that record as an original agreement.
 
+## Downloadable reader fonts
+
+Kkindle's reading settings can install optional body fonts on demand. Each
+font is distributed under the SIL Open Font License 1.1, which permits free
+commercial use, requires that the license text travel with the font, and
+reserves the font names for their authors. Debug builds carry the files in
+`Assets/Fonts/catalog`; release builds download them from the configured font
+host and verify the pinned size and SHA-256 before installation. The original
+license texts are bundled at `Assets/Fonts/catalog/licenses/`.
+
+| Font | Upstream | License | Copyright / attribution |
+| --- | --- | --- | --- |
+| 思源宋体 (Noto Serif CJK SC Regular) | [notofonts/noto-cjk](https://github.com/notofonts/noto-cjk) | OFL-1.1 | Adobe and Google; see [OFL-Noto.txt](src/Kkindle.App/Assets/Fonts/catalog/licenses/OFL-Noto.txt) |
+| 思源黑体 (Noto Sans CJK SC Regular) | [notofonts/noto-cjk](https://github.com/notofonts/noto-cjk) | OFL-1.1 | Adobe and Google; see [OFL-Noto.txt](src/Kkindle.App/Assets/Fonts/catalog/licenses/OFL-Noto.txt) |
+| 霞鹜文楷 Lite (LXGW WenKai Lite Regular) | [lxgw/LxgwWenKai-Lite](https://github.com/lxgw/LxgwWenKai-Lite) | OFL-1.1 | LXGW and contributors; see [OFL-LXGWWenKai.txt](src/Kkindle.App/Assets/Fonts/catalog/licenses/OFL-LXGWWenKai.txt) |
+| 朱雀仿宋 (Zhuque Fangsong Regular) | [TrionesType/zhuque](https://github.com/TrionesType/zhuque) | OFL-1.1 | TrionesType; see [OFL-Zhuque.txt](src/Kkindle.App/Assets/Fonts/catalog/licenses/OFL-Zhuque.txt) |
+
+These fonts are optional. Users who prefer to keep their app bundle smaller can
+skip installation; the bundled 京华老宋体 remains the default reading font.
+
 ## Downloadable AI model licenses
 
 Kkindle does not bundle these model weights. The application downloads them on

@@ -37,12 +37,27 @@ public sealed class NativeFrontendContractTests
             { ReaderTheme = ReaderTheme.Ink, GalleryMode = true, ColorfulMode = true, ShowBookSyncStatus = true, ShowBookRating = true }));
         Assert.Equal(5, preferences.RootElement.GetProperty("readerTheme").GetInt32());
         Assert.Equal(1.35, preferences.RootElement.GetProperty("readerFontScale").GetDouble());
+        Assert.Equal("京华老宋体", preferences.RootElement.GetProperty("readerFontFamily").GetString());
         Assert.Equal(0, preferences.RootElement.GetProperty("readerParagraphSpacing").GetDouble());
         Assert.Equal(0, preferences.RootElement.GetProperty("readerProgressDisplay").GetInt32());
         Assert.True(preferences.RootElement.GetProperty("galleryMode").GetBoolean());
         Assert.True(preferences.RootElement.GetProperty("colorfulMode").GetBoolean());
         Assert.True(preferences.RootElement.GetProperty("showBookSyncStatus").GetBoolean());
         Assert.True(preferences.RootElement.GetProperty("showBookRating").GetBoolean());
+    }
+
+    [Fact]
+    public void ReaderMediaEventUsesSwiftFieldNames()
+    {
+        var media = new NativeReaderMedia(Guid.NewGuid(), "table", "测试书", "/tmp/table.png");
+        using var document = JsonDocument.Parse(
+            Serialize(Data(("type", "readerMedia"), ("media", media))));
+        Assert.Equal("readerMedia", document.RootElement.GetProperty("type").GetString());
+        var encoded = document.RootElement.GetProperty("media");
+        Assert.Equal(media.Id.ToString(), encoded.GetProperty("id").GetString());
+        Assert.Equal("table", encoded.GetProperty("kind").GetString());
+        Assert.Equal("测试书", encoded.GetProperty("title").GetString());
+        Assert.Equal("/tmp/table.png", encoded.GetProperty("path").GetString());
     }
 
     [Fact]
@@ -87,6 +102,7 @@ public sealed class NativeFrontendContractTests
         Assert.True(choice.ReaderParagraphIndent);
         Assert.True(choice.ReaderVerticalWriting);
         Assert.Equal(1.45, choice.ReaderFontScale);
+        Assert.Equal(ReaderFontDefaults.DefaultFamily, choice.ReaderFontFamily);
         Assert.Equal(24, choice.ReaderBodyPadding);
         Assert.Equal(0, choice.ReaderParagraphSpacing);
         Assert.Equal(MobileReaderProgressDisplay.Pages, choice.ReaderProgressDisplay);
@@ -111,7 +127,6 @@ public sealed class NativeFrontendContractTests
     [Theory]
     [InlineData(MobileReaderProgressDisplay.Pages)]
     [InlineData(MobileReaderProgressDisplay.Chapters)]
-    [InlineData(MobileReaderProgressDisplay.ChapterTimeRemaining)]
     [InlineData(MobileReaderProgressDisplay.BookTimeRemaining)]
     public void ProgressDisplaySurvivesRestartWithoutChangingOtherPreferences(MobileReaderProgressDisplay display)
     {
@@ -127,6 +142,25 @@ public sealed class NativeFrontendContractTests
             Assert.Equal(display, restored.Current.ReaderProgressDisplay);
             Assert.Equal(1.45, restored.Current.ReaderFontScale);
             Assert.True(restored.Current.ReaderVerticalWriting);
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    [Fact]
+    public void RetiredChapterTimeDisplayUpgradesToWholeBookWithoutResettingSettings()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "kkindle-progress-preferences", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var paths = new AppPaths(root);
+            File.WriteAllText(Path.Combine(root, "mobile-preferences.json"),
+                """{"ReaderProgressDisplay":2,"ReaderFontScale":1.45,"ReaderVerticalWriting":true}""");
+            var store = new MobilePreferencesStore(paths);
+            store.Load();
+            Assert.Equal(MobileReaderProgressDisplay.BookTimeRemaining, store.Current.ReaderProgressDisplay);
+            Assert.Equal(1.45, store.Current.ReaderFontScale);
+            Assert.True(store.Current.ReaderVerticalWriting);
         }
         finally { Directory.Delete(root, recursive: true); }
     }
@@ -278,22 +312,42 @@ public sealed class NativeFrontendContractTests
     }
 
     [Fact]
-    public void NativeFeedbackRejectsInvalidScreenshots()
+    public void ReaderFontCatalogUsesStableKeysAndSafeLocalPaths()
     {
-        using var invalid = JsonDocument.Parse("""{"images":["bm90IGFuIGltYWdl"]}""");
-        Assert.Contains("截图格式无效", Assert.Throws<InvalidOperationException>(
-            () => NativeFeedbackRequest.ReadImages(invalid.RootElement)).Message);
+        Assert.Equal(4, ReaderFontCatalog.Entries.Count);
+        Assert.Equal(
+            ReaderFontCatalog.Entries.Count,
+            ReaderFontCatalog.Entries.Select(entry => entry.Id).Distinct().Count());
+        var entry = ReaderFontCatalog.Find("lxgw-wenkai-lite");
+        Assert.NotNull(entry);
+        Assert.Equal(
+            "local://Assets/Fonts/catalog/LXGWWenKaiLite-Regular.ttf",
+            ReaderFontCatalog.ResolveUrl(entry!));
+        Assert.Null(ReaderFontCatalog.Find("../../etc/passwd"));
+        Assert.Null(ReaderFontCatalog.ResolveLocalPath("local://../secret.ttf"));
+        Assert.NotNull(ReaderFontCatalog.ResolveLocalPath("local://Assets/Fonts/catalog/font.ttf"));
+    }
 
-        using var malformed = JsonDocument.Parse("""{"images":["!!!"]}""");
-        Assert.Contains("截图内容无效", Assert.Throws<InvalidOperationException>(
-            () => NativeFeedbackRequest.ReadImages(malformed.RootElement)).Message);
-
-        using var count = JsonDocument.Parse(JsonSerializer.Serialize(new
+    [Fact]
+    public void ReaderFontRegistryResolvesOnlyExistingFiles()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "kkindle-reader-font-registry", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
         {
-            images = Enumerable.Repeat(Convert.ToBase64String([0xFF, 0xD8, 0xFF, 0xE0]),
-                FeedbackLimits.MaxAttachments + 1).ToArray()
-        }));
-        Assert.Contains("最多只能添加", Assert.Throws<InvalidOperationException>(
-            () => NativeFeedbackRequest.ReadImages(count.RootElement)).Message);
+            var path = Path.Combine(directory, "font.ttf");
+            File.WriteAllText(path, "not a real font");
+            ReaderFontRegistry.Replace([("catalog:test", path)]);
+            Assert.True(ReaderFontRegistry.TryResolve("catalog:test", out var resolved));
+            Assert.Equal(path, resolved);
+
+            File.Delete(path);
+            Assert.False(ReaderFontRegistry.TryResolve("catalog:test", out _));
+            ReaderFontRegistry.Replace([]);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 }

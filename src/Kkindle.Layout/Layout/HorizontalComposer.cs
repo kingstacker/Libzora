@@ -307,6 +307,7 @@ internal sealed class HorizontalComposer
                         Rect = imageRect,
                         Href = cell.FootnoteHref ?? cell.LinkHref!,
                         FootnoteText = cell.FootnoteText,
+                        Marker = cell.FootnoteHref is not null ? cell.Text : null,
                     });
                 }
 
@@ -315,7 +316,7 @@ internal sealed class HorizontalComposer
             }
 
             var superscriptShift = cell.Superscript
-                ? -(cell.FootnoteMarker ? BaseFontSize * 0.30f : cell.FontSize * 0.35f)
+                ? -(cell.FootnoteMarker ? BaseFontSize * 0.38f : cell.FontSize * 0.35f)
                 : 0f;
             var cellBaseline = baseline + superscriptShift;
 
@@ -348,6 +349,7 @@ internal sealed class HorizontalComposer
                     Rect = new SKRect(penX, lineTop, penX + Math.Max(cell.Advance, 4f), lineTop + lineHeight),
                     Href = cell.FootnoteHref ?? cell.LinkHref!,
                     FootnoteText = cell.FootnoteText,
+                    Marker = cell.FootnoteHref is not null ? cell.Text : null,
                 });
             }
 
@@ -579,6 +581,7 @@ internal sealed class HorizontalComposer
         {
             Path = item.ImagePath,
             Rect = new SKRect(x, _cursorY, x + w, _cursorY + h),
+            IsBlock = true,
             LinkHref = item.LinkHref,
             FootnoteHref = item.FootnoteHref,
         });
@@ -590,6 +593,7 @@ internal sealed class HorizontalComposer
                 Rect = new SKRect(x, _cursorY, x + w, _cursorY + h),
                 Href = item.FootnoteHref ?? item.LinkHref!,
                 FootnoteText = item.FootnoteText,
+                Marker = item.FootnoteHref is not null ? item.Text : null,
             });
         }
         _cursorY += h + BaseFontSize * 1.8f;
@@ -625,7 +629,7 @@ internal sealed class HorizontalComposer
     {
         if (block.Table is not { Rows.Count: > 0 } table)
         {
-            PlaceTextBlock(block, false);
+            PlaceTableFallback(block);
             return;
         }
 
@@ -637,7 +641,7 @@ internal sealed class HorizontalComposer
             .Max();
         if (capacity < 2)
         {
-            PlaceTextBlock(block, false);
+            PlaceTableFallback(block);
             return;
         }
 
@@ -653,7 +657,7 @@ internal sealed class HorizontalComposer
         if (minColumnWidth * capacity + columnGap * (capacity - 1) > availWidth)
         {
             // Many columns on a phone: readable prose beats unreadable slivers.
-            PlaceTextBlock(block, false);
+            PlaceTableFallback(block);
             return;
         }
 
@@ -671,14 +675,14 @@ internal sealed class HorizontalComposer
 
         if (columnCount < 2)
         {
-            PlaceTextBlock(block, false);
+            PlaceTableFallback(block);
             return;
         }
 
         var gaps = columnGap * (columnCount - 1);
         if (minColumnWidth * columnCount + gaps > availWidth)
         {
-            PlaceTextBlock(block, false);
+            PlaceTableFallback(block);
             return;
         }
 
@@ -686,7 +690,7 @@ internal sealed class HorizontalComposer
             measuredRows, columnCount, availWidth, gaps, minColumnWidth, cellPadX);
         if (columnWidths is null)
         {
-            PlaceTextBlock(block, false);
+            PlaceTableFallback(block);
             return;
         }
 
@@ -732,6 +736,7 @@ internal sealed class HorizontalComposer
                 _cursorY = InsetV;
             }
 
+            var groupTop = _cursorY;
             var top = _cursorY;
             for (var rowIndex = start; rowIndex <= end; rowIndex++)
             {
@@ -767,11 +772,36 @@ internal sealed class HorizontalComposer
                 }
             }
 
+            _pages.AddTable(new PlacedTable
+            {
+                Rect = new SKRect(blockLeft, groupTop, blockLeft + availWidth, top),
+                Block = block,
+            });
             _cursorY = top;
         }
 
         _cursorY += block.SpaceAfterLines * BodyLineHeight
             + block.MarginBottomEm * BaseFontSize;
+    }
+
+    /// <summary>
+    /// Text fallback for tables that cannot use real columns on this page.
+    /// A tap target is kept for the visible part so the wide table viewer is
+    /// still reachable on a phone.
+    /// </summary>
+    private void PlaceTableFallback(ContentBlock block)
+    {
+        var pageIndex = _pages.CurrentPageIndex;
+        var top = _cursorY;
+        PlaceTextBlock(block, false);
+        if (pageIndex == _pages.CurrentPageIndex && _cursorY > top)
+        {
+            _pages.AddTable(new PlacedTable
+            {
+                Rect = new SKRect(InsetH, top, InsetH + ContentWidth, _cursorY),
+                Block = block,
+            });
+        }
     }
 
     private void PlaceTableCell(

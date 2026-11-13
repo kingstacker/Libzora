@@ -69,6 +69,9 @@ internal sealed partial class IOSNativeFrontend
                 case "reader.speechPause": reader.NativePauseSpeech(); break;
                 case "reader.speechStop": await reader.NativeStopSpeechAsync(); break;
                 case "reader.clearSelection": reader.NativeClearSelection(); break;
+                case "reader.footnoteDismiss": reader.NativeDismissFootnote(); break;
+                case "reader.footnoteJump": await reader.NativeJumpFootnoteAsync(); break;
+                case "reader.footnoteReturn": await reader.NativeReturnFromFootnoteAsync(); break;
                 case "reader.annotate": await reader.NativeAnnotateAsync(Text(args, "note")); break;
                 case "reader.annotationEdit": await reader.NativeEditAnnotationAsync(Id(args, "id"), Text(args, "note")); break;
                 case "reader.annotationDelete": await reader.NativeDeleteAnnotationAsync(Id(args, "id")); break;

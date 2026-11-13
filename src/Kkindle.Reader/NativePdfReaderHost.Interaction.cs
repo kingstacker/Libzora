@@ -877,7 +877,8 @@ public sealed partial class NativePdfReaderHost
         // drag so text can be re-selected over existing markings. The press is
         // resolved as an annotation pick on release when no drag happened.
         _pointerAnnotationHit = AnnotationAt(point)?.Id;
-        _pointerLink = _pointerAnnotationHit is null ? LinkAt(point) : null;
+        _pointerFootnote = _pointerAnnotationHit is null ? FootnoteAt(point) : null;
+        _pointerLink = _pointerAnnotationHit is null && _pointerFootnote is null ? LinkAt(point) : null;
         _pointerClickCount = e.ClickCount;
         _selectionPage = page;
         _anchorOffset = HitOffset(page, point, false, readingOrder: true);
@@ -960,18 +961,46 @@ public sealed partial class NativePdfReaderHost
         }
         if (_pointerStart is null) return;
         var dragged = _dragging;
+        var releasePoint = _pointerStart.Value;
         // Read the pending pick before releasing the capture: CaptureLost
         // clears it, since losing capture cancels the click.
         var annotationHit = _pointerAnnotationHit;
         var clickCount = _pointerClickCount;
         var link = _pointerLink;
+        var footnote = _pointerFootnote;
         _pointerLink = null;
+        _pointerFootnote = null;
         if (PdfAnnotTrace.Enabled) PdfAnnotTrace.Write($"release dragged={dragged} hit={annotationHit}");
         _pointerStart = null;
         _dragging = false;
         _pointerAnnotationHit = null;
         e.Pointer.Capture(null);
         if (dragged) EmitSelection();
+        else if (footnote is { } note)
+        {
+            // Touch has no hover, so the mobile frontend needs the note text
+            // on the tap that lands on a reference marker.
+            Emit(new
+            {
+                type = "link",
+                href = string.Empty,
+                footnote = true,
+                navigate = clickCount >= 2,
+                footnoteText = note.Note.Text,
+                marker = note.Note.Marker,
+                x = releasePoint.X,
+                y = releasePoint.Y,
+                anchor = new
+                {
+                    x = note.Anchor.X,
+                    y = note.Anchor.Y,
+                    width = note.Anchor.Width,
+                    height = note.Anchor.Height,
+                    viewportWidth = Math.Max(1, Bounds.Width),
+                    viewportHeight = Math.Max(1, Bounds.Height),
+                },
+            });
+        }
         else if (annotationHit is { } hitId)
         {
             // Wait until release to distinguish a double-click from a drag

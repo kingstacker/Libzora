@@ -21,6 +21,7 @@ public static class WidgetSnapshotPublisher
     private const int CoverPixelSize = 420;
     private const int CoverQuality = 84;
     private const int RecentBookLimit = 9;
+    private const int WidgetContinueBookLimit = 4;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -67,11 +68,29 @@ public static class WidgetSnapshotPublisher
             .Select(book => byId[book.BookId])
             .FirstOrDefault()
             ?? recentBooks.FirstOrDefault();
+        // The medium continue widget lists several books. Reading statistics
+        // order them by the moment they were actually read, which the library
+        // list's update time does not track.
+        var continueBooks = dashboard.Books
+            .Where(book => book.IsInLibrary && book.ProgressPercent < 99.5 && byId.ContainsKey(book.BookId))
+            .OrderByDescending(book => book.UpdatedAt)
+            .Select(book => byId[book.BookId])
+            .DistinctBy(book => book.Id)
+            .Take(WidgetContinueBookLimit)
+            .ToList();
+        if (continueBook is not null && continueBooks.All(book => book.Id != continueBook.Id))
+        {
+            continueBooks.Insert(0, continueBook);
+            if (continueBooks.Count > WidgetContinueBookLimit)
+                continueBooks.RemoveAt(continueBooks.Count - 1);
+        }
 
         var coverDirectory = Path.Combine(sharedRoot, CoversFolderName);
         Directory.CreateDirectory(coverDirectory);
         var publishedCovers = new Dictionary<Guid, string?>();
-        foreach (var book in recentBooks.Concat(continueBook is null ? [] : [continueBook]))
+        foreach (var book in recentBooks
+                     .Concat(continueBooks)
+                     .Concat(continueBook is null ? [] : [continueBook]))
         {
             if (publishedCovers.ContainsKey(book.Id)) continue;
             publishedCovers[book.Id] = await WriteCoverAsync(
@@ -106,6 +125,8 @@ public static class WidgetSnapshotPublisher
             ThemeMode: themeMode,
             ContinueReading: continueBook is null ? null : ToWidgetBook(
                 continueBook, progress.GetValueOrDefault(continueBook.Id), publishedCovers),
+            ContinueBooks: continueBooks.Select(book => ToWidgetBook(
+                book, progress.GetValueOrDefault(book.Id), publishedCovers)).ToArray(),
             Books: recentBooks.Select(book => ToWidgetBook(
                 book, progress.GetValueOrDefault(book.Id), publishedCovers)).ToArray(),
             Reading: new WidgetReading(
@@ -249,6 +270,7 @@ public static class WidgetSnapshotPublisher
         bool ColorfulMode,
         int ThemeMode,
         WidgetBook? ContinueReading,
+        IReadOnlyList<WidgetBook> ContinueBooks,
         IReadOnlyList<WidgetBook> Books,
         WidgetReading Reading,
         WidgetQuote? Quote,

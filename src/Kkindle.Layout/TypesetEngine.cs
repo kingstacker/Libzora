@@ -43,6 +43,7 @@ public sealed class TypesetEngine : IDisposable
         int? pageStartTextOffset = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        using var composition = _fonts.BeginComposition();
         var context = new ComposerContext
         {
             Options = options,
@@ -247,6 +248,69 @@ public static class ChapterLayoutInteraction
             if (zones[i].Rect.Contains(point.X, point.Y))
             {
                 return zones[i];
+            }
+        }
+
+        // Footnote markers are superscript glyphs, often just one narrow
+        // character wide. A finger cannot reliably land inside that box, so
+        // accept a small tolerance around footnote zones only. Nearest wins;
+        // ordinary links keep their exact painted bounds.
+        const float tolerance = 10f;
+        PlacedHotZone? nearest = null;
+        var nearestDistance = float.MaxValue;
+        for (var i = zones.Count - 1; i >= 0; i--)
+        {
+            var zone = zones[i];
+            if (zone.Kind != HotZoneKind.FootnoteMarker) continue;
+            var rect = zone.Rect;
+            var dx = point.X < rect.Left ? rect.Left - point.X
+                : point.X > rect.Right ? point.X - rect.Right : 0f;
+            var dy = point.Y < rect.Top ? rect.Top - point.Y
+                : point.Y > rect.Bottom ? point.Y - rect.Bottom : 0f;
+            if (dx > tolerance || dy > tolerance) continue;
+            var distance = dx * dx + dy * dy;
+            if (distance >= nearestDistance) continue;
+            nearest = zone;
+            nearestDistance = distance;
+        }
+        return nearest;
+    }
+
+    /// <summary>Returns the standalone figure under a page point, if any.</summary>
+    public static PlacedImage? GetBlockImageAt(this ChapterLayout layout, int pageIndex, SKPoint point)
+    {
+        if (pageIndex < 0 || pageIndex >= layout.Pages.Count)
+        {
+            return null;
+        }
+
+        var images = layout.Pages[pageIndex].Images;
+        for (var i = images.Count - 1; i >= 0; i--)
+        {
+            var image = images[i];
+            if (image.IsBlock && image.Rect.Contains(point.X, point.Y))
+            {
+                return image;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>Returns the table segment under a page point, if any.</summary>
+    public static PlacedTable? GetTableAt(this ChapterLayout layout, int pageIndex, SKPoint point)
+    {
+        if (pageIndex < 0 || pageIndex >= layout.Pages.Count)
+        {
+            return null;
+        }
+
+        var tables = layout.Pages[pageIndex].Tables;
+        for (var i = tables.Count - 1; i >= 0; i--)
+        {
+            if (tables[i].Rect.Contains(point.X, point.Y))
+            {
+                return tables[i];
             }
         }
 

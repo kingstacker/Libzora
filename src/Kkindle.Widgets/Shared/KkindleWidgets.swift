@@ -33,7 +33,7 @@ struct KkContinueWidget: Widget {
                 .kkWidgetBackground()
         }
         .configurationDisplayName("继续阅读")
-        .description("封面、书名和进度，轻点回到上次翻到的地方。")
+        .description("在读的几本书，点哪一本就从哪一本继续。")
         .supportedFamilies(families)
         .contentMarginsDisabled()
     }

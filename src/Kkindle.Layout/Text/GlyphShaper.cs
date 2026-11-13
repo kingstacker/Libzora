@@ -1,4 +1,5 @@
 using HarfBuzzSharp;
+using Kkindle.Core;
 using SkiaSharp;
 
 namespace Kkindle.Layout;
@@ -18,6 +19,12 @@ public sealed class TypesetFontLibrary : IDisposable
         public required Font Font { get; init; }
         public required SKTypeface Typeface { get; init; }
         public required int Upem { get; init; }
+        /// <summary>
+        /// Backing stream for a face extracted from the platform font manager.
+        /// HarfBuzzSharp may reference the stream instead of copying it, so it
+        /// must stay alive for as long as the face does.
+        /// </summary>
+        public Stream? SourceStream { get; init; }
 
         public void Dispose()
         {
@@ -25,15 +32,158 @@ public sealed class TypesetFontLibrary : IDisposable
             Face.Dispose();
             Blob.Dispose();
             Typeface.Dispose();
+            SourceStream?.Dispose();
         }
     }
 
     private readonly Dictionary<string, FontFaceEntry> _faces = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<string> _order = new();
     private readonly List<string> _fallbackCandidates = new();
+    private int _activeCompositions;
+    private HashSet<string>? _deferredReleaseKeys;
     private bool _disposed;
 
     public string MainFontPath { get; private set; }
+
+    /// <summary>
+    /// System families currently held in memory. Exposed for diagnostics and
+    /// tests so a font switch can prove the previous face was released.
+    /// </summary>
+    public IReadOnlyList<string> LoadedSystemFontKeys
+    {
+        get
+        {
+            lock (_faces)
+            {
+                return _order.Where(IsSystemFontKey).ToArray();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Marks a composition in progress. Releasing platform faces is deferred
+    /// while a composer still holds them, so a font switch cannot dispose
+    /// bytes needed by a background layout or table preview.
+    /// </summary>
+    public IDisposable BeginComposition()
+    {
+        Interlocked.Increment(ref _activeCompositions);
+        return new CompositionScope(this);
+    }
+
+    private sealed class CompositionScope(TypesetFontLibrary library) : IDisposable
+    {
+        private int _released;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _released, 1) == 0)
+            {
+                library.EndComposition();
+            }
+        }
+    }
+
+    private void EndComposition()
+    {
+        if (Interlocked.Decrement(ref _activeCompositions) > 0)
+        {
+            return;
+        }
+
+        List<FontFaceEntry> released = [];
+        lock (_faces)
+        {
+            if (_deferredReleaseKeys is { Count: > 0 } keys)
+            {
+                CollectReleasedLocked(keys, MainFontPath, released);
+            }
+
+            _deferredReleaseKeys = null;
+        }
+
+        foreach (var entry in released)
+        {
+            entry.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Releases platform faces that are no longer the reader's main font. A
+    /// system face can occupy tens of megabytes (PingFang ships as a ~59 MB
+    /// TTC), so switching families must not keep every earlier face alive for
+    /// the rest of the session. The preferred face is re-opened on demand if
+    /// the user switches back. The current main face is always kept, even
+    /// when <paramref name="keepKey"/> is null.
+    /// </summary>
+    public void ReleaseSystemFontsExcept(string? keepKey)
+    {
+        List<FontFaceEntry> released = [];
+        lock (_faces)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            var keep = string.IsNullOrEmpty(keepKey) ? MainFontPath : keepKey;
+            if (_activeCompositions > 0)
+            {
+                // A composer may still look these faces up by key; keep them
+                // registered and only drop the bytes when the last one ends.
+                _deferredReleaseKeys ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var key in _order)
+                {
+                    if (IsSystemFontKey(key)
+                        && !string.Equals(key, keep, StringComparison.OrdinalIgnoreCase))
+                    {
+                        _deferredReleaseKeys.Add(key);
+                    }
+                }
+                return;
+            }
+
+            CollectReleasedLocked(null, keep, released);
+        }
+
+        foreach (var entry in released)
+        {
+            entry.Dispose();
+        }
+    }
+
+    /// <summary>Removes matching faces from the registry; caller disposes.</summary>
+    private void CollectReleasedLocked(IReadOnlyCollection<string>? onlyKeys, string keep,
+        List<FontFaceEntry> released)
+    {
+        for (var index = _order.Count - 1; index >= 0; index--)
+        {
+            var key = _order[index];
+            if (!IsSystemFontKey(key)
+                || string.Equals(key, keep, StringComparison.OrdinalIgnoreCase)
+                || (onlyKeys is not null && !onlyKeys.Contains(key)))
+            {
+                continue;
+            }
+
+            if (_faces.Remove(key, out var entry))
+            {
+                _order.RemoveAt(index);
+                released.Add(entry);
+            }
+        }
+    }
+
+    /// <summary>
+    /// A stable key for a face exposed by the platform font manager. The
+    /// key is stored in reader preferences; the face itself is loaded on
+    /// demand and never written to disk.
+    /// </summary>
+    public static string SystemFontKey(string family) => ReaderFontDefaults.SystemFamilyPrefix + family.Trim();
+
+    public static bool IsSystemFontKey(string? fontPath) =>
+        fontPath is not null
+        && fontPath.StartsWith(ReaderFontDefaults.SystemFamilyPrefix, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Paths that may be tried when the main face does not cover a glyph.
@@ -80,7 +230,7 @@ public sealed class TypesetFontLibrary : IDisposable
             return false;
         }
 
-        if (_faces.ContainsKey(path))
+        if (ContainsFace(path))
         {
             return true;
         }
@@ -90,24 +240,90 @@ public sealed class TypesetFontLibrary : IDisposable
             return false;
         }
 
+        FontFaceEntry entry;
         try
         {
-            Register(path);
-            return true;
+            entry = CreateFileEntry(path);
         }
         catch (Exception)
         {
             return false;
         }
+
+        return TryAddFace(path, entry);
     }
 
-    private void Register(string path)
+    /// <summary>
+    /// Registers a face exposed by the platform font manager, without a font
+    /// file on disk. iOS exposes its built-in CJK faces only through CoreText;
+    /// the sandbox cannot read the system font directory, so the face data is
+    /// obtained through <see cref="SKTypeface.OpenStream"/>.
+    /// </summary>
+    public bool TryEnsureSystemFont(string family, out string key)
     {
-        if (string.IsNullOrWhiteSpace(path) || _faces.ContainsKey(path))
+        key = SystemFontKey(family);
+        if (_disposed || string.IsNullOrWhiteSpace(family) || ContainsFace(key))
         {
-            return;
+            return !_disposed && !string.IsNullOrWhiteSpace(family);
         }
 
+        FontFaceEntry? entry;
+        try
+        {
+            entry = CreateSystemEntry(family);
+        }
+        catch (Exception)
+        {
+            entry = null;
+        }
+
+        if (entry is null)
+        {
+            key = string.Empty;
+            return false;
+        }
+
+        if (!TryAddFace(key, entry))
+        {
+            key = string.Empty;
+            return false;
+        }
+
+        return true;
+    }
+
+    private bool ContainsFace(string path)
+    {
+        lock (_faces)
+        {
+            return _faces.ContainsKey(path);
+        }
+    }
+
+    private bool TryAddFace(string path, FontFaceEntry entry)
+    {
+        lock (_faces)
+        {
+            if (_disposed)
+            {
+                entry.Dispose();
+                return false;
+            }
+
+            if (_faces.ContainsKey(path))
+            {
+                entry.Dispose();
+                return true;
+            }
+
+            _faces[path] = entry;
+            _order.Add(path);
+            return true;
+        }
+    }
+
+    private static FontFaceEntry CreateFileEntry(string path)
+    {
         var blob = HarfBuzzSharp.Blob.FromFile(path);
         var face = new Face(blob, 0);
         var font = new Font(face);
@@ -117,7 +333,7 @@ public sealed class TypesetFontLibrary : IDisposable
         // platforms. Upem comes from the same file Skia reads.
         var upem = typeface.UnitsPerEm;
         font.SetScale(upem, upem);
-        var entry = new FontFaceEntry
+        return new FontFaceEntry
         {
             Path = path,
             Blob = blob,
@@ -126,8 +342,66 @@ public sealed class TypesetFontLibrary : IDisposable
             Typeface = typeface,
             Upem = upem,
         };
-        _faces[path] = entry;
-        _order.Add(path);
+    }
+
+    private static FontFaceEntry? CreateSystemEntry(string family)
+    {
+        var typeface = SKFontManager.Default.MatchFamily(family.Trim());
+        if (typeface is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            var upem = typeface.UnitsPerEm;
+            using var stream = typeface.OpenStream(out var ttcIndex);
+            if (upem <= 0 || stream is null || stream.Length is <= 0 or > int.MaxValue)
+            {
+                typeface.Dispose();
+                return null;
+            }
+
+            var length = (int)stream.Length;
+            var bytes = new byte[length];
+            stream.Rewind();
+            if (stream.Read(bytes, length) != length)
+            {
+                typeface.Dispose();
+                return null;
+            }
+
+            var memory = new MemoryStream(bytes, writable: false);
+            var blob = HarfBuzzSharp.Blob.FromStream(memory);
+            var face = new Face(blob, ttcIndex);
+            var font = new Font(face);
+            font.SetScale(upem, upem);
+            return new FontFaceEntry
+            {
+                Path = SystemFontKey(family),
+                Blob = blob,
+                Face = face,
+                Font = font,
+                Typeface = typeface,
+                Upem = upem,
+                SourceStream = memory,
+            };
+        }
+        catch
+        {
+            typeface.Dispose();
+            throw;
+        }
+    }
+
+    private void Register(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || ContainsFace(path))
+        {
+            return;
+        }
+
+        TryAddFace(path, CreateFileEntry(path));
     }
 
     public SKTypeface GetTypeface(string fontPath) => Entry(fontPath).Typeface;
@@ -135,46 +409,74 @@ public sealed class TypesetFontLibrary : IDisposable
     public int GetUpem(string fontPath) => Entry(fontPath).Upem;
 
     /// <summary>
-    /// Selects the primary face used by the layout engine. All registered
-    /// faces remain available as glyph fallbacks, so changing the reader font
-    /// only changes the preferred face and does not discard coverage.
+    /// Selects the primary face used by the layout engine. File-backed faces
+    /// stay available as glyph fallbacks; platform faces other than the main
+    /// one can be released to reclaim their memory (see
+    /// <see cref="ReleaseSystemFontsExcept"/>).
     /// </summary>
     public bool TrySetMainFont(string fontPath)
     {
-        if (_disposed || string.IsNullOrWhiteSpace(fontPath)
-            || !_faces.ContainsKey(fontPath))
+        if (_disposed || string.IsNullOrWhiteSpace(fontPath))
         {
             return false;
         }
 
-        MainFontPath = fontPath;
-        return true;
+        lock (_faces)
+        {
+            if (!_faces.ContainsKey(fontPath))
+            {
+                return false;
+            }
+
+            MainFontPath = fontPath;
+            return true;
+        }
     }
 
     internal Font GetHarfBuzzFont(string fontPath) => Entry(fontPath).Font;
 
-    internal IEnumerable<string> FontPaths => _order;
+    internal IEnumerable<string> FontPaths
+    {
+        get
+        {
+            lock (_faces)
+            {
+                return _order.ToArray();
+            }
+        }
+    }
 
-    private FontFaceEntry Entry(string fontPath) =>
-        _faces.TryGetValue(fontPath, out var entry)
-            ? entry
-            : throw new InvalidOperationException($"Font not registered: {fontPath}");
+    private FontFaceEntry Entry(string fontPath)
+    {
+        lock (_faces)
+        {
+            return _faces.TryGetValue(fontPath, out var entry)
+                ? entry
+                : throw new InvalidOperationException($"Font not registered: {fontPath}");
+        }
+    }
 
     public void Dispose()
     {
-        if (_disposed)
+        List<FontFaceEntry> entries;
+        lock (_faces)
         {
-            return;
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            entries = _faces.Values.ToList();
+            _deferredReleaseKeys = null;
+            _faces.Clear();
+            _order.Clear();
         }
 
-        _disposed = true;
-        foreach (var entry in _faces.Values)
+        foreach (var entry in entries)
         {
             entry.Dispose();
         }
-
-        _faces.Clear();
-        _order.Clear();
     }
 }
 

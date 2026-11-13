@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import CoreText
 
 private enum ReaderPanel: String, Identifiable {
     case toc, typography, speech, dictionary, assistant, note, annotation, translation, info
@@ -39,6 +40,7 @@ struct NativeReaderPage: View {
     @State private var showingSearchResults = false
     @State private var jumpingToSearch = false
     @State private var speechExpanded = true
+    @State private var footnoteCardHeight: CGFloat = 140
     private let chromeSideInset: CGFloat = 8
     private let footerHeight: CGFloat = 24
     private var reader: ReaderSnapshot { session.state }
@@ -82,6 +84,21 @@ struct NativeReaderPage: View {
             }
             VStack(spacing: 8) {
                 if reader.chromeVisible || !reader.ready { topBar }
+                if reader.footnoteReturnVisible {
+                    Button(action: returnFromFootnote) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.uturn.backward")
+                                .font(.system(size: 12, weight: .semibold))
+                            Text("返回原文").font(NativeTheme.font(13))
+                        }
+                        .padding(.horizontal, 14)
+                        .frame(height: 34)
+                    }
+                    .buttonStyle(.plain)
+                    .modifier(NativeFloatingSurface())
+                    .accessibilityIdentifier("reader.footnote.return")
+                    .transition(.opacity)
+                }
                 if showingSearchResults {
                     NativeReaderSearchResults(hits: searchHits, query: searchSubmitted, busy: searchBusy, error: searchError,
                                               jumping: jumpingToSearch, pick: jumpToSearch, close: dismissSearchResults)
@@ -216,6 +233,56 @@ struct NativeReaderPage: View {
                 }
             }
         }
+        .overlay {
+            GeometryReader { geometry in
+                if let footnote = session.footnote, panel == nil,
+                   !showingSearchResults, reader.selectedText == nil {
+                    ZStack {
+                        Button(action: dismissFootnote) {
+                            Color.black.opacity(0.03).ignoresSafeArea()
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("关闭注释")
+                        NativeReaderFootnoteCard(
+                            footnote: footnote,
+                            cardWidth: NativeFootnoteCardLayout.width(in: geometry.size),
+                            close: dismissFootnote, jump: jumpToFootnote)
+                            .frame(width: NativeFootnoteCardLayout.width(in: geometry.size))
+                            .background(GeometryReader { proxy in
+                                Color.clear.preference(key: NativeFootnoteCardHeightKey.self, value: proxy.size.height)
+                            })
+                            .position(NativeFootnoteCardLayout.center(
+                                anchor: footnote.anchor, cardHeight: footnoteCardHeight,
+                                in: geometry.size, bottomInset: readerBottomInset,
+                                chromeVisible: reader.chromeVisible))
+                    }
+                }
+            }
+        }
+        .onPreferenceChange(NativeFootnoteCardHeightKey.self) { height in
+            if height > 0 { footnoteCardHeight = height }
+        }
+        .fullScreenCover(item: $session.media) { media in
+            NativeReaderMediaViewer(media: media) { session.media = nil }
+        }
+        .onChange(of: panel) { _ in dismissFootnote() }
+        .onChange(of: showingSearchResults) { _ in dismissFootnote() }
+        .onChange(of: reader.selectedText) { _ in dismissFootnote() }
+        .onChange(of: reader.position) { _ in dismissFootnote() }
+        .onChange(of: reader.chapter) { _ in dismissFootnote() }
+    }
+    private func dismissFootnote() {
+        guard session.footnote != nil else { return }
+        session.footnote = nil
+        store.perform { try? await store.command("reader.footnoteDismiss") }
+    }
+    private func jumpToFootnote() {
+        guard session.footnote?.canJump == true else { return }
+        session.footnote = nil
+        store.perform { try await store.command("reader.footnoteJump") }
+    }
+    private func returnFromFootnote() {
+        store.perform { try await store.command("reader.footnoteReturn") }
     }
     private func closeSearch() {
         searchFocused = false
@@ -361,6 +428,15 @@ struct NativeReaderPage: View {
 struct NativeTypography: View {
     @ObservedObject var store: NativeStore
     let isPdf: Bool
+    @State private var fontPicker = false
+    @State private var fontOptions: [ReaderFontOption] = []
+    private var currentFontName: String {
+        let key = store.preferences.readerFontFamily
+        if let option = fontOptions.first(where: { $0.key == key }) { return option.name }
+        if key.hasPrefix("system:") { return String(key.dropFirst("system:".count)) }
+        if key.hasPrefix("catalog:") { return "已下载字体" }
+        return "京华老宋体"
+    }
     private func preference<Value>(_ key: WritableKeyPath<MobilePreferences, Value>) -> Binding<Value> {
         Binding(get: { store.preferences[keyPath: key] }, set: { newValue in
             var value = store.preferences; value[keyPath: key] = newValue
@@ -390,10 +466,10 @@ struct NativeTypography: View {
                     Text("底部进度").font(NativeTheme.font(13)).foregroundStyle(NativeTheme.secondary)
                     Picker("底部进度", selection: preference(\.readerProgressDisplay)) {
                         Text("页码").tag(0); Text("章节").tag(1)
-                        Text("本章剩余").tag(2); Text("全书剩余").tag(3)
+                        Text("全书剩余").tag(3)
                     }.pickerStyle(.segmented).accessibilityIdentifier("typography.progressDisplay")
                     if store.preferences.readerProgressDisplay >= 2 {
-                        Text("阅读时间按正文长度估算")
+                        Text("全书剩余按你的阅读速度估算")
                             .font(NativeTheme.font(11, relativeTo: .caption))
                             .foregroundStyle(NativeTheme.muted)
                     }
@@ -403,6 +479,21 @@ struct NativeTypography: View {
                         Picker("缩放", selection: preference(\.pdfZoom)) { Text("整页").tag(1.0); Text("1.5 倍").tag(1.5); Text("2 倍").tag(2.0) }.pickerStyle(.segmented)
                     }
                 } else {
+                    row("正文字体") {
+                        Button { fontPicker = true } label: {
+                            HStack(spacing: 8) {
+                                Text(currentFontName).lineLimit(1)
+                                Spacer(minLength: 8)
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 12, weight: .regular))
+                                    .foregroundStyle(NativeTheme.muted)
+                            }
+                            .frame(minHeight: 44)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("typography.fontFamily")
+                    }
                     row("字号") {
                         HStack(spacing: 0) {
                             Button { changeFont(-0.1) } label: { Text("A−").frame(width: 44, height: 44) }
@@ -432,6 +523,15 @@ struct NativeTypography: View {
                 }
             }.padding(.horizontal, 24).padding(.top, 2).padding(.bottom, 16)
         }.accessibilityIdentifier("typography.scroll")
+            .task { await loadFonts() }
+            .sheet(isPresented: $fontPicker, onDismiss: { Task { await loadFonts() } }) {
+                NativeReaderFontPicker(store: store, close: { fontPicker = false })
+            }
+    }
+    private func loadFonts() async {
+        guard !isPdf else { return }
+        guard let list: ReaderFontList = try? await store.request("reader.fonts") else { return }
+        fontOptions = list.fonts
     }
     private func row<Content: View>(_ title: String, @ViewBuilder controls: () -> Content) -> some View {
         HStack(spacing: 12) {
@@ -441,6 +541,158 @@ struct NativeTypography: View {
     }
     private func changeFont(_ delta: Double) {
         var value = store.preferences; value.readerFontScale = min(1.8, max(0.8, ((value.readerFontScale + delta) * 100).rounded() / 100))
+        store.setPreferences(value)
+    }
+}
+
+private struct NativeReaderFontPicker: View {
+    @ObservedObject var store: NativeStore
+    let close: () -> Void
+    @State private var options: [ReaderFontOption] = []
+    @State private var loading = true
+    @State private var error: String?
+    @State private var busyKey: String?
+
+    private var builtinOptions: [ReaderFontOption] { options.filter { $0.kind == "builtin" } }
+    private var systemOptions: [ReaderFontOption] { options.filter { $0.kind == "system" } }
+    private var downloadOptions: [ReaderFontOption] { options.filter { $0.kind == "download" } }
+
+    var body: some View {
+        NavigationView {
+            List {
+                if loading {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                        Text("正在读取字体…").font(NativeTheme.font(13)).foregroundStyle(NativeTheme.muted)
+                    }
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                } else {
+                    if !builtinOptions.isEmpty { section("内置字体", builtinOptions) }
+                    if !systemOptions.isEmpty { section("系统字体", systemOptions) }
+                    if !downloadOptions.isEmpty { section("可下载字体", downloadOptions) }
+                    Section {
+                        Text("可下载字体均以 SIL OFL 1.1 授权，可免费商用。字体只保存在本机，许可文本随应用附带。")
+                            .font(NativeTheme.font(11, relativeTo: .caption2))
+                            .foregroundStyle(NativeTheme.muted)
+                            .listRowBackground(Color.clear)
+                    }
+                }
+                if let error {
+                    Text(error)
+                        .font(NativeTheme.font(12))
+                        .foregroundStyle(NativeTheme.warning)
+                        .listRowBackground(Color.clear)
+                }
+            }
+            .listStyle(.plain)
+            .accessibilityIdentifier("fontPicker.list")
+            .navigationTitle("正文字体")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("完成", action: close).accessibilityIdentifier("fontPicker.done")
+                }
+            }
+        }
+        .navigationViewStyle(.stack)
+        .font(NativeTheme.font()).foregroundStyle(NativeTheme.ink).tint(NativeTheme.ink)
+        .task { await load() }
+    }
+
+    @ViewBuilder private func section(_ title: String, _ items: [ReaderFontOption]) -> some View {
+        Section(header: Text(title).font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.muted)) {
+            ForEach(items) { option in row(option) }
+        }
+    }
+
+    private func row(_ option: ReaderFontOption) -> some View {
+        Button { choose(option) } label: {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(option.name)
+                        .font(previewFont(option, size: 17))
+                        .lineLimit(1)
+                    Text(option.detail)
+                        .font(NativeTheme.font(11, relativeTo: .caption2))
+                        .foregroundStyle(NativeTheme.muted)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 8)
+                if busyKey == option.key {
+                    ProgressView()
+                } else if option.installed {
+                    if option.key == store.preferences.readerFontFamily {
+                        Image(systemName: "checkmark").font(.system(size: 14, weight: .semibold))
+                    }
+                } else {
+                    Image(systemName: "arrow.down.circle")
+                        .font(.system(size: 18))
+                        .foregroundStyle(NativeTheme.secondary)
+                }
+            }
+            .contentShape(Rectangle())
+            .frame(minHeight: 48)
+        }
+        .buttonStyle(.plain)
+        .disabled(busyKey != nil)
+        .accessibilityIdentifier("fontPicker.option.\(option.key)")
+    }
+
+    private func previewFont(_ option: ReaderFontOption, size: CGFloat) -> Font {
+        guard option.installed, !option.previewName.isEmpty else { return NativeTheme.font(size) }
+        return .custom(option.previewName, size: size)
+    }
+
+    private func load() async {
+        do {
+            let list: ReaderFontList = try await store.request("reader.fonts")
+            registerFonts(list.fonts)
+            options = list.fonts
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+        loading = false
+    }
+
+    private func registerFonts(_ items: [ReaderFontOption]) {
+        for option in items where option.kind == "download" && option.installed {
+            guard let path = option.path, FileManager.default.fileExists(atPath: path) else { continue }
+            CTFontManagerRegisterFontsForURL(URL(fileURLWithPath: path) as CFURL, .process, nil)
+        }
+    }
+
+    private func choose(_ option: ReaderFontOption) {
+        if option.installed {
+            apply(option.key)
+            close()
+            return
+        }
+        guard option.kind == "download" else { return }
+        let catalogId = option.key.hasPrefix("catalog:")
+            ? String(option.key.dropFirst("catalog:".count))
+            : option.key
+        busyKey = option.key
+        error = nil
+        Task {
+            do {
+                let install: ReaderFontInstall = try await store.request("reader.fontDownload", ["id": catalogId])
+                CTFontManagerRegisterFontsForURL(URL(fileURLWithPath: install.path) as CFURL, .process, nil)
+                await load()
+                apply(install.key)
+                store.showToast("已下载并应用 \(option.name)")
+                close()
+            } catch {
+                self.error = error.localizedDescription
+            }
+            busyKey = nil
+        }
+    }
+
+    private func apply(_ key: String) {
+        var value = store.preferences
+        value.readerFontFamily = key
         store.setPreferences(value)
     }
 }

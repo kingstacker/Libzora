@@ -42,6 +42,21 @@ struct CreatedFolder: Decodable { let id: String; let name: String }
 struct CoverResult: Decodable { let cover: String? }
 struct MessageResult: Decodable { let message: String; let warning: String? }
 struct TextResult: Decodable { let text: String }
+struct ReaderFontOption: Decodable, Identifiable, Equatable {
+    let key: String
+    let name: String
+    let detail: String
+    /// builtin, system or download.
+    let kind: String
+    let installed: Bool
+    let bytes: Int64
+    let license: String?
+    let previewName: String
+    let path: String?
+    var id: String { key }
+}
+struct ReaderFontList: Decodable { let current: String; let fonts: [ReaderFontOption] }
+struct ReaderFontInstall: Decodable { let key: String; let path: String; let previewName: String }
 struct ProfileSummary: Decodable { let version: String; let sync: String; let ai: String; let kindle: String; let storage: String; let account: AccountStatus }
 struct AccountUser: Decodable { let id: String; let username: String; let email: String?; let emailVerified: Bool? }
 struct AccountStatus: Decodable {
@@ -301,6 +316,7 @@ struct TrashRecord: Decodable, Identifiable { let id: String; let title: String;
 struct ReaderToc: Decodable, Identifiable { let id: Int; let title: String; let level: Int; let selected: Bool }
 struct ReaderSearchHit: Decodable, Identifiable { let id: Int; let title: String; let excerpt: String }
 struct ReaderDialog: Decodable, Equatable { let kind: String; let title: String; let text: String; let annotationId: String?; let note: String? }
+struct ReaderMedia: Decodable, Identifiable, Equatable { let id: String; let kind: String; let title: String; let path: String }
 struct SpeechVoice: Decodable, Identifiable { let id: String; let name: String; let culture: String? }
 struct SpeechForm: Decodable { var voice: String; var speed: Double; var autoAdvance: Bool }
 struct SpeechSnapshot: Decodable { let settings: SpeechForm; let voices: [SpeechVoice] }

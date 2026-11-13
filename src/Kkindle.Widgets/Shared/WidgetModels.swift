@@ -5,15 +5,14 @@ import Foundation
 /// app data back.
 struct KkSnapshot: Decodable {
     let continueReading: KkBook?
+    /// In-progress books ordered by the moment they were last read. Newer
+    /// publishers always send it; older snapshots fall back to continueReading.
+    let continueBooks: [KkBook]?
     let reading: KkReading
 
     static let sample = KkSnapshot(
-        continueReading: KkBook(
-            id: "6B1A2D5E-3C4F-4A6B-8C9D-0E1F2A3B4C5D",
-            title: "夜航西飞",
-            authors: "柏瑞尔·马卡姆",
-            progress: 42,
-            cover: nil),
+        continueReading: sampleBooks[0],
+        continueBooks: sampleBooks,
         reading: KkReading(
             todaySeconds: 2_460,
             streakDays: 7,
@@ -32,6 +31,33 @@ struct KkSnapshot: Decodable {
                 KkDay(date: "2026-11-11", seconds: 3_900),
                 KkDay(date: "2026-11-12", seconds: 2_460)
             ]))
+
+    private static let sampleBooks = [
+        KkBook(
+            id: "6B1A2D5E-3C4F-4A6B-8C9D-0E1F2A3B4C5D",
+            title: "夜航西飞",
+            authors: "柏瑞尔·马卡姆",
+            progress: 42,
+            cover: nil),
+        KkBook(
+            id: "7C2B3E6F-4D5A-4B7C-9DAE-1F2A3B4C5D6E",
+            title: "银河系漫游指南",
+            authors: "道格拉斯·亚当斯",
+            progress: 68,
+            cover: nil),
+        KkBook(
+            id: "8D3C4F7A-5E6B-4C8D-AEBF-2A3B4C5D6E7F",
+            title: "百年孤独",
+            authors: "加西亚·马尔克斯",
+            progress: 12,
+            cover: nil),
+        KkBook(
+            id: "9E4D5A8B-6F7C-4D9E-BFC0-3B4C5D6E7F80",
+            title: "万有引力之虹",
+            authors: "托马斯·品钦",
+            progress: 87,
+            cover: nil)
+    ]
 }
 
 struct KkBook: Decodable, Identifiable {

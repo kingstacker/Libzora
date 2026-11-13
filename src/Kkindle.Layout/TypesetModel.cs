@@ -265,9 +265,25 @@ public sealed class PlacedImage
     public required SKRect Rect { get; init; }
     /// <summary>Clockwise rotation applied by the painter, used by vertical inline formulas.</summary>
     public float RotationDegrees { get; init; }
+    /// <summary>
+    /// True for a standalone figure that owns its space. Inline glyph images
+    /// (formulas, icons) keep this false so a tap does not open a viewer.
+    /// </summary>
+    public bool IsBlock { get; init; }
     public string? LinkHref { get; init; }
     public string? FootnoteHref { get; init; }
     public string? FootnoteText { get; init; }
+}
+
+/// <summary>
+/// One visible segment of a table on a page. A long table split by page
+/// breaks produces one segment per page so pointer hit testing can always
+/// resolve the block the user touched.
+/// </summary>
+public sealed class PlacedTable
+{
+    public required SKRect Rect { get; init; }
+    public required ContentBlock Block { get; init; }
 }
 
 public sealed class PlacedHotZone
@@ -276,6 +292,8 @@ public sealed class PlacedHotZone
     public required SKRect Rect { get; init; }
     public required string Href { get; init; }
     public string? FootnoteText { get; init; }
+    /// <summary>Visible reference text ("3", "[3]", "注") for the footnote preview title.</summary>
+    public string? Marker { get; init; }
 }
 
 /// <summary>
@@ -340,6 +358,7 @@ public sealed class LayoutPage
     public bool EndOfChapter { get; init; }
     public List<PlacedRun> Runs { get; init; } = new();
     public List<PlacedImage> Images { get; init; } = new();
+    public List<PlacedTable> Tables { get; init; } = new();
     public List<PlacedRect> Decorations { get; init; } = new();
     public List<PlacedHotZone> HotZones { get; init; } = new();
     public List<TypesetDebugBox> DebugBoxes { get; init; } = new();

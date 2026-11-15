@@ -173,6 +173,9 @@ public partial class MainWindow : Window
     };
     private double _rubberBandAutoScrollDelta;
     private ScrollViewer? _bookGridScrollViewer;
+    private readonly DispatcherTimer _bookDetailsDelayTimer = new();
+    private BookCardViewModel? _pendingBookDetailsCard;
+    private BookCardViewModel? _pressedBookCard;
 
     public MainWindow()
         : this(DesktopApplicationBootstrap.Create())
@@ -412,6 +415,7 @@ public partial class MainWindow : Window
         LibraryWorkspace.SizeChanged += (_, _) => UpdateBookGridLayout();
         SizeChanged += (_, _) => UpdateBookGridLayout();
         _rubberBandAutoScrollTimer.Tick += (_, _) => TickRubberBandAutoScroll();
+        _bookDetailsDelayTimer.Tick += (_, _) => CompletePendingBookDetails();
         LibraryRoot.AddHandler(
             InputElement.PointerPressedEvent,
             LibraryRoot_PointerPressed,
@@ -1505,8 +1509,36 @@ public partial class MainWindow : Window
         DetailCoverPlaceholder.IsVisible = _selectedCard.CoverImage is null;
     }
 
+    // A single click opens the details pane, but waiting for the platform
+    // double-tap window keeps a double-click from flashing that pane before
+    // the book opens in the reader.
+    private void ScheduleBookDetails(BookCardViewModel card)
+    {
+        _pendingBookDetailsCard = card;
+        var doubleTap = this.GetPlatformSettings()?.GetDoubleTapTime(PointerType.Mouse)
+            ?? TimeSpan.FromMilliseconds(400);
+        _bookDetailsDelayTimer.Interval = doubleTap + TimeSpan.FromMilliseconds(100);
+        _bookDetailsDelayTimer.Stop();
+        _bookDetailsDelayTimer.Start();
+    }
+
+    private void CancelPendingBookDetails()
+    {
+        _bookDetailsDelayTimer.Stop();
+        _pendingBookDetailsCard = null;
+    }
+
+    private void CompletePendingBookDetails()
+    {
+        _bookDetailsDelayTimer.Stop();
+        var card = _pendingBookDetailsCard;
+        _pendingBookDetailsCard = null;
+        if (card is not null) SelectBook(card);
+    }
+
     private void SelectBook(BookCardViewModel card)
     {
+        CancelPendingBookDetails();
         ClearPendingDetailCover();
         if (_selectedCard is not null) _selectedCard.PropertyChanged -= SelectedCard_PropertyChanged;
         _selectedCard = card;
@@ -2397,7 +2429,15 @@ public partial class MainWindow : Window
             return;
         }
         _bookOpenInProgress++;
-        try { await OpenBookCoreAsync(card, requestedFile, restoreProgress); }
+        try
+        {
+            await OpenBookCoreAsync(card, requestedFile, restoreProgress);
+            if (_openReaderInZenMode && ReaderRoot.IsVisible && !_readerZenMode)
+            {
+                _openReaderInZenMode = false;
+                ToggleReaderZenMode();
+            }
+        }
         finally { _bookOpenInProgress--; }
     }
 
@@ -2659,11 +2699,14 @@ public partial class MainWindow : Window
     private void SyncCardSelectionVisuals()
     {
         // 单点选中的书显示黑边；只有真正多选（≥2 本）时才附带 ✓ 徽标。
+        // 框选过程中不显示封面阅读按钮，避免只圈住一本书时闪烁遮罩。
         var multi = _selectedBookIds.Count > 1;
+        var suppressReadAction = _rubberBandSelecting;
         foreach (var card in ViewModel.Books)
         {
             var selected = _selectedBookIds.Contains(card.Book.Id);
             card.IsSelected = selected;
+            card.IsSoleSelected = selected && !multi && !suppressReadAction;
             card.IsMultiSelected = selected && multi;
         }
     }
@@ -4334,6 +4377,11 @@ public partial class MainWindow : Window
         if (!pointerProperties.IsLeftButtonPressed)
             return;
 
+        // Pointer capture clears :pointerover on the card, which would make a
+        // hover-zoomed cover shrink on every click. Keep the card's hover
+        // state alive until the press ends.
+        _pressedBookCard = card;
+
         // 记录框选起点：网格左侧没有空白（卡片从视口左缘开始），从左往右
         // 框选必须允许起点落在卡片上，拖动超过阈值后同样进入框选。
         SetRubberBandStart(e.GetPosition(BookGrid));
@@ -4364,7 +4412,12 @@ public partial class MainWindow : Window
             _selectedBookIds.Add(card.Book.Id);
             _selectedCard = card;
             _multiSelectAnchor = card;
-            SelectBook(card);
+            ScheduleBookDetails(card);
+            // A rubber-band drag may follow this press. Defer the visible
+            // selection to the release so the first card never flashes the
+            // reading overlay and scrim while a drag begins.
+            e.Handled = true;
+            return;
         }
 
         UpdateMultiSelectionUi();
@@ -4380,7 +4433,8 @@ public partial class MainWindow : Window
 
     private void BookCard_PointerExited(object? sender, PointerEventArgs e)
     {
-        if (sender is Control { DataContext: BookCardViewModel card })
+        if (sender is Control { DataContext: BookCardViewModel card }
+            && !ReferenceEquals(card, _pressedBookCard))
             card.IsHovered = false;
     }
 
@@ -4431,6 +4485,11 @@ public partial class MainWindow : Window
                 return;
 
             _rubberBandSelecting = true;
+            // The press queued a details pane; a marquee drag is not a click.
+            CancelPendingBookDetails();
+            if (_pressedBookCard is { } pressed)
+                pressed.IsHovered = false;
+            _pressedBookCard = null;
             _selectedBookIds.Clear();
             e.Pointer.Capture(BookGrid);
             RubberBandRectangle.IsVisible = true;
@@ -4448,18 +4507,19 @@ public partial class MainWindow : Window
     {
         if (!_rubberBandGestureActive) return;
         _rubberBandGestureActive = false;
+        _pressedBookCard = null;
         if (_rubberBandPointerSequenceHandled) return;
         _rubberBandPointerSequenceHandled = true;
         if (!_rubberBandSelecting)
         {
-            // 按在卡片上松开：点选结果已由 BookCard_PointerPressed 维护。
-            // 按在空白处松开：取消全部选择。
+            // 按在卡片上松开：点选结果已由 BookCard_PointerPressed 维护，
+            // 但视觉选择特意推迟到松开时才应用，避免起手拖动框选时闪现阅读遮罩。
             if (!_rubberBandPressedOnCard)
             {
                 _selectedBookIds.Clear();
                 _multiSelectAnchor = null;
-                UpdateMultiSelectionUi();
             }
+            UpdateMultiSelectionUi();
             _rubberBandPressedOnCard = false;
             return;
         }
@@ -4478,8 +4538,11 @@ public partial class MainWindow : Window
             return;
         if (_rubberBandSelecting)
             FinishRubberBandSelection(null);
+        else if (_rubberBandPressedOnCard)
+            UpdateMultiSelectionUi();
         _rubberBandGestureActive = false;
         _rubberBandPressedOnCard = false;
+        _pressedBookCard = null;
     }
 
     private void BookGrid_KeyDown(object? sender, KeyEventArgs e)
@@ -4656,6 +4719,9 @@ public partial class MainWindow : Window
         if (IsButtonSource(e.Source)) return;
         if (sender is not Control control || control.DataContext is not BookCardViewModel card) return;
 
+        // The first click already queued the details pane; a double-click is an
+        // open action, not a details action.
+        CancelPendingBookDetails();
         _selectedBookIds.Clear();
         _selectedBookIds.Add(card.Book.Id);
         _selectedCard = card;

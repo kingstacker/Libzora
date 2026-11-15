@@ -12,14 +12,18 @@ namespace Libzora.Platform.MacOS;
 /// MTP stack of its own, so this service talks to libmtp (the same library
 /// calibre uses on macOS).
 /// </summary>
-public sealed class MtpKindleDeviceService : IKindleDeviceService
+public sealed class MtpKindleDeviceService : IKindleDeviceService, IDeviceAttachmentProbe
 {
     private const ushort AmazonVendorId = 0x1949;
     private const long MaximumMetadataFileSize = 128L * 1024 * 1024;
     private const string AnnotationRoot = "system/ksdk/.annotations";
     private const string AnnotationFileName = "ksdk_annotation_v1.db";
     private const string ThumbnailDirectory = "system/thumbnails";
-    private static readonly TimeSpan DetectionCacheLifetime = TimeSpan.FromSeconds(2);
+    // Opening a session reads the model, serial and storage from the device;
+    // doing that on every 3 s poll is both slow and needless. USB change
+    // notifications invalidate this cache immediately, so a longer lifetime is
+    // safe and keeps libmtp from being opened/closed continuously.
+    private static readonly TimeSpan DetectionCacheLifetime = TimeSpan.FromSeconds(10);
     private static readonly SemaphoreSlim Gate = new(1, 1);
 
     private readonly AppPaths _paths;
@@ -93,12 +97,41 @@ public sealed class MtpKindleDeviceService : IKindleDeviceService
         }
     }
 
+    /// <summary>
+    /// Checks raw USB topology only. Unlike <see cref="DetectDevicesAsync"/>
+    /// this never opens an MTP session, so it is safe while the reader has
+    /// been "stopped" and is still plugged in.
+    /// </summary>
+    public async Task<bool> IsDeviceAttachedAsync(CancellationToken cancellationToken = default)
+    {
+        if (!MtpDeviceSession.IsSupported) return false;
+        // Raw enumeration must not race an open libmtp session. When another
+        // operation is running, assume the reader is still attached and leave
+        // the manual-disconnect latch alone.
+        if (!await Gate.WaitAsync(0, cancellationToken).ConfigureAwait(false)) return true;
+        try
+        {
+            return await Task.Run(
+                () => MtpDeviceSession.Detect().Any(raw => raw.VendorId == AmazonVendorId),
+                cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            Gate.Release();
+        }
+    }
+
     public void InvalidateDetectionCache()
     {
         lock (_detectionSync)
         {
             _detectionGeneration++;
             _detectionCache = null;
+            // The USB topology changed, so a result cached from the previous
+            // connection is no longer a safe answer when the libmtp gate is
+            // busy. Let the next detection wait for the gate and report the
+            // current state instead of resurrecting an unplugged device.
+            _lastDetected = null;
         }
     }
 
@@ -892,6 +925,10 @@ public sealed class MtpKindleDeviceService : IKindleDeviceService
             }
             catch (Exception exception) when (exception is IOException or InvalidOperationException)
             {
+#if DEBUG
+                Console.Error.WriteLine(
+                    $"MTP device {raw.VendorId:X4}:{raw.ProductId:X4} unavailable: {exception.Message}");
+#endif
                 Debug.WriteLine($"MTP device {raw.VendorId:X4}:{raw.ProductId:X4} unavailable: {exception.Message}");
             }
         }

@@ -8,7 +8,7 @@ namespace Libzora.Platform.MacOS;
 /// storage, newer models (Kindle Scribe and most 2016+ devices) only speak MTP.
 /// This service merges both transports behind the shared device interface.
 /// </summary>
-public sealed class MacOSKindleDeviceService : IKindleDeviceService
+public sealed class MacOSKindleDeviceService : IKindleDeviceService, IDeviceAttachmentProbe
 {
     private readonly MassStorageKindleDeviceService _massStorage;
     private readonly MtpKindleDeviceService _mtp;
@@ -27,6 +27,18 @@ public sealed class MacOSKindleDeviceService : IKindleDeviceService
         var mtp = await _mtp.DetectDevicesAsync(cancellationToken).ConfigureAwait(false);
         if (mtp.Count == 0) return massStorage;
         return [.. massStorage, .. mtp];
+    }
+
+    /// <summary>
+    /// Attachment probe used to release the "stopped access" latch. Mass
+    /// storage detection only enumerates mounted volumes, and the MTP probe
+    /// only enumerates USB devices, so neither opens a session on the reader.
+    /// </summary>
+    public async Task<bool> IsDeviceAttachedAsync(CancellationToken cancellationToken = default)
+    {
+        var massStorage = await _massStorage.DetectDevicesAsync(cancellationToken).ConfigureAwait(false);
+        if (massStorage.Count > 0) return true;
+        return await _mtp.IsDeviceAttachedAsync(cancellationToken).ConfigureAwait(false);
     }
 
     public Task<IReadOnlyList<KindleBook>> GetCachedBooksAsync(KindleDevice device, CancellationToken cancellationToken = default) =>

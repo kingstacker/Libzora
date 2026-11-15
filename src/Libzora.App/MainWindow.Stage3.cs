@@ -44,7 +44,6 @@ public partial class MainWindow
     private readonly DispatcherTimer _s3LocalChangeSyncTimer = new() { Interval = TimeSpan.FromSeconds(5) };
     private static readonly TimeSpan S3LocalChangeSyncDebounce = TimeSpan.FromSeconds(5);
     private IReadOnlyList<KindleDevice> _devices = [];
-    private Task<IReadOnlyList<KindleDevice>>? _deviceDetectionTask;
     private string? _lastDeviceIdentity;
     private string? _acceptedDeviceId;
     private string? _ignoredDeviceId;
@@ -253,11 +252,14 @@ public partial class MainWindow
             if (!_stage3Ready || _kindle is null || _deviceEjectInProgress) return;
             // When the device shelf is hidden and nothing is attached, polling
             // every 3 seconds only burns COM/disk enumeration. Check every
-            // fifth tick (15s) instead; opening the shelf still refreshes
+            // fifth tick (15s) instead on Windows; macOS uses MTP, where a
+            // missed hotplug event would leave the reader invisible, so it
+            // keeps a shorter 6s fallback. Opening the shelf still refreshes
             // immediately through the explicit navigation path.
             if (!DevicePage.IsVisible && _devices.Count == 0)
             {
-                if (++_stage3IdleTicks % 5 != 0) return;
+                var idleTickDivisor = OperatingSystem.IsMacOS() ? 2 : 5;
+                if (++_stage3IdleTicks % idleTickDivisor != 0) return;
             }
             else
             {
@@ -738,12 +740,50 @@ public partial class MainWindow
         _isRefreshingDevices = true;
         try
         {
-            // A manually ejected device stays disconnected until the user
-            // explicitly refreshes or taps the device card (WinUI reference).
+            // A manually ejected device stays disconnected while it remains
+            // plugged in. Once the reader is physically removed, release the
+            // latch so plugging it back in reconnects automatically instead of
+            // leaving the app disconnected until it is restarted.
             if (_manuallyDisconnectedDeviceId is not null)
             {
-                SetDisconnectedDeviceUi();
-                return;
+                if (_kindle is IDeviceAttachmentProbe probe)
+                {
+                    var probeToken = cancellationToken.CanBeCanceled
+                        ? cancellationToken
+                        : _lifetimeCancellation.Token;
+                    bool attached;
+                    try
+                    {
+                        attached = await probe.IsDeviceAttachedAsync(probeToken);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch (Exception exception)
+                    {
+                        Debug.WriteLine($"Device attachment probe failed: {exception}");
+                        attached = true;
+                    }
+
+                    if (attached)
+                    {
+                        // Keep the "stopped access" message instead of
+                        // resetting the sidebar on every poll.
+                        if (_devices.Count != 0) SetDisconnectedDeviceUi();
+                        return;
+                    }
+
+#if DEBUG
+                    Console.Error.WriteLine("Manual disconnect latch released: reader was removed.");
+#endif
+                    _manuallyDisconnectedDeviceId = null;
+                }
+                else
+                {
+                    SetDisconnectedDeviceUi();
+                    return;
+                }
             }
 
             if (_kindle is null)
@@ -865,7 +905,12 @@ public partial class MainWindow
         var effectiveToken = cancellationToken.CanBeCanceled
             ? cancellationToken
             : _lifetimeCancellation.Token;
-        var detectionTask = _deviceDetectionTask ??= _kindle.DetectDevicesAsync(effectiveToken);
+        // Never reuse a previous detection task. After a USB unplug a libmtp
+        // call can block on the vanished device; a cached task would then keep
+        // every later refresh waiting on the same dead handle, so replugging
+        // the reader appeared to do nothing until the app was restarted.
+        // Concurrent refreshes are already coalesced by _isRefreshingDevices.
+        var detectionTask = _kindle.DetectDevicesAsync(effectiveToken);
         try
         {
             return await detectionTask.WaitAsync(TimeSpan.FromSeconds(15), effectiveToken);
@@ -873,11 +918,6 @@ public partial class MainWindow
         catch (TimeoutException)
         {
             throw new TimeoutException("设备扫描超时，请确认设备已解锁后重试。");
-        }
-        finally
-        {
-            if (detectionTask.IsCompleted && ReferenceEquals(_deviceDetectionTask, detectionTask))
-                _deviceDetectionTask = null;
         }
     }
 
@@ -2108,12 +2148,6 @@ public partial class MainWindow
     private void DeviceNameButton_Click(object? sender, RoutedEventArgs e)
     {
         if (CurrentDevice is not null) ShowDeviceModelPicker();
-    }
-
-    private async void ExportDeviceBookButton_Click(object? sender, RoutedEventArgs e)
-    {
-        if (sender is Button { Tag: KindleBookCardViewModel card })
-            await ExportDeviceBookAsync(card);
     }
 
     private async void SendSelectedBooksToKindleBatchButton_Click(object? sender, RoutedEventArgs e) =>

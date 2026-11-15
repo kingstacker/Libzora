@@ -22,9 +22,11 @@ public sealed partial class SettingsTests
         var point = item.TranslatePoint(new Point(item.Bounds.Width / 2, 30), scope.Window)!.Value;
         scope.Window.MouseDown(point, MouseButton.Left, RawInputModifiers.None);
         scope.Window.MouseUp(point, MouseButton.Left, RawInputModifiers.None);
-        await Task.Delay(600);
+        // The details pane waits out the platform double-tap window so a
+        // double-click can open the reader without flashing it first.
+        Assert.False(scope.Get<Control>("LibraryDetailPane").IsVisible);
+        await Until(() => scope.Get<Control>("LibraryDetailPane").IsVisible);
         await Render();
-        Assert.True(scope.Get<Control>("LibraryDetailPane").IsVisible);
         var coverRead = Assert.Single(grid.GetVisualDescendants().OfType<Button>(),
             button => button.Classes.Contains("bookCoverRead") && button.IsEffectivelyVisible);
         var readPoint = coverRead.TranslatePoint(new Point(coverRead.Bounds.Width / 2, coverRead.Bounds.Height / 2), scope.Window)!.Value;
@@ -39,6 +41,157 @@ public sealed partial class SettingsTests
         await scope.Call<Task>("OpenApplicationSettingsAsync");
         scope.Call("ShowLibraryPage");
         Assert.False(scope.Get<Control>("LibraryDetailPane").IsVisible);
+    });
+
+    [Fact]
+    public Task ReaderNavigationDoubleClickOpensWithoutShowingDetails() => Run(async () =>
+    {
+        await using var scope = await TestWindow.Create();
+        await SeedLayoutLibrary(scope);
+        var grid = scope.Get<ListBox>("BookGrid");
+        var item = grid.ContainerFromIndex(0)!;
+        var point = item.TranslatePoint(new Point(item.Bounds.Width / 2, 30), scope.Window)!.Value;
+        scope.Window.MouseDown(point, MouseButton.Left, RawInputModifiers.None);
+        scope.Window.MouseUp(point, MouseButton.Left, RawInputModifiers.None);
+        scope.Window.MouseDown(point, MouseButton.Left, RawInputModifiers.None);
+        scope.Window.MouseUp(point, MouseButton.Left, RawInputModifiers.None);
+        await Until(() => scope.Get<Control>("ReaderRoot").IsVisible);
+        Assert.False(scope.Get<Control>("LibraryDetailPane").IsVisible);
+    });
+
+    [Fact]
+    public Task ReaderNavigationRubberBandDragDoesNotFlashCoverReadAction() => Run(async () =>
+    {
+        await using var scope = await TestWindow.Create();
+        await SeedLayoutLibrary(scope);
+        var grid = scope.Get<ListBox>("BookGrid");
+        var item = grid.ContainerFromIndex(0)!;
+        var start = item.TranslatePoint(new Point(item.Bounds.Width / 2, 30), scope.Window)!.Value;
+        var end = item.TranslatePoint(new Point(item.Bounds.Width / 2, 90), scope.Window)!.Value;
+        scope.Window.MouseDown(start, MouseButton.Left, RawInputModifiers.None);
+        scope.Window.MouseMove(end, RawInputModifiers.LeftMouseButton);
+        await Render();
+
+        // The marquee currently covers exactly the first card. It must not be
+        // treated as a sole click, otherwise the reading overlay flashes on.
+        var books = scope.Window.ViewModel.Books;
+        Assert.True(books[0].IsSelected);
+        Assert.False(books[0].IsSoleSelected);
+        var coverRead = grid.GetVisualDescendants().OfType<Button>()
+            .Where(button => button.Classes.Contains("bookCoverRead"))
+            .ToArray();
+        Assert.DoesNotContain(coverRead, button => button.IsEffectivelyVisible);
+
+        scope.Window.MouseUp(end, MouseButton.Left, RawInputModifiers.None);
+        await Render();
+        // After the drag the single enclosed book is a normal sole selection,
+        // so its reading action is available again.
+        Assert.True(books[0].IsSoleSelected);
+        Assert.Contains(coverRead, button => button.IsEffectivelyVisible);
+    });
+
+    [Fact]
+    public Task ReaderNavigationReopensInZenModeAfterReturningFromZen() => Run(async () =>
+    {
+        await using var scope = await TestWindow.Create();
+        await SeedLayoutLibrary(scope);
+        var books = scope.Window.ViewModel.Books;
+        await scope.Call<Task>("OpenBookAsync", books[0], null, true);
+        await Until(() => scope.Get<Control>("ReaderRoot").IsVisible);
+        scope.Call("ToggleReaderZenMode");
+        Assert.True(scope.Field<bool>("_readerZenMode"));
+        await scope.Call<Task>("ReturnFromReaderAsync");
+        await Until(() => scope.Get<Control>("LibraryRoot").IsVisible);
+        Assert.False(scope.Field<bool>("_readerZenMode"));
+        Assert.True(scope.Field<bool>("_openReaderInZenMode"));
+
+        await scope.Call<Task>("OpenBookAsync", books[1], null, true);
+        await Until(() => scope.Field<bool>("_readerZenMode"));
+        Assert.True(scope.Get<Control>("ReaderRoot").IsVisible);
+        Assert.False(scope.Field<bool>("_openReaderInZenMode"));
+    });
+
+    [Fact]
+    public Task ReaderNavigationDoesNotReopenInZenAfterExitingZenFirst() => Run(async () =>
+    {
+        await using var scope = await TestWindow.Create();
+        await SeedLayoutLibrary(scope);
+        var books = scope.Window.ViewModel.Books;
+        await scope.Call<Task>("OpenBookAsync", books[0], null, true);
+        await Until(() => scope.Get<Control>("ReaderRoot").IsVisible);
+        scope.Call("ToggleReaderZenMode");
+        Assert.True(scope.Field<bool>("_readerZenMode"));
+        scope.Call("ExitReaderZenMode");
+        Assert.False(scope.Field<bool>("_readerZenMode"));
+        await scope.Call<Task>("ReturnFromReaderAsync");
+        await Until(() => scope.Get<Control>("LibraryRoot").IsVisible);
+
+        await scope.Call<Task>("OpenBookAsync", books[1], null, true);
+        await Until(() => scope.Get<Control>("ReaderRoot").IsVisible);
+        Assert.False(scope.Field<bool>("_readerZenMode"));
+    });
+
+    [Fact]
+    public Task ReaderNavigationClickDoesNotShrinkHoverZoomedCover() => Run(async () =>
+    {
+        await using var scope = await TestWindow.Create();
+        await SeedLayoutLibrary(scope);
+        var grid = scope.Get<ListBox>("BookGrid");
+        var item = grid.ContainerFromIndex(0)!;
+        var border = item.GetVisualDescendants().OfType<Border>()
+            .First(control => control.Classes.Contains("bookCover"));
+        var image = border.GetVisualDescendants().OfType<Image>().First();
+        var point = item.TranslatePoint(new Point(item.Bounds.Width / 2, 30), scope.Window)!.Value;
+        scope.Window.MouseMove(point);
+        await Render();
+        await UntilSettled(() => ScaleOf(image) > 1.05, "hover should zoom the cover");
+
+        // Pressing a card captures the pointer. The hover zoom must stay put
+        // instead of collapsing into a shrink animation on click.
+        scope.Window.MouseDown(point, MouseButton.Left, RawInputModifiers.None);
+        await Render();
+        Assert.InRange(ScaleOf(image), 1.05, 1.07);
+        scope.Window.MouseUp(point, MouseButton.Left, RawInputModifiers.None);
+        await Render();
+        Assert.InRange(ScaleOf(image), 1.05, 1.07);
+
+        // Leaving the card still releases the zoom once the click is over.
+        scope.Window.MouseMove(new Point(30, scope.Window.Bounds.Height - 30));
+        await Render();
+        await UntilSettled(() => ScaleOf(image) < 1.01, "cover should zoom back after leaving the card");
+
+        static double ScaleOf(Image image) => image.RenderTransform?.Value.M11 ?? 1d;
+    });
+
+    [Fact]
+    public Task ReaderNavigationReadOverlayDoesNotScaleOnPress() => Run(async () =>
+    {
+        await using var scope = await TestWindow.Create();
+        await SeedLayoutLibrary(scope);
+        var grid = scope.Get<ListBox>("BookGrid");
+        var item = grid.ContainerFromIndex(0)!;
+        var point = item.TranslatePoint(new Point(item.Bounds.Width / 2, 30), scope.Window)!.Value;
+        scope.Window.MouseMove(point);
+        scope.Window.MouseDown(point, MouseButton.Left, RawInputModifiers.None);
+        scope.Window.MouseUp(point, MouseButton.Left, RawInputModifiers.None);
+        await Until(() => scope.Get<Control>("LibraryDetailPane").IsVisible);
+        await Render();
+        var readButton = Assert.Single(grid.GetVisualDescendants().OfType<Button>(),
+            button => button.Classes.Contains("bookCoverRead") && button.IsEffectivelyVisible);
+        var readPoint = readButton.TranslatePoint(
+            new Point(readButton.Bounds.Width / 2, readButton.Bounds.Height / 2),
+            scope.Window)!.Value;
+        scope.Window.MouseMove(readPoint);
+        await Render();
+        var hoverBounds = readButton.Bounds;
+        Assert.InRange(readButton.RenderTransform?.Value.M11 ?? 1d, 0.999, 1.001);
+
+        // Fluent's Button theme shrinks the control on press. The reading
+        // scrim must stay flush with the cover instead of shrinking.
+        scope.Window.MouseDown(readPoint, MouseButton.Left, RawInputModifiers.None);
+        await Render();
+        Assert.InRange(readButton.RenderTransform?.Value.M11 ?? 1d, 0.999, 1.001);
+        Assert.Equal(hoverBounds, readButton.Bounds);
     });
 
     [Theory]

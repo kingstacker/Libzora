@@ -74,12 +74,18 @@ public partial class MainWindow
     {
         if (factory is null || _deviceChangeNotifier is not null || _kindle is null) return;
         var handle = TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
-        if (handle == IntPtr.Zero) return;
+        // Windows registers for WM_DEVICECHANGE on the window handle; macOS
+        // uses IOKit and does not need one. A zero handle must not disable
+        // hotplug notifications on macOS.
+        if (handle == IntPtr.Zero && !OperatingSystem.IsMacOS()) return;
         try
         {
             _deviceChangeNotifier = factory(handle);
             if (_deviceChangeNotifier is not null)
                 _deviceChangeNotifier.DeviceChanged += DeviceChangeNotifier_DeviceChanged;
+#if DEBUG
+            Console.Error.WriteLine($"Device change notifier initialized (handle={handle}).");
+#endif
         }
         catch (Exception exception)
         {
@@ -97,6 +103,9 @@ public partial class MainWindow
 
     private void DeviceChangeNotifier_DeviceChanged(object? sender, EventArgs e)
     {
+#if DEBUG
+        Console.Error.WriteLine("Device change notification received.");
+#endif
         // The native callback runs inside the window procedure; defer all work
         // and coalesce the burst of Windows device-change messages.
         Dispatcher.UIThread.Post(() =>

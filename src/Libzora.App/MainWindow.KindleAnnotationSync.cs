@@ -91,6 +91,7 @@ public partial class MainWindow
             && CurrentDevice is { CanReadNotes: true } device
             && device.Profile.Family == ReaderDeviceFamily.Kindle
             && _kindle is not null;
+        KindleAnnotationExperimentalNotice.IsVisible = SyncKindleAnnotationsButton.IsVisible;
         SyncKindleAnnotationsButton.IsEnabled = !_kindleAnnotationSyncPromptBusy
             && _deviceBooksLoaded && !_deviceBooksShowingCache && !_deviceBookScanFailed
             && DeviceBooks.Count > 0 && !HasActiveDeviceOperations;
@@ -204,7 +205,9 @@ public partial class MainWindow
                     + DescribeSkippedKindleAnnotationBooks(preview.SkippedBookCount);
             var confirmed = await ConfirmAsync(
                 T("发现 Kindle 批注差异"),
-                T(
+                T("Kindle 批注同步是实验性功能，暂不建议使用。该功能可能覆盖设备上的批注数据，请先自行备份后再操作。")
+                + Environment.NewLine + Environment.NewLine
+                + T(
                     "检测到 {0} 本共同书籍的批注不一致。同步会合并两端记录；同一条划线存在不同笔记时，以更新时间较新的内容为准，不会自动删除任一端独有记录。",
                     preview.BookCount)
                 + Environment.NewLine + Environment.NewLine

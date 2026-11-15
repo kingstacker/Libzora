@@ -666,6 +666,30 @@ public sealed partial class SettingsTests
         await Task.Delay(500);
         Assert.Empty(scope.Field<IReadOnlyList<KindleDevice>>("_devices"));
         Assert.Equal(0, service.DetectionRequests);
+        Assert.True(service.AttachmentProbes >= 1);
+    });
+
+    [Fact]
+    public Task PhysicalRemovalAfterManualDisconnectReleasesTheLatch() => Run(async () =>
+    {
+        await using var scope = await TestWindow.Create();
+        var device = Reader(scope, "REPLUG", ReaderDeviceProfiles.Kindle);
+        var service = new ReaderService { Devices = [], IsAttached = false };
+        await UseReaderServiceAsync(scope, service);
+        scope.Set("_manuallyDisconnectedDeviceId", device.Identity);
+        scope.Call("DeviceChangeNotifier_DeviceChanged", null, EventArgs.Empty);
+        await Until(() => scope.Field<string?>("_manuallyDisconnectedDeviceId") is null);
+        Assert.True(service.AttachmentProbes >= 1);
+        await Until(() => !scope.Field<bool>("_deviceChangePending") && service.DetectionRequests >= 1);
+        Assert.Empty(scope.Field<IReadOnlyList<KindleDevice>>("_devices"));
+
+        // Replug: the probe finds a device again and the normal device-change
+        // path reconnects it instead of staying latched until a restart.
+        service.IsAttached = true;
+        service.Devices = [device];
+        scope.Call("DeviceChangeNotifier_DeviceChanged", null, EventArgs.Empty);
+        await Until(() => scope.Field<IReadOnlyList<KindleDevice>>("_devices").Count == 1);
+        Assert.Equal(device.Identity, Assert.Single(scope.Field<IReadOnlyList<KindleDevice>>("_devices")).Identity);
     });
 
     private static KindleDevice Reader(TestWindow scope, string identity, ReaderDeviceProfile profile) => new()
@@ -682,8 +706,10 @@ public sealed partial class SettingsTests
         scope.Set("_appSettings", scope.Field<AppSettings>("_appSettings") with { AutoConnectDevice = true });
     }
 
-    private sealed class ReaderService : IKindleDeviceService
+    private sealed class ReaderService : IKindleDeviceService, IDeviceAttachmentProbe
     {
+        public bool IsAttached { get; set; } = true;
+        public int AttachmentProbes { get; private set; }
         public IReadOnlyList<KindleDevice> Devices { get; set; } = [];
         public IReadOnlyList<KindleBook> CachedBooks { get; init; } = [];
         public IReadOnlyList<KindleClipping> Notes { get; init; } = [];
@@ -707,6 +733,11 @@ public sealed partial class SettingsTests
         {
             DetectionRequests++;
             return DetectionReader?.Invoke(DetectionRequests) ?? Task.FromResult(Devices);
+        }
+        public Task<bool> IsDeviceAttachedAsync(CancellationToken cancellationToken = default)
+        {
+            AttachmentProbes++;
+            return Task.FromResult(IsAttached);
         }
         public Task<IReadOnlyList<KindleBook>> ScanBooksAsync(KindleDevice device, CancellationToken cancellationToken = default)
         { ContentRequests++; ScanRequests++; return BooksReader?.Invoke(device) ?? Task.FromResult<IReadOnlyList<KindleBook>>([]); }

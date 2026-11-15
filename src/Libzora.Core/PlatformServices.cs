@@ -56,6 +56,20 @@ public interface IDeviceChangeNotifier : IDisposable
 }
 
 /// <summary>
+/// Optional companion to <see cref="IKindleDeviceService"/>: reports whether a
+/// reader is physically attached without opening a session or locking the
+/// device. The UI uses this to release the "stopped access" latch once the
+/// reader has actually been unplugged, so plugging it back in reconnects.
+///
+/// Implementations must stay cheap and must not touch the user's device state.
+/// A service that does not implement this keeps the latch until the user acts.
+/// </summary>
+public interface IDeviceAttachmentProbe
+{
+    Task<bool> IsDeviceAttachedAsync(CancellationToken cancellationToken = default);
+}
+
+/// <summary>
 /// Portable boundary around the embedded web reader. The UI only depends on
 /// navigation, script execution and web messages; the concrete control stays
 /// in the Avalonia application layer so a different native webview can be

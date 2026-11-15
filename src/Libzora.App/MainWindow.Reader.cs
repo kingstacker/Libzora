@@ -992,6 +992,10 @@ public partial class MainWindow
 
     private async Task CleanupReaderAfterCloseAsync()
     {
+        // Capture the mode before ExitReaderZenMode resets it. Closing the
+        // reader straight from zen asks the next open to restore zen; exiting
+        // zen first leaves the normal layout for the next book.
+        _openReaderInZenMode = _readerZenMode;
         ExitReaderZenMode();
         Interlocked.Exchange(ref _readerPendingKeyboardNavigation, 0);
         CancelReaderChapterPreload();

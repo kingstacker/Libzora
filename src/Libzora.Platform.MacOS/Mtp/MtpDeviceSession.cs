@@ -87,11 +87,20 @@ internal sealed class MtpDeviceSession : IDisposable
     {
         EnsureInitialized();
         var result = LibMtp.LIBMTP_Detect_Raw_Devices(out var devices, out var count);
+#if DEBUG
+        if (result != LibMtp.ErrorNone && count > 0)
+            Console.Error.WriteLine($"MTP raw detection: result={(int)result} count={count}.");
+#endif
+        _ = result;
         if (devices == IntPtr.Zero) return [];
         try
         {
-            if (result != LibMtp.ErrorNone) return [];
-            var raws = new List<MtpRawDevice>(Math.Max(0, count));
+            // libmtp can report a USB-layer error for a hotplug race while it
+            // still fills the device list. The count is authoritative: dropping
+            // a populated list made a reconnected Kindle look absent until the
+            // app was restarted.
+            if (count <= 0) return [];
+            var raws = new List<MtpRawDevice>(count);
             for (var index = 0; index < count; index++)
             {
                 var pointer = devices + index * RawDeviceSize;

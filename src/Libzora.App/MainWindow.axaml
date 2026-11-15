@@ -1058,7 +1058,7 @@
                     </Border>
 
                     <Grid Grid.Row="1">
-                        <ListBox x:Name="BookGrid" Classes="bookGrid" ItemsSource="{Binding ViewModel.Books}" SelectionMode="Multiple" SelectionChanged="BookList_SelectionChanged" PointerPressed="BookGrid_PointerPressed" PointerMoved="BookGrid_PointerMoved" PointerReleased="BookGrid_PointerReleased" PointerCaptureLost="BookGrid_PointerCaptureLost" KeyDown="BookGrid_KeyDown" Focusable="True" Background="Transparent" BorderThickness="0" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Disabled"><ListBox.ItemsPanel><ItemsPanelTemplate><local:VirtualizingWrapPanel Orientation="Horizontal" ItemWidth="166" ItemHeight="304" CacheLength="0.5" /></ItemsPanelTemplate></ListBox.ItemsPanel><ListBox.ItemTemplate>                                 <DataTemplate x:DataType="local:BookCardViewModel">                                     <Grid Width="154"                                           Height="{Binding CardHeight}"                                           Margin="6"                                           RowDefinitions="214,Auto"                                           PointerPressed="BookCard_PointerPressed"                                           ContextRequested="BookCard_ContextRequested"                                           DoubleTapped="BookCard_DoubleTapped" AttachedToVisualTree="BookCard_AttachedToVisualTree" DetachedFromVisualTree="BookCard_DetachedFromVisualTree">                                         <Border Grid.Row="0"                                                 Classes="bookCover"                                                 Background="{DynamicResource PressedBrush}"                                                 BorderThickness="1">                                             <Grid Background="Transparent">                                                 <TextBlock Text="BOOK"                                                            HorizontalAlignment="Center"                                                            VerticalAlignment="Center"                                                            Foreground="{DynamicResource MutedInkBrush}"                                                            FontSize="17"                                                            IsHitTestVisible="False" />                                                 <Image Source="{Binding CoverImage}" Stretch="UniformToFill" /><Button IsVisible="{Binding IsSelected}" Classes="coverReadAction bookCoverRead"
+                        <ListBox x:Name="BookGrid" Classes="bookGrid" ItemsSource="{Binding ViewModel.Books}" SelectionMode="Multiple" SelectionChanged="BookList_SelectionChanged" PointerPressed="BookGrid_PointerPressed" PointerMoved="BookGrid_PointerMoved" PointerReleased="BookGrid_PointerReleased" PointerCaptureLost="BookGrid_PointerCaptureLost" KeyDown="BookGrid_KeyDown" Focusable="True" Background="Transparent" BorderThickness="0" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Disabled"><ListBox.ItemsPanel><ItemsPanelTemplate><local:VirtualizingWrapPanel Orientation="Horizontal" ItemWidth="166" ItemHeight="304" CacheLength="0.5" /></ItemsPanelTemplate></ListBox.ItemsPanel><ListBox.ItemTemplate>                                 <DataTemplate x:DataType="local:BookCardViewModel">                                     <Grid Width="154"                                           Height="{Binding CardHeight}"                                           Margin="6"                                           RowDefinitions="214,Auto"                                           PointerPressed="BookCard_PointerPressed"                                           PointerEntered="BookCard_PointerEntered"                                           PointerExited="BookCard_PointerExited"                                           ContextRequested="BookCard_ContextRequested"                                           DoubleTapped="BookCard_DoubleTapped" AttachedToVisualTree="BookCard_AttachedToVisualTree" DetachedFromVisualTree="BookCard_DetachedFromVisualTree">                                         <Border Grid.Row="0"                                                 Classes="bookCover"                                                 Classes.hover="{Binding IsHovered}"                                                 Background="{DynamicResource PressedBrush}"                                                 BorderThickness="1">                                             <Grid Background="Transparent">                                                 <TextBlock Text="BOOK"                                                            HorizontalAlignment="Center"                                                            VerticalAlignment="Center"                                                            Foreground="{DynamicResource MutedInkBrush}"                                                            FontSize="17"                                                            IsHitTestVisible="False" />                                                 <Image Source="{Binding CoverImage}" Stretch="UniformToFill" /><Button IsVisible="{Binding IsSoleSelected}" Classes="coverReadAction bookCoverRead"
                                                 Content="{DynamicResource Ui.Auto.CE9B12499C471759}"
                                                 Click="BookCoverReadButton_Click" /></Grid>                                         </Border>                                         <Grid Grid.Row="1" Margin="2,8,2,0" ColumnDefinitions="*,58" RowDefinitions="40,16,14" IsVisible="{Binding GalleryTextVisibility}">                                             <TextBlock Grid.Row="0" Grid.ColumnSpan="2" Text="{Binding Title}" FontSize="15" LineHeight="18" FontWeight="SemiBold" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" />                                             <TextBlock Grid.Row="1" Text="{Binding Authors}" FontSize="11" LineHeight="14" Foreground="{DynamicResource MutedInkBrush}" TextTrimming="CharacterEllipsis" />                                             <TextBlock Grid.Row="2" Text="{Binding FormatLabel}" FontSize="10" LineHeight="12" Foreground="{DynamicResource SubtleInkBrush}" TextTrimming="CharacterEllipsis" />                                         <Grid Grid.Row="1" Grid.RowSpan="2" Grid.Column="1" Width="52" ColumnDefinitions="24,24" ColumnSpacing="4" HorizontalAlignment="Right" VerticalAlignment="Center">
                                              <ContentControl Grid.Column="0" Width="24" Height="24" Content="{Binding}" Padding="0" HorizontalAlignment="Center" VerticalAlignment="Center" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ContentTemplate="{StaticResource BookSyncStatusGlyph}" ToolTip.Tip="{Binding SyncStatusLabel}" AutomationProperties.Name="{Binding SyncStatusLabel}" Tapped="BookSyncStatusIcon_Tapped" IsVisible="{Binding SyncStatusVisibility}" />
@@ -1929,7 +1929,7 @@
                                       PointerEntered="DeviceBook_PointerEntered"
                                       PointerExited="DeviceBook_PointerExited"
                                       ContextRequested="DeviceBook_ContextRequested">
-                                    <Border Grid.Row="0" Classes="bookCover" Background="{DynamicResource PressedBrush}" BorderThickness="1">
+                                    <Border Grid.Row="0" Classes="bookCover" Classes.hover="{Binding IsHovered}" Background="{DynamicResource PressedBrush}" BorderThickness="1">
                                         <ToolTip.Tip>
                                             <ToolTip>
                                                 <StackPanel MaxWidth="360" Spacing="4">
@@ -1963,16 +1963,6 @@
                                                     ToolTip.Tip="{Binding PresenceLabel}"
                                                     AutomationProperties.Name="{Binding PresenceLabel}"
                                                     IsVisible="{Binding PresenceVisibility}" />
-                                    <Button Grid.Row="0" VerticalAlignment="Top" HorizontalAlignment="Right"
-                                            Width="28" Height="28" MinHeight="28" Margin="7" Padding="6" CornerRadius="5"
-                                            Classes="inlineAction" Background="{DynamicResource PaperBrush}"
-                                            ToolTip.Tip="{DynamicResource Ui.Auto.28E747DC466F6A89}"
-                                            AutomationProperties.Name="{DynamicResource Ui.Auto.28E747DC466F6A89}"
-                                            Tag="{Binding}" Click="ExportDeviceBookButton_Click">
-                                        <Path Data="M8 2V11 M4.5 7.5L8 11L11.5 7.5 M2 11V14H14V11"
-                                              Width="16" Height="16" StrokeThickness="1.2" Stroke="{Binding $parent[Button].Foreground}"
-                                              StrokeLineCap="Round" StrokeJoin="Round" />
-                                    </Button>
                                     <Border Grid.RowSpan="2"
                                             Classes="bookOutline"
                                             BorderBrush="{DynamicResource HairlineBrush}"
@@ -2072,8 +2062,6 @@
                                         <StackPanel Grid.Column="3" VerticalAlignment="Center" Spacing="2">
                                             <TextBlock Text="{Binding RelativePath}" Foreground="{DynamicResource SubtleInkBrush}" FontSize="10" TextTrimming="CharacterEllipsis" HorizontalAlignment="Right" ToolTip.Tip="{Binding RelativePath}" />
                                             <TextBlock Text="{Binding HashLabel}" Foreground="{DynamicResource SubtleInkBrush}" FontSize="10" TextTrimming="CharacterEllipsis" HorizontalAlignment="Right" ToolTip.Tip="{Binding HashLabel}" />
-                                            <Button Content="{DynamicResource Ui.Auto.28E747DC466F6A89}" Classes="inlineAction" HorizontalAlignment="Right"
-                                                    Padding="8,2" Tag="{Binding}" Click="ExportDeviceBookButton_Click" />
                                         </StackPanel>
                                     </Grid>
                                 </Border>
@@ -2301,6 +2289,17 @@
                 </Grid>
                 <StackPanel Grid.Row="1" Margin="6,0,6,8" Spacing="8">
                     <TextBlock x:Name="ReadingMaterialsStatusText" Classes="pageDescription" Text="{DynamicResource Ui.Auto.5F83A944D270ED82}" />
+                    <Border x:Name="KindleAnnotationExperimentalNotice"
+                            IsVisible="False"
+                            Padding="10,8"
+                            BorderThickness="3,0,0,0"
+                            BorderBrush="{DynamicResource WarningBrush}"
+                            Background="{DynamicResource AccountWarningTintBrush}">
+                        <TextBlock Text="{DynamicResource Ui.Auto.D469493647C1AB7A}"
+                                   FontSize="12"
+                                   Foreground="{DynamicResource WarningBrush}"
+                                   TextWrapping="Wrap" />
+                    </Border>
                 </StackPanel>
                 <Border x:Name="ReadingMaterialsSummaryBorder"
                         Classes="flatPanel"

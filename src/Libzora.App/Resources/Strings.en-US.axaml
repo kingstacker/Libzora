@@ -2407,6 +2407,7 @@ The update package is saved. Retry installation. Installer log: {1}</x:String>
     <x:String x:Key="Ui.Auto.2C8F8091E220C543">Skipped books that may already be on the device. Nothing was sent.</x:String>
     <x:String x:Key="Ui.Auto.5AE6FD40CA2C0289">Transfer complete: {0} sent, {1} possible existing books skipped, {2} failed.</x:String>
     <x:String x:Key="Main.KindleAnnotationSync.Button">Sync Kindle annotations</x:String>
+    <x:String x:Key="Ui.Auto.D469493647C1AB7A">Kindle annotation sync is experimental and not recommended for now. It may overwrite annotation data on your Kindle; back up your annotations before proceeding.</x:String>
     <x:String x:Key="Ui.Auto.B6978BA9B6DB36A7">About Libzora</x:String>
     <x:String x:Key="Ui.Auto.DA9FC8BA94970B9D">Settings…</x:String>
     <x:String x:Key="Ui.Auto.835CA603BF27FE3D">Import Books…</x:String>

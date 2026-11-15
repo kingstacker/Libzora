@@ -109,6 +109,7 @@ public sealed class BookCardViewModel : ObservableObject, IDisposable
     // the list control's selection fill; it drew a black outline around the
     // exact 154-DIP card footprint instead.
     private bool _isSelected;
+    private bool _isSoleSelected;
     private bool _isMultiSelected;
     private bool _isHovered;
     private bool _coverLoadAttempted;
@@ -133,6 +134,14 @@ public sealed class BookCardViewModel : ObservableObject, IDisposable
     {
         get => _isMultiSelected;
         set => SetProperty(ref _isMultiSelected, value);
+    }
+
+    // The cover's reading action is only meaningful while exactly one book is
+    // selected; multi-selection is for batch actions instead.
+    public bool IsSoleSelected
+    {
+        get => _isSoleSelected;
+        set => SetProperty(ref _isSoleSelected, value);
     }
 
     // Hovering the whole card (cover or text) shows the same thin black

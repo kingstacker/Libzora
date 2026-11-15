@@ -100,6 +100,7 @@ public partial class MainWindow
     private async void BookCoverReadButton_Click(object? sender, RoutedEventArgs e)
     {
         e.Handled = true;
+        CancelPendingBookDetails();
         var card = (sender as Control)?.DataContext as BookCardViewModel ?? GetSingleSelectedLibraryBook();
         if (card is not null) await OpenBookAsync(card);
     }

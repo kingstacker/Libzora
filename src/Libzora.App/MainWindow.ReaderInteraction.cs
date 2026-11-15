@@ -1113,6 +1113,9 @@ public partial class MainWindow
     private WindowState _readerWindowStateBeforeZen = WindowState.Normal;
     private Avalonia.Styling.ControlTheme? _readerWindowDecorationsThemeBeforeZen;
     private bool _readerZenMode;
+    // Set when the reader is closed straight from zen mode, so the next book
+    // opened from the shelf starts in the same distraction-free layout.
+    private bool _openReaderInZenMode;
     private bool _readerAssistantVisibleBeforeZen = true;
     private bool _readerTocExpandedBeforeZen = true;
     private bool _readerTocMinimalBeforeZen;

@@ -2387,8 +2387,8 @@
              ReaderHeaderButtonStyle / ReaderHeaderIconButtonStyle). -->
         <!-- Quiet shelf actions share the title baseline instead of forming
              another boxed toolbar above the existing library controls. -->
-        <!-- Reading is a cover overlay: one continuous scrim separates the
-             action from the cover artwork and its printed typography. -->
+        <!-- The selected-card reading action keeps one constant scrim: no
+             hover/press darkening or mask animation on click. -->
         <Style Selector="Button.coverReadAction">
             <Setter Property="Background" Value="#66000000" />
             <Setter Property="Foreground" Value="White" />
@@ -2398,6 +2398,9 @@
             <Setter Property="HorizontalAlignment" Value="Stretch" />
             <Setter Property="VerticalAlignment" Value="Stretch" />
             <Setter Property="FontSize" Value="14" />
+            <!-- Fluent's Button theme scales the control down on press; the
+                 cover scrim must stay flush with the artwork. -->
+            <Setter Property="RenderTransform" Value="scale(1)" />
             <Setter Property="Template">
                 <ControlTemplate>
                     <Border Background="{TemplateBinding Background}">
@@ -2413,10 +2416,11 @@
             </Setter>
         </Style>
         <Style Selector="Button.coverReadAction:pointerover">
-            <Setter Property="Background" Value="#88000000" />
+            <Setter Property="Background" Value="#66000000" />
         </Style>
         <Style Selector="Button.coverReadAction:pressed">
-            <Setter Property="Background" Value="#A0000000" />
+            <Setter Property="Background" Value="#66000000" />
+            <Setter Property="RenderTransform" Value="scale(1)" />
         </Style>
         <Style Selector="Button.inlineAction">
             <Setter Property="Height" Value="30" />
@@ -3197,7 +3201,10 @@
                 </Transitions>
             </Setter>
         </Style>
-        <Style Selector="Border.bookCover:pointerover Image">
+        <!-- Drive the zoom from the card's hover state rather than
+             :pointerover: pressing the card captures the pointer, which
+             clears :pointerover and would shrink the cover on every click. -->
+        <Style Selector="Border.bookCover.hover Image">
             <Setter Property="RenderTransform" Value="scale(1.06)" />
         </Style>
         <!-- The gallery card keeps its light-grey resting outline from the

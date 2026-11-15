@@ -83,6 +83,7 @@ public partial class MainWindow
 
         var menu = new NativeMenu();
         menu.Items.Add(BuildMacFileMenu());
+        menu.Items.Add(BuildMacViewMenu());
         menu.Items.Add(BuildMacWindowMenu());
         menu.Items.Add(BuildMacHelpMenu());
         // Application items are a flat menu; Avalonia supplies the Libzora
@@ -106,6 +107,29 @@ public partial class MainWindow
             Close,
             new KeyGesture(Key.W, KeyModifiers.Meta)));
         return new NativeMenuItem(T("文件")) { Menu = items };
+    }
+
+    private NativeMenuItem BuildMacViewMenu()
+    {
+        var items = new NativeMenu();
+        var fullscreen = MacMenuItem(
+            T("全屏"),
+            () => WindowState = WindowState == WindowState.FullScreen
+                ? WindowState.Normal
+                : WindowState.FullScreen,
+            new KeyGesture(Key.F, KeyModifiers.Control | KeyModifiers.Meta));
+        var zen = new NativeMenuItem(T("禅模式")) { ToggleType = MenuItemToggleType.CheckBox };
+        zen.Click += (_, _) => ToggleReaderZenMode();
+        items.Items.Add(fullscreen);
+        items.Items.Add(zen);
+        items.NeedsUpdate += (_, _) =>
+        {
+            fullscreen.Header = T(WindowState == WindowState.FullScreen ? "退出全屏" : "全屏");
+            zen.IsEnabled = ReaderRoot.IsVisible;
+            zen.IsChecked = _readerZenMode;
+        };
+        // Reader navigation appends the context-sensitive "back" item here.
+        return new NativeMenuItem(T("视图")) { Menu = items };
     }
 
     private NativeMenuItem BuildMacWindowMenu()

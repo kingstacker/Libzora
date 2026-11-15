@@ -11,6 +11,25 @@ public partial class MainWindow
     // Distinguishes a window close (hide to the menu bar on macOS) from an
     // application quit (tray 退出, Cmd+Q or OS shutdown).
     private bool _applicationShuttingDown;
+    private bool _macOSQuitAfterReaderInProgress;
+
+    // Cmd+Q / tray 退出 while the reader is open must finish the cancellable
+    // shutdown after the reader has saved and closed; the first TryShutdown
+    // was cancelled by MainWindow_Closing, so it has to be requested again.
+    private async Task QuitMacOSAfterReaderAsync()
+    {
+        if (_macOSQuitAfterReaderInProgress) return;
+        _macOSQuitAfterReaderInProgress = true;
+        try
+        {
+            await CloseReaderAsync();
+            (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.TryShutdown();
+        }
+        finally
+        {
+            _macOSQuitAfterReaderInProgress = false;
+        }
+    }
 
     // macOS draws the real traffic lights when the window keeps its native
     // titlebar. Extending the client area makes that titlebar transparent and

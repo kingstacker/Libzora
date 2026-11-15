@@ -52,9 +52,7 @@ public partial class MainWindow : Window
     // never collapse a freshly re-opened pane.
     private int _detailPaneAnimationVersion;
     private DispatcherTimer? _dropOverlayHideTimer;
-    private DispatcherTimer? _bookDetailClickTimer;
     private CancellationTokenSource? _librarySearchDebounce;
-    private BookCardViewModel? _pendingBookDetailCard;
     private BookCollectionFolderViewModel? _pendingCollectionDragFolder;
     private Control? _pendingCollectionDragControl;
     private IPointer? _pendingCollectionDragPointer;
@@ -266,6 +264,7 @@ public partial class MainWindow : Window
         InitializeComponent();
         ConfigureMacWindowChrome();
         PromoteModalOverlays();
+        InitializeReaderNavigation();
         InitializeKindleEmailClipboardSupport();
         ApplyMainAppearance();
         InitializeWidgetSnapshots();
@@ -612,6 +611,7 @@ public partial class MainWindow : Window
         }
 
         RefreshInteractiveControlToolTips();
+        UpdateReaderNavigationLabels();
         UpdateS3SyncIndicator(_s3SyncIndicatorState, _s3SyncIndicatorError);
         UpdateAccountSyncPresentation();
         UpdateS3SettingsActions();
@@ -1628,7 +1628,6 @@ public partial class MainWindow : Window
 
     private void ClearSelectedBook()
     {
-        CancelPendingBookDetailClick();
         if (_selectedCard is not null) _selectedCard.PropertyChanged -= SelectedCard_PropertyChanged;
         _selectedCard = null;
         var token = BeginDetailPaneAnimation();
@@ -2234,6 +2233,7 @@ public partial class MainWindow : Window
             || !e.GetCurrentPoint(LibraryRoot).Properties.IsLeftButtonPressed
             || IsSourceWithin(e.Source, LibraryDetailPane)
             || IsSourceWithin(e.Source, LibraryToolbar)
+            || IsSourceWithin(e.Source, LibraryHeader)
             || IsSourceWithin(e.Source, FilterPanel)
             || IsBookCardSource(e.Source))
             return;
@@ -2324,7 +2324,6 @@ public partial class MainWindow : Window
         if (sender is not Control { DataContext: BookCardViewModel card }) return;
 
         e.Handled = true;
-        CancelPendingBookDetailClick();
         try
         {
             switch (card.SyncStatus)
@@ -4037,6 +4036,18 @@ public partial class MainWindow : Window
             || ImportFormatSelectionOverlay.IsVisible || ImportConflictOverlay.IsVisible)
             return;
         if (TryExitReadingMaterialsExport(e)) return;
+        if (ReaderRoot.IsVisible && IsReaderReturnGesture(e) && !IsReaderTextInputFocused())
+        {
+            e.Handled = true;
+            await ReturnFromReaderAsync();
+            return;
+        }
+        if (!ReaderRoot.IsVisible && IsReaderOpenGesture(e) && LibraryWorkspace.IsVisible)
+        {
+            e.Handled = true;
+            if (GetSingleSelectedLibraryBook() is { } card) await OpenBookAsync(card);
+            return;
+        }
         if (TryHandleReaderPdfHistoryKey(e)) return;
         if (e.Key == Key.F1)
         {
@@ -4127,6 +4138,8 @@ public partial class MainWindow : Window
                 T("Enter  打开选中的书"),
                 T("Delete  删除选中的书"),
                 T("Esc  清除搜索或选择"),
+                Shortcut("Ctrl+O  阅读所选书籍"),
+                T("{0}  返回上一页面", ReaderReturnShortcut),
                 T("F1  显示本帮助")
             }));
     }
@@ -4304,19 +4317,15 @@ public partial class MainWindow : Window
 
     private void BookCard_PointerPressed(object? sender, PointerPressedEventArgs e)
     {
+        if (IsButtonSource(e.Source)) return;
         if (sender is not Control control || control.DataContext is not BookCardViewModel card)
             return;
         var pointerProperties = e.GetCurrentPoint(control).Properties;
         // 右键按下会先触发 ListBox 的原生选中（早于 ContextRequested），
         // 标记并抑制那一次 SelectionChanged 里的弹详情页。
         _suppressNextSelectionPane = pointerProperties.IsRightButtonPressed;
-        if (pointerProperties.IsRightButtonPressed)
-            CancelPendingBookDetailClick();
         if (!pointerProperties.IsLeftButtonPressed)
             return;
-
-        if (e.ClickCount >= 2 || (e.KeyModifiers & (KeyModifiers.Control | KeyModifiers.Meta | KeyModifiers.Shift)) != 0)
-            CancelPendingBookDetailClick();
 
         // 记录框选起点：网格左侧没有空白（卡片从视口左缘开始），从左往右
         // 框选必须允许起点落在卡片上，拖动超过阈值后同样进入框选。
@@ -4348,8 +4357,7 @@ public partial class MainWindow : Window
             _selectedBookIds.Add(card.Book.Id);
             _selectedCard = card;
             _multiSelectAnchor = card;
-            if (e.ClickCount == 1)
-                ScheduleBookDetailClick(card, e.Pointer.Type);
+            SelectBook(card);
         }
 
         UpdateMultiSelectionUi();
@@ -4414,7 +4422,7 @@ public partial class MainWindow : Window
             var deltaY = _rubberBandCurrent.Y - _rubberBandStart.Y;
             if (Math.Max(Math.Abs(deltaX), Math.Abs(deltaY)) < RubberBandDragThreshold)
                 return;
-            CancelPendingBookDetailClick();
+
             _rubberBandSelecting = true;
             _selectedBookIds.Clear();
             e.Pointer.Capture(BookGrid);
@@ -4634,51 +4642,13 @@ public partial class MainWindow : Window
 
         _selectedCard = clicked;
         _multiSelectAnchor = clicked;
-        SelectBook(clicked);
-    }
-
-    private void ScheduleBookDetailClick(BookCardViewModel card, PointerType pointerType)
-    {
-        CancelPendingBookDetailClick();
-        _pendingBookDetailCard = card;
-        var interval = this.GetPlatformSettings()?.GetDoubleTapTime(pointerType)
-            ?? TimeSpan.FromMilliseconds(500);
-        if (interval <= TimeSpan.Zero)
-            interval = TimeSpan.FromMilliseconds(500);
-
-        _bookDetailClickTimer = new DispatcherTimer { Interval = interval };
-        _bookDetailClickTimer.Tick += BookDetailClickTimer_Tick;
-        _bookDetailClickTimer.Start();
-    }
-
-    private void BookDetailClickTimer_Tick(object? sender, EventArgs e)
-    {
-        var card = _pendingBookDetailCard;
-        CancelPendingBookDetailClick();
-        if (card is null
-            || !LibraryRoot.IsVisible
-            || !ReferenceEquals(_selectedCard, card)
-            || !_selectedBookIds.Contains(card.Book.Id))
-            return;
-
-        SelectBook(card);
-    }
-
-    private void CancelPendingBookDetailClick()
-    {
-        if (_bookDetailClickTimer is not null)
-        {
-            _bookDetailClickTimer.Stop();
-            _bookDetailClickTimer.Tick -= BookDetailClickTimer_Tick;
-            _bookDetailClickTimer = null;
-        }
-        _pendingBookDetailCard = null;
     }
 
     private async void BookCard_DoubleTapped(object? sender, TappedEventArgs e)
     {
+        if (IsButtonSource(e.Source)) return;
         if (sender is not Control control || control.DataContext is not BookCardViewModel card) return;
-        CancelPendingBookDetailClick();
+
         _selectedBookIds.Clear();
         _selectedBookIds.Add(card.Book.Id);
         _selectedCard = card;
@@ -4913,12 +4883,6 @@ public partial class MainWindow : Window
         menu.Items.Add(CreateMenuItem(T("创建收藏夹"), CreateCollectionAsync));
         menu.Open(source);
         e.Handled = true;
-    }
-
-    private async void OpenSelectedBookButton_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
-    {
-        if (_selectedCard is not null)
-            await OpenBookAsync(_selectedCard);
     }
 
     private async void DeleteSelectedBookButton_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)

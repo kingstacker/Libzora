@@ -627,9 +627,7 @@ public partial class MainWindow
         ReadingDashboardPage.IsVisible = false;
         SettingsPage.IsVisible = false;
         AccountCenterHost.IsVisible = false;
-        _accountCenterView?.Deactivate();
-        ScheduleAmbientRefresh();
-    }
+        _accountCenterView?.Deactivate();    }
 
     private void ShowStage3Page(Control page, Button? activeButton = null)
     {
@@ -663,9 +661,7 @@ public partial class MainWindow
         ReadingDashboardPage.IsVisible = ReferenceEquals(page, ReadingDashboardPage);
         SettingsPage.IsVisible = ReferenceEquals(page, SettingsPage);
         AccountCenterHost.IsVisible = ReferenceEquals(page, AccountCenterHost);
-        if (!AccountCenterHost.IsVisible) _accountCenterView?.Deactivate();
-        ScheduleAmbientRefresh();
-    }
+        if (!AccountCenterHost.IsVisible) _accountCenterView?.Deactivate();    }
 
     private bool BlockNavigationWhileTransferring()
     {
@@ -5199,8 +5195,6 @@ public partial class MainWindow
         {
             MainThemeBox.SelectedIndex = (int)_appSettings.MainTheme;
             ApplyMainAppearance();
-            ColorfulModeCheck.IsChecked = _appSettings.ColorfulMode;
-            UpdateColorfulMode(_appSettings.ColorfulMode, forceRefresh: true);
             PreferredOpenFormatBox.SelectedIndex = _appSettings.PreferredOpenFormat switch
             {
                 "pdf" => 1,
@@ -5256,7 +5250,7 @@ public partial class MainWindow
 
     private void PopulateS3SyncControls(S3SyncSettings? settingsOverride = null)
     {
-        var settings = settingsOverride ?? _s3SyncStoredSettings.Settings;
+        var settings = S3SyncSettings.Normalize(settingsOverride ?? _s3SyncStoredSettings.Settings);
         var wasSuppressing = _suppressS3SettingsDraftTracking;
         _suppressS3SettingsDraftTracking = true;
         try
@@ -5278,6 +5272,7 @@ public partial class MainWindow
             S3PathStyleCheck.IsChecked = settings.PathStyle;
             S3SkipTlsVerifyCheck.IsChecked = settings.SkipTlsVerify;
             S3EncryptionKeyBox.Text = settings.EncryptionKey;
+            S3EncryptionKeyConfirmBox.Text = string.Empty;
             S3TimeoutBox.Value = settings.TimeoutSeconds;
             S3ConcurrencyBox.Value = settings.ConcurrentRequests;
             S3SyncDeviceText.Text = T("当前设备 ID：{0}", _s3SyncStoredSettings.DeviceId[..Math.Min(12, _s3SyncStoredSettings.DeviceId.Length)]);
@@ -5310,12 +5305,10 @@ public partial class MainWindow
         PathStyle = S3PathStyleCheck.IsChecked == true,
         SkipTlsVerify = S3SkipTlsVerifyCheck.IsChecked == true,
         EncryptionKey = S3EncryptionKeyBox.Text ?? string.Empty,
-        AccountRegion = SyncProviderBox.SelectedIndex == (int)SyncProvider.AccountServer
-            ? _syncAccountStatus?.Region ?? _modules.DataRegion : _modules.DataRegion,
-        AccountServerUrl = SyncProviderBox.SelectedIndex == (int)SyncProvider.AccountServer
-            ? _syncAccountStatus?.ServerUrl ?? _s3SyncStoredSettings.Settings.AccountServerUrl : _s3SyncStoredSettings.Settings.AccountServerUrl,
-        AccountUserId = SyncProviderBox.SelectedIndex == (int)SyncProvider.AccountServer
-            ? _syncAccountStatus?.User?.Id ?? _s3SyncStoredSettings.Settings.AccountUserId : _s3SyncStoredSettings.Settings.AccountUserId,
+        AccountRegion = _modules.DataRegion,
+        // Historical connection metadata is inert and is not rebound on login.
+        AccountServerUrl = _s3SyncStoredSettings.Settings.AccountServerUrl,
+        AccountUserId = _s3SyncStoredSettings.Settings.AccountUserId,
         TimeoutSeconds = S3TimeoutBox.Value is { } timeout ? (int)timeout : 60,
         ConcurrentRequests = S3ConcurrencyBox.Value is { } concurrency ? (int)concurrency : 4
     });
@@ -5340,12 +5333,39 @@ public partial class MainWindow
             return false;
         }
 
+        var storedEncryptionKey = S3SyncSettings.Normalize(_s3SyncStoredSettings.Settings).EncryptionKey;
+        if (!string.Equals(settings.EncryptionKey, storedEncryptionKey, StringComparison.Ordinal))
+        {
+            var repeatedKey = S3EncryptionKeyConfirmBox.Text ?? string.Empty;
+            if (settings.EncryptionKey.Length > 0
+                && !string.Equals(settings.EncryptionKey, repeatedKey, StringComparison.Ordinal))
+            {
+                S3SyncStatusText.Text = T("两次输入的加密密钥不一致，请重新输入。");
+                return false;
+            }
+
+            var confirmed = settings.EncryptionKey.Length > 0
+                ? await ConfirmAsync(
+                    T("确认加密密钥"),
+                    T("加密密钥用于加密备份和自备存储中的同步数据。请确认两次输入一致，并已妥善保存。密钥遗忘后无法找回，已有加密数据也无法恢复。"),
+                    T("使用此密钥"))
+                : await ConfirmAsync(
+                    T("清除加密密钥"),
+                    T("清除本机保存的加密密钥后，将无法再解密已有加密备份或云端同步数据。确定清除吗？"),
+                    T("清除密钥"));
+            if (!confirmed)
+            {
+                S3SyncStatusText.Text = string.Empty;
+                return false;
+            }
+        }
+
         _s3SettingsSaving = true;
         SetS3SyncControlsBusy(_s3SyncBusy);
         try
         {
             using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCancellation.Token, cancellationToken);
-            settings = await BindAccountSyncSettingsAsync(settings, linkedCancellation.Token);
+            settings = await BindSyncRegionAsync(settings, linkedCancellation.Token);
             await _s3SyncService.SaveSettingsAsync(_s3SyncStoredSettings.DeviceId, settings, linkedCancellation.Token);
             if (settings != _s3SyncStoredSettings.Settings)
             {
@@ -5488,7 +5508,7 @@ public partial class MainWindow
         S3SyncStatusText.Text = T("正在测试 {0} 连接…", settings.ProviderName);
         try
         {
-            settings = await BindAccountSyncSettingsAsync(settings, cancellation.Token);
+            settings = await BindSyncRegionAsync(settings, cancellation.Token);
             await _s3SyncService.TestConnectionAsync(settings, cancellation.Token);
             cancellation.Token.ThrowIfCancellationRequested();
             S3SyncStatusText.Text = T("{0} 连接成功。", settings.ProviderName);
@@ -5566,7 +5586,7 @@ public partial class MainWindow
             SyncProviderBox, WebDavEndpointBox, WebDavUsernameBox, WebDavPasswordBox,
             S3SyncEnabledCheck, S3AutomaticSyncCheck, S3DownloadBookFilesCheck, S3SyncIntervalBox, S3EndpointBox,
             S3AccessKeyBox, S3SecretKeyBox, S3BucketBox, S3RegionBox, S3PrefixBox,
-            S3PathStyleCheck, S3SkipTlsVerifyCheck, S3EncryptionKeyBox, AccountSyncEncryptionKeyBox, S3TimeoutBox,
+            S3PathStyleCheck, S3SkipTlsVerifyCheck, S3EncryptionKeyBox, S3EncryptionKeyConfirmBox, S3TimeoutBox,
             S3ConcurrencyBox, S3SaveSettingsButton, S3DiscardSettingsButton, S3TestConnectionButton, S3SyncNowButton,
             S3ExportConnectionProfileButton, S3ImportConnectionProfileButton
         ];
@@ -5615,12 +5635,9 @@ public partial class MainWindow
                 _ = RefreshBookReflectionDetailsAsync(_selectedCard.Book.Id);
         }
         if (kind == LocalDataChangeKind.Library)
-        {
-            InvalidateAmbientFallback();
-            ScheduleAmbientRefresh();
-            _ = RefreshBookSyncStatusesAsync(_lifetimeCancellation.Token);
+        {            _ = RefreshBookSyncStatusesAsync(_lifetimeCancellation.Token);
         }
-        if (!_s3SyncBusy && _s3SyncStoredSettings.Settings is { Enabled: true, IsConfigured: true })
+        if (!_s3SyncBusy && _s3SyncStoredSettings.Settings is { Enabled: true, IsConfigured: true, HasChosenCustomProvider: true })
             UpdateS3SyncIndicator(S3SyncIndicatorState.Pending);
         if (!IsAutomaticS3SyncReady())
         {
@@ -5637,7 +5654,8 @@ public partial class MainWindow
 
     private bool IsAutomaticS3SyncReady()
     {
-        return AutomaticSyncCoordinator.IsReady(_s3SyncStoredSettings.Settings,
+        return _s3SyncStoredSettings.Settings.HasChosenCustomProvider
+            && AutomaticSyncCoordinator.IsReady(_s3SyncStoredSettings.Settings,
             _stage3Ready, _appSettings.NetworkEnabled,
             _backupBusy || _readingDataResetBusy || _s3SyncExitInProgress,
             _s3DeletionConfirmationPending, _s3SyncCancelledByUser);
@@ -5877,6 +5895,13 @@ public partial class MainWindow
             _s3SyncStoredSettings = await _s3SyncService.LoadSettingsAsync(token);
 
             var settings = _s3SyncStoredSettings.Settings;
+            if (!settings.HasChosenCustomProvider)
+            {
+                var confirmationStatus = T("请确认自备 S3 / WebDAV 连接信息并保存后再同步。");
+                SetS3SyncStatus(confirmationStatus, silent);
+                UpdateS3SyncIndicator(S3SyncIndicatorState.NotConfigured, confirmationStatus);
+                return false;
+            }
             var validation = settings.Validate();
             if (validation is not null)
             {
@@ -6072,11 +6097,6 @@ public partial class MainWindow
         if (_appSettingsAutoSaveConfigured) return;
         _appSettingsAutoSaveConfigured = true;
         ConfigureS3SettingsDraftTracking();
-        ColorfulModeCheck.IsCheckedChanged += (_, _) =>
-        {
-            UpdateColorfulMode(ColorfulModeCheck.IsChecked == true, forceRefresh: true);
-            ScheduleAppSettingsAutoSave();
-        };
         AiEnabledCheck.IsCheckedChanged += (_, _) => ScheduleAppSettingsAutoSave();
         NetworkEnabledCheck.IsCheckedChanged += (_, _) => ScheduleAppSettingsAutoSave();
         AutoUpdateCheck.IsCheckedChanged += (_, _) => ScheduleAppSettingsAutoSave();
@@ -6616,7 +6636,6 @@ public partial class MainWindow
         return AppSettings.Normalize(_appSettings with
         {
             MainTheme = ReadMainThemeFromControls(),
-            ColorfulMode = ColorfulModeCheck.IsChecked == true,
             UiLanguage = UiText.NormalizeLanguage(UiLanguageBox.SelectedItem is ComboBoxItem languageItem
                 ? languageItem.Tag?.ToString()
                 : _appSettings.UiLanguage),

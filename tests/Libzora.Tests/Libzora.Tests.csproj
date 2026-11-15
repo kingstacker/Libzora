@@ -26,7 +26,6 @@
     <Compile Include="..\..\src\Libzora.App\ReaderLinuxVerticalTextUnits.cs" Link="ReaderLinuxVerticalTextUnits.cs" />
     <Compile Include="..\..\src\Libzora.App\LibraryDropImportPolicy.cs" Link="LibraryDropImportPolicy.cs" />
     <Compile Include="..\..\src\Libzora.App\ReadingMaterialCoverMatcher.cs" Link="ReadingMaterialCoverMatcher.cs" />
-    <Compile Include="..\..\src\Libzora.App\AmbientPalette.cs" Link="AmbientPalette.cs" />
     <PackageReference Include="Avalonia" Version="12.1.1" />
     <Compile Include="..\..\src\Libzora.App\ReaderFeatureViewModels.cs" Link="ReaderFeatureViewModels.cs" />
     <Compile Include="..\..\src\Libzora.App\KreaderMarkdownTextBlock.cs" Link="KreaderMarkdownTextBlock.cs" />

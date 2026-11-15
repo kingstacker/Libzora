@@ -1,50 +1,34 @@
+using System.Text.Json.Serialization;
+
 namespace Libzora.Core;
 
 public static class MemberEntitlements
 {
     public const int DeviceLimit = 6;
-    public const int MaxPlusYears = 5;
-    public const int MaxPlusDays = 365 * MaxPlusYears;
-    /// <summary>A lapsed free trial keeps its cloud data for 7 days before deletion.</summary>
-    public const int TrialRetentionDays = 7;
-    public const string SyncRequirement = "多端同步需要功能解锁（¥88 永久）或有效的 Plus 会员。功能解锁使用自备 S3 / WebDAV；Plus 订阅期内也可使用自备 S3 / WebDAV，到期后收回。Libzora 云同步需要 Plus。";
-    public const string AccountCloudRequirement = "Libzora 云同步和下载需要有效的 Plus 会员。Free 不支持多端同步；功能解锁可使用自备 S3 / WebDAV 永久同步。";
-    /// <summary>Wire IDs stay "free" / "lifetime" / "pro"; the plan sells them as Free, 功能解锁 and Plus.</summary>
+    public const int TrialDays = 7;
+    public const string SyncRequirement = "多端同步需要有效的试用订阅或买断订阅（¥88 永久）。仅支持自备 S3 / WebDAV，存储与流量费用由用户承担；不提供官方云同步。";
+    public const string AccountCloudRequirement = "官方云同步已移除，请配置自备 S3 或 WebDAV。";
+
     public static string TierName(string tier) => tier switch
-    { "pro" => "Plus 会员", "lifetime" => "功能解锁", _ => "Free" };
+    { "trial" or "pro" => "试用订阅", "lifetime" => "买断订阅", _ => "Free" };
+
+    /// <summary>Legacy paid periods remain time-limited feature access; they never become a permanent purchase.</summary>
+    public static string EffectiveTier(AccountMembership? membership, DateTimeOffset now) => membership switch
+    {
+        { Tier: "lifetime" } => "lifetime",
+        { Tier: "trial" or "pro", FeatureExpiresAt: { } expiry } when expiry > now => "trial",
+        _ => "free"
+    };
 
     public static DeviceFeature SyncFeature(SyncProvider provider) => provider switch
     {
         SyncProvider.S3 => DeviceFeature.CustomS3,
         SyncProvider.WebDav => DeviceFeature.CustomWebDav,
-        SyncProvider.AccountServer => DeviceFeature.AccountCloudSync,
-        _ => throw new ArgumentOutOfRangeException(nameof(provider))
+        _ => throw new ArgumentOutOfRangeException(nameof(provider), "仅支持 S3 或 WebDAV 同步。")
     };
 
-    /// <summary>
-    /// Paid Plus keeps cloud data for one UTC calendar month after expiry. A membership that
-    /// lapsed at the end of the one-time free trial keeps it for 7 days instead.
-    /// </summary>
-    public static DateTimeOffset CloudRetentionEndsAt(DateTimeOffset expiry, DateTimeOffset? trialExpiresAt = null) =>
-        trialExpiresAt is { } trial && trial == expiry
-            ? expiry.ToUniversalTime().AddDays(TrialRetentionDays)
-            : expiry.ToUniversalTime().AddMonths(1);
-
-    public static bool CanExtendPlus(AccountMembership membership, int days, DateTimeOffset now)
-    {
-        if (days is < 1 or > MaxPlusDays || membership.PendingPlusDays < 0) return false;
-        var start = membership.ProExpiresAt is { } expiry && expiry > now ? expiry : now;
-        var limit = membership.PlusRenewalLimitAt ?? now.ToUniversalTime().AddYears(MaxPlusYears);
-        try { return start.AddDays((long)days + membership.PendingPlusDays) <= limit; }
-        catch (ArgumentOutOfRangeException) { return false; }
-    }
-
-    public static string ActivationMessage(ActivationCodeRedemption result) => UiText.Get(result.AlreadyRedeemed
-        ? "该激活码已兑换，当前会员状态已刷新。"
-        : result.Kind == "pro" ? "Plus 激活成功，已增加 1 年有效期。" : "功能会员激活成功，已永久解锁。");
-
-    /// <summary>The most urgent 30 / 7 / 1-day reminder that applies, or null when Plus is not expiring soon.</summary>
-    public static int? PlusRenewalReminder(DateTimeOffset expiry, DateTimeOffset now)
+    /// <summary>The most urgent expiry reminder for a time-limited feature subscription.</summary>
+    public static int? TrialRenewalReminder(DateTimeOffset expiry, DateTimeOffset now)
     {
         var remaining = expiry.ToUniversalTime() - now.ToUniversalTime();
         if (remaining <= TimeSpan.Zero) return null;
@@ -54,33 +38,22 @@ public static class MemberEntitlements
         return null;
     }
 
-    public static string PlusRenewalMessage(DateTimeOffset expiry, DateTimeOffset now, DateTimeOffset? trialExpiresAt = null)
+    public static string TrialRenewalMessage(DateTimeOffset expiry, DateTimeOffset now)
     {
         var days = Math.Max(1, (int)Math.Ceiling((expiry.ToUniversalTime() - now.ToUniversalTime()).TotalDays));
-        if (trialExpiresAt is { } trial && trial == expiry)
-            return days <= 1
-                ? UiText.Get("Plus 免费试用将于 {0:yyyy/MM/dd} 到期（不足 1 天）。到期后 Libzora 云同步、下载及自备 S3 / WebDAV 将停用，试用期云端数据保留 7 天；开通正式 Plus 可继续使用。请及时开通。", expiry.LocalDateTime)
-                : UiText.Get("Plus 免费试用将于 {0:yyyy/MM/dd} 到期（剩余 {1} 天）。到期后 Libzora 云同步、下载及自备 S3 / WebDAV 将停用，试用期云端数据保留 7 天；开通正式 Plus 可继续使用。请及时开通。", expiry.LocalDateTime, days);
         return days <= 1
-            ? UiText.Get("Plus 将于 {0:yyyy/MM/dd} 到期（不足 1 天）。到期后 Libzora 云同步、下载及自备 S3 / WebDAV 将停用，云端数据保留一个月；已购买功能解锁的自备同步不受影响。请及时续费。", expiry.LocalDateTime)
-            : UiText.Get("Plus 将于 {0:yyyy/MM/dd} 到期（剩余 {1} 天）。到期后 Libzora 云同步、下载及自备 S3 / WebDAV 将停用，云端数据保留一个月；已购买功能解锁的自备同步不受影响。请及时续费。", expiry.LocalDateTime, days);
+            ? UiText.Get("试用订阅将于 {0:yyyy/MM/dd} 到期（不足 1 天）。到期后 S3 / WebDAV 多端同步将停用，本地书库及自备存储中的数据不会删除。购买买断订阅可永久使用。", expiry.LocalDateTime)
+            : UiText.Get("试用订阅将于 {0:yyyy/MM/dd} 到期（剩余 {1} 天）。到期后 S3 / WebDAV 多端同步将停用，本地书库及自备存储中的数据不会删除。购买买断订阅可永久使用。", expiry.LocalDateTime, days);
     }
 
-    public static string PlusExpiryMessage(DateTimeOffset expiry, DateTimeOffset now, DateTimeOffset? trialExpiresAt = null)
-    {
-        var retentionEnd = CloudRetentionEndsAt(expiry, trialExpiresAt);
-        var trial = trialExpiresAt is { } trialEnd && trialEnd == expiry;
-        if (trial)
-            return now < retentionEnd
-                ? UiText.Get("Plus 免费试用已于 {0:yyyy/MM/dd} 到期。Libzora 云同步、下载及试用期间使用的自备 S3 / WebDAV 已停用；已购买的功能解锁不受影响。试用期云端书籍及其他同步数据保留至 {1:yyyy/MM/dd}；在保留期内开通 Plus 可恢复访问，保留期结束后自动销毁。", expiry.LocalDateTime, retentionEnd.LocalDateTime)
-                : UiText.Get("Plus 免费试用已于 {0:yyyy/MM/dd} 到期。Libzora 云同步、下载及试用期间使用的自备 S3 / WebDAV 已停用；已购买的功能解锁不受影响。试用期云端数据的 7 天保留期已结束，数据已进入自动销毁流程。", expiry.LocalDateTime);
-        return now < retentionEnd
-            ? UiText.Get("Plus 已于 {0:yyyy/MM/dd} 到期。Libzora 云同步、下载及 Plus 期间使用的自备 S3 / WebDAV 已停用；已购买的功能解锁不受影响。云端书籍及其他同步数据保留至 {1:yyyy/MM/dd}；在保留期内续费可恢复访问，保留期结束后自动销毁。", expiry.LocalDateTime, retentionEnd.LocalDateTime)
-            : UiText.Get("Plus 已于 {0:yyyy/MM/dd} 到期。Libzora 云同步、下载及 Plus 期间使用的自备 S3 / WebDAV 已停用；已购买的功能解锁不受影响。云端书籍及其他同步数据的一个月保留期已结束，数据已进入自动销毁流程。", expiry.LocalDateTime);
-    }
+    public static string TrialExpiryMessage(DateTimeOffset expiry, DateTimeOffset now) =>
+        UiText.Get("试用订阅已于 {0:yyyy/MM/dd} 到期，S3 / WebDAV 多端同步已停用。本地书库及自备存储中的数据不会删除；购买买断订阅可永久恢复同步功能。", expiry.LocalDateTime);
+
+    // Fail-closed compatibility for callers querying a retired annual product.
+    public static bool CanExtendPlus(AccountMembership membership, int days, DateTimeOffset now) => false;
 }
 
-/// <summary>Custom stores need 功能解锁 or active Plus; official cloud sync needs active Plus. Custom AI stays free.</summary>
+/// <summary>Trial and lifetime subscribers can use their own S3/WebDAV. The legacy cloud value is never granted.</summary>
 public enum DeviceFeature { CustomS3, CustomWebDav, AccountCloudSync }
 
 public interface IDeviceFeatureAccess
@@ -105,20 +78,27 @@ public sealed record AccountMembership(Guid AccountId, AccountRegion Region, str
     DateTimeOffset? PlusEarlyDownloadEndsAt = null,
     long? MetadataDownloadQuotaBytes = null, long? MetadataDownloadUsedBytes = null,
     DateTimeOffset? MetadataDownloadResetsAt = null,
-    // One-time free Plus trial. TrialAvailable is true only while the account has never
-    // held Plus; TrialClaimed stays true after the trial ends.
+    // A one-time feature trial. The historical cloud fields above are read-only compatibility data.
     bool TrialAvailable = false, bool TrialClaimed = false,
-    DateTimeOffset? TrialClaimedAt = null, DateTimeOffset? TrialExpiresAt = null)
+    DateTimeOffset? TrialClaimedAt = null, DateTimeOffset? TrialExpiresAt = null,
+    [property: JsonPropertyName("featureExpiresAt")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    DateTimeOffset? EntitlementExpiresAt = null)
 {
-    /// <summary>The active or most recent Plus period was the free trial, not a paid subscription.</summary>
-    public bool IsTrialPlus => TrialExpiresAt is { } trial && trial == ProExpiresAt;
+    /// <summary>The activation API's expiry is authoritative; old responses retain their original limited period.</summary>
+    [JsonIgnore]
+    public DateTimeOffset? FeatureExpiresAt => EntitlementExpiresAt ?? ProExpiresAt ?? TrialExpiresAt;
+    public bool IsTrialSubscription => MemberEntitlements.EffectiveTier(this, DateTimeOffset.UtcNow) == "trial";
+    public bool IsTrialPlus => IsTrialSubscription;
 }
 
 public sealed record DeviceFeatureStatus(AccountMembership Membership, AccountDevice[] Devices, Guid CurrentDeviceId)
 {
     public bool IsCurrentDeviceActive => Devices.Any(device => device.DeviceId == CurrentDeviceId && device.State == "active");
-    public bool CanUseFeatures => Membership.Tier is "lifetime" or "pro" && Membership.HasLifetimeFeatures && IsCurrentDeviceActive;
-    public bool CanUseAccountCloudSync => Membership.Tier == "pro" && CanUseFeatures;
+    public bool CanUseFeatures => Membership.HasLifetimeFeatures && IsCurrentDeviceActive
+        && MemberEntitlements.EffectiveTier(Membership, DateTimeOffset.UtcNow) is "lifetime" or "trial";
+    // Retained so old JSON callers fail closed rather than gaining removed storage access.
+    public bool CanUseAccountCloudSync => false;
 }
 
 public sealed class DeviceEnrollmentRequest
@@ -140,12 +120,3 @@ public sealed class PurchaseRequest
 public sealed record PurchaseOrder(Guid Id, Guid AccountId, string ProductId, string ProductName, string Kind,
     int PriceMinor, string Currency, int DurationDays, long Bytes, string State,
     DateTimeOffset CreatedAt, DateTimeOffset ExpiresAt, DateTimeOffset? FulfilledAt);
-
-public sealed class ActivationCodeRedeemRequest
-{
-    public string Code { get; init; } = "";
-    public Guid RequestId { get; init; }
-}
-
-public sealed record ActivationCodeRedemption(Guid CodeId, string Kind, int Years,
-    DateTimeOffset RedeemedAt, DeviceFeatureStatus Status, bool AlreadyRedeemed = false);

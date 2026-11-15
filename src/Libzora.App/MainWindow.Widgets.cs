@@ -22,7 +22,7 @@ public partial class MainWindow
                 _paths,
                 _library,
                 _readerData,
-                _appSettings.ColorfulMode,
+                false,
                 0,
                 sharedRoot,
                 token),

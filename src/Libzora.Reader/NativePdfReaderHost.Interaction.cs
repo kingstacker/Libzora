@@ -20,6 +20,7 @@ public sealed partial class NativePdfReaderHost
     });
 
     private Guid? _selectedAnnotationId;
+    private bool _wordSelectionActive;
     private PdfPageLink? _pointerLink;
     private IReadOnlyList<PdfTextRange>? _selectionRanges;
     public string? SelectionFragment => PdfTextRanges.Encode(_selectionRanges);
@@ -91,6 +92,7 @@ public sealed partial class NativePdfReaderHost
     public void ClearSelection()
     {
         _selectionRanges = null;
+        _wordSelectionActive = false;
         _selectionStart = _selectionEnd = 0;
         _selectionPage = PageNumber;
         InvalidateVisual();
@@ -358,6 +360,62 @@ public sealed partial class NativePdfReaderHost
         _selectionEnd = end;
         InvalidateVisual();
         EmitSelection();
+    }
+
+    /// <summary>
+    /// Selects the character or word under a long press. Highlights keep their
+    /// tap behavior, and the press must land on a real glyph.
+    /// </summary>
+    public bool SelectWordAt(double x, double y)
+    {
+        var point = new Point(x, y);
+        var page = PageAtPoint(point);
+        if (page == 0 || page != PageNumber || _pointAnnotationMode || _handToolMode
+            || AnnotationAt(point) is not null)
+        {
+            return false;
+        }
+
+        var content = GetPageContent(page);
+        if (content is null || string.IsNullOrEmpty(content.Text))
+        {
+            return false;
+        }
+
+        var pageBounds = GetPageBounds(page);
+        var local = GetPageTransform(pageBounds).Invert().Transform(point);
+        var text = content.Text;
+        PdfTextGlyph? best = null;
+        var bestDistance = double.MaxValue;
+        foreach (var glyph in content.Glyphs)
+        {
+            if (glyph.Length <= 0 || glyph.Offset < 0 || glyph.Offset >= text.Length)
+            {
+                continue;
+            }
+
+            var length = Math.Min(glyph.Length, text.Length - glyph.Offset);
+            if (MemoryExtensions.IsWhiteSpace(text.AsSpan(glyph.Offset, length)))
+            {
+                continue;
+            }
+
+            var rect = GetLocalGlyphBounds(page, glyph.Bounds, pageBounds);
+            var dx = Math.Max(0, Math.Max(rect.Left - local.X, local.X - rect.Right));
+            var dy = Math.Max(0, Math.Max(rect.Top - local.Y, local.Y - rect.Bottom));
+            var distance = dx * dx + dy * dy;
+            if (distance >= bestDistance) continue;
+            best = glyph;
+            bestDistance = distance;
+        }
+
+        if (best is null || bestDistance > 256) return false;
+
+        var (start, end) = ReaderWordSelection.GetRange(text, best.Offset);
+        if (end <= start) return false;
+        SelectRange(start, end);
+        _wordSelectionActive = true;
+        return true;
     }
 
     private void RebuildSearch(string query)
@@ -884,6 +942,7 @@ public sealed partial class NativePdfReaderHost
         _anchorOffset = HitOffset(page, point, false, readingOrder: true);
         _pointerStart = point;
         _dragging = false;
+        _wordSelectionActive = false;
         if (_pointerAnnotationHit is null && _anchorOffset >= 0 && e.ClickCount >= 2 && PageContent is { } content)
         {
             var start = Math.Min(HitOffset(page, point, false), Math.Max(0, content.Text.Length - 1));
@@ -910,9 +969,13 @@ public sealed partial class NativePdfReaderHost
         }
         if (_pointerStart is { } start && _anchorOffset >= 0)
         {
-            _dragging |= Math.Abs(point.X - start.X) + Math.Abs(point.Y - start.Y) > 3;
+            // A finger that just long-pressed keeps its word selection through
+            // small jitter; only an intentional drag replaces it.
+            _dragging |= Math.Abs(point.X - start.X) + Math.Abs(point.Y - start.Y)
+                > (_wordSelectionActive ? 16 : 3);
             if (_dragging)
             {
+                _wordSelectionActive = false;
                 var hit = HitOffset(_selectionPage, point, true, readingOrder: true);
                 if (hit >= 0 && _pages.TryGetValue(_selectionPage, out var selectedPage))
                 {
@@ -976,6 +1039,13 @@ public sealed partial class NativePdfReaderHost
         _pointerAnnotationHit = null;
         e.Pointer.Capture(null);
         if (dragged) EmitSelection();
+        else if (_wordSelectionActive)
+        {
+            // The word was selected when the long press fired; the finger
+            // lifting must not be treated as a blank click that clears it.
+            _wordSelectionActive = false;
+            EmitSelection();
+        }
         else if (footnote is { } note)
         {
             // Touch has no hover, so the mobile frontend needs the note text

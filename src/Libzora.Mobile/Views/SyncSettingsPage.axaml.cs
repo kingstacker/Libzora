@@ -54,7 +54,7 @@ public partial class SyncSettingsPage : UserControl, IShellPage
             await _modules!.Library.Books.InitializeAsync(_lifetime.Token);
             await _shell!.EnsureReaderDataAsync();
             _stored = await _modules.Sync.Service.LoadSettingsAsync(_lifetime.Token);
-            _draftSettings = await ApplyAccountCloudSyncDefaultAsync(_stored.Settings);
+            _draftSettings = _stored.Settings;
             Present(_draftSettings);
             await PresentAccountAsync();
             await PresentLastSyncAsync();
@@ -87,6 +87,7 @@ public partial class SyncSettingsPage : UserControl, IShellPage
         DownloadFilesSwitch.IsChecked = settings.DownloadBookFilesOnSync;
         SkipTlsSwitch.IsChecked = settings.SkipTlsVerify;
         EncryptionKeyBox.Text = settings.EncryptionKey;
+        EncryptionKeyConfirmBox.Text = string.Empty;
     }
 
     /// <summary>Fields without a control retain their current draft values.</summary>
@@ -110,19 +111,8 @@ public partial class SyncSettingsPage : UserControl, IShellPage
         EncryptionKey = EncryptionKeyBox.Text ?? string.Empty
     });
 
-    private async Task<S3SyncSettings?> PrepareSettingsAsync()
-    {
-        try
-        {
-            var settings = ReadSettings() with { AccountRegion = _modules!.DataRegion };
-            return settings.Provider == SyncProvider.AccountServer
-                ? await _modules.Accounts.Service.CreateSyncSettingsAsync(settings, _lifetime.Token)
-                : settings;
-        }
-        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { return null; }
-        catch (Exception exception) when (exception is not OutOfMemoryException)
-        { ShowStatus(UiText.Localize(exception.Message)); return null; }
-    }
+    private Task<S3SyncSettings?> PrepareSettingsAsync() =>
+        Task.FromResult<S3SyncSettings?>(ReadSettings() with { AccountRegion = _modules!.DataRegion });
 
     private async Task PresentAccountAsync()
     {
@@ -166,6 +156,29 @@ public partial class SyncSettingsPage : UserControl, IShellPage
         FormPanel.IsHitTestVisible = !busy;
     }
 
+    private async Task<bool> ConfirmEncryptionKeyChangeAsync(S3SyncSettings settings)
+    {
+        if (string.Equals(settings.EncryptionKey, _stored!.Settings.EncryptionKey, StringComparison.Ordinal))
+            return true;
+        if (settings.EncryptionKey.Length > 0)
+        {
+            if (!string.Equals(settings.EncryptionKey, EncryptionKeyConfirmBox.Text ?? string.Empty,
+                    StringComparison.Ordinal))
+            {
+                ShowStatus("两次输入的同步密钥不一致，请重新输入。");
+                return false;
+            }
+            return await _shell!.ConfirmAsync(
+                "确认同步密钥",
+                "同步密钥用于加密备份和自备存储中的同步数据。请确认两次输入一致，并已妥善保存。密钥遗忘后无法找回，已有加密数据也无法恢复。",
+                "使用此密钥");
+        }
+        return await _shell!.ConfirmAsync(
+            "清除同步密钥",
+            "清除本机保存的同步密钥后，将无法再解密已有加密备份或云端同步数据。确定清除吗？",
+            "清除密钥");
+    }
+
     private async Task<bool> SaveAsync(S3SyncSettings settings)
     {
         // Saving this form records the user's explicit provider choice.
@@ -174,30 +187,6 @@ public partial class SyncSettingsPage : UserControl, IShellPage
         _stored = new S3SyncStoredSettings(_stored.DeviceId, settings);
         _draftSettings = settings;
         return true;
-    }
-
-    /// <summary>
-    /// A Plus account defaults to Libzora cloud sync until the user saves a
-    /// provider of their own. Only the form is prefilled; the saved settings
-    /// change when the user saves or syncs.
-    /// </summary>
-    private async Task<S3SyncSettings> ApplyAccountCloudSyncDefaultAsync(S3SyncSettings settings)
-    {
-        if (settings.Provider == SyncProvider.AccountServer || settings.ProviderChosenByUser) return settings;
-        try
-        {
-            var account = await _modules!.Accounts.Service.GetStatusAsync(validateSession: true, _lifetime.Token);
-            if (!account.IsLoggedIn || account.RequiresDataRestart || account.Region != _modules.DataRegion)
-                return settings;
-            var member = await _modules.Accounts.Membership.RefreshAsync(_lifetime.Token);
-            return member.CanUseAccountCloudSync ? settings with { Provider = SyncProvider.AccountServer } : settings;
-        }
-        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { throw; }
-        catch (Exception exception) when (exception is not OutOfMemoryException)
-        {
-            // Offline or membership unavailable: keep the saved provider.
-            return settings;
-        }
     }
 
     private async void OnSaveClick(object? sender, RoutedEventArgs e)
@@ -213,6 +202,7 @@ public partial class SyncSettingsPage : UserControl, IShellPage
             ShowStatus(UiText.Localize(invalid));
             return;
         }
+        if (!await ConfirmEncryptionKeyChangeAsync(settings)) return;
 
         using var operation = MobileDataCoordinator.TryBeginOperation();
         if (operation is null) { ShowStatus("正在恢复数据，请稍后重试。"); return; }
@@ -220,6 +210,7 @@ public partial class SyncSettingsPage : UserControl, IShellPage
         try
         {
             await SaveAsync(settings);
+            EncryptionKeyConfirmBox.Text = string.Empty;
             ShowStatus(null);
             _shell?.ShowToast("已保存");
             await PresentLastSyncAsync();
@@ -435,22 +426,17 @@ public partial class SyncSettingsPage : UserControl, IShellPage
     private void PresentProvider()
     {
         var webDav = _provider == SyncProvider.WebDav;
-        var account = _provider == SyncProvider.AccountServer;
-        ProviderS3.Classes.Set("on", _provider == SyncProvider.S3);
+        ProviderS3.Classes.Set("on", !webDav);
         ProviderWebDav.Classes.Set("on", webDav);
-        ProviderAccount.Classes.Set("on", account);
-        S3Fields.IsVisible = _provider == SyncProvider.S3;
+        S3Fields.IsVisible = !webDav;
         WebDavFields.IsVisible = webDav;
-        AccountFields.IsVisible = account;
-        PathStyleRow.IsVisible = _provider == SyncProvider.S3;
-        ExportProfileButton.IsEnabled = !account;
+        PathStyleRow.IsVisible = !webDav;
     }
 
     private async void OnProviderClick(object? sender, RoutedEventArgs e)
     {
         if (_busy) return;
-        _provider = sender is Button { Name: nameof(ProviderAccount) } ? SyncProvider.AccountServer
-            : sender is Button { Name: nameof(ProviderWebDav) } ? SyncProvider.WebDav : SyncProvider.S3;
+        _provider = sender is Button { Name: nameof(ProviderWebDav) } ? SyncProvider.WebDav : SyncProvider.S3;
         PresentProvider();
         if (_modules is not null)
         {

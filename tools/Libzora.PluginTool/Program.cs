@@ -2,21 +2,19 @@ using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using Libzora.Infrastructure;
 using Libzora.Infrastructure.Plugins;
 
 namespace Libzora.PluginTool;
 
 /// <summary>
-/// libzora-plugin — validate, pack, sign and index Libzora plugins.
+/// libzora-plugin — validate, pack and sign Libzora plugins.
 ///
 ///   libzora-plugin validate &lt;folder|file.libzoraplugin&gt;
 ///   libzora-plugin pack &lt;folder&gt; [-o dir] [--key key.pem] [--publisher name]
 ///   libzora-plugin sign &lt;file.libzoraplugin&gt; --key key.pem [--publisher name]
 ///   libzora-plugin verify &lt;file.libzoraplugin&gt;
 ///   libzora-plugin keygen [-o dir]
-///   libzora-plugin index &lt;packages-dir&gt; --base-url https://host/plugins/ [-o index.json]
 /// </summary>
 internal static class Program
 {
@@ -43,7 +41,6 @@ internal static class Program
                 "sign" => Sign(options),
                 "verify" => Verify(options),
                 "keygen" => Keygen(options),
-                "index" => Index(options),
                 _ => Fail($"未知命令“{args[0]}”。运行 libzora-plugin help 查看用法。")
             };
         }
@@ -64,8 +61,6 @@ internal static class Program
           sign <插件.libzoraplugin> --key 私钥.pem [--publisher 名称]
           verify <插件.libzoraplugin>                只校验签名
           keygen [-o 目录]                      生成 ECDSA P-256 签名密钥（私钥请妥善保管）
-          index <插件目录> --base-url https://…/plugins/ [-o index.json]
-                                                为目录中的 .libzoraplugin 生成插件市场索引
         """);
 
     // ---- commands -------------------------------------------------------
@@ -149,61 +144,6 @@ internal static class Program
         return 0;
     }
 
-    private static int Index(Options options)
-    {
-        var directory = options.RequirePositional(0, "包含 .libzoraplugin 的目录");
-        var baseUrl = options.Get("--base-url");
-        var output = options.Get("-o") ?? options.Get("--output") ?? Path.Combine(directory, "index.json");
-        var manager = new PluginManager(new AppPaths(CreateScratch()));
-        var plugins = new JsonArray();
-        foreach (var package in Directory.EnumerateFiles(directory, "*" + PluginPackage.Extension).Order(StringComparer.Ordinal))
-        {
-            var preview = manager.Inspect(package);
-            var manifest = preview.Manifest;
-            var fileName = Path.GetFileName(package);
-            var i18n = new JsonObject();
-            foreach (var (language, localization) in manifest.Localizations)
-            {
-                i18n[language] = new JsonObject
-                {
-                    ["name"] = localization.Name,
-                    ["description"] = localization.Description
-                };
-            }
-            plugins.Add(new JsonObject
-            {
-                ["id"] = manifest.Id,
-                ["name"] = manifest.Name,
-                ["version"] = manifest.Version,
-                ["description"] = manifest.Description,
-                ["author"] = manifest.Author,
-                ["homepage"] = manifest.Homepage,
-                ["minAppVersion"] = manifest.MinAppVersion?.ToString(3),
-                ["trust"] = preview.Signature.Trust.ToString().ToLowerInvariant(),
-                ["download"] = baseUrl is null ? fileName : new Uri(new Uri(EnsureSlash(baseUrl)), fileName).ToString(),
-                ["sha256"] = Sha256(package),
-                ["size"] = new FileInfo(package).Length,
-                ["i18n"] = i18n.Count == 0 ? null : i18n
-            });
-            Console.WriteLine($"  {manifest.Id} {manifest.Version} ({DescribeTrust(preview.Signature)})");
-        }
-        var index = new JsonObject
-        {
-            ["format"] = 1,
-            ["generatedAt"] = DateTimeOffset.UtcNow.ToString("O"),
-            ["plugins"] = plugins
-        };
-        File.WriteAllText(output, index.ToJsonString(new JsonSerializerOptions
-        {
-            WriteIndented = true,
-            Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-        }) + "\n");
-        // Validate the result with the app's own parser.
-        var entries = PluginCatalogService.Parse(File.ReadAllText(output), new Uri(EnsureSlash(baseUrl ?? "https://example.invalid/")));
-        Console.WriteLine($"已写入 {output}（{entries.Count} 个插件）");
-        return entries.Count == plugins.Count ? 0 : Fail("部分条目没有通过应用的索引校验。");
-    }
-
     // ---- helpers --------------------------------------------------------
 
     private static string PackFolder(string folder, string outputDirectory, bool quiet)
@@ -272,8 +212,6 @@ internal static class Program
         using var stream = File.OpenRead(path);
         return Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
     }
-
-    private static string EnsureSlash(string url) => url.EndsWith('/') ? url : url + "/";
 
     private static string CreateScratch()
     {

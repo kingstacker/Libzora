@@ -1,9 +1,16 @@
 namespace Libzora.Core;
 
-/// <summary>Clears the active text selection on any reader surface.</summary>
+/// <summary>Clears or immediately creates text selections on a reader surface.</summary>
 public interface IReaderSelectionHost : IReaderHost
 {
     void ClearSelection();
+
+    /// <summary>
+    /// Selects the character or word drawn under a control-space point and
+    /// reports it through the selection event. Returns false when the point
+    /// has no selectable text (a link, an annotation or blank space).
+    /// </summary>
+    bool SelectWordAt(double x, double y);
 }
 
 /// <summary>Reading position and viewport state independent of the host control.</summary>

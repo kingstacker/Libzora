@@ -243,10 +243,12 @@ public sealed class PluginTests
 
         var installed = manager.Install(package);
         Assert.Equal("com.example.test", installed.Id);
-        Assert.True(installed.Enabled);
+        Assert.False(installed.Enabled);
         Assert.True(File.Exists(Path.Combine(installed.Directory, "ui", "app.html")));
         Assert.Single(manager.List());
 
+        manager.SetEnabled("com.example.test", true);
+        Assert.True(Assert.Single(manager.List()).Enabled);
         manager.SetEnabled("com.example.test", false);
         Assert.False(Assert.Single(manager.List()).Enabled);
         // A disabled plugin is still installed; the shell filters it out.
@@ -261,6 +263,35 @@ public sealed class PluginTests
     }
 
     [Fact]
+    public void PluginsStartDisabledAndLegacyEnablementIsMigratedOnce()
+    {
+        using var scope = new TempPluginScope();
+        var paths = new AppPaths(Path.Combine(scope.Root, "app"));
+        var manager = new PluginManager(paths);
+        var package = scope.WritePackage(ValidManifest,
+            ("ui/app.html", "<p>hi</p>"), ("ui/settings.html", "<p>hi</p>"));
+
+        var installed = manager.Install(package);
+        Assert.False(installed.Enabled);
+        manager.SetEnabled(installed.Id, true);
+        Assert.True(manager.Find(installed.Id)!.Enabled);
+
+        // Old profiles stored "Enabled": true before plugins became opt-in and
+        // have no marker yet. The first launch switches everything off once.
+        var marker = Path.Combine(paths.Plugins, ".plugins-disabled-by-default");
+        File.Delete(marker);
+        File.WriteAllText(Path.Combine(paths.Plugins, "plugins.json"),
+            "{\"" + installed.Id + "\":{\"Enabled\":true}}");
+        var reopened = new PluginManager(paths);
+        Assert.False(Assert.Single(reopened.List()).Enabled);
+        Assert.True(File.Exists(marker));
+
+        // A choice the user makes after the migration survives restarts.
+        reopened.SetEnabled(installed.Id, true);
+        Assert.True(Assert.Single(new PluginManager(paths).List()).Enabled);
+    }
+
+    [Fact]
     public void InstallingANewVersionReplacesTheOldOne()
     {
         using var scope = new TempPluginScope();
@@ -272,7 +303,13 @@ public sealed class PluginTests
             ValidManifest.Replace("\"1.2.0\"", "\"1.3.0\""),
             [("ui/app.html", "v2"), ("ui/settings.html", "s2")], "second");
 
-        manager.Install(first);
+        var original = manager.Install(first);
+        manager.SetEnabled(original.Id, false);
+        var dataDirectory = manager.GetDataDirectory(original.Id);
+        Directory.CreateDirectory(dataDirectory);
+        var settingsPath = Path.Combine(dataDirectory, "storage.json");
+        File.WriteAllText(settingsPath, "{\"setting\":\"kept\"}");
+
         var preview = manager.Inspect(second);
         Assert.True(preview.IsUpdate);
         Assert.False(preview.IsDowngrade);
@@ -280,6 +317,8 @@ public sealed class PluginTests
         var installed = manager.Install(second);
         Assert.Equal("1.3.0", installed.Manifest.Version);
         Assert.Equal("v2", File.ReadAllText(Path.Combine(installed.Directory, "ui", "app.html")));
+        Assert.False(installed.Enabled);
+        Assert.Equal("{\"setting\":\"kept\"}", File.ReadAllText(settingsPath));
     }
 
     [Fact]
@@ -342,7 +381,7 @@ public sealed class PluginTests
 
         var first = Assert.Single(manager.InstallBundled(bundled));
         Assert.Equal("com.example.test", first.Id);
-        Assert.True(first.Enabled);
+        Assert.False(first.Enabled);
         Assert.Empty(manager.InstallBundled(bundled));
 
         // A newer release refreshes the copy the user kept, and keeps it disabled if it was.
@@ -395,7 +434,7 @@ public sealed class PluginTests
 
         var installed = Assert.Single(manager.InstallBundled(bundled));
         Assert.Equal("com.libzora.book-translation", installed.Id);
-        Assert.True(installed.Enabled);
+        Assert.False(installed.Enabled);
     }
 
     [Fact]
@@ -600,7 +639,7 @@ public sealed class PluginTests
         var installed = manager.Install(package);
 
         Assert.Equal("com.libzora.online-library", installed.Id);
-        Assert.True(installed.Enabled);
+        Assert.False(installed.Enabled);
         Assert.NotNull(installed.Manifest.AppPage);
         Assert.True(installed.Manifest.CanImportLibrary);
         Assert.True(installed.Manifest.UsesSecrets);

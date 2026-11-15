@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Packs, signs and indexes the official plugins into website/plugins/, which
-# build_website.sh deploys as https://libzora.stacker.beauty/plugins/.
+# Packs and signs official plugins into website/plugins/ for manual download
+# and local import. build_website.sh deploys the packages without an index.
 #
 #   scripts/publish-plugins.sh                 # every folder under plugins/
 #   scripts/publish-plugins.sh book-translation
@@ -30,5 +30,3 @@ for name in "${names[@]}"; do
   [[ -f "plugins/$name/manifest.json" ]] || continue
   "${tool[@]}" pack "plugins/$name" -o "$out" --key "$key" --publisher Libzora
 done
-
-"${tool[@]}" index "$out" --base-url "https://libzora.stacker.beauty/plugins/" -o "$out/index.json"

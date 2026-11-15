@@ -98,9 +98,12 @@ public sealed partial class AccountIntegrationTests
         var status = await updated.GetStatusAsync(validateSession: true);
         Assert.True(status.IsLoggedIn);
         Assert.Equal(server.Url, status.ServerUrl);
-        var settings = await updated.CreateSyncSettingsAsync(new S3SyncSettings());
-        Assert.Equal(server.Url, settings.AccountServerUrl);
-        Assert.Equal(region, settings.AccountRegion);
+        var requestsBeforeRemoval = handler.AuthenticatedRequests;
+        var removed = await Assert.ThrowsAsync<InvalidOperationException>(() => updated.CreateSyncSettingsAsync(new S3SyncSettings()));
+        Assert.Equal(MemberEntitlements.AccountCloudRequirement, removed.Message);
+        Assert.Equal(requestsBeforeRemoval, handler.AuthenticatedRequests);
+        Assert.Equal(server.Url, (await updated.GetStatusAsync()).ServerUrl);
+        Assert.Equal(region, (await updated.GetStatusAsync()).Region);
         var other = region == AccountRegion.China ? AccountRegion.International : AccountRegion.China;
         var otherStatus = await updated.SelectRegionAsync(other);
         Assert.False(otherStatus.IsLoggedIn);
@@ -109,7 +112,7 @@ public sealed partial class AccountIntegrationTests
         Assert.True(await updated.SignOutAsync());
         Assert.False((await updated.GetStatusAsync()).IsLoggedIn);
         Assert.Equal(FictionalDeploymentEndpoint(region), (await updated.GetStatusAsync()).ServerUrl);
-        Assert.True(handler.AuthenticatedRequests >= 3);
+        Assert.True(handler.AuthenticatedRequests >= 2);
         Assert.Equal(0, handler.RejectedRequests);
         using var restarted = new AccountService(paths, protector, defaultServerUrl: FictionalDeploymentEndpoint);
         Assert.Equal(FictionalDeploymentEndpoint(region), (await restarted.GetStatusAsync()).ServerUrl);

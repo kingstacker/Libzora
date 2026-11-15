@@ -47,7 +47,8 @@ public sealed partial class S3SyncService : ISyncService
 
     private readonly AppPaths _paths;
     private readonly S3SyncSettingsStore _settingsStore;
-    private readonly Func<S3SyncSettings, ISyncObjectStore> _clientFactory;
+    private readonly SyncProviderRegistry _providers;
+    private readonly Func<S3SyncSettings, ISyncObjectStore>? _storeFactoryOverride;
     private readonly IDeviceFeatureAccess _features;
     private readonly AccountService? _accounts;
     private readonly AccountRegion? _dataRegion;
@@ -80,13 +81,27 @@ public sealed partial class S3SyncService : ISyncService
     }
 
     public S3SyncService(AppPaths paths, ISecretProtector protector)
-        : this(paths, protector, CreateObjectStore)
+        : this(paths, protector, SyncProviderRegistry.CreateDefault(), features: null)
     {
     }
 
     public S3SyncService(AppPaths paths, ISecretProtector protector, AccountService accounts, AccountRegion dataRegion,
         IDeviceFeatureAccess? features = null)
-        : this(paths, protector, settings => CreateRegionalObjectStore(settings, accounts, dataRegion), features ?? new DeviceMembershipService(accounts))
+        : this(paths, protector, SyncProviderRegistry.CreateDefault(), features ?? new DeviceMembershipService(accounts))
+    {
+        _accounts = accounts;
+        _dataRegion = dataRegion;
+    }
+
+    /// <summary>
+    /// Composition overload for platform heads that register additional sync
+    /// providers. The caller should start from
+    /// <see cref="SyncProviderRegistry.CreateDefault"/> and add factories;
+    /// the built-in S3/WebDAV behavior is unchanged.
+    /// </summary>
+    public S3SyncService(AppPaths paths, ISecretProtector protector, AccountService accounts, AccountRegion dataRegion,
+        IDeviceFeatureAccess? features, SyncProviderRegistry providers)
+        : this(paths, protector, providers, features ?? new DeviceMembershipService(accounts))
     {
         _accounts = accounts;
         _dataRegion = dataRegion;
@@ -94,20 +109,44 @@ public sealed partial class S3SyncService : ISyncService
 
     internal S3SyncService(AppPaths paths, ISecretProtector protector, Func<S3SyncSettings, IAmazonS3> clientFactory,
         IDeviceFeatureAccess? features = null)
-        : this(paths, protector, settings => new S3SyncObjectStore(settings, clientFactory(settings)), features)
+        : this(paths, protector, SyncProviderRegistry.CreateDefault(), features,
+            settings => new S3SyncObjectStore(settings, clientFactory(settings)))
     {
     }
 
     internal S3SyncService(AppPaths paths, ISecretProtector protector, Func<S3SyncSettings, ISyncObjectStore> clientFactory,
         IDeviceFeatureAccess? features = null)
+        : this(paths, protector, SyncProviderRegistry.CreateDefault(), features, clientFactory)
+    {
+    }
+
+    private S3SyncService(AppPaths paths, ISecretProtector protector, SyncProviderRegistry providers,
+        IDeviceFeatureAccess? features, Func<S3SyncSettings, ISyncObjectStore>? storeFactoryOverride = null)
     {
         _paths = paths;
-        _clientFactory = clientFactory;
+        _providers = providers;
+        _storeFactoryOverride = storeFactoryOverride;
         _features = features ?? DeniedDeviceFeatureAccess.Instance;
         _settingsStore = new S3SyncSettingsStore(paths, protector);
         _appSettingsStore = new AppSettingsStore(paths);
         _aiSettingsStore = new AiSettingsStore(paths, protector);
         _kindleEmailSettingsStore = new KindleEmailSettingsStore(paths, protector);
+    }
+
+    /// <summary>
+    /// Creates the storage adapter for one sync run. Provider factories are
+    /// the only place that knows about a concrete backend; the engine sees only
+    /// <see cref="ISyncObjectStore"/>.
+    /// </summary>
+    private ISyncObjectStore CreateStore(S3SyncSettings settings)
+    {
+        if (_accounts is not null && _dataRegion is { } expectedRegion && settings.AccountRegion != expectedRegion)
+            throw new InvalidOperationException("同步区域与当前书库不一致，请检查区域设置。");
+        var store = _storeFactoryOverride?.Invoke(settings)
+            ?? _providers.Get(settings.Provider).Create(settings);
+        return _accounts is { } accounts && _dataRegion is { } region
+            ? new RegionalSyncObjectStore(store, accounts, region)
+            : store;
     }
 
     public async Task<S3SyncStoredSettings> LoadSettingsAsync(CancellationToken cancellationToken = default)
@@ -130,8 +169,6 @@ public sealed partial class S3SyncService : ISyncService
         if (_dataRegion is { } dataRegion)
         {
             await _accounts!.EnsureSyncRegionAsync(dataRegion, cancellationToken);
-            if (normalized.Provider == SyncProvider.AccountServer && normalized.AccountRegion != dataRegion)
-                throw new InvalidOperationException("同步账号区域与当前书库不一致，请重新打开应用。");
             normalized = normalized with { AccountRegion = dataRegion };
         }
         await _syncGate.WaitAsync(cancellationToken);
@@ -181,7 +218,7 @@ public sealed partial class S3SyncService : ISyncService
         S3SyncSettings settings,
         CancellationToken cancellationToken = default)
     {
-        var normalized = S3SyncSettings.Normalize(settings);
+        var normalized = NormalizeTransferSettings(settings);
         ThrowIfInvalid(normalized);
 
         await _features.EnsureFeatureAsync(MemberEntitlements.SyncFeature(normalized.Provider), cancellationToken);
@@ -189,7 +226,7 @@ public sealed partial class S3SyncService : ISyncService
         try
         {
             ResetEncryptionSession();
-            using var client = _clientFactory(normalized);
+            using var client = CreateStore(normalized);
             // Validate every device snapshot before a probe: a supported older
             // device must not hide another device's incompatible protocol.
             // Serialize with sync so session key erasure cannot race decryption.
@@ -254,7 +291,7 @@ public sealed partial class S3SyncService : ISyncService
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(file);
-        var normalized = S3SyncSettings.Normalize(settings);
+        var normalized = NormalizeTransferSettings(settings);
         ThrowIfInvalid(normalized);
         await _features.EnsureFeatureAsync(MemberEntitlements.SyncFeature(normalized.Provider), cancellationToken);
         if (!IsSha256(file.Sha256))
@@ -276,7 +313,7 @@ public sealed partial class S3SyncService : ISyncService
 
             var storageIdentity = BuildStorageIdentity(normalized);
             var state = await LoadStateAsync(deviceId, storageIdentity, cancellationToken);
-            using var client = _clientFactory(normalized);
+            using var client = CreateStore(normalized);
             await InitializeBlobNamingForDownloadAsync(client, normalized, deviceId, storageIdentity, state, cancellationToken);
             progress?.Report(UiText.Get("正在下载《{0}》…", Path.GetFileName(file.RelativePath)));
             await EnsureLocalBlobAsync(
@@ -397,7 +434,7 @@ public sealed partial class S3SyncService : ISyncService
         CancellationToken cancellationToken = default,
         S3SyncOptions? options = null)
     {
-        var normalized = S3SyncSettings.Normalize(settings);
+        var normalized = NormalizeTransferSettings(settings);
         ThrowIfInvalid(normalized);
         await _features.EnsureFeatureAsync(MemberEntitlements.SyncFeature(normalized.Provider), cancellationToken);
         deviceId = NormalizeDeviceId(deviceId);
@@ -440,7 +477,7 @@ public sealed partial class S3SyncService : ISyncService
             await AssignTombstoneVersionsAsync(local, deviceId, cancellationToken);
 
             progress?.Report(UiText.Get("正在连接 {0}…", normalized.ProviderName));
-            using var client = _clientFactory(normalized);
+            using var client = CreateStore(normalized);
             var snapshotObjects = await ListSnapshotObjectsAsync(client, normalized, cancellationToken);
             var snapshotKeys = snapshotObjects.Select(item => item.Key).ToList();
 
@@ -1052,6 +1089,15 @@ public sealed partial class S3SyncService : ISyncService
               && string.Equals(left.SmtpUsername, right.SmtpUsername, StringComparison.Ordinal)
               && left.EnableSsl == right.EnableSsl;
 
+    private static S3SyncSettings NormalizeTransferSettings(S3SyncSettings settings)
+    {
+        // Check before migration: an explicit removed provider must never use
+        // credentials left over from a previously configured S3 connection.
+        if (settings.Provider == SyncProvider.AccountServer)
+            throw new InvalidOperationException(MemberEntitlements.AccountCloudRequirement);
+        return S3SyncSettings.Normalize(settings);
+    }
+
     private static void ThrowIfInvalid(S3SyncSettings settings)
     {
         var validation = settings.Validate();
@@ -1069,37 +1115,24 @@ public sealed partial class S3SyncService : ISyncService
             ? parsed.ToString("N")
             : (deviceId ?? string.Empty).Trim();
 
-    private static bool SameRemoteDirectory(S3SyncSettings left, S3SyncSettings right) =>
+    private bool SameRemoteDirectory(S3SyncSettings left, S3SyncSettings right) =>
         left.Provider == right.Provider && left.Prefix == right.Prefix && left.AccountRegion == right.AccountRegion
-        && (left.Provider switch
-        {
-            SyncProvider.WebDav => left.WebDavEndpoint == right.WebDavEndpoint && left.WebDavUsername == right.WebDavUsername,
-            SyncProvider.AccountServer => left.AccountServerUrl == right.AccountServerUrl && left.AccountUserId == right.AccountUserId,
-            _ => left.Endpoint == right.Endpoint && left.Bucket == right.Bucket
-        });
+        && _providers.Get(left.Provider).IsSameRemoteDirectory(left, right);
 
     private string BuildStorageIdentity(S3SyncSettings settings) =>
-        (_dataRegion is { } region ? "region:" + AccountRegions.Slug(region) + "|" : "") + BuildProviderStorageIdentity(settings);
+        (_dataRegion is { } region ? "region:" + AccountRegions.Slug(region) + "|" : "")
+        + _providers.Get(settings.Provider).BuildStorageIdentity(settings);
 
-    private static string BuildProviderStorageIdentity(S3SyncSettings settings) => settings.Provider == SyncProvider.AccountServer
-        ? string.Join("|", "AccountServer", AccountRegions.Slug(settings.AccountRegion), settings.AccountServerUrl,
-            settings.AccountUserId.ToString("N"), settings.Prefix,
-            settings.EncryptionKey.Length > 0 ? $"encrypted:{EncryptionKeyFingerprint(settings.EncryptionKey)}" : "plain")
-        : settings.Provider == SyncProvider.WebDav
-        ? string.Join("|", "WebDAV", settings.WebDavEndpoint, EncryptionKeyFingerprint(settings.WebDavUsername), settings.Prefix,
-            settings.EncryptionKey.Length > 0 ? $"encrypted:{EncryptionKeyFingerprint(settings.EncryptionKey)}" : "plain")
-        // Keep the legacy S3 identity unchanged so existing baselines survive
-        // an upgrade. A provider, account or remote-root change starts fresh.
-        :
-        string.Join(
-            "|",
-            settings.Endpoint,
-            settings.Bucket,
-            settings.Region,
-            settings.Prefix,
-            settings.EncryptionKey.Length > 0
-                ? $"encrypted:{EncryptionKeyFingerprint(settings.EncryptionKey)}"
-                : "plain");
+    private SyncProviderCapabilities ProviderCapabilities(S3SyncSettings settings) =>
+        _providers.Get(settings.Provider).Descriptor.Capabilities;
+
+    private int EffectiveConcurrency(S3SyncSettings settings)
+    {
+        var requested = Math.Max(1, settings.ConcurrentRequests);
+        return ProviderCapabilities(settings).MaxConcurrentRequests is { } limit && limit > 0
+            ? Math.Min(requested, limit)
+            : requested;
+    }
 
     private string StatePath => Path.Combine(_paths.Data, "s3-sync-state.json");
     private string BaselinePath => Path.Combine(_paths.Data, "s3-sync-baseline.json.gz");
@@ -1333,26 +1366,6 @@ public sealed partial class S3SyncService : ISyncService
     private static string SnapshotKey(S3SyncSettings settings, string deviceId) =>
         $"{settings.Prefix}/devices/{deviceId}/snapshot.bin";
 
-    private static string EncryptionKeyFingerprint(string encryptionKey) =>
-        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(encryptionKey))).ToLowerInvariant();
-
-    private static ISyncObjectStore CreateObjectStore(S3SyncSettings settings) => settings.Provider switch
-    {
-        SyncProvider.S3 => new S3SyncObjectStore(settings),
-        SyncProvider.WebDav => new WebDavSyncObjectStore(settings),
-        _ => throw new InvalidOperationException(UiText.Get("请选择受支持的同步方式。"))
-    };
-
-    private static ISyncObjectStore CreateRegionalObjectStore(S3SyncSettings settings, AccountService accounts, AccountRegion region)
-    {
-        if (settings.AccountRegion != region)
-            throw new InvalidOperationException("同步区域与当前书库不一致，请检查区域设置。");
-        var store = settings.Provider == SyncProvider.AccountServer
-            ? new AccountSyncObjectStore(settings, accounts)
-            : CreateObjectStore(settings);
-        return new RegionalSyncObjectStore(store, accounts, region);
-    }
-
     /// <summary>Snapshots older than this are republished even when unchanged, well before peers treat the device as retired.</summary>
     private static readonly TimeSpan SnapshotRepublishInterval = TimeSpan.FromDays(30);
 
@@ -1380,10 +1393,10 @@ public sealed partial class S3SyncService : ISyncService
 
     /// <summary>
     /// Remote snapshots are cached as the encrypted bytes the store returned, keyed by object key and modification
-    /// time. WebDAV reports whole seconds only, so it is never served from the cache.
+    /// time. Providers without reliable modification metadata are never served from the cache.
     /// </summary>
     private string? SnapshotCachePath(S3SyncSettings settings, string storageIdentity, SyncObjectMetadata item) =>
-        settings.Provider == SyncProvider.WebDav || item.LastModified is not { } modified ? null
+        !ProviderCapabilities(settings).ReliableLastModified || item.LastModified is not { } modified ? null
             : Path.Combine(SnapshotCacheDirectory, SnapshotCacheStem(storageIdentity, item.Key) + "-" + modified.UtcTicks + ".bin");
 
     private static string SnapshotCacheStem(string storageIdentity, string key) =>
@@ -1477,7 +1490,7 @@ public sealed partial class S3SyncService : ISyncService
             objects,
             new ParallelOptions
             {
-                MaxDegreeOfParallelism = settings.ConcurrentRequests,
+                MaxDegreeOfParallelism = EffectiveConcurrency(settings),
                 CancellationToken = cancellationToken
             },
             async (item, token) =>
@@ -1607,6 +1620,9 @@ public sealed partial class S3SyncService : ISyncService
         // not understand. Leave retention/compaction to a reader that does.
         if (HasForwardCompatibleData(localSnapshot)
             || downloadedRemoteSnapshots.Any(HasForwardCompatibleData)) return null;
+        // A provider may return a partial listing without failing. Never turn
+        // that into snapshot retirement or object deletion.
+        if (!ProviderCapabilities(settings).ReliableListing) return null;
         IReadOnlyList<SyncObjectMetadata> deviceObjects;
         try
         {
@@ -1906,7 +1922,7 @@ public sealed partial class S3SyncService : ISyncService
             Enumerable.Range(0, keysToRead.Length),
             new ParallelOptions
             {
-                MaxDegreeOfParallelism = Math.Max(1, settings.ConcurrentRequests),
+                MaxDegreeOfParallelism = EffectiveConcurrency(settings),
                 CancellationToken = cancellationToken
             },
             async (index, token) =>

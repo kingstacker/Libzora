@@ -7,7 +7,6 @@
   <ItemGroup>
     <!-- The iOS bridge contract is plain .NET and can be checked without UIKit. -->
     <Compile Include="../../src/Libzora.Mobile.iOS/IOSNativeJson.cs" Link="IOSNativeJson.cs" />
-    <Compile Include="../../src/Libzora.Mobile.iOS/NativeFeedbackRequest.cs" Link="NativeFeedbackRequest.cs" />
     <Compile Include="../Fixtures/AccountHttpHandler.cs" Link="Fixtures/AccountHttpHandler.cs" />
     <Compile Include="../Fixtures/MembershipHttpHandler.cs" Link="Fixtures/MembershipHttpHandler.cs" />
     <ProjectReference Include="../../src/Libzora.Mobile/Libzora.Mobile.csproj" />

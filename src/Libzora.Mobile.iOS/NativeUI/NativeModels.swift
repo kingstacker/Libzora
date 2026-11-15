@@ -85,79 +85,42 @@ struct AccountMembership: Decodable {
     let trialClaimed: Bool?
     let trialClaimedAt: String?
     let trialExpiresAt: String?
-    var tierName: String { tier == "pro" ? "Plus 会员" : tier == "lifetime" ? "功能解锁" : "Free" }
-    /// The plan as sold, like the desktop: a lapsed Plus no longer counts as Plus.
+    let featureExpiresAt: String?
+    var featureExpiresAtDate: Date? { Self.date(featureExpiresAt ?? proExpiresAt ?? trialExpiresAt) }
+    var tierName: String { planName }
+    /// Historical paid periods retain their expiry, never a permanent buyout.
     var plan: String {
-        if tier == "pro", let expiry = Self.date(proExpiresAt), expiry > Date() { return "plus" }
-        return tier == "lifetime" ? "lifetime" : "free"
+        if tier == "lifetime" { return "lifetime" }
+        if (tier == "trial" || tier == "pro"), let expiry = featureExpiresAtDate, expiry > Date() { return "trial" }
+        return "free"
     }
-    var planName: String { plan == "plus" ? "Plus 会员" : plan == "lifetime" ? "功能解锁" : "Free" }
-    var isPlusExpired: Bool { Self.date(proExpiresAt).map { $0 <= Date() } ?? false }
-    var plusRenewalMessage: String? {
-        guard plan == "plus", let expiry = Self.date(proExpiresAt), expiry > Date() else { return nil }
+    var planName: String { plan == "trial" ? "试用订阅" : plan == "lifetime" ? "买断订阅" : "Free" }
+    var isTrialExpired: Bool { plan != "lifetime" && (featureExpiresAtDate.map { $0 <= Date() } ?? false) }
+    var trialRenewalMessage: String? {
+        guard plan == "trial", let expiry = featureExpiresAtDate else { return nil }
         let remaining = expiry.timeIntervalSinceNow
-        guard remaining <= 30 * 86_400 else { return nil }
+        guard remaining > 0 && remaining <= 30 * 86_400 else { return nil }
         let days = max(1, Int(ceil(remaining / 86_400)))
-        if isTrialPlus {
-            return days <= 1
-                ? "Plus 免费试用将于 \(Self.day(expiry)) 到期（不足 1 天）。到期后 Libzora 云同步、下载及自备 S3 / WebDAV 将停用，试用期云端数据保留 7 天；开通正式 Plus 可继续使用。请及时开通。"
-                : "Plus 免费试用将于 \(Self.day(expiry)) 到期（剩余 \(days) 天）。到期后 Libzora 云同步、下载及自备 S3 / WebDAV 将停用，试用期云端数据保留 7 天；开通正式 Plus 可继续使用。请及时开通。"
-        }
-        return days <= 1
-            ? "Plus 将于 \(Self.day(expiry)) 到期（不足 1 天）。到期后 Libzora 云同步、下载及自备 S3 / WebDAV 将停用，云端数据保留一个月；已购买功能解锁的自备同步不受影响。请及时续费。"
-            : "Plus 将于 \(Self.day(expiry)) 到期（剩余 \(days) 天）。到期后 Libzora 云同步、下载及自备 S3 / WebDAV 将停用，云端数据保留一个月；已购买功能解锁的自备同步不受影响。请及时续费。"
+        let duration = days <= 1 ? "不足 1 天" : "剩余 \(days) 天"
+        return "试用订阅将于 \(Self.day(expiry)) 到期（\(duration)）。到期后 S3 / WebDAV 多端同步将停用，本地书库及自备存储中的数据不会删除。购买买断订阅可永久使用。"
     }
-    var isPlusExpiringSoon: Bool { plusRenewalMessage != nil }
+    var isTrialExpiringSoon: Bool { trialRenewalMessage != nil }
     var trialExpiresAtDate: Date? { Self.date(trialExpiresAt) }
-    var isTrialActive: Bool { trialClaimed == true && (trialExpiresAtDate.map { $0 > Date() } ?? false) }
-    var canClaimTrial: Bool { trialAvailable == true }
+    var isTrialActive: Bool { plan == "trial" && trialClaimed == true && (trialExpiresAtDate.map { $0 > Date() } ?? false) }
+    var canClaimTrial: Bool { trialAvailable == true && trialClaimed != true && plan == "free" }
     var trialStatusMessage: String {
         guard isTrialActive, let end = trialExpiresAtDate else {
-            return "只有主动打开领取开关才会领取；试用到期后，云端数据保留 7 天后自动销毁。"
+            return "每账号主动领取一次，连续 7 天。到期只停用同步，不删除本地或自备存储数据。"
         }
-        return "试用期至 \(Self.day(end))，到期后云端数据保留 7 天后自动销毁。可随时开通正式 Plus 继续使用。"
-    }
-    /// The active or most recent Plus period was the free trial rather than a paid subscription.
-    private var isTrialPlus: Bool {
-        guard let trial = trialExpiresAtDate else { return false }
-        return Self.date(proExpiresAt) == trial
+        return "试用期至 \(Self.day(end))，到期只停用同步，不删除本地或自备存储数据。可购买买断订阅继续使用。"
     }
     var planExpiryText: String {
-        if plan == "plus", let expiry = Self.date(proExpiresAt) { return "有效至 " + Self.day(expiry) }
-        return plan == "lifetime" ? "永久有效" : isPlusExpired ? "Plus 已到期" : "永久免费"
+        if plan == "trial", let expiry = featureExpiresAtDate { return "有效至 " + Self.day(expiry) }
+        return plan == "lifetime" ? "永久有效" : isTrialExpired ? "试用订阅已到期" : "永久免费"
     }
-    var plusDownloadPeriodText: String? { Self.date(plusDownloadExpiresAt).map { "本期有效至 " + Self.day($0) } }
-    var plusEarlyDownloadEndText: String? {
-        guard let end = Self.date(plusEarlyDownloadEndsAt), end > Date() else { return nil }
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.dateFormat = "yyyy/MM/dd HH:mm"
-        return formatter.string(from: end)
-    }
-    /// The desktop's expiry notice. Paid cloud data is retained for one UTC calendar month;
-    /// a lapsed free trial keeps it for 7 days.
-    var plusExpiryMessage: String? {
-        guard let expiry = Self.date(proExpiresAt), expiry <= Date() else { return nil }
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(identifier: "UTC")!
-        if isTrialPlus {
-            guard let retention = calendar.date(byAdding: .day, value: 7, to: expiry) else { return nil }
-            return Date() < retention
-                ? "Plus 免费试用已于 \(Self.day(expiry)) 到期。Libzora 云同步、下载及试用期间使用的自备 S3 / WebDAV 已停用；已购买的功能解锁不受影响。试用期云端书籍及其他同步数据保留至 \(Self.day(retention))；在保留期内开通 Plus 可恢复访问，保留期结束后自动销毁。"
-                : "Plus 免费试用已于 \(Self.day(expiry)) 到期。Libzora 云同步、下载及试用期间使用的自备 S3 / WebDAV 已停用；已购买的功能解锁不受影响。试用期云端数据的 7 天保留期已结束，数据已进入自动销毁流程。"
-        }
-        guard let retention = calendar.date(byAdding: .month, value: 1, to: expiry) else { return nil }
-        return Date() < retention
-            ? "Plus 已于 \(Self.day(expiry)) 到期。Libzora 云同步、下载及 Plus 期间使用的自备 S3 / WebDAV 已停用；已购买的功能解锁不受影响。云端书籍及其他同步数据保留至 \(Self.day(retention))；在保留期内续费可恢复访问，保留期结束后自动销毁。"
-            : "Plus 已于 \(Self.day(expiry)) 到期。Libzora 云同步、下载及 Plus 期间使用的自备 S3 / WebDAV 已停用；已购买的功能解锁不受影响。云端书籍及其他同步数据的一个月保留期已结束，数据已进入自动销毁流程。"
-    }
-    func canExtendPlus(days: Int) -> Bool {
-        guard days > 0 && days <= 1825 && (pendingPlusDays ?? 0) >= 0 else { return false }
-        let now = Date()
-        let start = max(Self.date(proExpiresAt) ?? now, now)
-        let limit = Self.date(plusRenewalLimitAt) ?? Calendar(identifier: .gregorian).date(byAdding: .year, value: 5, to: now)!
-        return start.addingTimeInterval(Double(days + (pendingPlusDays ?? 0)) * 86_400) <= limit
+    var trialExpiryMessage: String? {
+        guard isTrialExpired, let expiry = featureExpiresAtDate else { return nil }
+        return "试用订阅已于 \(Self.day(expiry)) 到期，S3 / WebDAV 多端同步已停用。本地书库及自备存储中的数据不会删除；购买买断订阅可永久恢复同步功能。"
     }
     private static func date(_ text: String?) -> Date? {
         guard let text else { return nil }
@@ -180,44 +143,6 @@ struct DeviceFeatureStatus: Decodable {
     let isCurrentDeviceActive: Bool; let canUseFeatures: Bool
     let canUseAccountCloudSync: Bool?
 }
-struct ActivationCodeRedemption: Decodable {
-    let codeId: String; let kind: String; let years: Int; let redeemedAt: String; let status: DeviceFeatureStatus
-    let alreadyRedeemed: Bool?
-}
-struct MembershipProduct: Decodable, Identifiable {
-    let id: String; let name: String; let kind: String; let priceMinor: Int; let currency: String
-    let durationDays: Int; let bytes: Int64; let description: String
-    /// The desktop's display format: "¥128", "¥88.5", or "12 XYZ" for other currencies.
-    var price: String {
-        let formatter = NumberFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.numberStyle = .decimal
-        formatter.minimumFractionDigits = 0; formatter.maximumFractionDigits = 2
-        formatter.usesGroupingSeparator = false
-        let amount = formatter.string(from: NSNumber(value: Double(priceMinor) / 100)) ?? String(Double(priceMinor) / 100)
-        switch currency {
-        case "CNY": return "¥" + amount
-        case "USD": return "$" + amount
-        case "EUR": return "€" + amount
-        default: return amount + " " + currency
-        }
-    }
-}
-struct PurchaseOrder: Decodable, Identifiable {
-    let id: String; let accountId: String; let productId: String; let productName: String; let kind: String
-    let priceMinor: Int; let currency: String; let durationDays: Int; let bytes: Int64; let state: String
-    let createdAt: String; let expiresAt: String; let fulfilledAt: String?
-    var isExpired: Bool {
-        guard state == "pending" else { return false }
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        var expiry = formatter.date(from: expiresAt)
-        if expiry == nil { formatter.formatOptions = [.withInternetDateTime]; expiry = formatter.date(from: expiresAt) }
-        return expiry.map { $0 <= Date() } ?? false
-    }
-    var stateName: String { state == "fulfilled" ? "已到账" : state == "cancelled" ? "已取消" : isExpired ? "已过期" : "待确认付款" }
-}
-
 struct SyncForm: Codable {
     var provider = 0
     var providerChosenByUser = false

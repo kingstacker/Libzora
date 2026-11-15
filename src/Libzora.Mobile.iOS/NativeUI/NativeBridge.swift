@@ -170,14 +170,23 @@ final class NativeReaderSession: ObservableObject {
     @Published var footnote: ReaderFootnote?
     @Published var aiStreams: [String: String] = [:]
     var appearanceSessionId = ""
+    /// Monotonic per reading session. SwiftUI may recreate the reader view
+    /// (resetting @State) while the renderer keeps the last revision, so an
+    /// older-looking counter would make the renderer ignore appearance changes.
+    var appearanceRevision = 0
+    var appearanceColorScheme: ColorScheme?
 }
 
 @MainActor
 final class NativeStore: ObservableObject {
     let handler: ManagedRequest
     let readerController: UIViewController
+    let showsLaunchAnimation: Bool
     @Published var library: [LibraryBook] = []
     @Published var folders: [LibraryFolder] = []
+    @Published private(set) var preparingLibrary = true
+    @Published private(set) var libraryLoaded = false
+    @Published private(set) var libraryLoadError: String?
     @Published var visibleAmbientColors: [NativeAmbientColor] = []
     @Published var fallbackAmbientColors: [NativeAmbientColor] = []
     var ambientColors: [NativeAmbientColor] {
@@ -215,21 +224,27 @@ final class NativeStore: ObservableObject {
     private var preferenceRevision = 0
     private var preferenceWrites = 0
     private var libraryRefreshRevision = 0
+    private var launchStarted = false
+    private var libraryChangedDuringLaunch = false
 
     init(handler: @escaping ManagedRequest, readerController: UIViewController) {
         self.handler = handler
         self.readerController = readerController
-        if !ProcessInfo.processInfo.arguments.contains("--libzora-disable-restore") {
-            pendingReaderRestore = UserDefaults.standard.string(forKey: Self.lastReaderKey)
-            restoringReader = pendingReaderRestore != nil
-        }
+        let savedReader = ProcessInfo.processInfo.arguments.contains("--libzora-disable-restore")
+            ? nil : UserDefaults.standard.string(forKey: Self.lastReaderKey)
+        showsLaunchAnimation = savedReader == nil
+        pendingReaderRestore = savedReader
+        restoringReader = savedReader != nil
     }
 
-    func request<Value: Decodable>(_ command: String, _ args: [String: Any] = [:]) async throws -> Value {
+    func request<Value: Decodable>(_ command: String, _ args: [String: Any] = [:],
+                                   timeoutNanoseconds: UInt64? = nil) async throws -> Value {
         nextId += 1
         let id = nextId
         let data = try JSONSerialization.data(withJSONObject: ["command": command, "args": args])
         let json = String(decoding: data, as: UTF8.self)
+        var timeoutTask: Task<Void, Never>?
+        defer { timeoutTask?.cancel() }
         return try await withTaskCancellationHandler(operation: {
             try await withCheckedThrowingContinuation { continuation in
                 pending[id] = { data in
@@ -240,6 +255,13 @@ final class NativeStore: ObservableObject {
                     } catch { continuation.resume(throwing: error) }
                 }
                 if Task.isCancelled { cancel(id); return }
+                if let timeoutNanoseconds {
+                    timeoutTask = Task { [weak self] in
+                        do { try await Task.sleep(nanoseconds: timeoutNanoseconds) }
+                        catch { return }
+                        self?.cancel(id, timedOut: true)
+                    }
+                }
                 json.withCString { handler(id, $0) }
             }
         }, onCancel: {
@@ -247,9 +269,10 @@ final class NativeStore: ObservableObject {
         })
     }
 
-    private func cancel(_ id: Int64) {
+    private func cancel(_ id: Int64, timedOut: Bool = false) {
         guard let completion = pending.removeValue(forKey: id) else { return }
-        let data = Data("{\"ok\":false,\"error\":\"操作已取消\"}".utf8)
+        let message = timedOut ? "书库加载超时，请重试。" : "操作已取消"
+        let data = Data("{\"ok\":false,\"error\":\"\(message)\"}".utf8)
         completion(data)
         "{\"command\":\"cancel\"}".withCString { handler(id, $0) }
     }
@@ -264,7 +287,11 @@ final class NativeStore: ObservableObject {
         case "reader": if let reader = event.reader, reader != session.state { session.state = reader }
         case "preferences": if let value = event.preferences, value != preferences { preferences = value }
         case "developer": developerMode = event.enabled ?? false
-        case "libraryChanged": perform { try await self.refreshLibrary() }
+        case "libraryChanged":
+            // Keep a single owner for the first snapshot. A sync notification
+            // must not supersede it and release the splash before data arrives.
+            if preparingLibrary { libraryChangedDuringLaunch = true }
+            else { perform { try await self.refreshLibrary() } }
         case "confirm": if let prompt = event.prompt { self.prompt = prompt; NativeAlerts.confirm(prompt, store: self) }
         case "confirmDismissed": if let id = event.id { NativeAlerts.dismissPrompt(id); if prompt?.id == id { prompt = nil } }
         case "readerDialog": session.dialog = event.dialog
@@ -295,11 +322,50 @@ final class NativeStore: ObservableObject {
         }
     }
 
-    func refreshLibrary() async throws {
+    /// The root owns startup, rather than waiting for a tab's onAppear. The
+    /// branded splash stays for two seconds while the shelf is prepared in
+    /// parallel. Restoring the last reader skips the animation and its delay.
+    func prepareLaunch(viewport: CGSize) async {
+        guard !launchStarted else { return }
+        launchStarted = true
+        async let launchAnimation: Void = Task.sleep(nanoseconds: showsLaunchAnimation ? 2_000_000_000 : 0)
+        do {
+            try await refreshLibrary(timeoutNanoseconds: 30_000_000_000)
+            await NativeCoverCache.prepareLibrary(books: library, folders: folders, preferences: preferences,
+                                                 continueBookId: continueBookId, viewport: viewport)
+            try Task.checkCancellation()
+        } catch {
+            if !libraryLoaded {
+                libraryLoadError = Task.isCancelled ? "书库加载已中断，请重试。" : error.localizedDescription
+            }
+        }
+        try? await launchAnimation
+        preparingLibrary = false
+        if libraryLoaded && !Task.isCancelled {
+            openPendingReaderIfNeeded()
+            restorePendingReaderIfNeeded()
+        } else {
+            releaseLaunchRestore()
+        }
+        if libraryChangedDuringLaunch {
+            libraryChangedDuringLaunch = false
+            perform { try await self.refreshLibrary() }
+        }
+    }
+
+    func refreshLibrary(timeoutNanoseconds: UInt64? = nil) async throws {
         let revision = preferenceRevision
         libraryRefreshRevision += 1
         let refreshRevision = libraryRefreshRevision
-        let value: LibrarySnapshot = try await request("library.get")
+        let value: LibrarySnapshot
+        do {
+            value = try await request("library.get", timeoutNanoseconds: timeoutNanoseconds)
+        } catch {
+            if refreshRevision == libraryRefreshRevision && !Task.isCancelled {
+                libraryLoadError = error.localizedDescription
+            }
+            throw error
+        }
         guard refreshRevision == libraryRefreshRevision else { return }
         // Every assignment re-renders all tabs, even with an equal value.
         if library != value.books { library = value.books }
@@ -308,6 +374,9 @@ final class NativeStore: ObservableObject {
             preferences = value.preferences
         }
         if continueBookId != value.continueBookId { continueBookId = value.continueBookId }
+        libraryLoadError = nil
+        if !libraryLoaded { libraryLoaded = true }
+        guard !preparingLibrary else { return }
         openPendingReaderIfNeeded()
         restorePendingReaderIfNeeded()
     }
@@ -318,6 +387,7 @@ final class NativeStore: ObservableObject {
     func openRequestedBook(_ bookId: String) {
         pendingOpenBookId = bookId
         pendingReaderRestore = nil
+        guard !preparingLibrary else { return }
         if readerBook != nil {
             perform { await self.closeReader() }
         } else if openingReader {
@@ -415,6 +485,8 @@ final class NativeStore: ObservableObject {
         session.state = ReaderSnapshot()
         session.dialog = nil
         session.appearanceSessionId = UUID().uuidString
+        session.appearanceRevision = 0
+        session.appearanceColorScheme = nil
         var args: [String: Any] = ["bookId": book.id, "sessionId": session.appearanceSessionId]
         if let location { args["location"] = location }
         // Present the cover before the reader reports ready. Otherwise the

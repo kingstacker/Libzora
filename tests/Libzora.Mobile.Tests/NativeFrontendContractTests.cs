@@ -198,7 +198,6 @@ public sealed class NativeFrontendContractTests
                 ("collections", new[] { Data(("id", Guid.NewGuid()), ("count", 1), ("automatic", false)) }), ("preferences", new MobilePreferences())),
             Data(("dashboard", dashboard), ("medals", ReadingMedalCatalog.Build(dashboard).ToArray()), ("streak", 1)),
             new AccountStatus("http://127.0.0.1:5088", new AccountUser(bookId, "test_reader"), now.AddDays(30)),
-            new FeedbackReceipt(Guid.NewGuid(), 128, FeedbackStatuses.Pending, now),
             Data(("period", 2), ("today", "2026-11-08"), ("buckets", new ReadingPeriodBucket[]
                 { new(new(2026, 11, 1), new(2026, 11, 30), 120) })),
             new BookCollection { Id = Guid.NewGuid(), Name = "测试收藏夹" },
@@ -250,7 +249,7 @@ public sealed class NativeFrontendContractTests
     }
 
     [Fact]
-    public void MembershipDevicesAndOrdersUseTheGeneratedNativeWireContract()
+    public void MembershipAndDevicesUseTheGeneratedNativeWireContract()
     {
         var user = Guid.NewGuid(); var device = Guid.NewGuid(); var now = DateTimeOffset.UtcNow;
         var member = new AccountMembership(user, AccountRegion.International, "lifetime", true, null, 6, 1, 1,
@@ -263,52 +262,21 @@ public sealed class NativeFrontendContractTests
         Assert.True(document.RootElement.GetProperty("canUseFeatures").GetBoolean());
         var restored = document.RootElement.Deserialize(IOSNativeJsonContext.Default.DeviceFeatureStatus)!;
         Assert.Equal(device, restored.CurrentDeviceId); Assert.Equal(user, restored.Membership.AccountId);
-        using var products = JsonDocument.Parse(Serialize(new MembershipProduct[]
-            { new("fictional", "Fictional product", "lifetime", 1, "USD", 0, 0, "Local fixture only") }));
-        Assert.Equal(1, products.RootElement[0].GetProperty("priceMinor").GetInt32());
-        using var order = JsonDocument.Parse(Serialize(new PurchaseOrder(Guid.NewGuid(), user, "fictional", "Fictional product", "lifetime",
-            1, "USD", 0, 0, "pending", now, now.AddDays(2), null)));
-        Assert.Equal("pending", order.RootElement.GetProperty("state").GetString());
-        Assert.Equal(JsonValueKind.Null, order.RootElement.GetProperty("fulfilledAt").ValueKind);
+        Assert.Null(typeof(AccountMembership).Assembly.GetType("Libzora.Core.ActivationCodeRedemption"));
+        Assert.False(restored.CanUseAccountCloudSync);
     }
 
     [Fact]
-    public void NativeFeedbackFormMapsToTheSharedSubmissionContract()
+    public void NativeBridgeDoesNotRegisterFeedbackOrPurchaseDtos()
     {
-        var requestId = Guid.NewGuid();
-        var jpeg = Convert.ToBase64String([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10]);
-        using var document = JsonDocument.Parse(JsonSerializer.Serialize(new
-        {
-            requestId = requestId.ToString().ToUpperInvariant(),
-            type = "bug",
-            content = "阅读页切换章节时闪退。",
-            contact = "  ",
-            platformVersion = "26.5",
-            deviceModel = "iPhone17,1",
-            images = new[] { jpeg }
-        }));
-        var draft = NativeFeedbackRequest.ReadDraft(document.RootElement, "1.1.3");
-        Assert.Equal(requestId, draft.RequestId);
-        Assert.Equal(FeedbackTypes.Bug, draft.Type);
-        Assert.Equal("阅读页切换章节时闪退。", draft.Content);
-        Assert.Null(draft.Contact);
-        Assert.Equal("1.1.3", draft.AppVersion);
-        Assert.Equal("ios", draft.Platform);
-        Assert.Equal("26.5", draft.PlatformVersion);
-        Assert.Equal("iPhone17,1", draft.DeviceModel);
-        // Logs default to on, matching the desktop feedback window.
-        Assert.True(NativeFeedbackRequest.ReadAttachLogs(document.RootElement));
-        using var noLogs = JsonDocument.Parse("""{"attachLogs":false}""");
-        Assert.False(NativeFeedbackRequest.ReadAttachLogs(noLogs.RootElement));
+        Assert.Null(typeof(IOSNativeJsonContext).Assembly.GetType("Libzora.iOSHead.NativeFeedbackRequest"));
+        Assert.Null(typeof(IOSNativeJsonContext).GetProperty("FeedbackReceipt"));
+        Assert.Null(typeof(IOSNativeJsonContext).GetProperty("MembershipProductArray"));
+        Assert.Null(typeof(IOSNativeJsonContext).GetProperty("PurchaseOrder"));
+        Assert.Null(typeof(IOSNativeJsonContext).GetProperty("PurchaseOrderArray"));
+        // Local log validation remains useful for explicit local exports, not uploads.
         Assert.Null(FeedbackValidation.ValidateSoftwareLog("Libzora software log\nERROR reader.open"));
         Assert.NotNull(FeedbackValidation.ValidateSoftwareLog("bad\0log"));
-        // The bridge must produce a form the shared service accepts as-is.
-        Assert.Null(FeedbackValidation.ValidateDraft(draft));
-
-        var image = Assert.Single(NativeFeedbackRequest.ReadImages(document.RootElement));
-        Assert.Equal("image/jpeg", image.ContentType);
-        Assert.Equal("screenshot-1.jpg", image.FileName);
-        Assert.Null(FeedbackValidation.ValidateImages([image]));
     }
 
     [Fact]

@@ -34,7 +34,7 @@ Libzora is a quiet, cross-platform ebook and Kindle manager built with Avalonia.
 - **PDF reading** — First-page library covers, continuous scrolling, single-page and two-page reading, fit-width/page controls, sharp zoom and 90° rotation. Supports selectable text, six underline/highlight styles, editable comments, and page annotations at arbitrary PDF positions through the page-note icon or right-click. Pages appear before full-book text indexing finishes; only visible regions are rendered at the screen's pixel density. Search, bookmarks and reading position use the same local reading data as EPUB. Scanned pages support viewing and page notes; OCR is not included.
 - **AI assistant** — Ask questions about the current book, summarize chapters, explain selections, and choose from discovered models through DeepSeek, OpenAI, or compatible endpoints. Requests use relevant local excerpts only.
 - **Kindle** — Detect USB/WPD/MTP devices, transfer books, manage fonts and dictionaries, and import `My Clippings.txt`.
-- **Tools and sync** — Calibre conversion, encrypted local backups, protected credentials, and account / S3 / WebDAV synchronization. Account servers and local libraries stay separate for China and International regions.
+- **Tools and sync** — Calibre conversion, encrypted local backups, protected credentials, and cross-device sync with your own S3 / WebDAV, free in the current version without an account. Account registration is not live yet. The account service manages identity and feature entitlements, not book storage.
 
 ## Download
 
@@ -46,11 +46,27 @@ Calibre is required separately for format conversion. Official GitHub releases p
 
 The **Settings → Diagnostics** page checks the data directory, PDF parser, WebView, Calibre, TTS, and Kindle services, and is the first place to look for cross-platform issues. The library trash can restore a deleted book or a single format, and permanently purge items after confirmation; trash contents are included in local backups.
 
-## Cloud sync
+## Free / Trial / Lifetime
 
-For **Account cloud sync**, first register or sign in through **Login / Register**, choose **China** or **International**, and enter that region's server address. Then choose Account cloud sync in the sync settings and set a sync encryption key. Accounts, sessions, local libraries, and cloud files are independent between the two regions. See [account server setup](docs/account-server.md) for the independent PostgreSQL server and its administration website.
+**The current client release is free**: full local features and cross-device sync with your own S3 / WebDAV work without an account, and registration is not available yet. The table below describes the planned account-service tiers, not an available sign-up or purchase flow.
 
-For **S3** or **WebDAV**, choose the provider in **Settings → Data & sync → Cloud sync**, enter the connection details, and select **Save settings**. Both providers retain their own addresses and credentials. Manual, startup, exit, and scheduled sync use the saved selection.
+| Plan | Price and duration | Features |
+| --- | --- | --- |
+| **Free** | Free forever | Full local reading and library management, USB Kindle features, plugins, and your own AI APIs |
+| **Trial** | 7-day free trial, once per account; claimed explicitly by the user | All Free features plus cross-device books, reading progress, bookmarks, and annotations through your own S3 / WebDAV |
+| **Lifetime** | ¥88 once, permanent; no renewals | All Free features plus permanent access to the same S3 / WebDAV cross-device sync |
+
+Every account allows up to **6 simultaneously signed-in devices**. No plan provides official cloud storage or official cloud sync. The account service handles identity and feature entitlements only and does not receive your books. You configure your own storage and cover its storage and traffic costs; AI service costs follow your provider's terms. Trial expiry disables only paid sync features and does not delete data in your own storage or your local library. A purchased Lifetime remains valid when a trial ends.
+
+Lifetime entitlements bind directly to the account. Protected administrators enable permanent access based on external authorization; clients can only refresh and validate entitlements, not grant themselves access. Purchase and enablement methods follow actual channel announcements; refresh entitlements after enablement. The existing 7-day and ¥88 rules remain unchanged, without announcing an available purchase channel, automatic payment, or payment gateway. The account service retains only necessary account/recovery, region, 6-device/session security, trial, entitlement validation/expiry, deactivation, and protected admin grant/revocation/audit functions. It does not process products, orders, or payments, issue/redeem/manage activation codes, accept feedback screenshots, or provide cloud objects or quota statistics.
+
+Historical paid time-limited entitlements remain valid until their original expiry; they do not become permanent. Self-service account closure becomes password-and-typed-confirmation **account deactivation** and revokes sessions, retaining necessary license/audit records—not deleting server data. Local and user-provided storage data are retained; existing databases, ledgers, historical redeemed codes, and cloud files are not migrated or deleted as part of this change. Historical codes and ledgers are retained only for necessary read-only compatibility, not renewed redemption.
+
+## Sync with your own S3 / WebDAV
+
+Cross-device sync currently works without signing in: configure your own S3 or WebDAV storage and start syncing. Account registration is not available yet. Once the account service ships, accounts, entitlements, sessions, local libraries, and sync namespaces will remain independent between the China and International regions. See [account server setup](docs/account-server.md).
+
+Choose **S3** or **WebDAV** in **Settings → Data & sync → Cloud sync**, enter your own connection details, and select **Save settings**. Book and snapshot transfers connect directly to your storage, not the account server. Both providers retain their own addresses and credentials. Manual, startup, exit, and scheduled sync use the saved selection.
 
 For WebDAV, enter the URL of an existing directory, such as `https://dav.example.com/dav/`, and credentials if required. Some services require an app password. Libzora creates a sync subdirectory named `libzora` by default; change it in Advanced options. The connection test verifies read/write access and removes its test file. The server must support standard PROPFIND, MKCOL, GET, PUT, MOVE, and DELETE operations. Completed uploads are published with MOVE so interrupted transfers do not replace existing snapshots.
 
@@ -107,6 +123,12 @@ Linux also requires WebKitGTK and Secret Service. See [cross-platform notes](doc
 - **Feature references and tools** — [Calibre](https://github.com/kovidgoyal/calibre) and [KFX Input](https://www.mobileread.com/forums/showthread.php?t=291290).
 - **Runtime** — [Avalonia](https://github.com/AvaloniaUI/Avalonia), [CommunityToolkit.Mvvm](https://github.com/CommunityToolkit/dotnet), [EF Core](https://github.com/dotnet/efcore), and [PdfPig](https://github.com/UglyToad/PdfPig).
 - **Testing** — [xUnit](https://github.com/xunit/xunit) and [VSTest](https://github.com/microsoft/vstest).
+
+## Code contributors
+
+Thank you to the developers who have submitted code and improvements to Libzora:
+
+- sonianmu (Mutro)
 
 ## Acknowledgments
 

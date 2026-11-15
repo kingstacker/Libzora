@@ -16,6 +16,18 @@ and MTP devices through the bundled libmtp stack.
 - macOS stores its wrapping key in the login Keychain.
 - Windows continues to use DPAPI and its existing data layout.
 
+## Plans and cross-device sync
+
+The **Free / Trial / Lifetime** plans apply across supported platforms. Free includes full local reading and library management, USB Kindle features, plugins, and your own AI APIs, subject to each platform's device support. Trial is a **7-day free trial, once per account**, claimed explicitly by the user rather than activated on registration or sign-in. Lifetime costs **¥88 once**, is permanent, and needs no renewals.
+
+An active Trial or Lifetime unlocks cross-device books, reading progress, bookmarks, and annotations through **your own S3 / WebDAV**. Every account permits up to **6 simultaneously signed-in devices**. You provide the storage and pay its storage and traffic costs. No plan provides official cloud storage or official cloud sync; the account service handles identity and feature entitlements only and does not receive your books. Trial expiry disables only paid sync features and does not delete your own storage data or local library.
+
+China and International accounts, entitlements, local libraries, and sync namespaces remain isolated. Use matching regional settings on devices meant to sync together; account sessions, storage credentials, and encryption keys remain locally protected and are excluded from library backups. See [account service](account-server.md), [encrypted backups](backup-encryption.md), and [snapshot compatibility](s3-snapshot-compatibility.md).
+
+Lifetime entitlements bind directly to the regional account. Protected administrators grant permanent access based on external authorization; clients can only refresh and validate it, not grant themselves access. Purchase and enablement methods follow actual channel announcements; refresh entitlements after enablement. The existing 7-day and ¥88 rules do not imply an available purchase channel, automatic payment, or payment gateway. The service retains only necessary account/recovery, region isolation, 6-device/session security, trial, entitlement validation/expiry, deactivation, and protected admin grant/revocation/audit functions, with authentication and CSRF. Products/orders/payments, activation-code generation/redemption/management, official-cloud objects/quotas/usage, feedback screenshot uploads, and cloud cleanup are removed from the active service.
+
+Historical paid time-limited entitlements keep their original expiry and do not become permanent. Self-service closure becomes password-and-typed-confirmation account deactivation with session revocation; necessary license/audit records remain, so it is not server-data deletion. Local and user-provided storage data remain. Existing databases, ledgers, historical redeemed codes, and cloud files are not migrated or deleted by this change. Historical codes and ledgers are retained only for necessary read-only compatibility, not renewed redemption.
+
 ## macOS feature parity
 
 The macOS head matches the Windows build beyond device access:

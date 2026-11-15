@@ -910,6 +910,29 @@ public sealed class LibzoraLayoutEngineTests : IDisposable
     }
 
     [Fact]
+    public void Interaction_HitTestCharacterKeepsTheGlyphPastItsMidpoint()
+    {
+        var path = WriteChapter("<p>甲乙丙丁</p>");
+        var content = new XhtmlChapterLoader().Load(path);
+
+        using var engine = CreateEngine();
+        var layout = engine.Compose(content, Options(TypesetWritingMode.HorizontalTb));
+
+        var offset = content.BodyText.IndexOf('乙');
+        Assert.True(offset >= 0);
+        var pageIndex = layout.GetPageIndexOfOffset(offset);
+        var rect = layout.GetCharRect(pageIndex, offset);
+        Assert.NotNull(rect);
+        var midY = (rect.Value.Top + rect.Value.Bottom) / 2;
+
+        Assert.Equal(offset, layout.HitTestCharacter(pageIndex, new SKPoint(rect.Value.Left + 1, midY)));
+        // A long press past the midpoint still selects 乙; the caret hit test
+        // deliberately advances to the boundary before 丙.
+        Assert.Equal(offset, layout.HitTestCharacter(pageIndex, new SKPoint(rect.Value.Right - 1, midY)));
+        Assert.Equal(offset + 1, layout.HitTest(pageIndex, new SKPoint(rect.Value.Right - 1, midY)));
+    }
+
+    [Fact]
     public void Paint_HorizontalTextProducesInkInsideThePage()
     {
         var path = WriteChapter("<p>横排自绘文字必须落在基线附近，而不是被重复减去绝对基线后画到页面外。</p>");

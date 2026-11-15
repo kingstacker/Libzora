@@ -59,6 +59,9 @@ def main() -> int:
         for method in args.only:
             command.append(f"-only-testing:NativeFrontendUITests/{args.suite}/{method}")
     else:
+        # Media rotation uses a separate fixture bundle and must be selected
+        # explicitly after prepare-reader-media-preview.py.
+        command.append("-skip-testing:NativeFrontendUITests/ReaderMediaTests")
         # Upgrade setup deliberately uses another preview installation and is
         # run separately after the host has installed the legacy then native UI.
         command.append("-skip-testing:NativeFrontendUITests/NativeFrontendTests/testLegacyUpgradePreservesLibraryAndPreferences")
@@ -69,10 +72,8 @@ def main() -> int:
         # The account scenario is selected explicitly with --only after both
         # regional localhost servers have been started with disposable data.
         command.append("-skip-testing:NativeFrontendUITests/NativeFrontendTests/testRegionalAccountRegistrationAndFreeSyncRestriction")
-        command.append("-skip-testing:NativeFrontendUITests/NativeFrontendTests/testAccountMembershipDevicesAndOrders")
+        command.append("-skip-testing:NativeFrontendUITests/NativeFrontendTests/testAccountMembershipDevicesAndRightsRefresh")
         command.append("-skip-testing:NativeFrontendUITests/NativeFrontendTests/testTrialStaysUnclaimedUntilTheSwitchIsTurnedOn")
-        # Feedback submission needs a signed-in account on the local China server.
-        command.append("-skip-testing:NativeFrontendUITests/NativeFrontendTests/testFeedbackSubmissionUsesTheSignedInAccount")
     captures = []
     with (output / "xcodebuild.log").open("w") as log:
         process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -119,6 +120,14 @@ def main() -> int:
             if distinct_colours < 2 or largest_jump > 3:
                 print(f"error: {capture['file']} must follow the colourful background without a footer seam.", flush=True)
                 status = status or 1
+            if capture["name"] == "纸张跟随-从黑切回":
+                # This scenario explicitly selects the app's light appearance;
+                # a seamless but entirely dark page must not pass the regression.
+                minimum_brightness = min((sum(pixel) / 3 for pixel in pixels), default=0)
+                capture["minimumMarginBrightness"] = minimum_brightness
+                if minimum_brightness <= 128:
+                    print(f"error: {capture['file']} must return to the app's light paper after ink.", flush=True)
+                    status = status or 1
     for capture in captures:
         if capture["name"].startswith("目录纸张-") and capture["captured"]:
             colours = margin_colours(screenshots / capture["file"], start_fraction=0.25, end_fraction=0.9)

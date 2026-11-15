@@ -46,10 +46,6 @@ public sealed record AppSettings
 
     public string UiLanguage { get; init; } = UiText.DetectSystemLanguage();
     public AppTheme MainTheme { get; init; } = AppTheme.Classic;
-    // Independent of MainTheme: a soft cover-derived wash over every main
-    // window surface, including the reader. Off for existing profiles.
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
-    public bool ColorfulMode { get; init; }
     public bool OnboardingCompleted { get; init; }
     public bool DeferTtsInstallationUntilUse { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

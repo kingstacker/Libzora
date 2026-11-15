@@ -148,6 +148,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
 
     // Selection state in body-text offsets.
     private bool _selecting;
+    private bool _wordSelectionActive;
     private int _selectionAnchor = -1;
     private int _selectionActiveOffset = -1;
     private int _selectionStart = -1;
@@ -3063,6 +3064,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         _pointerDown = true;
         _pointerClickCount = e.ClickCount;
         _selecting = false;
+        _wordSelectionActive = false;
         _pointerDragStarted = false;
         _pointerDownPosition = position;
         _lastPointerPosition = position;
@@ -3124,6 +3126,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
             {
                 _pointerDragStarted = true;
                 _selecting = true;
+                _wordSelectionActive = false;
             }
         }
 
@@ -3235,6 +3238,17 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         if (_selecting && wasDrag)
         {
             _selecting = false;
+            EmitSelection();
+            e.Handled = true;
+            return;
+        }
+
+        // A long press selected a word before the finger was lifted. Keep the
+        // painted selection and report it again instead of treating the
+        // release as a tap that clears it.
+        if (_wordSelectionActive)
+        {
+            _wordSelectionActive = false;
             EmitSelection();
             e.Handled = true;
             return;
@@ -3967,9 +3981,55 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
             rects.Max(rect => rect.Bottom));
     }
 
+    /// <summary>
+    /// Selects the character or word under a long press. Links and existing
+    /// annotations keep their tap behavior instead of starting a selection.
+    /// </summary>
+    public bool SelectWordAt(double x, double y)
+    {
+        var position = new Point(x, y);
+        if (_layout is null || _content is null || IsOverScrollBar(position))
+        {
+            return false;
+        }
+
+        if (MapPointToPage(position) is not { } mapped
+            || _layout.GetHotZoneAt(mapped.Page, mapped.Local) is not null
+            || TryGetAnnotationAt(mapped.Page, new Point(mapped.Local.X, mapped.Local.Y), out _))
+        {
+            return false;
+        }
+
+        var offset = _layout.HitTestCharacter(mapped.Page, mapped.Local);
+        if (offset < 0)
+        {
+            return false;
+        }
+
+        var (start, end) = ReaderWordSelection.GetRange(_content.BodyText, offset);
+        if (end <= start)
+        {
+            return false;
+        }
+
+        StopSelectionAutoPageTurn();
+        _selecting = false;
+        _wordSelectionActive = true;
+        _pointerDownOffset = offset;
+        _selectionAnchor = start;
+        _selectionActiveOffset = end;
+        _selectionStart = start;
+        _selectionEnd = end;
+        _bitmapDirty = true;
+        InvalidateVisual();
+        EmitSelection();
+        return true;
+    }
+
     public void ClearSelection()
     {
         _selecting = false;
+        _wordSelectionActive = false;
         StopSelectionAutoPageTurn();
         _selectionActiveOffset = _selectionStart = _selectionEnd = _selectionAnchor = -1;
         _hasLastPointerPosition = false;

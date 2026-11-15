@@ -268,7 +268,6 @@ public partial class MainWindow : Window
         PromoteModalOverlays();
         InitializeKindleEmailClipboardSupport();
         ApplyMainAppearance();
-        InitializeAmbientBackground();
         InitializeWidgetSnapshots();
         InitializeReaderAppearance();
         InitializeReaderToolbarAutoHide();
@@ -527,9 +526,7 @@ public partial class MainWindow : Window
         {
             viewer.Classes.Add("scrolling");
             idleTimer.Stop();
-            idleTimer.Start();
-            ScheduleAmbientRefresh();
-        };
+            idleTimer.Start();        };
         viewer.DetachedFromVisualTree += (_, _) =>
         {
             idleTimer.Stop();
@@ -821,10 +818,7 @@ public partial class MainWindow : Window
             SetTaskStatus(T("正在加载书籍分组…"));
             await RefreshCollectionsAsync();
             _filterControlsReady = true;
-            UpdateLibraryUi();
-            InvalidateAmbientFallback();
-            ScheduleAmbientRefresh();
-            _widgetSnapshots?.Schedule();
+            UpdateLibraryUi();            _widgetSnapshots?.Schedule();
             SetTaskStatus(ViewModel.StatusText);
             ShowOnboardingIfNeeded();
             StartAutomaticUpdateCheck();
@@ -1254,15 +1248,11 @@ public partial class MainWindow : Window
             Dispatcher.UIThread.Post(() =>
             {
                 ApplyCollectionSearchFilter();
-                UpdateLibraryUi();
-                ScheduleAmbientRefresh();
-            });
+                UpdateLibraryUi();            });
             return;
         }
         ApplyCollectionSearchFilter();
-        UpdateLibraryUi();
-        ScheduleAmbientRefresh();
-    }
+        UpdateLibraryUi();    }
 
     private void ApplyCollectionSearchFilter()
     {
@@ -1388,9 +1378,7 @@ public partial class MainWindow : Window
             LibraryViewMode.Collections => LibraryCollectionsGlyphData,
             _ => LibraryGridGlyphData
         });
-        UpdateLibraryUi();
-        ScheduleAmbientRefresh();
-        if (persist && mode != LibraryViewMode.Collections)
+        UpdateLibraryUi();        if (persist && mode != LibraryViewMode.Collections)
             ScheduleAppSettingsAutoSave(showSavedStatus: false);
     }
 
@@ -1440,9 +1428,7 @@ public partial class MainWindow : Window
 
         _bookCardControls[control] = card;
         _visibleBookCards.Add(card);
-        card.LoadCover();
-        ScheduleAmbientRefresh();
-        if (card.CoverImage is null
+        card.LoadCover();        if (card.CoverImage is null
             && card.Book.Files.Any(file => string.Equals(file.Format, "pdf", StringComparison.OrdinalIgnoreCase)))
         {
             _ = RestoreVisiblePdfCoverAsync(card);
@@ -1459,9 +1445,7 @@ public partial class MainWindow : Window
 
     private void ReleaseBookCardControl(Control control, BookCardViewModel card)
     {
-        _bookCardControls.Remove(control);
-        ScheduleAmbientRefresh();
-        // Grid and list can both retain a visual for the same card. One
+        _bookCardControls.Remove(control);        // Grid and list can both retain a visual for the same card. One
         // view recycling its visual must not release the other view's cover.
         if (_bookCardControls.ContainsValue(card)) return;
         _visibleBookCards.Remove(card);
@@ -2313,7 +2297,7 @@ public partial class MainWindow : Window
         if (File.Exists(path)) return path;
 
         var settings = _s3SyncStoredSettings.Settings;
-        if (!settings.IsConfigured || !_appSettings.NetworkEnabled)
+        if (!settings.IsConfigured || !settings.HasChosenCustomProvider || !_appSettings.NetworkEnabled)
             return null;
 
         var progress = new Progress<string>(message =>

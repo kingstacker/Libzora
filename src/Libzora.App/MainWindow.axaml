@@ -183,27 +183,9 @@
             <Path Classes="libraryGlyph" Stroke="{DynamicResource InkBrush}"
                   Data="M 7,3 V 21 M 3,7 L 7,3 L 11,7 M 17,3 V 21 M 13,17 L 17,21 L 21,17" />
         </DataTemplate>
-        <DataTemplate x:Key="SyncProviderSelectionTemplate" x:CompileBindings="False">
-            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                <Ellipse x:Name="AccountSyncSelectedLoginIndicator" Classes="syncLoginIndicator" Width="6" Height="6"
-                         Fill="{DynamicResource AccountSuccessBrush}" VerticalAlignment="Center" IsHitTestVisible="False" />
-                <TextBlock Text="{Binding}" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ComboBox}}"
-                           VerticalAlignment="Center" />
-            </StackPanel>
-        </DataTemplate>
     </Window.Resources>
 
     <Window.Styles>
-        <Style Selector="Ellipse.syncLoginIndicator">
-            <Setter Property="IsVisible" Value="False" />
-        </Style>
-        <Style Selector="ComboBox.accountSignedIn /template/ ContentControl#ContentPresenter Ellipse.syncLoginIndicator,
-                         ComboBoxItem.accountSignedIn /template/ Ellipse.syncLoginIndicator">
-            <Setter Property="IsVisible" Value="True" />
-        </Style>
-        <Style Selector="Expander.officialCloud /template/ ToggleButton.settingsExpanderHeader /template/ TextBlock#SettingsExpanderDescription">
-            <Setter Property="IsVisible" Value="False" />
-        </Style>
         <Style Selector="Border.librarySort">
             <Setter Property="Background" Value="Transparent" />
         </Style>
@@ -526,9 +508,6 @@
               Background="{DynamicResource PaperBrush}"
               ZIndex="0"
               SizeChanged="LibraryRoot_SizeChanged">
-            <!-- Colourful-mode wash: painted above the paper colour and below
-                 every page, so all main-window surfaces share it. -->
-            <local:AmbientBackground x:Name="AmbientBackdrop" Grid.ColumnSpan="3" IsHitTestVisible="False" ClipToBounds="True" />
             <!-- Left navigation -->
             <Border x:Name="LibrarySidebar" Grid.Column="0"
                     Background="{DynamicResource SidebarBrush}"
@@ -1079,7 +1058,7 @@
                     </Border>
 
                     <Grid Grid.Row="1">
-                        <ListBox x:Name="BookGrid" Classes="bookGrid" ItemsSource="{Binding ViewModel.Books}" SelectionMode="Multiple" SelectionChanged="BookList_SelectionChanged" PointerPressed="BookGrid_PointerPressed" PointerMoved="BookGrid_PointerMoved" PointerReleased="BookGrid_PointerReleased" PointerCaptureLost="BookGrid_PointerCaptureLost" KeyDown="BookGrid_KeyDown" Focusable="True" Background="Transparent" BorderThickness="0" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Disabled"><ListBox.ItemsPanel><ItemsPanelTemplate><local:VirtualizingWrapPanel Orientation="Horizontal" ItemWidth="166" ItemHeight="304" CacheLength="0.5" /></ItemsPanelTemplate></ListBox.ItemsPanel><ListBox.ItemTemplate>                                 <DataTemplate x:DataType="local:BookCardViewModel">                                     <Grid Width="154"                                           Height="{Binding CardHeight}"                                           Margin="6"                                           RowDefinitions="214,Auto"                                           PointerPressed="BookCard_PointerPressed"                                           ContextRequested="BookCard_ContextRequested"                                           DoubleTapped="BookCard_DoubleTapped" AttachedToVisualTree="BookCard_AttachedToVisualTree" DetachedFromVisualTree="BookCard_DetachedFromVisualTree">                                         <Border Grid.Row="0"                                                 Classes="bookCover ambientCover"                                                 Background="{DynamicResource PressedBrush}"                                                 BorderThickness="1">                                             <Grid Background="Transparent">                                                 <TextBlock Text="BOOK"                                                            HorizontalAlignment="Center"                                                            VerticalAlignment="Center"                                                            Foreground="{DynamicResource MutedInkBrush}"                                                            FontSize="17"                                                            IsHitTestVisible="False" />                                                 <Image Source="{Binding CoverImage}" Stretch="UniformToFill" /></Grid>                                         </Border>                                         <Grid Grid.Row="1" Margin="2,8,2,0" ColumnDefinitions="*,58" RowDefinitions="40,16,14" IsVisible="{Binding GalleryTextVisibility}">                                             <TextBlock Grid.Row="0" Grid.ColumnSpan="2" Text="{Binding Title}" FontSize="15" LineHeight="18" FontWeight="SemiBold" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" />                                             <TextBlock Grid.Row="1" Text="{Binding Authors}" FontSize="11" LineHeight="14" Foreground="{DynamicResource MutedInkBrush}" TextTrimming="CharacterEllipsis" />                                             <TextBlock Grid.Row="2" Text="{Binding FormatLabel}" FontSize="10" LineHeight="12" Foreground="{DynamicResource SubtleInkBrush}" TextTrimming="CharacterEllipsis" />                                         <Grid Grid.Row="1" Grid.RowSpan="2" Grid.Column="1" Width="52" ColumnDefinitions="24,24" ColumnSpacing="4" HorizontalAlignment="Right" VerticalAlignment="Center">
+                        <ListBox x:Name="BookGrid" Classes="bookGrid" ItemsSource="{Binding ViewModel.Books}" SelectionMode="Multiple" SelectionChanged="BookList_SelectionChanged" PointerPressed="BookGrid_PointerPressed" PointerMoved="BookGrid_PointerMoved" PointerReleased="BookGrid_PointerReleased" PointerCaptureLost="BookGrid_PointerCaptureLost" KeyDown="BookGrid_KeyDown" Focusable="True" Background="Transparent" BorderThickness="0" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Disabled"><ListBox.ItemsPanel><ItemsPanelTemplate><local:VirtualizingWrapPanel Orientation="Horizontal" ItemWidth="166" ItemHeight="304" CacheLength="0.5" /></ItemsPanelTemplate></ListBox.ItemsPanel><ListBox.ItemTemplate>                                 <DataTemplate x:DataType="local:BookCardViewModel">                                     <Grid Width="154"                                           Height="{Binding CardHeight}"                                           Margin="6"                                           RowDefinitions="214,Auto"                                           PointerPressed="BookCard_PointerPressed"                                           ContextRequested="BookCard_ContextRequested"                                           DoubleTapped="BookCard_DoubleTapped" AttachedToVisualTree="BookCard_AttachedToVisualTree" DetachedFromVisualTree="BookCard_DetachedFromVisualTree">                                         <Border Grid.Row="0"                                                 Classes="bookCover"                                                 Background="{DynamicResource PressedBrush}"                                                 BorderThickness="1">                                             <Grid Background="Transparent">                                                 <TextBlock Text="BOOK"                                                            HorizontalAlignment="Center"                                                            VerticalAlignment="Center"                                                            Foreground="{DynamicResource MutedInkBrush}"                                                            FontSize="17"                                                            IsHitTestVisible="False" />                                                 <Image Source="{Binding CoverImage}" Stretch="UniformToFill" /></Grid>                                         </Border>                                         <Grid Grid.Row="1" Margin="2,8,2,0" ColumnDefinitions="*,58" RowDefinitions="40,16,14" IsVisible="{Binding GalleryTextVisibility}">                                             <TextBlock Grid.Row="0" Grid.ColumnSpan="2" Text="{Binding Title}" FontSize="15" LineHeight="18" FontWeight="SemiBold" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" />                                             <TextBlock Grid.Row="1" Text="{Binding Authors}" FontSize="11" LineHeight="14" Foreground="{DynamicResource MutedInkBrush}" TextTrimming="CharacterEllipsis" />                                             <TextBlock Grid.Row="2" Text="{Binding FormatLabel}" FontSize="10" LineHeight="12" Foreground="{DynamicResource SubtleInkBrush}" TextTrimming="CharacterEllipsis" />                                         <Grid Grid.Row="1" Grid.RowSpan="2" Grid.Column="1" Width="52" ColumnDefinitions="24,24" ColumnSpacing="4" HorizontalAlignment="Right" VerticalAlignment="Center">
                                              <ContentControl Grid.Column="0" Width="24" Height="24" Content="{Binding}" Padding="0" HorizontalAlignment="Center" VerticalAlignment="Center" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ContentTemplate="{StaticResource BookSyncStatusGlyph}" ToolTip.Tip="{Binding SyncStatusLabel}" AutomationProperties.Name="{Binding SyncStatusLabel}" Tapped="BookSyncStatusIcon_Tapped" IsVisible="{Binding SyncStatusVisibility}" />
                                              <ContentControl Grid.Column="1" Width="24" Height="24" Content="{Binding}" Padding="0" HorizontalAlignment="Center" VerticalAlignment="Center" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ContentTemplate="{StaticResource LibraryPresenceGlyph}" ToolTip.Tip="{Binding PresenceLabel}" AutomationProperties.Name="{Binding PresenceLabel}" IsVisible="{Binding PresenceVisibility}" />
                                          </Grid>                                         </Grid>                                                                                  <Border Grid.RowSpan="2"                                                 Classes="bookOutline"                                                 BorderBrush="{DynamicResource HairlineBrush}"                                                 BorderThickness="1"                                                 IsHitTestVisible="False" />                                         <Border Width="20" Height="20" Margin="6" HorizontalAlignment="Left" VerticalAlignment="Top" CornerRadius="10" Background="{DynamicResource InkBrush}" IsVisible="{Binding IsMultiSelected}" IsHitTestVisible="False">                                             <TextBlock Text="✓"                                                            Foreground="{DynamicResource PaperBrush}"                                                            FontSize="12"                                                            FontWeight="Bold"                                                            HorizontalAlignment="Center"                                                            VerticalAlignment="Center" />                                         </Border>                                     </Grid></DataTemplate>                             </ListBox.ItemTemplate>
@@ -1118,7 +1097,7 @@
                                             ContextRequested="BookCard_ContextRequested"
                                             DoubleTapped="BookCard_DoubleTapped" AttachedToVisualTree="BookCard_AttachedToVisualTree" DetachedFromVisualTree="BookCard_DetachedFromVisualTree">
                                         <Grid ColumnDefinitions="48,1.55*,1.65*,1.2*,140" ColumnSpacing="12">
-                                            <Border Width="40" Height="56" VerticalAlignment="Center" Classes="ambientCover" Background="{DynamicResource SoftHoverBrush}" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="1">
+                                            <Border Width="40" Height="56" VerticalAlignment="Center" Background="{DynamicResource SoftHoverBrush}" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="1">
                                                 <Grid>
                                                     <Image Source="{Binding CoverImage}" Stretch="UniformToFill" />
                                                     <Border Width="16"
@@ -2736,7 +2715,6 @@
                                         </ComboBoxItem>
                                     </ComboBox>
                                 </Grid>
-                                <ToggleSwitch x:Name="ColorfulModeCheck" VerticalAlignment="Center" Classes="settingsToggle" Content="{DynamicResource Ui.Appearance.ColorfulMode}" ToolTip.Tip="{DynamicResource Ui.Appearance.ColorfulModeHint}" AutomationProperties.Name="{DynamicResource Ui.Appearance.ColorfulMode}" />
                                 <TextBlock Text="{DynamicResource Ui.Settings.Group.Network}" Classes="settingsSectionTitle" Margin="0,16,0,0" TextWrapping="Wrap" />
                                 <ToggleSwitch x:Name="NetworkEnabledCheck" VerticalAlignment="Center" ToolTip.Tip="{DynamicResource Ui.Auto.D7842A57D154C697}" Classes="settingsToggle" Content="{DynamicResource Ui.Auto.098925F827B88E7A}" AutomationProperties.Name="{DynamicResource Ui.Auto.098925F827B88E7A}" />
                                             <Grid x:Name="TranslationGoogleProxyPane" ColumnDefinitions="*,220" ColumnSpacing="12" Background="Transparent" ToolTip.Tip="{DynamicResource Ui.Auto.8B7B5D7E5F3A1C20}">
@@ -3025,28 +3003,12 @@
                                             <Grid ColumnDefinitions="150,*" ColumnSpacing="10">
                                                 <TextBlock Text="{DynamicResource Sync.ProviderLabel}" FontSize="14" VerticalAlignment="Center" />
                                                 <ComboBox x:Name="SyncProviderBox" Grid.Column="1" SelectedIndex="0" MinWidth="160" HorizontalAlignment="Left"
-                                                          SelectionBoxItemTemplate="{StaticResource SyncProviderSelectionTemplate}" AutomationProperties.Name="{DynamicResource Sync.ProviderLabel}">
+                                                          AutomationProperties.Name="{DynamicResource Sync.ProviderLabel}">
                                                     <ComboBoxItem Content="S3" />
                                                     <ComboBoxItem Content="WebDAV" />
-                                                    <ComboBoxItem x:Name="AccountSyncProviderItem" Content="{DynamicResource Sync.AccountProvider}"
-                                                                  AutomationProperties.Name="{DynamicResource Sync.AccountProvider}">
-                                                        <ComboBoxItem.Template>
-                                                            <ControlTemplate>
-                                                                <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                                                                        BorderThickness="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}">
-                                                                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                                                        <Ellipse x:Name="AccountSyncMenuLoginIndicator" Classes="syncLoginIndicator" Width="6" Height="6"
-                                                                                 Fill="{DynamicResource AccountSuccessBrush}" VerticalAlignment="Center" IsHitTestVisible="False" />
-                                                                        <TextBlock Text="{TemplateBinding Content}" Foreground="{TemplateBinding Foreground}"
-                                                                                   FontSize="{TemplateBinding FontSize}" VerticalAlignment="Center" />
-                                                                    </StackPanel>
-                                                                </Border>
-                                                            </ControlTemplate>
-                                                        </ComboBoxItem.Template>
-                                                    </ComboBoxItem>
                                                 </ComboBox>
                                             </Grid>
-                                            <TextBlock x:Name="AccountSyncNoticeText" IsVisible="False" Margin="160,0,0,0"
+                                            <TextBlock x:Name="SyncMembershipNoticeText" IsVisible="False" Margin="160,0,0,0"
                                                        FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource MutedInkBrush}" />
                                             <Border x:Name="S3ConnectionPanel" Classes="flatSubsection" Padding="0,12,0,0" Margin="0,4,0,0">
                                                 <StackPanel Spacing="9">
@@ -3097,17 +3059,6 @@
                                                 <TextBlock Text="{DynamicResource Ui.Auto.D8E73422B3CDF7DE}" FontSize="14" VerticalAlignment="Center" TextWrapping="Wrap" />
                                                 <NumericUpDown x:Name="S3SyncIntervalBox" Grid.Column="1" Minimum="5" Maximum="1440" Increment="5" Value="30" AutomationProperties.Name="{DynamicResource Ui.Auto.D8E73422B3CDF7DE}" FontSize="14" />
                                             </Grid>
-                                            <StackPanel x:Name="AccountSyncEncryptionKeyPanel" Spacing="6" IsVisible="False">
-                                                <Grid ColumnDefinitions="150,*" ColumnSpacing="10">
-                                                    <TextBlock Text="{DynamicResource Sync.KeyLabel}" FontSize="14" VerticalAlignment="Center" />
-                                                    <TextBox x:Name="AccountSyncEncryptionKeyBox" Grid.Column="1" PasswordChar="●" FontSize="14"
-                                                             Text="{Binding Text, ElementName=S3EncryptionKeyBox, Mode=TwoWay}"
-                                                             PlaceholderText="{DynamicResource Sync.KeyPlaceholder}" ToolTip.Tip="{DynamicResource Sync.EncryptionKeyHelp}"
-                                                             AutomationProperties.Name="{DynamicResource Sync.KeyLabel}" />
-                                                </Grid>
-                                                <TextBlock x:Name="AccountSyncEncryptionKeyHelpText" Text="{DynamicResource Sync.KeyShortHelp}" Margin="160,0,0,0" FontSize="12"
-                                                           Foreground="{DynamicResource MutedInkBrush}" TextWrapping="Wrap" ToolTip.Tip="{DynamicResource Sync.EncryptionKeyHelp}" />
-                                            </StackPanel>
                                             <Expander x:Name="SettingsS3AdvancedExpander" Classes="settingsExpander" Header="{DynamicResource Ui.Auto.91A61FDDE856CD9E}" Tag="{DynamicResource Ui.Auto.A78088A8B78D2E46}" AutomationProperties.Name="{DynamicResource Ui.Auto.91A61FDDE856CD9E}" Expanded="SettingsExpander_Expanded" Collapsed="SettingsExpander_Collapsed">
                                                 <Border>
                                                     <StackPanel Spacing="9">
@@ -3117,7 +3068,11 @@
                                                             <TextBlock Text="{DynamicResource Ui.Auto.BBB1A6FC79050563}" FontSize="12" VerticalAlignment="Center" TextWrapping="Wrap" />
                                                             <TextBox x:Name="S3EncryptionKeyBox" Grid.Column="1" PasswordChar="●" AutomationProperties.Name="{DynamicResource Ui.Auto.BBB1A6FC79050563}" FontSize="14" />
                                                         </Grid>
-                                                        <TextBlock Text="{DynamicResource Sync.EncryptionKeyHelp}" FontSize="12" Foreground="{DynamicResource MutedInkBrush}" TextWrapping="Wrap" />
+                                                        <Grid ColumnDefinitions="150,*" ColumnSpacing="10">
+                                                            <TextBlock Text="{DynamicResource Ui.Auto.2304DC16FE5A676F}" FontSize="12" VerticalAlignment="Center" TextWrapping="Wrap" />
+                                                            <TextBox x:Name="S3EncryptionKeyConfirmBox" Grid.Column="1" PasswordChar="●" AutomationProperties.Name="{DynamicResource Ui.Auto.2304DC16FE5A676F}" FontSize="14" />
+                                                        </Grid>
+                                                        <TextBlock x:Name="S3EncryptionKeyHelpText" Text="{DynamicResource Sync.EncryptionKeyHelp}" FontSize="12" Foreground="{DynamicResource MutedInkBrush}" TextWrapping="Wrap" />
                                                         <Grid ColumnDefinitions="150,150" ColumnSpacing="10">
                                                             <TextBlock Text="{DynamicResource Ui.Auto.72EC61D7855C86A1}" FontSize="12" VerticalAlignment="Center" TextWrapping="Wrap" />
                                                             <NumericUpDown x:Name="S3TimeoutBox" Grid.Column="1" Minimum="10" Maximum="600" Increment="10" Value="60" AutomationProperties.Name="{DynamicResource Ui.Auto.72EC61D7855C86A1}" FontSize="14" />
@@ -3236,7 +3191,6 @@
                                     <Button x:Name="ImportPluginButton" Content="{DynamicResource Ui.Plugins.Import}" Margin="0,0,8,0" Click="ImportPluginButton_Click" />
                                     <Button x:Name="OpenPluginsFolderButton" Content="{DynamicResource Ui.Plugins.OpenFolder}" Classes="quiet" Click="OpenPluginsFolderButton_Click" />
                                     <Button x:Name="InstallPluginFromFolderButton" Content="{DynamicResource Ui.Plugins.InstallFolder}" Margin="8,0,0,0" Classes="quiet" IsVisible="False" Click="InstallPluginFromFolderButton_Click" />
-                                    <Button x:Name="PluginCatalogButton" Content="{DynamicResource Ui.Plugins.Catalog}" Margin="8,0,0,0" Classes="quiet" Click="PluginCatalogButton_Click" />
                                 </WrapPanel>
                                 <ToggleSwitch x:Name="PluginBackgroundTasksCheck"
                                               Content="{DynamicResource Ui.Plugins.BackgroundTasks}"
@@ -3251,13 +3205,6 @@
                                 <TextBlock Text="{DynamicResource Ui.Plugins.DeveloperModeHint}" FontSize="12" Foreground="{DynamicResource MutedInkBrush}" TextWrapping="Wrap" />
                                 <TextBlock x:Name="PluginsEmptyText" Text="{DynamicResource Ui.Plugins.Empty}" FontSize="12" Foreground="{DynamicResource MutedInkBrush}" TextWrapping="Wrap" IsVisible="False" />
                                 <StackPanel x:Name="PluginsPanel" Spacing="8" />
-                                <!-- Plugin market: entries from plugins/index.json, loaded
-                                     on demand by PluginCatalogButton. -->
-                                <StackPanel x:Name="PluginCatalogSection" Spacing="8" IsVisible="False">
-                                    <TextBlock Text="{DynamicResource Ui.Plugins.CatalogTitle}" FontSize="14" FontWeight="SemiBold" />
-                                    <TextBlock x:Name="PluginCatalogStatusText" FontSize="12" Foreground="{DynamicResource MutedInkBrush}" TextWrapping="Wrap" />
-                                    <StackPanel x:Name="PluginCatalogPanel" Spacing="8" />
-                                </StackPanel>
                             </StackPanel>
                             <StackPanel Spacing="16" x:Name="SettingsAdvancedSection" IsVisible="False">
                                 <Expander x:Name="SettingsMcpExpander" IsExpanded="False" Classes="settingsExpander" Header="{DynamicResource Ui.Mcp.Title}" Tag="{DynamicResource Ui.Mcp.Description}" AutomationProperties.Name="{DynamicResource Ui.Mcp.Title}" Expanded="SettingsExpander_Expanded" Collapsed="SettingsExpander_Collapsed">
@@ -4116,10 +4063,6 @@
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="0" />
             </Grid.ColumnDefinitions>
-
-            <!-- Colourful-mode wash for the reader. The opacity is lowered
-                 for the dark Ink theme so body text keeps its contrast. -->
-            <local:AmbientBackground x:Name="ReaderAmbientBackdrop" Grid.ColumnSpan="3" IsHitTestVisible="False" ClipToBounds="True" />
 
             <!-- Opaque transition cover used when leaving zen mode: the reader
                  pane sits above the library, so fading the pane itself would

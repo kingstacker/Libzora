@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Libzora.Core;
 using Libzora.Infrastructure;
 using Microsoft.Data.Sqlite;
@@ -300,18 +301,22 @@ public sealed class S3SyncTests
             await store.SaveAsync(deviceId, new S3SyncSettings { ProviderChosenByUser = true });
             Assert.True((await store.LoadAsync()).Settings.ProviderChosenByUser);
 
-            // Settings files written before the flag existed still count a
-            // saved custom connection as the user's choice.
+            // An explicit false remains false, even when connection fields exist.
             await store.SaveAsync(deviceId, new S3SyncSettings
             {
                 Endpoint = "https://s3.example.test", AccessKey = "access", SecretKey = "secret", Bucket = "books"
             });
+            Assert.False((await store.LoadAsync()).Settings.ProviderChosenByUser);
+            // Only a file written before the flag existed infers the old choice.
+            var persisted = JsonNode.Parse(await File.ReadAllTextAsync(store.SettingsPath))!.AsObject();
+            persisted.Remove("ProviderChosenByUser");
+            await File.WriteAllTextAsync(store.SettingsPath, persisted.ToJsonString());
             var legacy = await store.LoadAsync();
             Assert.True(legacy.Settings.ProviderChosenByUser);
             Assert.True(legacy.Settings.HasChosenCustomProvider);
 
-            // A bare default S3 provider is not a choice and stays eligible
-            // for the automatic Plus default.
+            // A bare default S3 provider is not the user's storage choice;
+            // account sign-in must never select a provider automatically.
             await store.SaveAsync(deviceId, new S3SyncSettings());
             var untouched = await store.LoadAsync();
             Assert.False(untouched.Settings.ProviderChosenByUser);

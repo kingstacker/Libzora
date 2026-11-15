@@ -6,7 +6,7 @@ using Libzora.Core;
 
 namespace Libzora.Infrastructure;
 
-/// <summary>Checks devices every 24 hours and at a known Plus expiry, across app restarts.</summary>
+/// <summary>Checks devices every 24 hours and at a known trial expiry, across app restarts.</summary>
 public sealed class AccountDeviceMonitor(AccountService accounts, AppPaths paths, TimeProvider? timeProvider = null) : IDisposable
 {
     private readonly TimeProvider _clock = timeProvider ?? TimeProvider.System;
@@ -45,8 +45,10 @@ public sealed class AccountDeviceMonitor(AccountService accounts, AppPaths paths
                 catch (JsonException) { }
             }
             var now = _clock.GetUtcNow();
-            var activeExpiryKey = "plus-active-expiry:" + key;
-            var expiryDue = checks.TryGetValue(activeExpiryKey, out var activeExpiry) && activeExpiry <= now;
+            var activeExpiryKey = "trial-active-expiry:" + key;
+            var hasExpiry = checks.TryGetValue(activeExpiryKey, out var activeExpiry)
+                || checks.TryGetValue("plus-active-expiry:" + key, out activeExpiry);
+            var expiryDue = hasExpiry && activeExpiry <= now;
             if (!expiryDue && checks.TryGetValue(key, out var previous) && previous <= now && now-previous < TimeSpan.FromDays(1)) return false;
             // Connection failures don't erase a valid local session or record a successful check.
             var checkedAccount = await accounts.GetStatusAsync(validateSession: true, cancellationToken: token);
@@ -58,12 +60,14 @@ public sealed class AccountDeviceMonitor(AccountService accounts, AppPaths paths
             {
                 var status = await new DeviceMembershipService(accounts).RefreshAsync(token);
                 now = _clock.GetUtcNow();
-                if (status.Membership.Tier == "pro" && status.Membership.ProExpiresAt is { } nextExpiry && nextExpiry > now)
+                checks.Remove("plus-active-expiry:" + key);
+                if (MemberEntitlements.EffectiveTier(status.Membership, now) == "trial"
+                    && status.Membership.FeatureExpiresAt is { } nextExpiry && nextExpiry > now)
                 {
                     checks[activeExpiryKey] = nextExpiry;
-                    if (MemberEntitlements.PlusRenewalReminder(nextExpiry, now) is { } threshold)
+                    if (MemberEntitlements.TrialRenewalReminder(nextExpiry, now) is { } threshold)
                     {
-                        var reminderKey = "plus-expiring:" + threshold + ":" + key;
+                        var reminderKey = "trial-expiring:" + threshold + ":" + key;
                         if (!checks.TryGetValue(reminderKey, out var notified) || notified != nextExpiry)
                         {
                             // Remember this threshold only: a user who first opens the app
@@ -71,21 +75,20 @@ public sealed class AccountDeviceMonitor(AccountService accounts, AppPaths paths
                             // and later 1-day notices still arrive on their own check.
                             checks[reminderKey] = nextExpiry;
                             expiring = new(nextExpiry, Math.Max(1, (int)Math.Ceiling((nextExpiry - now).TotalDays)),
-                                MemberEntitlements.CloudRetentionEndsAt(nextExpiry, status.Membership.TrialExpiresAt),
-                                MemberEntitlements.PlusRenewalMessage(nextExpiry, now, status.Membership.TrialExpiresAt));
+                                MemberEntitlements.TrialRenewalMessage(nextExpiry, now));
                         }
                     }
                 }
                 else
                     checks.Remove(activeExpiryKey);
-                if (status.Membership.ProExpiresAt is { } expiry && expiry <= now && status.Membership.Tier != "pro")
+                if (status.Membership.FeatureExpiresAt is { } expiry && expiry <= now
+                    && MemberEntitlements.EffectiveTier(status.Membership, now) == "free")
                 {
-                    var noticeKey = "plus-expiry:" + key;
+                    var noticeKey = "trial-expiry:" + key;
                     if (!checks.TryGetValue(noticeKey, out var notifiedExpiry) || notifiedExpiry != expiry)
                     {
                         checks[noticeKey] = expiry;
-                        notice = new(expiry, MemberEntitlements.CloudRetentionEndsAt(expiry, status.Membership.TrialExpiresAt),
-                            MemberEntitlements.PlusExpiryMessage(expiry, now, status.Membership.TrialExpiresAt));
+                        notice = new(expiry, MemberEntitlements.TrialExpiryMessage(expiry, now));
                     }
                 }
             }
@@ -131,10 +134,9 @@ public sealed class AccountDeviceMonitor(AccountService accounts, AppPaths paths
     }
 }
 
-public sealed record AccountMembershipExpiredEventArgs(DateTimeOffset ExpiredAt, DateTimeOffset CloudRetentionEndsAt, string Message);
+public sealed record AccountMembershipExpiredEventArgs(DateTimeOffset ExpiredAt, string Message);
 
-public sealed record AccountMembershipExpiringEventArgs(DateTimeOffset ExpiresAt, int DaysRemaining,
-    DateTimeOffset CloudRetentionEndsAt, string Message);
+public sealed record AccountMembershipExpiringEventArgs(DateTimeOffset ExpiresAt, int DaysRemaining, string Message);
 
 [JsonSerializable(typeof(Dictionary<string, DateTimeOffset>))]
 internal partial class DeviceCheckJsonContext : JsonSerializerContext;

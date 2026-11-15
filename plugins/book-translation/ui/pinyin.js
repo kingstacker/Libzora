@@ -4,6 +4,7 @@
   const zh = !(lz.context.language || 'zh-CN').toLowerCase().startsWith('en');
   const text = zh ? {
     lead: '为整本书的中文正文生成拼音注音，生成的文件会自动加入书库；重新生成会替换已有的注音版。注音进度保存在本机，中断后可继续。',
+    notice: '重要：翻译书籍和注音书籍仅供本人学习使用。请勿传播、出版、售卖或用于其他公开用途；因传播或使用生成内容产生的责任由用户自行承担。',
     engine: '注音引擎',
     engineHint: '内置引擎无需下载；g2pW 对多音字更准确，需要先下载模型。',
     engineLocal: '内置拼音引擎',
@@ -43,6 +44,7 @@
     readBook: '无法读取书籍信息：{0}'
   } : {
     lead: 'Adds pinyin ruby text to the Chinese body text of the whole book. The generated book is added to the library; regenerating replaces the existing pinyin edition. Progress is cached so an interrupted run can resume.',
+    notice: 'Important: translated books and pinyin-annotated books are for personal study only. Do not distribute, publish, sell, or otherwise make them public. You are responsible for any consequences of distributing or using the generated content.',
     engine: 'Pinyin engine',
     engineHint: 'The built-in engine needs no download; g2pW is more accurate for polyphonic characters but needs its model.',
     engineLocal: 'Built-in engine',
@@ -85,6 +87,7 @@
   const dom = {
     title: document.getElementById('title'),
     lead: document.getElementById('lead'),
+    notice: document.getElementById('notice'),
     engineLabel: document.getElementById('engineLabel'),
     engineHint: document.getElementById('engineHint'),
     engine: document.getElementById('engine'),
@@ -155,6 +158,7 @@
 
   function applyText() {
     dom.lead.textContent = text.lead;
+    dom.notice.textContent = text.notice;
     dom.engineLabel.textContent = text.engine;
     dom.engineHint.textContent = text.engineHint;
     dom.engineLocal.textContent = text.engineLocal;

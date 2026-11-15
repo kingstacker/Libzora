@@ -21,12 +21,12 @@ public partial class AccountClosureWindow : Window
     private void OnConfirmationChanged(object? sender, TextChangedEventArgs e)
     {
         if (ClosureConfirmButton is not null)
-            ClosureConfirmButton.IsEnabled = ClosureConfirmationBox.Text == "注销账号" && AccountValidation.IsPassword(CurrentPassword);
+            ClosureConfirmButton.IsEnabled = ClosureConfirmationBox.Text == "停用账号" && AccountValidation.IsPassword(CurrentPassword);
     }
     private void OnCancelClick(object? sender, RoutedEventArgs e) => Close(false);
     private void OnConfirmClick(object? sender, RoutedEventArgs e)
     {
-        if (!ClosureConfirmButton.IsEnabled || ClosureConfirmationBox.Text != "注销账号" || !AccountValidation.IsPassword(CurrentPassword)) return;
+        if (!ClosureConfirmButton.IsEnabled || ClosureConfirmationBox.Text != "停用账号" || !AccountValidation.IsPassword(CurrentPassword)) return;
         _accepted = true;
         Close(true);
     }

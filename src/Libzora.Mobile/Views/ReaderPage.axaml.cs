@@ -215,7 +215,7 @@ public partial class ReaderPage : UserControl
     private async Task<string?> TryDownloadAsync(BookFile file)
     {
         var stored = await _modules.Sync.Service.LoadSettingsAsync(_lifetime.Token);
-        if (!stored.Settings.Enabled || !stored.Settings.IsConfigured) return null;
+        if (!stored.Settings.Enabled || !stored.Settings.IsConfigured || !stored.Settings.HasChosenCustomProvider) return null;
         LoadingDetailText.Text = "正在从云端下载…";
         var progress = new Progress<string>(message => LoadingDetailText.Text = UiText.Localize(message));
         return await _modules.Sync.Service.EnsureBookFileDownloadedAsync(
@@ -725,6 +725,7 @@ public partial class ReaderPage : UserControl
         _pressPoint = e.GetPosition(ReaderHostSlot);
         _pressMoved = false;
         _selectionArmed = false;
+        _expectSelection = false;
         _tapConsumed = false;
         if (!IsPdfZoomed) _longPress.Start();
     }
@@ -734,16 +735,26 @@ public partial class ReaderPage : UserControl
         _longPress.Stop();
         _pressPoint = null;
         _selectionArmed = false;
+        _expectSelection = false;
         _tapConsumed = true;
     }
 
-    /// <summary>A long press hands the following drag to the host as a text selection.</summary>
+    /// <summary>
+    /// A long press selects the character or word under the finger and opens
+    /// the floating menu immediately. If the point has no text (a link,
+    /// annotation or margin), the drag still arms an ordinary selection.
+    /// </summary>
     private void OnLongPress(object? sender, EventArgs e)
     {
         _longPress.Stop();
-        if (_pressPoint is null || _pressMoved) return;
+        if (_pressPoint is not { } point || _pressMoved) return;
         _selectionArmed = true;
-        _shell.ShowToast("拖动选择文字");
+        if (_readerHost is not IReaderSelectionHost host) return;
+
+        // The host reports the new selection synchronously from inside
+        // SelectWordAt, so arm the bridge event before calling it.
+        _expectSelection = true;
+        if (!host.SelectWordAt(point.X, point.Y)) _expectSelection = false;
     }
 
     /// <summary>Stops the host from treating a finger drag as a text selection.</summary>
@@ -769,11 +780,15 @@ public partial class ReaderPage : UserControl
         if (TrackTouchReleased(e))
         {
             CancelPress();
-            e.Handled = true;
+            ConsumeSurfaceRelease(e);
             return;
         }
         _longPress.Stop();
-        if (_pressPoint is not { } start) return;
+        if (_pressPoint is not { } start)
+        {
+            ConsumeSurfaceRelease(e);
+            return;
+        }
         _pressPoint = null;
         if (_selectionArmed)
         {
@@ -788,17 +803,31 @@ public partial class ReaderPage : UserControl
         var dominant = Math.Abs(dx) >= Math.Abs(dy) * SwipeDominance;
         if (Math.Abs(dx) >= SwipeDistance && dominant)
         {
+            ConsumeSurfaceRelease(e);
             if (!IsPdfZoomed) HandleSwipe(dx);
         }
-        else if (Math.Abs(dx) <= TapSlop && Math.Abs(dy) <= TapSlop)
+        else if (!_pressMoved && Math.Abs(dx) <= TapSlop && Math.Abs(dy) <= TapSlop)
         {
-            // The host reports link and annotation hits after this tunnel handler.
+            // The host reports link, annotation and figure hits after this
+            // tunnel handler, but only a gesture that stayed a tap reaches it.
             var ratio = end.X / Math.Max(1, ReaderHostSlot.Bounds.Width);
             Dispatcher.UIThread.Post(() =>
             {
                 if (!_tapConsumed) HandleTap(ratio);
             }, DispatcherPriority.Background);
         }
+        else
+        {
+            ConsumeSurfaceRelease(e);
+        }
+    }
+
+    private static void ConsumeSurfaceRelease(PointerReleasedEventArgs e)
+    {
+        // Movement is handled above the rendering host. Cancel its captured
+        // press as well, so the release cannot activate an image or link.
+        e.Pointer.Capture(null);
+        e.Handled = true;
     }
 
     private void HandleSwipe(double dx)

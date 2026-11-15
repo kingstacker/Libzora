@@ -4,6 +4,7 @@ public enum SyncProvider
 {
     S3 = 0,
     WebDav = 1,
+    // Reserved solely to recognize and disable historical official-cloud settings.
     AccountServer = 2
 }
 
@@ -15,8 +16,7 @@ public enum SyncProvider
 public sealed record S3SyncSettings
 {
     public SyncProvider Provider { get; init; } = SyncProvider.S3;
-    // A saved user choice. The automatic Plus default may select Libzora cloud
-    // sync only while this is false, so choosing S3 / WebDAV stays in effect.
+    // Records the user's explicit choice of their own S3 / WebDAV connection.
     public bool ProviderChosenByUser { get; init; }
     public bool Enabled { get; init; }
     public bool AutomaticSyncEnabled { get; init; } = true;
@@ -45,25 +45,16 @@ public sealed record S3SyncSettings
     public Guid AccountUserId { get; init; }
 
     public bool IsConfigured => Validate() is null;
-    /// <summary>
-    /// A saved custom provider the user chose deliberately. Automatic Plus
-    /// defaults must keep it instead of switching to Libzora cloud sync.
-    /// </summary>
-    public bool HasChosenCustomProvider => Provider != SyncProvider.AccountServer && ProviderChosenByUser;
-    public string ProviderName => Provider switch { SyncProvider.WebDav => "WebDAV", SyncProvider.AccountServer => UiText.Get("Libzora 云同步"), _ => "S3" };
+    /// <summary>A connection to the user's own storage, chosen deliberately.</summary>
+    public bool HasChosenCustomProvider => Provider is SyncProvider.S3 or SyncProvider.WebDav && ProviderChosenByUser;
+    public string ProviderName => Provider switch { SyncProvider.WebDav => "WebDAV", SyncProvider.S3 => "S3", _ => UiText.Get("不支持的同步方式") };
 
     public string? Validate()
     {
-        if (Provider is not (SyncProvider.S3 or SyncProvider.WebDav or SyncProvider.AccountServer))
-            return "请选择受支持的同步方式。";
         if (Provider == SyncProvider.AccountServer)
-        {
-            if (!Enum.IsDefined(AccountRegion) || AccountUserId == Guid.Empty) return "请先登录当前区域的用户账号。";
-            try { _ = AccountValidation.ServerUri(AccountServerUrl); }
-            catch (ArgumentException) { return "请输入有效的账号服务地址。"; }
-            if (string.IsNullOrWhiteSpace(EncryptionKey)) return "Libzora 云同步必须设置同步密钥；密钥不会上传，遗忘后无法解密已有数据。";
-            return string.IsNullOrWhiteSpace(Prefix) ? "请输入同步目录前缀。" : null;
-        }
+            return "官方云同步已移除，请重新选择并配置自备 S3 或 WebDAV。";
+        if (Provider is not (SyncProvider.S3 or SyncProvider.WebDav))
+            return "请选择 S3 或 WebDAV 同步。";
         if (Provider == SyncProvider.WebDav)
         {
             if (!Uri.TryCreate(WebDavEndpoint, UriKind.Absolute, out var webDav)
@@ -94,6 +85,7 @@ public sealed record S3SyncSettings
     public static S3SyncSettings Normalize(S3SyncSettings? settings)
     {
         settings ??= new S3SyncSettings();
+        var legacyCloud = settings.Provider == SyncProvider.AccountServer;
         var endpoint = (settings.Endpoint ?? string.Empty).Trim().TrimEnd('/');
         if (endpoint.Equals("https://s3.amazonaws.com", StringComparison.OrdinalIgnoreCase))
             endpoint = string.Empty;
@@ -107,6 +99,10 @@ public sealed record S3SyncSettings
 
         return settings with
         {
+            // Never route an old official-cloud configuration to a different service automatically.
+            Provider = legacyCloud ? SyncProvider.S3 : settings.Provider,
+            Enabled = !legacyCloud && settings.Enabled,
+            ProviderChosenByUser = !legacyCloud && settings.ProviderChosenByUser,
             IntervalMinutes = Math.Clamp(settings.IntervalMinutes, 5, 24 * 60),
             Endpoint = endpoint,
             AccessKey = (settings.AccessKey ?? string.Empty).Trim(),

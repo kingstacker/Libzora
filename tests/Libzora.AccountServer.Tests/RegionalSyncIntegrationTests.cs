@@ -2,7 +2,6 @@ using System.IO.Compression;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using System.Security.Cryptography;
 using System.Text;
 using Libzora.ApplicationServices;
 using Libzora.Core;
@@ -15,7 +14,7 @@ namespace Libzora.AccountServer.Tests;
 public sealed partial class AccountIntegrationTests
 {
     [Fact]
-    public async Task RegionalServersKeepSameUsernameTokensAndObjectsSeparateEvenWithSameDataDirectory()
+    public async Task RegionalServersKeepSameUsernameAndSessionsSeparateWithoutExposingObjectStorage()
     {
         var root = Path.Combine(Path.GetTempPath(), "libzora-region-tests-" + Guid.NewGuid().ToString("N"));
         try
@@ -31,23 +30,16 @@ public sealed partial class AccountIntegrationTests
                 Assert.Equal(HttpStatusCode.Unauthorized, cross.StatusCode);
             using (var cross = await AuthorizedAsync(china.Http, HttpMethod.Get, "session", foreign.Token))
                 Assert.Equal(HttpStatusCode.Unauthorized, cross.StatusCode);
-            var other = await RegisterAsync(china.Http, "another_reader");
-            const string key = "regions/china/libzora/objects/test.bin";
-            using (var write = await ObjectRequestAsync(china.Http, HttpMethod.Put, key, chinese.Token, "fictional-China-data"))
-                Assert.Equal(HttpStatusCode.NoContent, write.StatusCode);
-            using (var same = await ObjectRequestAsync(china.Http, HttpMethod.Get, key, chinese.Token))
-                Assert.Equal("fictional-China-data", await same.Content.ReadAsStringAsync());
-            using (var cross = await ObjectRequestAsync(international.Http, HttpMethod.Get, key, foreign.Token))
-                Assert.Equal(HttpStatusCode.NotFound, cross.StatusCode);
-            using (var someoneElse = await ObjectRequestAsync(china.Http, HttpMethod.Get, key, other.Token))
-                Assert.Equal(HttpStatusCode.NotFound, someoneElse.StatusCode);
-            using (var cross = await ObjectRequestAsync(international.Http, HttpMethod.Put, key, chinese.Token, "fictional-bad-upload"))
-                Assert.Equal(HttpStatusCode.Unauthorized, cross.StatusCode);
             using var wrongHeader = new HttpRequestMessage(HttpMethod.Get, "api/accounts/session");
             wrongHeader.Headers.Add("X-Libzora-Region", "international");
             wrongHeader.Headers.Authorization = new AuthenticationHeaderValue("Bearer", chinese.Token);
             using var rejected = await china.Http.SendAsync(wrongHeader);
             Assert.Equal(HttpStatusCode.Forbidden, rejected.StatusCode);
+            foreach (var http in new[] { china.Http, international.Http })
+            {
+                using var gone = await http.GetAsync("api/sync/objects");
+                Assert.Equal(HttpStatusCode.Gone, gone.StatusCode);
+            }
             Assert.True(File.Exists(Path.Combine(china.RegionDirectory, "accounts.db")));
             Assert.True(File.Exists(Path.Combine(international.RegionDirectory, "accounts.db")));
         }
@@ -57,7 +49,7 @@ public sealed partial class AccountIntegrationTests
     [Theory]
     [InlineData(AccountRegion.China)]
     [InlineData(AccountRegion.International)]
-    public async Task TwoLocalDevicesSyncRealBooksAnnotationsAndAdditiveReadingDataWithinOneRegion(AccountRegion region)
+    public async Task TwoLocalDevicesKeepBooksAndReadingDataWhenOfficialSyncIsRemoved(AccountRegion region)
     {
         await using var server = await LocalServer.CreateAsync(region: region);
         var firstBase = new AppPaths(Path.Combine(server.Directory, "client-a"));
@@ -65,8 +57,7 @@ public sealed partial class AccountIntegrationTests
         var protector = new TestProtector();
         using var firstAccount = new AccountService(firstBase, protector, dataRegion: region);
         using var secondAccount = new AccountService(secondBase, protector, dataRegion: region);
-        await firstAccount.SelectRegionAsync(region);
-        await secondAccount.SelectRegionAsync(region);
+        await firstAccount.SelectRegionAsync(region); await secondAccount.SelectRegionAsync(region);
         await firstAccount.SignInAsync(server.Url, "test_reader", TestPassword, register: true, email: "reader@example.invalid", confirmPassword: TestPassword);
         await secondAccount.SignInAsync(server.Url, "test_reader", TestPassword);
         var firstPaths = AccountRegionPaths.ForRegion(firstBase, region);
@@ -74,66 +65,42 @@ public sealed partial class AccountIntegrationTests
         var firstLibrary = new SqliteBookLibraryService(firstPaths, new BookMetadataService());
         var secondLibrary = new SqliteBookLibraryService(secondPaths, new BookMetadataService());
         await firstLibrary.InitializeAsync(); await secondLibrary.InitializeAsync();
-        var firstReader = new ReaderDataService(firstPaths); var secondReader = new ReaderDataService(secondPaths);
-        await firstReader.InitializeAsync(); await secondReader.InitializeAsync();
+        var firstReader = new ReaderDataService(firstPaths); await firstReader.InitializeAsync();
         var book = await ImportTestBookAsync(firstLibrary, server.Directory, region.ToString());
         var file = Assert.Single(book.Files);
+        var original = await File.ReadAllBytesAsync(Path.Combine(firstPaths.Data, file.RelativePath));
         await firstReader.AddReadingTimeAsync(book.Id, file.Id, 120, 10, 1, 10);
         await firstReader.SaveAnnotationAsync(new ReaderAnnotation
         {
             Id = Guid.NewGuid(), BookId = book.Id, BookFileId = file.Id, ChapterPath = "chapter.xhtml",
             SelectedText = "fictional regional quote", Note = "fictional regional note", StartOffset = 0, EndOffset = 5
         });
-        // The SQLite fixture covers the wire protocol; paid account permissions are tested against PostgreSQL.
-        var firstSync = new S3SyncService(firstPaths, protector, firstAccount, region, new Libzora.TestFixtures.ActivatedDeviceFeatures());
-        var secondSync = new S3SyncService(secondPaths, protector, secondAccount, region, new Libzora.TestFixtures.ActivatedDeviceFeatures());
-        var settings = await firstAccount.CreateSyncSettingsAsync(new S3SyncSettings
-        { Enabled = true, DownloadBookFilesOnSync = true, EncryptionKey = "fictional-regional-sync-test-key" });
-        var firstDevice = Guid.NewGuid().ToString("N"); var secondDevice = Guid.NewGuid().ToString("N");
-        await firstSync.SaveSettingsAsync(firstDevice, settings);
-        var persisted = await firstSync.LoadSettingsAsync();
-        Assert.Equal(region, persisted.Settings.AccountRegion);
-        Assert.Equal(settings.AccountUserId, persisted.Settings.AccountUserId);
-        Assert.Equal(server.Url, persisted.Settings.AccountServerUrl);
-        await firstSync.TestConnectionAsync(settings);
-        Assert.False((await firstSync.SyncAsync(firstDevice, settings)).IsPartial);
-        var pull = await secondSync.SyncAsync(secondDevice, settings);
-        Assert.False(pull.IsPartial); Assert.Equal(1, pull.BooksAdded); Assert.Equal(1, pull.FilesDownloaded);
-        var downloaded = Assert.Single(await secondLibrary.SearchAsync());
-        Assert.Equal(book.Id, downloaded.Id);
-        Assert.Equal(await File.ReadAllBytesAsync(Path.Combine(firstPaths.Data, file.RelativePath)),
-            await File.ReadAllBytesAsync(Path.Combine(secondPaths.Data, Assert.Single(downloaded.Files).RelativePath)));
-        await using (var connection = new SqliteConnection($"Data Source={secondPaths.Database}"))
+        var historical = new S3SyncSettings
         {
-            await connection.OpenAsync();
-            using var query = connection.CreateCommand(); query.CommandText = "SELECT Note FROM ReaderAnnotations;";
-            Assert.Equal("fictional regional note", await query.ExecuteScalarAsync());
+            Provider = SyncProvider.AccountServer, Enabled = true, AccountRegion = region,
+            AccountServerUrl = server.Url, AccountUserId = (await firstAccount.GetStatusAsync()).User!.Id,
+            EncryptionKey = "fictional-regional-sync-test-key"
+        };
+        foreach (var accounts in new[] { firstAccount, secondAccount })
+        {
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() => accounts.CreateSyncSettingsAsync(historical));
+            Assert.Equal(MemberEntitlements.AccountCloudRequirement, error.Message);
         }
-        Assert.Equal(120, (await secondReader.GetReadingDashboardAsync()).DailyReading.Sum(day => day.ActiveSeconds));
-        await secondReader.AddReadingTimeAsync(book.Id, file.Id, 60, 20, 2, 10);
-        await secondSync.SyncAsync(secondDevice, settings);
-        await firstSync.SyncAsync(firstDevice, settings);
-        Assert.Equal(180, (await firstReader.GetReadingDashboardAsync()).DailyReading.Sum(day => day.ActiveSeconds));
-        await firstSync.SyncAsync(firstDevice, settings);
-        Assert.Equal(180, (await firstReader.GetReadingDashboardAsync()).DailyReading.Sum(day => day.ActiveSeconds));
-        var token = await ReadStoredTokenAsync(firstBase, protector);
-        using var list = await ObjectRequestAsync(server.Http, HttpMethod.Get, "", token);
-        var objects = (await list.Content.ReadFromJsonAsync(AccountJsonContext.Default.AccountSyncObjectMetadataArray))!;
-        Assert.NotEmpty(objects);
-        Assert.All(objects, item => Assert.StartsWith("regions/" + AccountRegions.Slug(region) + "/", item.Key));
-        var secretFingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(settings.EncryptionKey))).ToLowerInvariant();
-        Assert.DoesNotContain(objects, item => item.Key.Contains(settings.EncryptionKey, StringComparison.Ordinal)
-            || item.Key.Contains(secretFingerprint, StringComparison.OrdinalIgnoreCase)
-            || item.Key.Contains(file.Sha256, StringComparison.OrdinalIgnoreCase));
-        var blob = Assert.Single(objects, item => item.Key.Contains("/objects/", StringComparison.Ordinal));
-        Assert.Matches(@"/objects/encrypted/[a-f0-9]{64}/[a-f0-9]{64}$", blob.Key);
-        using var opaqueBytes = await ObjectRequestAsync(server.Http, HttpMethod.Get, blob.Key, token);
-        Assert.True((await opaqueBytes.Content.ReadAsByteArrayAsync()).AsSpan().StartsWith("LIBZORA-SYNC3"u8));
-        Assert.DoesNotContain(objects, item => item.Key.Contains(".libzora-connection-", StringComparison.Ordinal));
+        var sync = new S3SyncService(firstPaths, protector, firstAccount, region);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => sync.TestConnectionAsync(historical));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => sync.SyncAsync(Guid.NewGuid().ToString("N"), historical));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => sync.EnsureBookFileDownloadedAsync(Guid.NewGuid().ToString("N"), historical, file));
+        Assert.Equal(original, await File.ReadAllBytesAsync(Path.Combine(firstPaths.Data, file.RelativePath)));
+        Assert.Single(await firstLibrary.SearchAsync());
+        Assert.Empty(await secondLibrary.SearchAsync());
+        Assert.Equal("fictional regional note", Assert.Single(await firstReader.GetAllAnnotationsAsync()).Note);
+        Assert.Equal(120, (await firstReader.GetReadingDashboardAsync()).DailyReading.Sum(day => day.ActiveSeconds));
+        Assert.True((await firstAccount.GetStatusAsync(validateSession: true)).IsLoggedIn);
+        Assert.True((await secondAccount.GetStatusAsync(validateSession: true)).IsLoggedIn);
     }
 
     [Fact]
-    public async Task SwitchingRegionsRestoresIndependentConnectionsAndBlocksOldLibrarySyncUntilReopen()
+    public async Task SwitchingRegionsRestoresIndependentCustomConnectionsAndBlocksOldLibraryUntilReopen()
     {
         await using var china = await LocalServer.CreateAsync();
         await using var international = await LocalServer.CreateAsync(region: AccountRegion.International);
@@ -145,41 +112,48 @@ public sealed partial class AccountIntegrationTests
         });
         using var firstRun = Open();
         var chinaStatus = await firstRun.Accounts.Service.SignInAsync(china.Url, "test_reader", TestPassword, register: true, email: "reader@example.invalid", confirmPassword: TestPassword);
-        await firstRun.Library.Books.InitializeAsync();
-        await firstRun.Reader.Data.InitializeAsync();
+        await firstRun.Library.Books.InitializeAsync(); await firstRun.Reader.Data.InitializeAsync();
         await ImportTestBookAsync((SqliteBookLibraryService)firstRun.Library.Books, china.Directory, "China only");
-        var chineseSettings = await firstRun.Accounts.Service.CreateSyncSettingsAsync(new S3SyncSettings
-            { EncryptionKey = "fictional-region-switch-sync-key" });
+        var chinese = await firstRun.Sync.Service.LoadSettingsAsync();
+        var chineseSettings = S3SyncSettings.Normalize(chinese.Settings with
+        {
+            Provider = SyncProvider.S3, ProviderChosenByUser = true, Endpoint = "https://china-storage.example.invalid",
+            Bucket = "fictional-china", AccessKey = "fictional-china-access", SecretKey = "fictional-china-secret",
+            EncryptionKey = "fictional-china-sync-key"
+        });
+        await firstRun.Sync.Service.SaveSettingsAsync(chinese.DeviceId, chineseSettings);
         var switched = await firstRun.Accounts.Service.SelectRegionAsync(AccountRegion.International);
         Assert.False(switched.IsLoggedIn); Assert.True(switched.RequiresDataRestart);
         var foreignStatus = await firstRun.Accounts.Service.SignInAsync(international.Url, "test_reader", TestPassword, register: true, email: "reader@example.invalid", confirmPassword: TestPassword);
-        await Assert.ThrowsAsync<InvalidOperationException>(() => firstRun.Accounts.Service.CreateSyncSettingsAsync(new S3SyncSettings()));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => firstRun.Sync.Service.TestConnectionAsync(chineseSettings));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => firstRun.Sync.Service.SaveSettingsAsync(chinese.DeviceId, chineseSettings));
         using var secondRun = Open();
         Assert.Equal(AccountRegion.International, secondRun.DataRegion);
         Assert.NotEqual(basePaths.Database, secondRun.Paths.Database);
         Assert.Equal(foreignStatus.User, (await secondRun.Accounts.Service.GetStatusAsync(true)).User);
         Assert.False((await secondRun.Accounts.Service.GetStatusAsync()).RequiresDataRestart);
-        await secondRun.Library.Books.InitializeAsync();
-        Assert.Empty(await secondRun.Library.Books.SearchAsync());
-        var foreignSettings = await secondRun.Accounts.Service.CreateSyncSettingsAsync(new S3SyncSettings
-            { EncryptionKey = "fictional-region-switch-sync-key" });
-        await new S3SyncService(secondRun.Paths, protector, secondRun.Accounts.Service, AccountRegion.International,
-            new Libzora.TestFixtures.ActivatedDeviceFeatures()).TestConnectionAsync(foreignSettings);
+        await secondRun.Library.Books.InitializeAsync(); Assert.Empty(await secondRun.Library.Books.SearchAsync());
+        var foreign = await secondRun.Sync.Service.LoadSettingsAsync();
+        var foreignSettings = S3SyncSettings.Normalize(foreign.Settings with
+        {
+            Provider = SyncProvider.WebDav, ProviderChosenByUser = true, AccountRegion = AccountRegion.International,
+            WebDavEndpoint = "https://international-storage.example.invalid/dav", WebDavUsername = "fictional-foreign-user",
+            WebDavPassword = "fictional-foreign-password", EncryptionKey = "fictional-international-sync-key"
+        });
+        await secondRun.Sync.Service.SaveSettingsAsync(foreign.DeviceId, foreignSettings);
         var restored = await secondRun.Accounts.Service.SelectRegionAsync(AccountRegion.China);
-        Assert.Equal(chinaStatus.User, restored.User); Assert.Equal(china.Url, restored.ServerUrl);
-        Assert.True(restored.RequiresDataRestart);
+        Assert.Equal(chinaStatus.User, restored.User); Assert.Equal(china.Url, restored.ServerUrl); Assert.True(restored.RequiresDataRestart);
         using var thirdRun = Open();
         Assert.Equal(basePaths.Database, thirdRun.Paths.Database);
         Assert.Single(await thirdRun.Library.Books.SearchAsync());
         Assert.Equal(chinaStatus.User, (await thirdRun.Accounts.Service.GetStatusAsync(true)).User);
+        Assert.Equal(chineseSettings, (await thirdRun.Sync.Service.LoadSettingsAsync()).Settings);
     }
 
     [Theory]
     [InlineData("C:/outside.bin")]
     [InlineData("folder\\..\\outside.bin")]
     [InlineData("folder/name.")]
-    public async Task ObjectApiRejectsPathsThatCouldEscapeOrAliasItsStorage(string key)
+    public async Task RetiredObjectApiNeverProcessesPathsOrCreatesFiles(string key)
     {
         await using var server = await LocalServer.CreateAsync();
         var account = await RegisterAsync(server.Http, "test_reader");
@@ -187,35 +161,8 @@ public sealed partial class AccountIntegrationTests
         { Content = JsonContent.Create(new SyncUploadRequest { Key = key, Length = 19 }, AccountJsonContext.Default.SyncUploadRequest) };
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", account.Token);
         using var response = await server.Http.SendAsync(request);
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-    }
-
-    /// <summary>Lists, or uploads/downloads through the signed-link protocol the client uses, returning the last response.</summary>
-    private static async Task<HttpResponseMessage> ObjectRequestAsync(HttpClient http, HttpMethod method, string key, string token, string? body = null)
-    {
-        async Task<HttpResponseMessage> Api(HttpMethod verb, string path, HttpContent? content = null)
-        {
-            using var request = new HttpRequestMessage(verb, path) { Content = content };
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            return await http.SendAsync(request);
-        }
-        if (key.Length == 0) return await Api(method, "api/sync/objects");
-        if (method == HttpMethod.Put)
-        {
-            var bytes = Encoding.UTF8.GetBytes(body ?? "");
-            var begin = await Api(HttpMethod.Post, "api/sync/uploads",
-                JsonContent.Create(new SyncUploadRequest { Key = key, Length = bytes.Length }, AccountJsonContext.Default.SyncUploadRequest));
-            if (begin.StatusCode != HttpStatusCode.OK) return begin;
-            var upload = (await begin.Content.ReadFromJsonAsync(AccountJsonContext.Default.SyncUploadGrant))!; begin.Dispose();
-            using (var put = await http.PutAsync(upload.Url, new ByteArrayContent(bytes))) Assert.Equal(HttpStatusCode.NoContent, put.StatusCode);
-            return await Api(HttpMethod.Post, $"api/sync/uploads/{upload.UploadId}/complete");
-        }
-        var start = await Api(HttpMethod.Post, "api/sync/downloads",
-            JsonContent.Create(new SyncDownloadRequest { Key = key }, AccountJsonContext.Default.SyncDownloadRequest));
-        if (start.StatusCode != HttpStatusCode.OK) return start;
-        var download = (await start.Content.ReadFromJsonAsync(AccountJsonContext.Default.SyncDownloadGrant))!; start.Dispose();
-        Assert.Null(download.Range);
-        return await http.GetAsync(download.Url);
+        Assert.Equal(HttpStatusCode.Gone, response.StatusCode);
+        Assert.Equal("official_cloud_removed", Assert.Single(response.Headers.GetValues("X-Libzora-Error")));
     }
 
     private static async Task<Book> ImportTestBookAsync(SqliteBookLibraryService library, string root, string title)

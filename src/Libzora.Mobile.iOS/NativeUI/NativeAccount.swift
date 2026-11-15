@@ -19,6 +19,12 @@ struct NativeAccountPage: View {
     @State private var status = ""
     @State private var actionTask: Task<Void, Never>?
 
+    /// Mirrors Libzora.Core.AccountAvailability.RegistrationAvailable. UI tests
+    /// opt in with --libzora-enable-registration; distributed builds stay closed.
+    private var registrationAvailable: Bool {
+        ProcessInfo.processInfo.arguments.contains("--libzora-enable-registration")
+    }
+
     var body: some View {
         NativeForm {
             if let account = store.account, account.isLoggedIn {
@@ -32,8 +38,12 @@ struct NativeAccountPage: View {
                         .pickerStyle(.segmented).accessibilityIdentifier("account.mode")
                         .disabled(resetMode)
                     Text(resetMode ? "输入发送到注册邮箱的验证码，然后设置新密码。"
-                        : register ? "注册后可在多台设备同步书籍和阅读进度。" : "使用用户名或邮箱登录同一账号。")
-                        .font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary)
+                        : register ? (registrationAvailable ? "注册后可在多台设备同步书籍和阅读进度。"
+                            : "注册暂未上线。当前版本无需注册即可免费使用全部功能。")
+                        : "使用用户名或邮箱登录同一账号。")
+                        .font(NativeTheme.font(12, relativeTo: .caption))
+                        .foregroundStyle(register && !registrationAvailable ? NativeTheme.warning : NativeTheme.secondary)
+                        .accessibilityIdentifier("account.registrationUnavailable")
                 }
                 Section(resetMode ? "重置密码" : register ? "注册信息" : "登录信息") {
                     if register {
@@ -123,7 +133,9 @@ struct NativeAccountPage: View {
                     Button("返回登录") { cancelReset() }.buttonStyle(.plain)
                         .accessibilityIdentifier("account.reset.cancel")
                 } else {
-                    Button(register ? "注册并登录" : "登录") { signIn() }.buttonStyle(NativePrimaryButtonStyle())
+                    Button(register ? (registrationAvailable ? "注册并登录" : "注册暂未上线") : "登录") { signIn() }
+                        .buttonStyle(NativePrimaryButtonStyle())
+                        .disabled(register && !registrationAvailable)
                         .accessibilityIdentifier("account.submit")
                     if !register {
                         Button("忘记密码？") { beginReset() }.buttonStyle(.plain)
@@ -245,6 +257,7 @@ struct NativeAccountPage: View {
 
     private func signIn() {
         guard !busy else { return }
+        if register && !registrationAvailable { status = "注册暂未上线。当前版本无需注册即可免费使用全部功能。"; return }
         if register && password != confirmation { status = "两次输入的密码不一致。"; return }
         busy = true; status = register ? "正在注册…" : "正在登录…"
         var args: [String: Any] = ["serverUrl": serverUrl, "username": username, "password": password,

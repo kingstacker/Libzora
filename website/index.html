@@ -41,7 +41,7 @@
     <link rel="icon" type="image/png" href="assets/libzora.png?v=20261113" />
     <link rel="apple-touch-icon" href="assets/apple-touch-icon.png?v=20261113" />
     <meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1" />
-    <link rel="stylesheet" href="styles.css?v=20261109-membership" />
+    <link rel="stylesheet" href="styles.css?v=20261115-plans2" />
     <title>Libzora — 个人电子书与 Kindle 工作台</title>
     <script type="application/ld+json">
       {
@@ -347,10 +347,8 @@
         <div class="wrap">
           <div class="section-head">
             <p class="label" data-i18n="membershipKicker">MEMBERSHIP</p>
-            <h2 data-i18n="membershipTitle">选择适合你的阅读方式。</h2>
-            <p class="lead" data-i18n="membershipLead">
-              会员绑定 Libzora 账号。中国区与国际区的账号和同步数据相互独立，不互通。
-            </p>
+            <h2 data-i18n="membershipTitle">Free / 试用订阅 / 买断订阅</h2>
+            <p class="lead" data-i18n="membershipLead">当前发布的版本全部功能免费，自备 S3 / WebDAV 跨端同步无需登录；账号注册、购买与支付暂未上线。以下会员方案为账号服务上线后的规划。</p>
           </div>
 
           <div class="region-tabs" role="tablist" aria-label="服务器区域" data-i18n-label="membershipRegionLabel">
@@ -364,6 +362,7 @@
               data-region-tab
             >
               <span data-i18n="regionChina">中国区</span>
+              <span class="region-tab-badge" data-i18n="regionUnavailable">暂未上线</span>
             </button>
             <button
               class="region-tab"
@@ -381,6 +380,7 @@
           </div>
 
           <div class="region-panel" id="region-panel-china" role="tabpanel" aria-labelledby="region-tab-china" tabindex="0">
+            <p class="region-notice" data-i18n="chinaNotice">中国区会员暂未上线，以下方案为上线预告；购买和开通方式以实际渠道公告为准。</p>
             <div class="plans">
               <article class="plan">
                 <h3 class="plan-name">Free</h3>
@@ -388,42 +388,42 @@
                 <p class="plan-price">¥0</p>
                 <p class="plan-period" data-i18n="planFreePeriod">永久免费</p>
                 <ul class="plan-features">
-                  <li data-i18n="planFreeFeature1">畅享完整本地阅读体验</li>
+                  <li data-i18n="planFreeFeature1">完整本地阅读与书库管理</li>
                   <li data-i18n="planFreeFeature2">USB Kindle 书籍双向同步</li>
                   <li data-i18n="planFreeFeature3">USB Kindle 批注双向同步</li>
-                  <li data-i18n="planFreeFeature4">插件扩展与自定义 AI 接口</li>
+                  <li data-i18n="planFreeFeature4">插件扩展与自配 AI 接口</li>
                 </ul>
-                <p class="plan-foot" data-i18n="planFreeFoot">不含跨端同步与官方云空间</p>
+                <p class="plan-foot" data-i18n="planFreeFoot">当前版本可直接使用自备 S3 / WebDAV 跨端同步</p>
               </article>
 
               <article class="plan">
-                <h3 class="plan-name" data-i18n="planUnlockName">功能解锁</h3>
-                <p class="plan-tagline" data-i18n="planUnlockTagline">你的书库，由你掌控</p>
-                <p class="plan-price">¥88</p>
-                <p class="plan-period" data-i18n="planUnlockPeriod">一次购买，永久使用</p>
+                <h3 class="plan-name" data-i18n="planTrialName">试用订阅</h3>
+                <p class="plan-tagline" data-i18n="planTrialTagline">先体验，再决定</p>
+                <p class="plan-price">¥0</p>
+                <p class="plan-period" data-i18n="planTrialPeriod">7 天免费试用 · 每账号一次</p>
                 <ul class="plan-features">
-                  <li data-i18n="planUnlockFeature1">包含全部 Free 权益</li>
-                  <li data-i18n="planUnlockFeature2">解锁自定义 S3 云同步</li>
-                  <li data-i18n="planUnlockFeature3">进度与批注完整同步</li>
-                  <li data-i18n="planUnlockFeature4">存储容量由自己掌控</li>
-                  <li data-i18n="planUnlockFeature5">一次买断，无需续费</li>
+                  <li data-i18n="planTrialFeature1">包含全部 Free 权益</li>
+                  <li data-i18n="planTrialFeature2">解锁自备 S3 / WebDAV 同步</li>
+                  <li data-i18n="planTrialFeature3">同步跨端书籍与阅读进度</li>
+                  <li data-i18n="planTrialFeature4">同步跨端书签与批注</li>
+                  <li data-i18n="planTrialFeature5">账号最多登录 6 台设备</li>
                 </ul>
-                <p class="plan-foot" data-i18n="planUnlockFoot">需自行配置 S3 兼容存储服务，存储与流量费用由用户承担</p>
+                <p class="plan-foot" data-i18n="planTrialFoot">由用户在账号中心主动领取，不自动开通</p>
               </article>
 
               <article class="plan plan-featured">
-                <h3 class="plan-name">Plus</h3>
-                <p class="plan-tagline" data-i18n="planPlusTagline">让每一本书，随你而行</p>
-                <p class="plan-price">¥128<span class="plan-price-unit" data-i18n="planPerYear">/年</span></p>
-                <p class="plan-period" data-i18n="planPlusPeriod">折合约 ¥10.67/月 · 按年支付</p>
+                <h3 class="plan-name" data-i18n="planLifetimeName">买断订阅</h3>
+                <p class="plan-tagline" data-i18n="planLifetimeTagline">你的书库，由你掌控</p>
+                <p class="plan-price">¥128</p>
+                <p class="plan-period" data-i18n="planLifetimePeriod">¥128 永久 · 一次购买，无需续费</p>
                 <ul class="plan-features">
-                  <li data-i18n="planPlusFeature1">10GB 私人书籍云空间</li>
-                  <li data-i18n="planPlusFeature2">书籍与阅读数据自动同步</li>
-                  <li data-i18n="planPlusFeature3">无需配置存储桶，登录即用</li>
-                  <li data-i18n="planPlusFeature4">多平台书库随时访问</li>
-                  <li data-i18n="planPlusFeature5">订阅期内包含全部功能解锁权益</li>
+                  <li data-i18n="planLifetimeFeature1">包含全部 Free 权益</li>
+                  <li data-i18n="planLifetimeFeature2">永久解锁自备 S3 / WebDAV 同步</li>
+                  <li data-i18n="planLifetimeFeature3">同步跨端书籍与阅读进度</li>
+                  <li data-i18n="planLifetimeFeature4">同步跨端书签与批注</li>
+                  <li data-i18n="planLifetimeFeature5">账号最多登录 6 台设备</li>
                 </ul>
-                <p class="plan-foot" data-i18n="planPlusFoot">10GB 云空间 · 每会员年度 50GB 官方云下载额度 · 订阅期内含自备 S3 / WebDAV · 最多同步 6 台设备；未开通过 Plus 可领取一次 7 天免费试用（100MB 云空间 · 200MB 累计下载）</p>
+                <p class="plan-foot" data-i18n="planLifetimeFoot">买断权益直接绑定账号。购买和开通方式以实际渠道公告为准；开通后刷新权益。需自备 S3 / WebDAV，存储与流量费用自付</p>
               </article>
             </div>
 
@@ -434,19 +434,19 @@
                 <tr>
                   <th scope="col" data-i18n="compareFeature">功能</th>
                   <th scope="col">Free</th>
-                  <th scope="col" data-i18n="planUnlockName">功能解锁</th>
-                  <th scope="col">Plus</th>
+                  <th scope="col" data-i18n="planTrialName">试用订阅</th>
+                  <th scope="col" data-i18n="planLifetimeName">买断订阅</th>
                 </tr>
               </thead>
               <tbody>
                 <tr>
                   <th scope="row" data-i18n="comparePrice">价格</th>
-                  <td data-i18n="compareFreePrice">免费</td>
-                  <td data-i18n="compareUnlockPrice">¥88 永久</td>
-                  <td data-i18n="comparePlusPrice">¥128/年</td>
+                  <td><span data-i18n="compareFreePrice">免费</span></td>
+                  <td><span data-i18n="compareTrialPrice">7 天免费试用</span></td>
+                  <td><span data-i18n="compareLifetimePrice">¥128 永久</span></td>
                 </tr>
                 <tr>
-                  <th scope="row" data-i18n="compareLocal">本地书库管理与阅读</th>
+                  <th scope="row" data-i18n="compareLocal">完整本地书库管理与阅读</th>
                   <td class="is-yes"><span class="visually-hidden" data-i18n="compareIncluded">包含</span></td>
                   <td class="is-yes"><span class="visually-hidden" data-i18n="compareIncluded">包含</span></td>
                   <td class="is-yes"><span class="visually-hidden" data-i18n="compareIncluded">包含</span></td>
@@ -470,58 +470,45 @@
                   <td class="is-yes"><span class="visually-hidden" data-i18n="compareIncluded">包含</span></td>
                 </tr>
                 <tr>
-                  <th scope="row" data-i18n="compareAi">自定义 AI 接口</th>
+                  <th scope="row" data-i18n="compareAi">自配 AI 接口</th>
                   <td class="is-yes"><span class="visually-hidden" data-i18n="compareIncluded">包含</span></td>
                   <td class="is-yes"><span class="visually-hidden" data-i18n="compareIncluded">包含</span></td>
                   <td class="is-yes"><span class="visually-hidden" data-i18n="compareIncluded">包含</span></td>
                 </tr>
                 <tr>
-                  <th scope="row" data-i18n="compareProgress">跨端阅读进度同步</th>
+                  <th scope="row" data-i18n="compareProgress">自备存储跨端阅读进度同步</th>
                   <td class="is-no"><span class="visually-hidden" data-i18n="compareExcluded">不包含</span></td>
                   <td class="is-yes"><span class="visually-hidden" data-i18n="compareIncluded">包含</span></td>
                   <td class="is-yes"><span class="visually-hidden" data-i18n="compareIncluded">包含</span></td>
                 </tr>
                 <tr>
-                  <th scope="row" data-i18n="compareNotes">跨端书签、批注云同步</th>
+                  <th scope="row" data-i18n="compareNotes">自备存储跨端书签、批注同步</th>
                   <td class="is-no"><span class="visually-hidden" data-i18n="compareExcluded">不包含</span></td>
                   <td class="is-yes"><span class="visually-hidden" data-i18n="compareIncluded">包含</span></td>
                   <td class="is-yes"><span class="visually-hidden" data-i18n="compareIncluded">包含</span></td>
                 </tr>
                 <tr>
-                  <th scope="row" data-i18n="compareBooks">跨端书籍文件云同步</th>
+                  <th scope="row" data-i18n="compareBooks">自备存储跨端书籍文件同步</th>
                   <td class="is-no"><span class="visually-hidden" data-i18n="compareExcluded">不包含</span></td>
                   <td class="is-yes"><span class="visually-hidden" data-i18n="compareIncluded">包含</span></td>
                   <td class="is-yes"><span class="visually-hidden" data-i18n="compareIncluded">包含</span></td>
                 </tr>
                 <tr>
-                  <th scope="row" data-i18n="compareDevices">云同步设备数量</th>
-                  <td class="is-no"><span class="visually-hidden" data-i18n="compareExcluded">不包含</span></td>
-                  <td data-i18n="compareDeviceCount">6 台</td>
-                  <td data-i18n="compareDeviceCount">6 台</td>
+                  <th scope="row" data-i18n="compareDevices">账号同时登录设备上限</th>
+                  <td><span data-i18n="compareDeviceCount">6 台</span></td>
+                  <td><span data-i18n="compareDeviceCount">6 台</span></td>
+                  <td><span data-i18n="compareDeviceCount">6 台</span></td>
                 </tr>
                 <tr>
-                  <th scope="row" data-i18n="compareS3">自定义 S3</th>
+                  <th scope="row" data-i18n="compareS3">自备 S3 / WebDAV</th>
                   <td class="is-no"><span class="visually-hidden" data-i18n="compareExcluded">不包含</span></td>
+                  <td class="is-yes"><span class="visually-hidden" data-i18n="compareIncluded">包含</span><span class="compare-sub" data-i18n="compareDuringTrial">试用期内</span></td>
                   <td class="is-yes"><span class="visually-hidden" data-i18n="compareIncluded">包含</span></td>
-                  <td class="is-yes"><span class="visually-hidden" data-i18n="compareIncluded">包含</span><span class="compare-sub" data-i18n="compareWhileSubscribed">订阅期内</span></td>
-                </tr>
-                <tr>
-                  <th scope="row" data-i18n="compareStorage">官方云空间</th>
-                  <td class="is-no"><span class="visually-hidden" data-i18n="compareExcluded">不包含</span></td>
-                  <td class="is-no"><span class="visually-hidden" data-i18n="compareExcluded">不包含</span></td>
-                  <td>10GB</td>
-                </tr>
-                <tr>
-                  <th scope="row" data-i18n="compareTraffic">官方云下载流量</th>
-                  <td class="is-no"><span class="visually-hidden" data-i18n="compareExcluded">不包含</span></td>
-                  <td class="is-no"><span class="visually-hidden" data-i18n="compareExcluded">不包含</span></td>
-                  <td data-i18n="compareTrafficValue">50GB/年</td>
                 </tr>
               </tbody>
             </table>
-            <p class="compare-note" data-i18n="compareNote">
-              功能解锁用户使用自备 S3，同步存储与流量费用自行承担。Plus 的自备 S3 / WebDAV 仅在订阅期内可用，到期后收回；已购功能解锁永久有效。USB Kindle 双向批注同步的兼容范围因设备型号和书籍格式而异。
-            </p>
+            <p class="compare-note" data-i18n="compareExpiryNote">7 天试用由用户主动领取，每账号一次。过期只停用付费同步，不删除自备数据或本地书库；买断永久、无需续费。</p>
+            <p class="compare-note" data-i18n="compareCompatibilityNote">USB Kindle 双向批注同步的兼容范围因设备型号和书籍格式而异。</p>
           </div>
 
           <div
@@ -623,7 +610,7 @@
             </details>
             <details>
               <summary data-i18n="faq2Question">我的书和 API Key 会上传吗？</summary>
-              <p data-i18n="faq2Answer">书籍、封面、阅读记录默认保存在本机。AI 请求只发送相关片段，API Key 使用系统安全存储。</p>
+              <p data-i18n="faq2Answer">书籍、封面、阅读记录默认保存在本机。账号服务只做身份和功能权益管理，不接收用户书籍；试用订阅与买断订阅的跨端同步直连你自备的 S3 / WebDAV。AI 请求只发送相关片段到你配置的服务，API Key 使用系统安全存储。</p>
             </details>
             <details>
               <summary data-i18n="faq3Question">macOS 下载后如何打开？</summary>
@@ -705,6 +692,6 @@
     <noscript>
       <div class="noscript-note">请启用 JavaScript 以加载最新版本下载信息；镜像下载同样可用。</div>
     </noscript>
-    <script src="app.js?v=20261109-membership" defer></script>
+    <script src="app.js?v=20261115-plans2" defer></script>
   </body>
 </html>

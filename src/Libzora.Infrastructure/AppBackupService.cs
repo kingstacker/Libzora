@@ -656,9 +656,12 @@ public sealed partial class AppBackupService
         if (imported is null) return current.Settings;
 
         var currentSettings = current.Settings;
-        var credentialsReady = imported.Provider == SyncProvider.AccountServer
-            ? false // A backup must never rebind or enable an account session.
-            : imported.Provider == SyncProvider.WebDav
+        if (imported.Provider == SyncProvider.AccountServer)
+            // A historical official-cloud backup neither rebinds storage nor
+            // overwrites an existing custom connection, its secrets or sync key.
+            return S3SyncSettings.Normalize(currentSettings with { Enabled = false });
+
+        var credentialsReady = imported.Provider == SyncProvider.WebDav
             ? currentSettings.Provider == SyncProvider.WebDav
                 && currentSettings.WebDavEndpoint == S3SyncSettings.Normalize(new S3SyncSettings { WebDavEndpoint = imported.WebDavEndpoint ?? string.Empty }).WebDavEndpoint
                 && (!imported.WebDavAuthenticationRequired || currentSettings.WebDavUsername.Length > 0)
@@ -667,7 +670,7 @@ public sealed partial class AppBackupService
             || !string.IsNullOrWhiteSpace(currentSettings.EncryptionKey);
         // A restored custom connection is an explicit choice; older packages
         // without the flag are inferred from the connection they carry.
-        var importedCustom = imported.Provider != SyncProvider.AccountServer
+        var importedCustom = imported.Provider is SyncProvider.S3 or SyncProvider.WebDav
             && (imported.ProviderChosenByUser || imported.Provider == SyncProvider.WebDav
                 || !string.IsNullOrWhiteSpace(imported.Endpoint) || !string.IsNullOrWhiteSpace(imported.Bucket));
         return S3SyncSettings.Normalize(currentSettings with

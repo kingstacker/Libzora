@@ -17,31 +17,8 @@ public sealed class AppThemeSettingsTests
     {
         var settings = AppSettings.Normalize(JsonSerializer.Deserialize<AppSettings>(json));
         Assert.Equal(AppTheme.Classic, settings.MainTheme);
-        Assert.False(settings.ColorfulMode);
         Assert.Equal(ReaderTheme.Classic, settings.ReaderAppearance.Theme);
         Assert.False(settings.ReaderAppearance.PaperEnabled);
-    }
-
-    [Fact]
-    public void ColorfulModeDefaultsOffAndRoundTripsWithoutChangingTheTheme()
-    {
-        var defaults = AppSettings.Normalize(JsonSerializer.Deserialize<AppSettings>("{}"));
-        Assert.False(defaults.ColorfulMode);
-        Assert.Equal(AppTheme.Classic, defaults.MainTheme);
-        Assert.DoesNotContain("ColorfulMode", JsonSerializer.Serialize(defaults));
-
-        var enabled = AppSettings.Normalize(new AppSettings
-        {
-            MainTheme = AppTheme.Green,
-            ColorfulMode = true
-        });
-        Assert.True(enabled.ColorfulMode);
-        Assert.Equal(AppTheme.Green, enabled.MainTheme);
-        var stored = JsonSerializer.Serialize(enabled);
-        Assert.Contains("ColorfulMode", stored);
-        var restored = JsonSerializer.Deserialize<AppSettings>(stored)!;
-        Assert.True(restored.ColorfulMode);
-        Assert.Equal(AppTheme.Green, restored.MainTheme);
     }
 
     [Theory]

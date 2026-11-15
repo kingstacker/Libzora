@@ -138,7 +138,6 @@ public sealed partial class S3SyncIntegrationTests
     [Theory]
     [InlineData(SyncProvider.S3)]
     [InlineData(SyncProvider.WebDav)]
-    [InlineData(SyncProvider.AccountServer)]
     public async Task EncryptedUploadsNeverExposePlaintextHashesOrPassphraseFingerprint(SyncProvider provider)
     {
         const string passphrase = "fictional-encrypted-directory-key";

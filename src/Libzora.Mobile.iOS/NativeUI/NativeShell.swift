@@ -5,6 +5,7 @@ import ImageIO
 
 struct NativeShell: View {
     @ObservedObject var store: NativeStore
+    @ObservedObject private var previewCenter = NativeBookPreviewCenter.shared
     @State private var selectedTab = 0
     @Environment(\.colorScheme) private var systemColorScheme
     private var appColorScheme: ColorScheme {
@@ -22,16 +23,23 @@ struct NativeShell: View {
         guard store.preferences.colorfulMode else { return "off" }
         return ambientBooks.map { "\($0.coverPath ?? "")|\($0.updatedAt)" }.joined(separator: "\n")
     }
+    private var showingLaunch: Bool { store.preparingLibrary || store.restoringReader && store.readerBook == nil }
+
     var body: some View {
-        TabView(selection: $selectedTab) {
-            NavigationView { NativeLibraryPage(store: store, isActive: selectedTab == 0) }.navigationViewStyle(.stack)
-                .tabItem { NativeTabLabel(title: "书库", symbol: "book") }.tag(0)
-            NavigationView { NativeMaterials(store: store) }.navigationViewStyle(.stack)
-                .tabItem { NativeTabLabel(title: "阅读资料", symbol: "note.text") }.tag(1)
-            NavigationView { NativeReadingDashboard(store: store) }.navigationViewStyle(.stack)
-                .tabItem { NativeTabLabel(title: "阅读数据", symbol: "chart.bar") }.tag(2)
-            NavigationView { NativeProfilePage(store: store) }.navigationViewStyle(.stack)
-                .tabItem { NativeTabLabel(title: "我的", symbol: "person") }.tag(3)
+        GeometryReader { geometry in
+            TabView(selection: $selectedTab) {
+                NavigationView { NativeLibraryPage(store: store, isActive: selectedTab == 0) }.navigationViewStyle(.stack)
+                    .tabItem { NativeTabLabel(title: "书库", symbol: "book") }.tag(0)
+                NavigationView { NativeMaterials(store: store) }.navigationViewStyle(.stack)
+                    .tabItem { NativeTabLabel(title: "阅读资料", symbol: "note.text") }.tag(1)
+                NavigationView { NativeReadingDashboard(store: store) }.navigationViewStyle(.stack)
+                    .tabItem { NativeTabLabel(title: "阅读数据", symbol: "chart.bar") }.tag(2)
+                NavigationView { NativeProfilePage(store: store) }.navigationViewStyle(.stack)
+                    .tabItem { NativeTabLabel(title: "我的", symbol: "person") }.tag(3)
+            }
+            .allowsHitTesting(!showingLaunch)
+            .accessibilityHidden(showingLaunch)
+            .task { await store.prepareLaunch(viewport: geometry.size) }
         }
         .font(NativeTheme.font()).foregroundStyle(NativeTheme.ink).tint(NativeTheme.ink)
         .environment(\.symbolVariants, .none)
@@ -70,18 +78,57 @@ struct NativeShell: View {
             } else if store.dataBusy {
                 VStack(spacing: 18) { ProgressView(); Text(store.busyMessage).foregroundStyle(.secondary) }
                     .frame(maxWidth: .infinity, maxHeight: .infinity).background(.regularMaterial)
-            } else if store.restoringReader && store.readerBook == nil {
-                // The saved session opens on the first shelf snapshot. Cover
-                // the shelf meanwhile so launch goes straight into the book.
-                VStack(spacing: 16) {
-                    ProgressView()
-                    Text("正在继续阅读…")
-                        .font(NativeTheme.font(14, relativeTo: .subheadline))
-                        .foregroundStyle(NativeTheme.secondary)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(NativeTheme.page)
+            } else if showingLaunch {
+                NativeLaunchPage(restoringReader: store.restoringReader,
+                                 showBranding: store.showsLaunchAnimation)
             }
+        }
+        .overlay {
+            if let request = previewCenter.request {
+                NativeBookPreviewOverlay(request: request, center: previewCenter)
+            }
+        }
+    }
+}
+
+private struct NativeLaunchPage: View {
+    let restoringReader: Bool
+    let showBranding: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var revealed = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if showBranding {
+                Spacer()
+                VStack(spacing: 20) {
+                    Text("Libzora")
+                        .font(NativeTheme.font(34, relativeTo: .largeTitle)).tracking(4)
+                        .accessibilityIdentifier("launch.brand")
+                    Text("为学日益，为道日损。")
+                        .font(NativeTheme.font(22, relativeTo: .title2))
+                        .tracking(1.5).lineLimit(1).minimumScaleFactor(0.65)
+                        .accessibilityIdentifier("launch.slogan")
+                }
+                .foregroundStyle(NativeTheme.ink)
+                .opacity(revealed ? 1 : 0)
+                .offset(y: revealed || reduceMotion ? 0 : 10)
+                Spacer()
+            }
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text(restoringReader ? "正在继续阅读…" : "正在载入书库…")
+                    .font(NativeTheme.font(13, relativeTo: .subheadline))
+                    .accessibilityIdentifier("launch.status")
+            }.foregroundStyle(NativeTheme.muted)
+        }
+        .padding(.horizontal, 32).padding(.top, 32).padding(.bottom, 36)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(NativeTheme.page.ignoresSafeArea())
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("launch.screen")
+        .onAppear {
+            withAnimation(.easeOut(duration: 0.65)) { revealed = true }
         }
     }
 }
@@ -120,24 +167,101 @@ struct NativeFeedback: ViewModifier {
 }
 
 @MainActor
-private enum NativeCoverCache {
-    static let images = NSCache<NSString, UIImage>()
+enum NativeCoverCache {
+    private struct Request: Hashable {
+        let path: String
+        let version: String
+        let pixels: Int
+        var key: NSString { "\(path):\(version):\(pixels)" as NSString }
+    }
+    private static let images: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.totalCostLimit = 24 * 1024 * 1024
+        return cache
+    }()
+    private static var pending: [Request: Task<UIImage?, Never>] = [:]
+
+    static func cachedImage(path: String, version: String, pixels: Int) -> UIImage? {
+        images.object(forKey: Request(path: path, version: version, pixels: pixels).key)
+    }
+
     static func image(path: String, version: String, pixels: Int) async -> UIImage? {
-        images.totalCostLimit = 24 * 1024 * 1024
-        let key = "\(path):\(version):\(pixels)" as NSString
-        if let image = images.object(forKey: key) { return image }
-        let image = await Task.detached(priority: .userInitiated) { () -> UIImage? in
-            guard let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil),
-                  let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-                    kCGImageSourceCreateThumbnailFromImageAlways: true,
-                    kCGImageSourceCreateThumbnailWithTransform: true,
-                    kCGImageSourceThumbnailMaxPixelSize: pixels,
-                    kCGImageSourceShouldCacheImmediately: true
-                  ] as CFDictionary) else { return nil }
-            return UIImage(cgImage: thumbnail)
-        }.value
-        if let image { images.setObject(image, forKey: key, cost: Int(image.size.width * image.size.height) * 4) }
+        let request = Request(path: path, version: version, pixels: pixels)
+        if let image = images.object(forKey: request.key) { return image }
+        guard !Task.isCancelled else { return nil }
+        let task: Task<UIImage?, Never>
+        if let existing = pending[request] { task = existing }
+        else {
+            task = Task.detached(priority: .userInitiated) { () -> UIImage? in
+                guard let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil),
+                      let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                        kCGImageSourceCreateThumbnailFromImageAlways: true,
+                        kCGImageSourceCreateThumbnailWithTransform: true,
+                        kCGImageSourceThumbnailMaxPixelSize: pixels,
+                        kCGImageSourceShouldCacheImmediately: true
+                      ] as CFDictionary) else { return nil }
+                return UIImage(cgImage: thumbnail)
+            }
+            pending[request] = task
+        }
+        let image = await task.value
+        pending.removeValue(forKey: request)
+        if let image { images.setObject(image, forKey: request.key, cost: Int(image.size.width * image.size.height) * 4) }
         return image
+    }
+
+    /// Warm the same cache and sizes that BookCover renders. Only the initial
+    /// viewport is needed: grid/list order, collection stacks and continue card
+    /// follow the actual shelf preferences, instead of preloading every cover.
+    static func prepareLibrary(books: [LibraryBook], folders: [LibraryFolder], preferences: MobilePreferences,
+                               continueBookId: String?, viewport: CGSize) async {
+        var requests: [Request] = []
+        func append(_ book: LibraryBook, width: CGFloat) {
+            guard let path = book.coverPath else { return }
+            let request = Request(path: path, version: book.updatedAt, pixels: Int(width * 3))
+            if !requests.contains(request) { requests.append(request) }
+        }
+        let width = max(1, viewport.width)
+        let height = max(1, viewport.height - 49) // Tab bar, outside the shelf's scroll view.
+        if preferences.collectionsView {
+            let cardWidth = max(1, (width - 48 - 14) / 2)
+            let rows = max(1, Int(ceil(max(1, height - 124) / (cardWidth * 1.48 + 14))))
+            for folder in folders.prefix(rows * 2) {
+                let covers = books.filter { $0.collectionIds.contains(folder.id) }
+                    .sorted { $0.updatedAt > $1.updatedAt }.prefix(3)
+                for book in covers { append(book, width: cardWidth * 0.46) }
+            }
+        } else {
+            let ordered = NativeBookOrder.sorted(books, sort: preferences.sort)
+            let continueBook = ordered.first { $0.id == continueBookId }
+            if let continueBook { append(continueBook, width: 48) }
+            let availableHeight = max(1, height - 180 - (continueBook == nil ? 0 : 88))
+            if preferences.listView {
+                let count = max(1, Int(ceil(availableHeight / 86)))
+                for book in ordered.prefix(count) { append(book, width: 46) }
+            } else {
+                let coverWidth = NativeBookShelf.coverWidth(pageWidth: width)
+                let rowHeight = coverWidth * 1.45 + (preferences.galleryMode ? 18 : 82)
+                let rows = max(1, Int(ceil(availableHeight / rowHeight)))
+                let count = rows * NativeBookShelf.columnCount(pageWidth: width)
+                for book in ordered.prefix(count) { append(book, width: coverWidth) }
+            }
+        }
+        // Four prefetch workers at most. The hidden shelf can request the same
+        // cover; in-flight requests are shared rather than decoding it twice.
+        await withTaskGroup(of: Void.self) { group in
+            var remaining = requests.makeIterator()
+            for _ in 0..<4 {
+                guard let request = remaining.next() else { break }
+                group.addTask { _ = await image(path: request.path, version: request.version, pixels: request.pixels) }
+            }
+            while await group.next() != nil {
+                if Task.isCancelled { group.cancelAll(); break }
+                if let request = remaining.next() {
+                    group.addTask { _ = await image(path: request.path, version: request.version, pixels: request.pixels) }
+                }
+            }
+        }
     }
 }
 
@@ -147,9 +271,14 @@ struct BookCover: View {
     var height: CGFloat? = nil
     @Environment(\.colorScheme) private var scheme
     @State private var image: UIImage?
+    private var displayImage: UIImage? {
+        if let image { return image }
+        guard let path = book.coverPath else { return nil }
+        return NativeCoverCache.cachedImage(path: path, version: book.updatedAt, pixels: Int(width * 3))
+    }
     var body: some View {
         Group {
-            if let image { Image(uiImage: image).resizable().scaledToFill() }
+            if let image = displayImage { Image(uiImage: image).resizable().scaledToFill() }
             else { ZStack { NativeTheme.sunk; Text(String(book.title.prefix(1))).font(NativeTheme.font(width * 0.27)).foregroundStyle(NativeTheme.muted) } }
         }
         .frame(width: width, height: height ?? width * 1.45)

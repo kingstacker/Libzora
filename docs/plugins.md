@@ -8,19 +8,18 @@
 
 - `sdk/libzora.d.ts`：`window.libzora` 的 TypeScript 类型。
 - `sdk/libzora-mock.js`：在普通浏览器里模拟宿主，脱离应用开发页面。
-- `tools/Libzora.PluginTool`（命令 `libzora-plugin`）：校验、打包、签名、生成插件市场索引。
+- `tools/Libzora.PluginTool`（命令 `libzora-plugin`）：校验、打包、签名和签名验证。
 
 ## 安装与使用
 
-- 设置 → 高级 → 插件 → **导入插件…**，选择 `.libzoraplugin` 文件。导入前会列出插件声明的权限，确认后才安装。
+- 设置 → 插件 → **导入插件…**，选择 `.libzoraplugin` 文件。导入前会列出插件声明的权限，确认后才安装。
+- **默认关闭**：新安装的插件（包括随包插件）不会自动启用，需要用户在设置 → 插件中手动打开。开启前应用会提示插件由第三方提供，启用即表示用户理解并自行承担使用插件及其生成内容的责任。
 - 安装目录：程序根目录下的 `plugins/<插件 id>/`；插件自己的数据在 `plugin-data/<插件 id>/`。两者都不参与同步和备份。
 - 每个插件的开关、设置页、卸载按钮都在同一页。卸载会同时删除插件保存的数据。
 - 升级：再次导入同 id 的更高版本即可覆盖；导入较低版本会给出提示但允许安装。
-- **插件市场**：设置 → 高级 → 插件 → **插件市场…** 读取官方索引 `https://libzora.stacker.beauty/plugins/index.json`，列出可安装和可更新的插件；安装仍然走同一个权限确认框，下载的文件必须与索引里的 SHA-256 和大小一致。开发时可以用环境变量 `LIBZORA_PLUGIN_CATALOG` 指向自己的索引（支持 `https://`、本机回环地址和 `file://`）。
-- **更新检查**：打开了“自动检查更新”和网络功能时，启动约 45 秒后对照索引检查已安装插件，有新版本会在状态栏提示，到插件市场里点「更新」即可。
 - **签名**：插件列表和安装确认框会显示来源——「随应用附带」「官方签名」「已签名：发布者」或「未签名」。已签名插件升级时如果换了签名密钥，确认框会给出醒目警告（可能是冒名包）。签名被篡改的包直接拒绝安装。详见下文“签名”。
 - **后台任务**：同一页的「允许插件后台任务」开关控制所有插件的定时脚本，默认开启。
-- 随包插件：桌面版安装包自带“书籍翻译与注音”，放在程序目录的 `bundled-plugins/` 下。首次启动时自动安装到上面的插件目录；之后的版本如果随包插件版本号更高，会自动更新已安装的副本，开关状态保持不变。用户卸载后不会再自动装回，需要时可以手动导入。已安装记录在插件目录的 `bundled-plugins.json`。
+- 随包插件：桌面版安装包自带“书籍翻译与注音”，放在程序目录的 `bundled-plugins/` 下。首次启动时自动安装到上面的插件目录；之后的版本如果随包插件版本号更高，会自动更新已安装的副本，开关状态保持不变。用户卸载后不会再自动装回，需要时可以手动导入。已安装记录在插件目录的 `bundled-plugins.json`。从旧版本升级时，之前默认开启的插件会在首次启动后统一关闭一次，之后由用户自行开启。
 
 ## 插件包结构
 
@@ -105,8 +104,8 @@ com.example.my-plugin/
 | `id` | 小写字母、数字、点和短横线，3–64 个字符；同时是安装目录名 |
 | `version` | `1.0.0` 形式；再次导入更高版本即为升级 |
 | `apiVersion` | 目前固定为 `1`，不兼容时导入会被拒绝 |
-| `minAppVersion` | 可选，`1.2.0` 形式；低于此版本的 Libzora 拒绝安装，插件市场显示「需要 Libzora x.y.z」 |
-| `homepage` | 可选，`https://` 地址；显示在插件列表和市场中 |
+| `minAppVersion` | 可选，`1.2.0` 形式；低于此版本的 Libzora 拒绝安装 |
+| `homepage` | 可选，`https://` 插件主页地址，作为清单元数据保留 |
 | `i18n` | 可选，按语言代码（如 `en-US`）提供 `name`、`description` 和 `titles`。`titles` 的键是贡献点 `id`，独立页面用 `app`。找不到完全匹配时按语言前缀（`en`）匹配，仍找不到就用顶层字段 |
 | `permissions.network` | 允许请求的 HTTPS 来源；`*.example.com` 包含子域名，端口必须是默认端口 |
 | `permissions.library` | `read` 可读选中书籍，`write` 可修改；声明 `bookActions` 时必须至少为 `read` |
@@ -746,14 +745,14 @@ dotnet run --project tools/Libzora.PluginTool -- pack examples/book-info -o dist
 # 或旧脚本：scripts/package-plugin.sh examples/book-info dist/
 ```
 
-打包时保证 `manifest.json` 位于压缩包根部，并排除 `.git`、`node_modules`、`.DS_Store` 等无关文件。然后在 设置 → 高级 → 插件 → **导入插件…** 选择产物；确认权限后安装。安装后的副本在程序根目录的 `plugins/<id>/`，插件数据在 `plugin-data/<id>/`，两者都不参与同步和备份。
+打包时保证 `manifest.json` 位于压缩包根部，并排除 `.git`、`node_modules`、`.DS_Store` 等无关文件。然后在 设置 → 插件 → **导入插件…** 选择产物；确认权限后安装。安装后的副本在程序根目录的 `plugins/<id>/`，插件数据在 `plugin-data/<id>/`，两者都不参与同步和备份。
 
 ### 调试与排错
 
 - **先跑校验**：`libzora-plugin validate <目录或 .libzoraplugin>` 用应用自己的解析代码检查清单、页面和脚本文件、签名，并列出权限、贡献点和语言；它能通过，应用就能安装。
 - **脱离应用开发页面**：在页面里先引入 `sdk/libzora-mock.js`，用浏览器打开即可调用全部接口（数据是假的，存储用 `localStorage`）。在 `window.LIBZORA_MOCK` 里可以改上下文、权限、书籍和 AI 回复；`libzoraMock.lookup("词")`、`libzoraMock.translate("text")`、`libzoraMock.runBackground()` 可以直接调试脚本里注册的处理函数。在应用里 `window.libzora` 已存在，mock 不会生效。
 - **页面打不开**：先在插件列表确认版本、操作页路径和权限是否被拒绝；安装/升级失败时宿主会显示解析错误。
-- **开发者模式**：在 设置 → 高级 → 插件 里打开「插件开发模式」，之后新打开的插件窗口会：
+- **开发者模式**：在 设置 → 插件 里打开「插件开发模式」，之后新打开的插件窗口会：
   - 允许在页面内右键打开 WebView 开发者工具；
   - 在窗口顶部显示「重新加载」和「清空日志」按钮；
   - 在窗口底部显示页面日志，捕获 `console.*`、未捕获异常和未处理的 Promise rejection；
@@ -776,7 +775,6 @@ dotnet run --project tools/Libzora.PluginTool -- help
 | `sign <插件.libzoraplugin> --key 私钥.pem [--publisher 名称]` | 给已有的包签名（会替换旧签名） |
 | `verify <插件.libzoraplugin>` | 只校验签名 |
 | `keygen [-o 目录]` | 生成 ECDSA P-256 密钥对：`libzora-plugin-<密钥 ID>.pem`（私钥，权限 600）和 `.pub` |
-| `index <目录> --base-url https://…/plugins/ [-o index.json]` | 为目录里所有 `.libzoraplugin` 生成插件市场索引，并用应用的解析器复核 |
 
 TypeScript 项目把 `sdk/libzora.d.ts` 复制到工程里（或在 `tsconfig.json` 的 `include` 里引用），`libzora.*` 即有完整类型和注释；JavaScript 文件也可以在开头写 `/// <reference path="libzora.d.ts" />` 获得编辑器补全。
 
@@ -793,46 +791,18 @@ TypeScript 项目把 `sdk/libzora.d.ts` 复制到工程里（或在 `tsconfig.js
 
 第三方开发者：`libzora-plugin keygen` 生成自己的密钥，之后每次发布都用同一把私钥签名。**私钥丢失就无法再以同一身份发布更新**（用户升级时会看到“签名者变了”的警告），请离线备份，不要提交到仓库。
 
-### 插件市场与索引
+### 插件包分发
 
-插件市场读取一个静态 JSON 索引，可以放在任何 HTTPS 静态站点上：
+将 `.libzoraplugin` 文件分发给用户，由用户通过 **导入插件…** 本地安装或升级。应用不提供在线插件目录，也不检查插件的在线更新；导入时仍会验证清单、签名和权限。
 
-```json
-{
-  "format": 1,
-  "generatedAt": "2026-11-07T00:00:00Z",
-  "plugins": [
-    {
-      "id": "com.libzora.book-translation",
-      "name": "书籍翻译与注音",
-      "version": "1.2.0",
-      "description": "……",
-      "author": "Libzora",
-      "homepage": "https://libzora.stacker.beauty/",
-      "minAppVersion": null,
-      "trust": "official",
-      "download": "https://libzora.stacker.beauty/plugins/book-translation.libzoraplugin",
-      "sha256": "64 位十六进制",
-      "size": 123456,
-      "i18n": { "en-US": { "name": "Book Translation & Pinyin", "description": "……" } }
-    }
-  ]
-}
-```
-
-- 必填：`id`、`name`、`version`、`download`、`sha256`；缺字段或格式不对的条目会被跳过，同一个 id 只取第一条。
-- `download` 可以是相对索引地址的路径；必须是 `https://`（开发时可以是回环地址或 `file://`，但要和索引同类）。
-- 下载后先核对 `sha256` 和 `size`，再走正常的校验、签名和权限确认；索引里的 `trust` 只是给人看的说明，应用不读取它，来源一律以包里的签名为准。
-- 包上限与手动导入相同；`format` 大于 1 的索引会提示需要更新应用。
-
-官方插件的发布流程：
+官方插件包可用现有脚本打包签名：
 
 ```sh
 scripts/publish-plugins.sh                    # plugins/ 下全部插件
-scripts/publish-plugins.sh book-translation   # 只发布一个
+scripts/publish-plugins.sh book-translation   # 只打包一个
 ```
 
-脚本用官方私钥（环境变量 `LIBZORA_PLUGIN_SIGNING_KEY` 指定，默认 `~/.config/libzora/plugin-signing/official-p256.pem`）打包签名到 `website/plugins/`，再生成 `website/plugins/index.json`；之后照常运行 `scripts/build_website.sh` 部署网站即可。发布前记得递增插件版本号。
+脚本用官方私钥（环境变量 `LIBZORA_PLUGIN_SIGNING_KEY` 指定，默认 `~/.config/libzora/plugin-signing/official-p256.pem`）打包签名到 `website/plugins/`，不生成在线索引。需要提供手动下载时，可通过网站分发这些插件包，下载后再本地导入。发布前记得递增插件版本号。
 
 ### 发布前检查
 
@@ -851,7 +821,7 @@ scripts/publish-plugins.sh book-translation   # 只发布一个
 仓库中保留的插件源码在 `plugins/`，其中 `book-translation` 由 `src/Libzora.App/Libzora.App.csproj` 复制到输出目录的 `bundled-plugins/`，随桌面版发布（修改后记得递增 `manifest.json` 的版本号，老用户才会收到更新）；书籍详情匹配和在线书库的源码单独维护，不在本仓库中：
 
 - “书籍详情匹配”插件（id `com.libzora.book-details-match`），搜索在线图书条目，展示候选和详情对比，按字段勾选写回书名、作者、丛书、出版社、出版年、ISBN、页数、装帧、简介、评分和封面。插件设置中填写包含 `{query}`（也可用 `{title}`、`{author}`、`{isbn}`）的搜索地址模板；字段和封面从搜索结果及条目页面自动识别，不依赖特定网站，插件包内不包含任何网站地址。批量请求间隔默认 30 秒，同一本书的页面和详情之间使用 3 秒间隔。第一次打开插件设置页时会显示免责声明，同意后不再显示。
-- `plugins/book-translation`：“书籍翻译与注音”插件（id `com.libzora.book-translation`），书籍右键菜单里提供“翻译书籍”和“生成注音书”两个操作，分别选择翻译服务、语言、输出模式、注音引擎/样式，展示进度并支持取消；设置页保存默认选项。翻译和注音都使用宿主引擎，结果直接加入书库。
+- `plugins/book-translation`：“书籍翻译与注音”插件（id `com.libzora.book-translation`），书籍右键菜单里提供“翻译书籍”和“生成注音书”两个操作，分别选择翻译服务、语言、输出模式、注音引擎/样式，展示进度并支持取消；设置页保存默认选项。翻译和注音都使用宿主引擎，结果直接加入书库。翻译书籍和注音书籍仅供本人学习使用，请勿传播、出版或售卖；因传播或公开使用生成内容产生的责任由用户自行承担，插件各页面顶部始终显示此提示。
 - “在线书库”插件（id `com.libzora.online-library`），打开后在页内“设置”中填写服务地址和账号，同一页面登录、搜索、分页浏览，按行下载并直接加入书库，支持下载进度显示和下载前的确认提示。服务地址由用户填写，插件包内不包含任何网站地址。首次打开时会显示免责声明，同意后不再显示。
 
 ```sh
@@ -861,7 +831,7 @@ scripts/package-plugin.sh plugins/book-translation dist/
 ## 限制
 
 - 只在桌面端可用（Windows、macOS、Linux）。移动端没有插件运行时。
-- 插件下载只经过宿主，单个响应 10 MB、单本电子书 500 MB 为上限；插件不能直接写入书库目录。
+- 插件发起的网络请求和书籍下载只经过宿主，单个响应 10 MB、单本电子书 500 MB 为上限；插件不能直接写入书库目录。
 - 插件页面不能自己打开子窗口，也不能留在窗口之外的导航。
 - Linux 的插件窗口依赖 WebKitGTK/WPE，界面渲染需要单独验证；不可用时只能使用设置页之外的宿主界面。
 - 暂不提供「元数据来源」贡献：主界面的在线元数据流程没有暴露给插件。需要匹配书籍信息时，请使用 `contributes.bookActions` 打开自己的页面（现有“书籍详情匹配”插件即此模式）。

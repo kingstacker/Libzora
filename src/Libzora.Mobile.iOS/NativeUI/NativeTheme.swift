@@ -47,12 +47,12 @@ enum NativeTheme {
     // Plan and notice accents shared with the desktop account center.
     static let planFree = color(0x667085, 0xb0b8c6)
     static let planLifetime = color(0x7955b4, 0xbaa0ea)
-    static let planPlus = color(0x98651d, 0xe6bc75)
+    static let planTrial = color(0x98651d, 0xe6bc75)
     static let success = color(0x288064, 0x78c8ac)
     static let warning = color(0xa76b19, 0xe6bc75)
 
     static func planAccent(_ plan: String) -> Color {
-        plan == "plus" ? planPlus : plan == "lifetime" ? planLifetime : planFree
+        plan == "trial" ? planTrial : plan == "lifetime" ? planLifetime : planFree
     }
 
     @MainActor static func configureControls() {
@@ -147,12 +147,13 @@ struct NativeSettingsRow: View {
     let title: String
     var value = ""
     var chevron = true
+    var detailColor = NativeTheme.muted
     var body: some View {
         HStack(spacing: 8) {
             Text(title).font(NativeTheme.font())
             Spacer(minLength: 12)
-            if !value.isEmpty { Text(value).font(NativeTheme.font(14)).foregroundStyle(NativeTheme.muted).lineLimit(1) }
-            if chevron { Image(systemName: "chevron.right").font(.system(size: 12, weight: .regular)).foregroundStyle(NativeTheme.muted) }
+            if !value.isEmpty { Text(value).font(NativeTheme.font(14)).foregroundStyle(detailColor).lineLimit(1) }
+            if chevron { Image(systemName: "chevron.right").font(.system(size: 12, weight: .regular)).foregroundStyle(detailColor) }
         }.frame(minHeight: 22).padding(.vertical, 13).contentShape(Rectangle())
     }
 }

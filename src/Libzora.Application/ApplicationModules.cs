@@ -33,7 +33,10 @@ public sealed class ApplicationModules : IDisposable
         Library = new LibraryModule(regionalOptions);
         Reader = new ReaderModule(regionalOptions, Library);
         Ai = new AiModule(regionalOptions, StartupSettings, Reader);
-        Sync = new SyncModule(regionalOptions, Accounts.Service, DataRegion, Accounts.Membership);
+        IDeviceFeatureAccess syncFeatures = AccountAvailability.EnforceSyncEntitlements
+            ? Accounts.Membership
+            : AllowAllDeviceFeatureAccess.Instance;
+        Sync = new SyncModule(regionalOptions, Accounts.Service, DataRegion, syncFeatures);
         Integrations = new IntegrationModule(regionalOptions);
         Plugins = new PluginManager(Paths);
     }

@@ -13,7 +13,7 @@ internal static class MacDockIcon
 {
     private const string ObjCRuntime = "/usr/lib/libobjc.A.dylib";
     private const string IconUri = "avares://Libzora.App/Assets/Icons/libzora-dock.png";
-    private const double DockIconScale = 1.04;
+    private const double DockIconScale = 1.05;
 
     [StructLayout(LayoutKind.Sequential)]
     private readonly record struct NativeSize(double Width, double Height);
@@ -79,9 +79,7 @@ internal static class MacDockIcon
                 sel_registerName("initWithContentsOfFile:"),
                 nsPath);
             if (image == IntPtr.Zero) return;
-
-            var app = Send(objc_getClass("NSApplication"), sel_registerName("sharedApplication"));
-            SendVoidPtr(app, sel_registerName("setApplicationIconImage:"), image);
+            ApplyScaledIcon(image);
             SendVoid(image, sel_registerName("release"));
         }
         catch (Exception exception)
@@ -98,6 +96,15 @@ internal static class MacDockIcon
             bundlePath);
         var workspace = Send(objc_getClass("NSWorkspace"), sel_registerName("sharedWorkspace"));
         var source = SendPtr(workspace, sel_registerName("iconForFile:"), nsPath);
+        ApplyScaledIcon(source);
+    }
+
+    /// <summary>
+    /// Draws either the bundle icon or the loose-executable PNG into the same
+    /// 1024 px canvas so both paths share one Dock size.
+    /// </summary>
+    private static void ApplyScaledIcon(IntPtr source)
+    {
         if (source == IntPtr.Zero) return;
 
         const double canvas = 1024;

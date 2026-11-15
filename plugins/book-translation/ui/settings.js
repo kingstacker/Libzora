@@ -6,6 +6,7 @@
     title: '书籍翻译与注音',
     windowTitle: '设置',
     lead: '这里只保存翻译和注音窗口的默认选项。AI 服务的地址、模型、密钥和网络开关请在应用设置里配置。',
+    notice: '重要：翻译书籍和注音书籍仅供本人学习使用。请勿传播、出版、售卖或用于其他公开用途；因传播或使用生成内容产生的责任由用户自行承担。',
     provider: '默认翻译服务',
     providerHint: '使用应用设置中配置的模型服务，也支持本机模型；不提供网页免费接口。',
     providerAi: 'AI 翻译',
@@ -35,6 +36,7 @@
     title: 'Book translation & pinyin',
     windowTitle: 'Settings',
     lead: 'Defaults for the translation and pinyin windows. Configure the AI endpoint, model, key and network access in the app settings.',
+    notice: 'Important: translated books and pinyin-annotated books are for personal study only. Do not distribute, publish, sell, or otherwise make them public. You are responsible for any consequences of distributing or using the generated content.',
     provider: 'Default translation service',
     providerHint: 'Uses the configured model API, including local models. Free web endpoints are not provided.',
     providerAi: 'AI translation',
@@ -73,6 +75,7 @@
   const dom = {
     title: document.getElementById('title'),
     lead: document.getElementById('lead'),
+    notice: document.getElementById('notice'),
     providerTitle: document.getElementById('providerTitle'),
     provider: document.getElementById('provider'),
     providerAi: document.getElementById('providerAi'),
@@ -126,6 +129,7 @@
     dom.title.textContent = text.title;
     document.title = text.title;
     dom.lead.textContent = text.lead;
+    dom.notice.textContent = text.notice;
     dom.providerTitle.textContent = text.provider;
     dom.providerAi.textContent = text.providerAi;
     dom.providerHint.textContent = text.providerHint;

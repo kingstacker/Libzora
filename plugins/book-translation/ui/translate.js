@@ -4,6 +4,7 @@
   const zh = !(lz.context.language || 'zh-CN').toLowerCase().startsWith('en');
   const text = zh ? {
     lead: '整本书会按段落翻译，完成后自动把生成的文件加入书库。翻译进度保存在本机，中断后可继续。',
+    notice: '重要：翻译书籍和注音书籍仅供本人学习使用。请勿传播、出版、售卖或用于其他公开用途；因传播或使用生成内容产生的责任由用户自行承担。',
     provider: '翻译服务',
     providerHint: '使用应用设置里的模型服务；本机模型可免密钥，远程服务需自行取得使用授权。',
     providerAi: 'AI 翻译',
@@ -37,6 +38,7 @@
     readBook: '无法读取书籍信息：{0}'
   } : {
     lead: 'The whole book is translated paragraph by paragraph, and the generated files are added to the library. Progress is cached on this computer so an interrupted run can resume.',
+    notice: 'Important: translated books and pinyin-annotated books are for personal study only. Do not distribute, publish, sell, or otherwise make them public. You are responsible for any consequences of distributing or using the generated content.',
     provider: 'Translation service',
     providerHint: 'Uses the configured model service. Local models can run without a key; obtain authorization for remote services.',
     providerAi: 'AI translation',
@@ -82,6 +84,7 @@
   const dom = {
     title: document.getElementById('title'),
     lead: document.getElementById('lead'),
+    notice: document.getElementById('notice'),
     providerLabel: document.getElementById('providerLabel'),
     providerHint: document.getElementById('providerHint'),
     provider: document.getElementById('provider'),
@@ -180,6 +183,7 @@
 
   function applyText() {
     dom.lead.textContent = text.lead;
+    dom.notice.textContent = text.notice;
     dom.providerLabel.textContent = text.provider;
     dom.providerHint.textContent = text.providerHint;
     dom.providerAi.textContent = text.providerAi;

@@ -39,7 +39,7 @@ public sealed partial class SettingsTests
         using var handler = new AccountHttpHandler();
         using var http = new HttpClient(handler);
         using var service = new AccountService(scope.Paths, new AccountTestProtector(), http);
-        var dialog = new AccountCenterView(service);
+        var dialog = new AccountCenterView(service, registrationAvailable: true);
         try
         {
             MountAccountCenter(scope, dialog);
@@ -91,7 +91,7 @@ public sealed partial class SettingsTests
         using var handler = new AccountHttpHandler();
         using var http = new HttpClient(handler);
         using var service = new AccountService(scope.Paths, new AccountTestProtector(), http);
-        var dialog = new AccountCenterView(service);
+        var dialog = new AccountCenterView(service, registrationAvailable: true);
         T Get<T>(string name) where T : Control => dialog.FindControl<T>(name)!;
         try
         {
@@ -133,6 +133,40 @@ public sealed partial class SettingsTests
     });
 
     [Fact]
+    public Task RegistrationNoticeExplainsThatAccountsAreNotOnlineYet() => Run(async () =>
+    {
+        await using var scope = await TestWindow.Create();
+        using var handler = new AccountHttpHandler();
+        using var http = new HttpClient(handler);
+        using var service = new AccountService(scope.Paths, new AccountTestProtector(), http);
+        var dialog = new AccountCenterView(service, registrationAvailable: false);
+        T Get<T>(string name) where T : Control => dialog.FindControl<T>(name)!;
+        try
+        {
+            MountAccountCenter(scope, dialog);
+            await Until(() => Get<Button>("SubmitButton").IsEnabled);
+            Get<ComboBox>("ModeBox").SelectedIndex = 1;
+            Assert.True(Get<Border>("RegistrationNoticeBorder").IsVisible);
+            Assert.Contains("注册暂未上线", Get<TextBlock>("RegistrationNoticeText").Text);
+            Assert.False(Get<TextBlock>("RegisterSubtitle").IsVisible);
+            Assert.Contains("注册暂未上线", Get<TextBlock>("AccountPageSubtitle").Text);
+            Assert.False(Get<Button>("SubmitButton").IsEnabled);
+            Assert.Contains("注册暂未上线", Get<Button>("SubmitButton").Content!.ToString());
+            await Render();
+            Capture(scope.Window, "account-registration-unavailable");
+            Get<TextBox>("UsernameBox").Text = "test_reader";
+            Get<TextBox>("RegistrationEmailBox").Text = "reader@example.invalid";
+            Get<TextBox>("PasswordBox").Text = AccountHttpHandler.TestPassword;
+            Get<TextBox>("ConfirmPasswordBox").Text = AccountHttpHandler.TestPassword;
+            Get<Button>("SubmitButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.Contains("注册暂未上线", Get<TextBlock>("StatusText").Text);
+            Assert.Equal(0, handler.CredentialRequests);
+            Assert.False(Get<StackPanel>("AccountPanel").IsVisible);
+        }
+        finally { UnmountAccountCenter(scope, dialog); }
+    });
+
+    [Fact]
     public Task SidebarAccountButtonShowsTheLoginPageInsideTheMainWindowAndKeepsNavigationAvailable() => Run(async () =>
     {
         await using var scope = await TestWindow.Create();
@@ -150,12 +184,12 @@ public sealed partial class SettingsTests
         Assert.False(scope.Get<Grid>("LibraryWorkspace").IsVisible);
         Assert.False(scope.Get<Grid>("SettingsPage").IsVisible);
         page.FindControl<TextBox>("PasswordBox")!.Text = "fictional-unsent-password";
-        page.FindControl<TextBox>("ActivationCodeBox")!.Text = "fictional-unsent-activation-code";
+        AssertNoRetiredAccountControls(page);
         scope.Get<Button>("SettingsNavigationButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         Assert.False(host.IsVisible); Assert.True(scope.Get<Grid>("SettingsPage").IsVisible);
         Assert.DoesNotContain("active", scope.Get<Button>("AccountNavigationButton").Classes);
         Assert.Equal("", page.FindControl<TextBox>("PasswordBox")!.Text);
-        Assert.Equal("", page.FindControl<TextBox>("ActivationCodeBox")!.Text);
+        AssertNoRetiredAccountControls(page);
         scope.Get<Button>("AccountNavigationButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         await Until(() => host.IsVisible && page.FindControl<Button>("SubmitButton")!.IsEnabled);
         Assert.Same(page, host.Content); Assert.Empty(scope.Window.OwnedWindows);
@@ -182,7 +216,7 @@ public sealed partial class SettingsTests
     });
 
     [Fact]
-    public Task MemberCanListAndKickDevicesAndCreateThenCancelAnOrder() => Run(async () =>
+    public Task MemberCanListKickDevicesAndRefreshRightsWithoutCreatingOrders() => Run(async () =>
     {
         await using var scope = await TestWindow.Create();
         using var handler = new MembershipHttpHandler { LifetimeFeatures = false }; using var http = new HttpClient(handler);
@@ -197,21 +231,20 @@ public sealed partial class SettingsTests
             Assert.Contains("Free", Get<TextBlock>("MembershipSummary").Text);
             Assert.Equal("2 / 6 台", Get<TextBlock>("DeviceCountText").Text);
             Assert.Equal("¥88", Get<TextBlock>("LifetimePriceText").Text);
-            Assert.Contains("演示价", Get<TextBlock>("PlanPurchaseHintText").Text);
+            Assert.Contains("直接绑定账号", Get<TextBlock>("PlanEntitlementHintText").Text);
             var kick = Get<StackPanel>("DeviceListPanel").GetVisualDescendants().OfType<Button>()
                 .Single(button => button.Tag is Guid id && id == handler.OtherDeviceId);
             kick.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await Until(() => Get<StackPanel>("DeviceListPanel").Children.Count == 1 && Get<StackPanel>("MembershipPanel").IsEnabled);
             Assert.Equal(handler.OtherDeviceId, handler.LastKickedDevice);
             Assert.True((await accounts.GetStatusAsync()).IsLoggedIn);
-            Get<Button>("LifetimePurchaseButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            await Until(() => Get<StackPanel>("OrderListPanel").Children.Count == 1 && Get<StackPanel>("MembershipPanel").IsEnabled);
-            Assert.Equal("fictional-lifetime", handler.LastPurchase!.ProductId);
-            Assert.True(Get<Expander>("OrdersExpander").IsExpanded);
-            var cancel = Get<StackPanel>("OrderListPanel").GetVisualDescendants().OfType<Button>().Single();
-            cancel.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            await Until(() => handler.Orders[0].State == "cancelled" && Get<StackPanel>("MembershipPanel").IsEnabled);
-            Capture(scope.Window, "membership-devices-and-order");
+            var checks = handler.DeviceStatusChecks;
+            Get<Button>("LifetimeRightsButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Until(() => handler.DeviceStatusChecks > checks && Get<StackPanel>("MembershipPanel").IsEnabled);
+            Assert.False(handler.LifetimeFeatures);
+            AssertNoRetiredAccountRequests(handler);
+            AssertNoRetiredAccountControls(dialog);
+            Capture(scope.Window, "membership-devices-and-rights");
         }
         finally { UnmountAccountCenter(scope, dialog); }
     });
@@ -219,14 +252,14 @@ public sealed partial class SettingsTests
     [Theory]
     [InlineData("free")]
     [InlineData("lifetime")]
-    [InlineData("plus")]
+    [InlineData("trial")]
     public Task AccountLoginAndDeviceSignOutUpdateTheSidebarImmediately(string tier) => Run(async () =>
     {
         await using var scope = await TestWindow.Create();
         using var handler = new MembershipHttpHandler
         {
             LifetimeFeatures = tier == "lifetime",
-            ProExpiresAt = tier == "plus" ? DateTimeOffset.UtcNow.AddDays(30) : null
+            ProExpiresAt = tier == "trial" ? DateTimeOffset.UtcNow.AddDays(7) : null
         };
         using var http = new HttpClient(handler);
         using var accounts = new AccountService(scope.Paths, new AccountTestProtector(), http);
@@ -245,7 +278,7 @@ public sealed partial class SettingsTests
             Assert.Contains(tier, scope.Get<ShapePath>("AccountNavigationIcon").Classes);
             Assert.Contains(tier, Get<ShapePath>("MembershipAvatarIcon").Classes);
             Assert.Contains(handler.User.Username, ToolTip.GetTip(scope.Get<Button>("AccountNavigationButton"))!.ToString());
-            Assert.Equal(tier == "plus", Get<Grid>("CloudUsagePanel").IsVisible);
+            AssertAccountHasNoOfficialCloudControls(dialog);
 
             var current = Get<StackPanel>("DeviceListPanel").GetVisualDescendants().OfType<Button>()
                 .Single(button => button.Tag is Guid id && id == handler.CurrentDeviceId);
@@ -253,7 +286,7 @@ public sealed partial class SettingsTests
             await Until(() => Get<StackPanel>("SignInPanel").IsVisible && Get<Button>("SubmitButton").IsEnabled);
             Assert.Equal(UiText.Get("登录"), scope.Get<TextBlock>("AccountNavigationText").Text);
             Assert.Contains("free", scope.Get<ShapePath>("AccountNavigationIcon").Classes);
-            Assert.False(Get<Grid>("CloudUsagePanel").IsVisible);
+            AssertAccountHasNoOfficialCloudControls(dialog);
             Assert.Empty(Get<StackPanel>("DeviceListPanel").Children);
         }
         finally { UnmountAccountCenter(scope, dialog); }
@@ -264,192 +297,163 @@ public sealed partial class SettingsTests
     [InlineData("zh-CN", 1024, 664, AppTheme.Green)]
     [InlineData("en-US", 1294, 818, AppTheme.Beige)]
     [InlineData("en-US", 1024, 664, AppTheme.Classic)]
-    public Task AccountDashboardShowsAnnualDownloadAllowanceAndServerPricedPlanCards(string language, int width, int height, AppTheme theme) => Run(async () =>
+    public Task AccountPlansShowFreeTrialAndLifetimeWithoutOfficialCloud(string language, int width, int height, AppTheme theme) => Run(async () =>
     {
         await using var scope = await TestWindow.Create();
-        var app = (Libzora.App)Avalonia.Application.Current!;
+        var app = (Libzora.App)Application.Current!;
         app.ApplyLanguage(language);
         app.ApplyTheme(theme);
-        const long gib = 1024L * 1024 * 1024;
-        using var handler = new MembershipHttpHandler
-        {
-            LifetimeFeatures = false,
-            ProExpiresAt = DateTimeOffset.UtcNow.AddDays(365),
-            Products =
-            [
-                new("fictional-lifetime", "Feature Unlock", "lifetime", 8800, "CNY", 0, 0, "Fictional permanent unlock."),
-                new("fictional-plus", "Plus", "pro", 12800, "CNY", 365, 0, "Fictional annual membership.")
-            ],
-            TransformStatus = status => status with
-            {
-                Membership = status.Membership with
-                {
-                    StorageBytes = 8 * gib, StorageQuota = 20 * gib,
-                    UploadBytes = gib, DownloadBytes = 3 * gib,
-                    DownloadRemainingBytes = 87 * gib, DownloadCreditBytes = 2 * gib,
-                    PlusDownloadQuotaBytes = 100 * gib, PlusDownloadUsedBytes = 15 * gib
-                }
-            }
-        };
+        using var handler = new MembershipHttpHandler { LifetimeFeatures = false, ProExpiresAt = DateTimeOffset.UtcNow.AddDays(7) };
         using var http = new HttpClient(handler);
         using var accounts = new AccountService(scope.Paths, new AccountTestProtector(), http);
-        await accounts.SignInAsync(AccountService.DefaultServerUrl, handler.User.Username, MembershipHttpHandler.Password, true, email: handler.User.Email, confirmPassword: MembershipHttpHandler.Password);
-        handler.Devices[0] = handler.Devices[0] with { Name = "MacBook Pro" };
-        handler.Devices[1] = handler.Devices[1] with { Name = "iPhone 15", LastSeenAt = DateTimeOffset.UtcNow.AddHours(-3) };
+        await accounts.SignInAsync(AccountService.DefaultServerUrl, handler.User.Username, MembershipHttpHandler.Password);
         scope.Window.Width = width;
         scope.Window.Height = height;
-        var dialog = new AccountCenterView(accounts, new DeviceMembershipService(accounts));
-        T Get<T>(string name) where T : Control => dialog.FindControl<T>(name)!;
+        var page = new AccountCenterView(accounts, new DeviceMembershipService(accounts));
+        T Get<T>(string name) where T : Control => page.FindControl<T>(name)!;
         try
         {
-            MountAccountCenter(scope, dialog);
+            MountAccountCenter(scope, page);
             await Until(() => Get<StackPanel>("DeviceListPanel").Children.Count == 2 && Get<StackPanel>("MembershipPanel").IsEnabled);
-            Assert.True(Get<Grid>("CloudUsagePanel").IsVisible);
-            Assert.Equal("8 GB", Get<TextBlock>("StorageUsedText").Text);
-            Assert.Equal("40%", Get<TextBlock>("StoragePercentText").Text);
-            Assert.Equal(0.4, Get<AccountUsageRing>("StorageUsageRing").Ratio, 6);
-            Assert.Equal("15 GB", Get<TextBlock>("AnnualDownloadUsedText").Text);
-            Assert.Equal("15%", Get<TextBlock>("TrafficPercentText").Text);
-            Assert.Equal(0.15, Get<AccountUsageRing>("TrafficUsageRing").Ratio, 6);
-            Assert.Equal("85 GB", Get<TextBlock>("DownloadRemainingText").Text);
-            Assert.Equal("3 GB", Get<TextBlock>("DownloadUsedText").Text);
+            AssertAccountHasNoOfficialCloudControls(page);
+            Assert.Equal(language == "en-US" ? "Trial" : MemberEntitlements.TierName("trial"), Get<TextBlock>("TierBadgeText").Text);
+            Assert.Equal("¥88", Get<TextBlock>("LifetimePriceText").Text);
+            Assert.True(Get<Button>("LifetimeRightsButton").IsEnabled);
             Assert.Equal(UiText.Get("{0} / {1} 台", 2, 6), Get<TextBlock>("DeviceCountText").Text);
             Assert.Equal(6, Get<StackPanel>("DeviceSlotsPanel").Children.Count);
-            Assert.True(Get<TextBlock>("DownloadCreditText").IsVisible);
-            Assert.Equal("¥88", Get<TextBlock>("LifetimePriceText").Text);
-            Assert.Equal("¥128", Get<TextBlock>("PlusPriceText").Text);
-            Assert.Equal(UiText.Get("续费 Plus"), Get<Button>("PlusPurchaseButton").Content);
-            Assert.False(Get<Expander>("OrdersExpander").IsExpanded);
+            Assert.Equal(BenefitText(Get<StackPanel>("TrialBenefitsPanel")), BenefitText(Get<StackPanel>("LifetimeBenefitsPanel")));
+            Assert.Contains(UiText.Get("多端进度、书签、批注和书籍同步"), BenefitText(Get<StackPanel>("TrialBenefitsPanel")));
+            Assert.Contains(UiText.Get("自备 S3 / WebDAV 多端同步"), BenefitText(Get<StackPanel>("LifetimeBenefitsPanel")));
+            Assert.DoesNotContain(BenefitText(Get<StackPanel>("FreeBenefitsPanel")), text => text.Contains("S3", StringComparison.OrdinalIgnoreCase));
+            Assert.False(string.IsNullOrWhiteSpace(Get<TextBlock>("PurchaseTermsText").Text));
+            Assert.Null(page.FindControl<TextBlock>("NoRefundPolicyText"));
             await Render();
-            Assert.Equal(UiText.Get("已登录"), scope.Get<TextBlock>("AccountNavigationText").Text);
-            var viewport = Get<ScrollViewer>("AccountScrollViewer");
-            var settingsTitle = scope.Get<Grid>("SettingsPage").GetVisualDescendants().OfType<TextBlock>()
-                .First(text => text.Classes.Contains("pageTitle"));
-            Assert.Equal(settingsTitle.FontFamily, Get<TextBlock>("AccountPageTitle").FontFamily);
-            Assert.Equal(settingsTitle.FontSize, Get<TextBlock>("AccountPageTitle").FontSize);
-            Assert.Equal(settingsTitle.FontWeight, Get<TextBlock>("AccountPageTitle").FontWeight);
-            // The account centre is transparent so the colourful wash can
-            // show through; the library shell underneath keeps the paper.
-            Assert.Equal(Colors.Transparent, ColorOf(dialog.Background));
-            Assert.Equal(ResourceColor("PaperBrush"), ColorOf(scope.Get<Grid>("LibraryRoot").Background));
-            Assert.Contains(Get<Border>("AccountCard"), Get<Button>("SignOutButton").GetVisualAncestors());
-            AssertWithinAccountViewport(Get<Button>("SignOutButton"), viewport);
-            AssertWithinAccountViewport(Get<Grid>("CloudUsagePanel"), viewport);
-            Assert.False(Get<Expander>("ProfileExpander").IsExpanded);
-            Assert.False(Get<Expander>("PasswordExpander").IsExpanded);
-            if (height >= 800) AssertWithinAccountViewport(Get<Border>("DevicesCard"), viewport);
-            else AssertWithinAccountViewport((Control)Get<StackPanel>("DeviceListPanel").Children[0], viewport);
-            Capture(scope.Window, $"account-dashboard-{language}-{width}x{height}-{theme}");
-
+            AssertWithinAccountViewport(Get<Button>("SignOutButton"), Get<ScrollViewer>("AccountScrollViewer"));
+            Assert.Equal(Colors.Transparent, ColorOf(page.Background));
+            Capture(scope.Window, $"account-membership-{language}-{width}x{height}-{theme}");
             Get<StackPanel>("MembershipPlansPanel").BringIntoView();
             await Render();
-            var refundPolicy = Get<TextBlock>("NoRefundPolicyText");
-            Assert.Contains(language == "en-US" ? "non-refundable" : "均不支持退款", refundPolicy.Text);
-            AssertWithinAccountViewport(refundPolicy, viewport);
-            Assert.Equal(Get<TextBlock>("TierBadgeText").FontFamily, refundPolicy.FontFamily);
-            foreach (var name in new[] { "FreePlanCard", "LifetimePlanCard", "PlusPlanCard" })
+            var viewport = Get<ScrollViewer>("AccountScrollViewer");
+            foreach (var name in new[] { "FreePlanCard", "TrialCard", "LifetimePlanCard" })
             {
                 var card = Get<Border>(name);
                 var position = card.TranslatePoint(default, viewport)!.Value;
                 Assert.True(position.X >= 0 && position.X + card.Bounds.Width <= viewport.Bounds.Width + 1, name);
             }
-            var freeBenefits = Get<StackPanel>("FreeBenefitsPanel").GetVisualDescendants().OfType<TextBlock>().Select(text => text.Text ?? "").ToArray();
-            foreach (var icon in Get<StackPanel>("FreeBenefitsPanel").GetVisualDescendants().OfType<ShapePath>())
-                Assert.NotNull(icon.Data);
-            Assert.DoesNotContain(freeBenefits, text => text.Contains("100M", StringComparison.OrdinalIgnoreCase));
-            Assert.DoesNotContain(freeBenefits, text => text.Contains("S3", StringComparison.OrdinalIgnoreCase));
-            var unlockBenefits = Get<StackPanel>("LifetimeBenefitsPanel").GetVisualDescendants().OfType<TextBlock>().Select(text => text.Text ?? "").ToArray();
-            Assert.Contains(UiText.Get("进度与批注完整同步"), unlockBenefits);
-            Assert.Contains(UiText.Get("最多 6 台设备登录"), unlockBenefits);
-            var plusBenefits = Get<StackPanel>("PlusBenefitsPanel").GetVisualDescendants().OfType<TextBlock>().Select(text => text.Text ?? "").ToArray();
-            Assert.Contains(UiText.Get("书籍与阅读数据自动同步"), plusBenefits);
             Capture(scope.Window, $"account-plans-{language}-{width}x{height}-{theme}");
-            Get<Button>("PlusPurchaseButton").BringIntoView();
+            Get<Button>("LifetimeRightsButton").BringIntoView();
             await Render();
-            foreach (var name in new[] { "FreePlanButton", "LifetimePurchaseButton", "PlusPurchaseButton" })
+            foreach (var name in new[] { "FreePlanButton", "TrialClaimButton", "LifetimeRightsButton" })
                 AssertWithinAccountViewport(Get<Button>(name), viewport);
             Capture(scope.Window, $"account-plan-actions-{language}-{width}x{height}-{theme}");
-            Assert.Null(dialog.FindControl<Border>("AccountDetailsCard"));
-            Get<Expander>("ProfileExpander").IsExpanded = true;
-            await Render();
-            Get<Button>("ProfileSaveButton").BringIntoView();
-            await Render();
-            foreach (var name in new[] { "ProfileUsernameBox", "ProfileEmailBox", "ProfilePasswordBox", "ProfileSaveButton" })
-                AssertWithinAccountViewport(Get<Control>(name), viewport);
-            Capture(scope.Window, $"account-profile-{language}-{width}x{height}-{theme}");
         }
         finally
         {
-            UnmountAccountCenter(scope, dialog);
+            UnmountAccountCenter(scope, page);
             app.ApplyLanguage("zh-CN");
             app.ApplyTheme(AppTheme.Classic);
         }
     });
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public Task AccountAnnualDownloadRingExcludesOldCreditAndHandlesLegacyReplies(bool legacy) => Run(async () =>
+    [InlineData("trial", 7, "trial", "zh-CN")]
+    [InlineData("pro", 30, "trial", "zh-CN")]
+    [InlineData("trial", -1, "free", "zh-CN")]
+    [InlineData("pro", -1, "free", "zh-CN")]
+    [InlineData("lifetime", -1, "lifetime", "zh-CN")]
+    [InlineData("pro", 45, "trial", "zh-CN")]
+    [InlineData("trial", 7, "trial", "en-US")]
+    [InlineData("pro", 30, "trial", "en-US")]
+    [InlineData("trial", -1, "free", "en-US")]
+    [InlineData("pro", -1, "free", "en-US")]
+    [InlineData("lifetime", -1, "lifetime", "en-US")]
+    [InlineData("pro", 45, "trial", "en-US")]
+    public Task TrialAndLegacyMembershipNeverGrantPermanentPurchase(string responseTier, int expiryDays, string expectedTier, string language) => Run(async () =>
     {
         await using var scope = await TestWindow.Create();
-        const long gib = 1024L * 1024 * 1024;
+        ((Libzora.App)Application.Current!).ApplyLanguage(language);
+        var expiry = DateTimeOffset.UtcNow.AddDays(expiryDays);
+        var entitled = responseTier == "lifetime" || expiryDays > 0;
+        var claimedTrial = responseTier == "trial";
         using var handler = new MembershipHttpHandler
         {
-            LifetimeFeatures = false, ProExpiresAt = DateTimeOffset.UtcNow.AddDays(365),
+            LifetimeFeatures = false,
             TransformStatus = status => status with { Membership = status.Membership with
             {
-                PlusDownloadQuotaBytes = legacy ? null : 100 * gib, PlusDownloadUsedBytes = legacy ? null : 100 * gib,
-                DownloadBytes = gib, UploadBytes = 19 * gib, DownloadRemainingBytes = 5 * gib, DownloadCreditBytes = 5 * gib
+                Tier = responseTier, HasLifetimeFeatures = entitled,
+                ActivatedDeviceCount = entitled ? status.Membership.LoggedInDeviceCount : 0,
+                ProExpiresAt = responseTier is "pro" or "lifetime" ? expiry : null,
+                TrialExpiresAt = claimedTrial ? expiry : null,
+                TrialClaimed = claimedTrial,
+                TrialClaimedAt = claimedTrial ? expiry.AddDays(-MemberEntitlements.TrialDays) : null,
+                TrialAvailable = false
             } }
         };
         using var http = new HttpClient(handler);
         using var accounts = new AccountService(scope.Paths, new AccountTestProtector(), http);
-        await accounts.SignInAsync(AccountService.DefaultServerUrl, handler.User.Email!, MembershipHttpHandler.Password);
-        var dialog = new AccountCenterView(accounts, new DeviceMembershipService(accounts));
+        await accounts.SignInAsync(AccountService.DefaultServerUrl, handler.User.Username, MembershipHttpHandler.Password);
+        var page = new AccountCenterView(accounts, new DeviceMembershipService(accounts));
         try
         {
-            MountAccountCenter(scope, dialog);
-            await Until(() => dialog.FindControl<StackPanel>("MembershipPanel")!.IsEnabled && dialog.FindControl<Grid>("CloudUsagePanel")!.IsVisible);
-            Assert.Equal(legacy ? "—" : "100%", dialog.FindControl<TextBlock>("TrafficPercentText")!.Text);
-            Assert.Equal(legacy ? 0 : 1, dialog.FindControl<AccountUsageRing>("TrafficUsageRing")!.Ratio);
-            Assert.Equal(legacy ? "—" : "0 B", dialog.FindControl<TextBlock>("DownloadRemainingText")!.Text);
-            Assert.True(dialog.FindControl<TextBlock>("DownloadCreditText")!.IsVisible);
-            Assert.Contains("5 GB", dialog.FindControl<TextBlock>("DownloadCreditText")!.Text);
+            MountAccountCenter(scope, page);
+            await Until(() => page.FindControl<StackPanel>("DeviceListPanel")!.Children.Count == 2 && page.FindControl<StackPanel>("MembershipPanel")!.IsEnabled);
+            Assert.Contains(expectedTier, page.FindControl<ShapePath>("MembershipAvatarIcon")!.Classes);
+            var expectedBadge = language == "en-US"
+                ? expectedTier switch { "trial" => "Trial", "lifetime" => "Lifetime", _ => "Free" }
+                : MemberEntitlements.TierName(expectedTier);
+            Assert.Equal(expectedBadge, page.FindControl<TextBlock>("TierBadgeText")!.Text);
+            Assert.Equal(expectedTier != "lifetime", page.FindControl<Button>("LifetimeRightsButton")!.IsEnabled);
+            var expectsNotice = expectedTier == "free" || expectedTier == "trial" && expiryDays <= 30;
+            Assert.Equal(expectsNotice, page.FindControl<Border>("ExpiryNoticeBorder")!.IsVisible);
+            if (expectsNotice)
+            {
+                var message = expectedTier == "free"
+                    ? MemberEntitlements.TrialExpiryMessage(expiry, DateTimeOffset.UtcNow)
+                    : MemberEntitlements.TrialRenewalMessage(expiry, DateTimeOffset.UtcNow);
+                Assert.Equal(message, page.FindControl<TextBlock>("ExpiryNoticeText")!.Text);
+                Assert.DoesNotContain(language == "en-US" ? "retention" : "保留期", message);
+                Assert.DoesNotContain(language == "en-US" ? "renewal" : "续费", message);
+                Assert.Contains(language == "en-US" ? expectedTier == "free" ? "are not deleted" : "will not be deleted" : "不会删除", message);
+            }
+            AssertAccountHasNoOfficialCloudControls(page);
         }
-        finally { UnmountAccountCenter(scope, dialog); }
+        finally { UnmountAccountCenter(scope, page); }
     });
 
-    [Fact]
-    public Task AccountUsageShowsNewUserAndMetadataBuckets() => Run(async () =>
+    [Theory]
+    [InlineData(AccountRegion.China)]
+    [InlineData(AccountRegion.International)]
+    public Task BothRegionsValidateAccountRightsWithoutPurchaseOrCodeInterfaces(AccountRegion region) => Run(async () =>
     {
         await using var scope = await TestWindow.Create();
-        const long gib = 1024L * 1024 * 1024, mib = 1024L * 1024;
-        using var handler = new MembershipHttpHandler
-        {
-            LifetimeFeatures = false, ProExpiresAt = DateTimeOffset.UtcNow.AddDays(365),
-            TransformStatus = status => status with { Membership = status.Membership with
-            {
-                PlusEarlyDownloadQuotaBytes = 20 * gib, PlusEarlyDownloadUsedBytes = 5 * gib,
-                PlusEarlyDownloadEndsAt = DateTimeOffset.UtcNow.AddHours(12),
-                MetadataDownloadQuotaBytes = 512 * mib, MetadataDownloadUsedBytes = 128 * mib
-            } }
-        };
+        using var handler = new MembershipHttpHandler { LifetimeFeatures = false };
         using var http = new HttpClient(handler);
         using var accounts = new AccountService(scope.Paths, new AccountTestProtector(), http);
-        await accounts.SignInAsync(AccountService.DefaultServerUrl, handler.User.Email!, MembershipHttpHandler.Password);
-        var dialog = new AccountCenterView(accounts, new DeviceMembershipService(accounts));
+        await accounts.SelectRegionAsync(region);
+        await accounts.SignInAsync(AccountRegions.DefaultServerUrl(region), handler.User.Username, MembershipHttpHandler.Password);
+        var page = new AccountCenterView(accounts, new DeviceMembershipService(accounts));
         try
         {
-            MountAccountCenter(scope, dialog);
-            await Until(() => dialog.FindControl<StackPanel>("MembershipPanel")!.IsEnabled && dialog.FindControl<Grid>("CloudUsagePanel")!.IsVisible);
-            var early = dialog.FindControl<TextBlock>("EarlyLimitText")!;
-            Assert.True(early.IsVisible);
-            Assert.Contains("5 GB", early.Text); Assert.Contains("20 GB", early.Text);
-            var metadata = dialog.FindControl<TextBlock>("MetadataUsageText")!;
-            Assert.True(metadata.IsVisible);
-            Assert.Contains("128 MB", metadata.Text); Assert.Contains("512 MB", metadata.Text);
+            MountAccountCenter(scope, page);
+            await Until(() => page.FindControl<StackPanel>("DeviceListPanel")!.Children.Count == 2 && page.FindControl<StackPanel>("MembershipPanel")!.IsEnabled);
+            AssertNoRetiredAccountControls(page);
+            AssertAccountHasNoOfficialCloudControls(page);
+            var refresh = page.FindControl<Button>("LifetimeRightsButton")!;
+            Assert.True(refresh.IsEnabled);
+            Assert.Null(refresh.Tag);
+            Assert.Equal("Free", page.FindControl<TextBlock>("TierBadgeText")!.Text);
+            var checks = handler.DeviceStatusChecks;
+            refresh.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Until(() => handler.DeviceStatusChecks > checks && page.FindControl<StackPanel>("MembershipPanel")!.IsEnabled);
+            Assert.False(handler.LifetimeFeatures);
+            handler.LifetimeFeatures = true;
+            await page.RefreshAsync();
+            Assert.Equal(UiText.Get(MemberEntitlements.TierName("lifetime")), page.FindControl<TextBlock>("TierBadgeText")!.Text);
+            Assert.False(refresh.IsEnabled);
+            AssertNoRetiredAccountRequests(handler);
+            Assert.Equal(region, (await accounts.GetStatusAsync()).Region);
         }
-        finally { UnmountAccountCenter(scope, dialog); }
+        finally { UnmountAccountCenter(scope, page); }
     });
 
     [Fact]
@@ -491,7 +495,7 @@ public sealed partial class SettingsTests
             await Render();
             Capture(confirmation, "account-closure-confirmation");
             confirmation.FindControl<TextBox>("ClosurePasswordBox")!.Text = "fictional-new-reader-password";
-            confirmation.FindControl<TextBox>("ClosureConfirmationBox")!.Text = "注销";
+            confirmation.FindControl<TextBox>("ClosureConfirmationBox")!.Text = "停用";
             Assert.False(confirmation.FindControl<Button>("ClosureConfirmButton")!.IsEnabled);
             Assert.False(handler.AccountClosed);
             confirmation.FindControl<Button>("ClosureCancelButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -501,7 +505,7 @@ public sealed partial class SettingsTests
             await Until(() => scope.Window.OwnedWindows.OfType<AccountClosureWindow>().Any());
             confirmation = scope.Window.OwnedWindows.OfType<AccountClosureWindow>().Single();
             confirmation.FindControl<TextBox>("ClosurePasswordBox")!.Text = "fictional-new-reader-password";
-            confirmation.FindControl<TextBox>("ClosureConfirmationBox")!.Text = "注销账号";
+            confirmation.FindControl<TextBox>("ClosureConfirmationBox")!.Text = "停用账号";
             await Until(() => confirmation.FindControl<Button>("ClosureConfirmButton")!.IsEnabled);
             Assert.True(confirmation.FindControl<Button>("ClosureConfirmButton")!.IsEnabled);
             confirmation.FindControl<Button>("ClosureConfirmButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -513,108 +517,12 @@ public sealed partial class SettingsTests
     });
 
     [Theory]
-    [InlineData(false, false)]
-    [InlineData(true, false)]
-    [InlineData(true, true)]
-    public Task PlusLoginSelectsLibzoraCloudAndPreservesLaterManualProviderChoice(bool hasSyncKey, bool syncInProgress) => Run(async () =>
+    [InlineData("zh-CN")]
+    [InlineData("en-US")]
+    public Task AccountCenterOnlyClaimsTheTrialWhenExplicitlyRequested(string language) => Run(async () =>
     {
         await using var scope = await TestWindow.Create();
-        using var handler = new MembershipHttpHandler { LifetimeFeatures = false, ProExpiresAt = DateTimeOffset.UtcNow.AddDays(365) };
-        using var http = new HttpClient(handler);
-        var accounts = scope.Field<Libzora.ApplicationServices.ApplicationModules>("_modules").Accounts.Service;
-        typeof(AccountService).GetField("_http", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.SetValue(accounts, http);
-        var saved = await scope.Sync.LoadSettingsAsync();
-        var settings = saved.Settings with { Provider = SyncProvider.WebDav, WebDavEndpoint = "https://dav.example.invalid/dav",
-            WebDavUsername = "fictional-dav-reader", WebDavPassword = "fictional-dav-password",
-            EncryptionKey = hasSyncKey ? "fictional-sync-key" : "", Enabled = true, AutomaticSyncEnabled = false };
-        await scope.Sync.SaveSettingsAsync(saved.DeviceId, settings);
-        scope.Set("_s3SyncStoredSettings", new S3SyncStoredSettings(saved.DeviceId, settings));
-        scope.Call("PopulateS3SyncControls", (object?)null);
-        scope.Get<Button>("AccountNavigationButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-        var host = scope.Get<ContentControl>("AccountCenterHost");
-        await Until(() => host.Content is AccountCenterView && host.IsVisible);
-        var dialog = Assert.IsType<AccountCenterView>(host.Content);
-        var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        try
-        {
-            await Until(() => dialog.FindControl<Button>("SubmitButton")!.IsEnabled);
-            if (syncInProgress)
-            {
-                scope.Set("_s3SyncBusy", true);
-                scope.Set("_s3SyncCompletion", completion);
-            }
-            dialog.FindControl<TextBox>("UsernameBox")!.Text = handler.User.Email;
-            dialog.FindControl<TextBox>("PasswordBox")!.Text = MembershipHttpHandler.Password;
-            dialog.FindControl<Button>("SubmitButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            if (syncInProgress)
-            {
-                await Until(() => dialog.FindControl<StackPanel>("DeviceListPanel")!.Children.Count == 2
-                    && dialog.FindControl<StackPanel>("MembershipPanel")!.IsEnabled);
-                Assert.Equal(SyncProvider.WebDav, (await scope.Sync.LoadSettingsAsync()).Settings.Provider);
-                scope.Set("_s3SyncBusy", false);
-                scope.Set("_s3SyncCompletion", (object?)null);
-                completion.TrySetResult(true);
-            }
-            await Until(() => scope.Get<ComboBox>("SyncProviderBox").SelectedIndex == (int)SyncProvider.AccountServer);
-            var selected = (await scope.Sync.LoadSettingsAsync()).Settings;
-            Assert.Equal(SyncProvider.AccountServer, selected.Provider);
-            Assert.Equal(handler.User.Id, selected.AccountUserId);
-            Assert.Equal(hasSyncKey, selected.Enabled);
-            Assert.Equal(settings.EncryptionKey, selected.EncryptionKey);
-            Assert.Equal(settings.WebDavPassword, selected.WebDavPassword);
-            Assert.Equal("Libzora 云同步", selected.ProviderName);
-            scope.Get<Button>("SettingsNavigationButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            Assert.False(host.IsVisible); Assert.Empty(scope.Window.OwnedWindows);
-            scope.Get<ComboBox>("SyncProviderBox").SelectedIndex = (int)SyncProvider.WebDav;
-            scope.Get<ToggleSwitch>("S3SyncEnabledCheck").IsChecked = true;
-            Assert.True(await scope.Call<Task<bool>>("SaveS3SyncSettingsFromControlsAsync", true, CancellationToken.None));
-            await scope.Call<Task>("RefreshAccountSummaryAsync");
-            Assert.Equal(SyncProvider.WebDav, (await scope.Sync.LoadSettingsAsync()).Settings.Provider);
-            Assert.Equal((int)SyncProvider.WebDav, scope.Get<ComboBox>("SyncProviderBox").SelectedIndex);
-        }
-        finally
-        {
-            scope.Set("_s3SyncBusy", false);
-            scope.Set("_s3SyncCompletion", (object?)null);
-            completion.TrySetResult(false);
-            UnmountAccountCenter(scope, dialog);
-        }
-    });
-
-    [Fact]
-    public Task ExpiredPlusRemovesCloudChartsAndShowsTheRetentionDeadline() => Run(async () =>
-    {
-        await using var scope = await TestWindow.Create();
-        using var handler = new MembershipHttpHandler { LifetimeFeatures = false, ProExpiresAt = DateTimeOffset.UtcNow.AddDays(30) };
-        using var http = new HttpClient(handler);
-        using var accounts = new AccountService(scope.Paths, new AccountTestProtector(), http);
-        await accounts.SignInAsync(AccountService.DefaultServerUrl, handler.User.Username, MembershipHttpHandler.Password, true, email: handler.User.Email, confirmPassword: MembershipHttpHandler.Password);
-        var dialog = new AccountCenterView(accounts, new DeviceMembershipService(accounts));
-        try
-        {
-            MountAccountCenter(scope, dialog);
-            await Until(() => dialog.FindControl<StackPanel>("MembershipPanel")!.IsEnabled && dialog.FindControl<Grid>("CloudUsagePanel")!.IsVisible);
-            var expired = DateTimeOffset.UtcNow.AddDays(-5);
-            handler.ProExpiresAt = expired;
-            scope.Get<Button>("SettingsNavigationButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            Assert.False(scope.Get<ContentControl>("AccountCenterHost").IsVisible);
-            scope.Get<Button>("AccountNavigationButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            await Until(() => dialog.FindControl<Border>("ExpiryNoticeBorder")!.IsVisible && dialog.FindControl<StackPanel>("MembershipPanel")!.IsEnabled);
-            Assert.Same(dialog, scope.Get<ContentControl>("AccountCenterHost").Content);
-            Assert.Empty(scope.Window.OwnedWindows);
-            Assert.False(dialog.FindControl<Grid>("CloudUsagePanel")!.IsVisible);
-            Assert.True(dialog.FindControl<Border>("CloudLockedPanel")!.IsVisible);
-            Assert.Contains(MemberEntitlements.CloudRetentionEndsAt(expired).LocalDateTime.ToString("yyyy/MM/dd"), dialog.FindControl<TextBlock>("ExpiryNoticeText")!.Text);
-            Assert.Contains("free", dialog.FindControl<ShapePath>("MembershipAvatarIcon")!.Classes);
-            Assert.Equal("续费 Plus", dialog.FindControl<Button>("ViewPlusButton")!.Content);
-        }
-        finally { UnmountAccountCenter(scope, dialog); }
-    });
-
-    [Fact]
-    public Task AccountCenterOnlyClaimsTheTrialWhenTheSwitchIsTurnedOn() => Run(async () =>
-    {
-        await using var scope = await TestWindow.Create();
+        ((Libzora.App)Application.Current!).ApplyLanguage(language);
         using var handler = new MembershipHttpHandler { LifetimeFeatures = false, TrialAvailable = true };
         using var http = new HttpClient(handler);
         using var accounts = new AccountService(scope.Paths, new AccountTestProtector(), http);
@@ -624,34 +532,41 @@ public sealed partial class SettingsTests
         try
         {
             MountAccountCenter(scope, dialog);
-            await Until(() => dialog.FindControl<Border>("TrialCard")!.IsVisible
-                && dialog.FindControl<StackPanel>("MembershipPanel")!.IsEnabled);
-            var toggle = dialog.FindControl<ToggleSwitch>("TrialClaimToggle")!;
-            Assert.False(toggle.IsChecked);
-            Assert.True(toggle.IsEnabled);
+            await Until(() => dialog.FindControl<StackPanel>("MembershipPanel") is { IsVisible: true, IsEnabled: true }
+                && dialog.FindControl<StackPanel>("DeviceListPanel")!.Children.Count == 2);
+            var claim = dialog.FindControl<Button>("TrialClaimButton")!;
+            Assert.True(claim.IsEnabled);
             Assert.Null(handler.TrialClaimedAt);
-            Assert.False(dialog.FindControl<Grid>("CloudUsagePanel")!.IsVisible);
+            AssertAccountHasNoOfficialCloudControls(dialog);
+            await dialog.RefreshAsync();
+            Assert.Null(handler.TrialClaimedAt);
+            Assert.True(claim.IsEnabled);
 
-            toggle.IsChecked = true;
+            claim.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await Until(() => handler.TrialClaimedAt is not null
                 && dialog.FindControl<StackPanel>("MembershipPanel")!.IsEnabled);
-            await Until(() => dialog.FindControl<Grid>("CloudUsagePanel")!.IsVisible);
-            Assert.True(toggle.IsChecked);
-            Assert.False(toggle.IsEnabled);
+            Assert.False(claim.IsEnabled);
+            Assert.Equal(handler.Now.AddDays(7), handler.TrialExpiresAt);
             Assert.True(dialog.FindControl<TextBlock>("TrialStatusText")!.IsVisible);
-            Assert.Contains("试用期至", dialog.FindControl<TextBlock>("TrialStatusText")!.Text);
-            Assert.Equal("Plus 会员", dialog.FindControl<TextBlock>("TierBadgeText")!.Text);
+            Assert.Contains(language == "en-US" ? "Trial" : "试用期至", dialog.FindControl<TextBlock>("TrialStatusText")!.Text);
+            Assert.Equal(language == "en-US" ? "Trial" : MemberEntitlements.TierName("trial"), dialog.FindControl<TextBlock>("TierBadgeText")!.Text);
+            Assert.True(dialog.FindControl<Button>("LifetimeRightsButton")!.IsEnabled);
+            var claimedAt = handler.TrialClaimedAt;
+            claim.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await dialog.RefreshAsync();
+            Assert.Equal(claimedAt, handler.TrialClaimedAt);
+            AssertAccountHasNoOfficialCloudControls(dialog);
         }
         finally { UnmountAccountCenter(scope, dialog); }
     });
 
     [Fact]
-    public Task PurchaseServiceFailureKeepsTheCloudUsageAndDeviceDashboard() => Run(async () =>
+    public Task LegacyCloudStatisticsDoNotAffectFeatureValidationOrCreatePurchaseUi() => Run(async () =>
     {
         await using var scope = await TestWindow.Create();
         using var handler = new MembershipHttpHandler
         {
-            LifetimeFeatures = false, ProExpiresAt = DateTimeOffset.UtcNow.AddDays(30), ProductsUnavailable = true,
+            LifetimeFeatures = false, ProExpiresAt = DateTimeOffset.UtcNow.AddDays(30), UseMinimalMembershipContract = false,
             TransformStatus = status => status with { Membership = status.Membership with { StorageBytes = 24L * 1024 * 1024 * 1024 } }
         };
         using var http = new HttpClient(handler);
@@ -662,13 +577,13 @@ public sealed partial class SettingsTests
         {
             MountAccountCenter(scope, dialog);
             await Until(() => dialog.FindControl<StackPanel>("DeviceListPanel")!.Children.Count == 2 && dialog.FindControl<StackPanel>("MembershipPanel")!.IsEnabled);
-            Assert.True(dialog.FindControl<Grid>("CloudUsagePanel")!.IsVisible);
-            Assert.Equal("120%", dialog.FindControl<TextBlock>("StoragePercentText")!.Text);
-            Assert.Equal(1, dialog.FindControl<AccountUsageRing>("StorageUsageRing")!.Ratio);
-            Assert.Equal("空间已满", dialog.FindControl<TextBlock>("StorageRemainingText")!.Text);
-            Assert.False(dialog.FindControl<Button>("LifetimePurchaseButton")!.IsEnabled);
-            Assert.False(dialog.FindControl<Button>("PlusPurchaseButton")!.IsEnabled);
-            Assert.True(dialog.FindControl<TextBlock>("MembershipStatus")!.IsVisible);
+            AssertAccountHasNoOfficialCloudControls(dialog);
+            Assert.Equal(MemberEntitlements.TierName("trial"), dialog.FindControl<TextBlock>("TierBadgeText")!.Text);
+            Assert.True(dialog.FindControl<Button>("LifetimeRightsButton")!.IsEnabled);
+            Assert.Null(dialog.FindControl<Button>("LifetimeRightsButton")!.Tag);
+            Assert.False(dialog.FindControl<TextBlock>("MembershipStatus")!.IsVisible);
+            AssertNoRetiredAccountControls(dialog);
+            AssertNoRetiredAccountRequests(handler);
         }
         finally { UnmountAccountCenter(scope, dialog); }
     });
@@ -710,12 +625,91 @@ public sealed partial class SettingsTests
         await Until(() => handler.Started.Task.IsCompleted);
         var page = Assert.IsType<AccountCenterView>(scope.Get<ContentControl>("AccountCenterHost").Content);
         page.FindControl<TextBox>("PasswordBox")!.Text = "fictional-unsent-password";
-        page.FindControl<TextBox>("ActivationCodeBox")!.Text = "fictional-unsent-activation-code";
+        AssertNoRetiredAccountControls(page);
         scope.RequestQuit();
         await Until(() => handler.Cancelled.Task.IsCompleted);
         Assert.Equal("", page.FindControl<TextBox>("PasswordBox")!.Text);
-        Assert.Equal("", page.FindControl<TextBox>("ActivationCodeBox")!.Text);
+        AssertNoRetiredAccountControls(page);
     });
+
+    [Theory]
+    [InlineData("pro")]
+    [InlineData("storage")]
+    [InlineData("download")]
+    public Task LegacyButtonTagsCannotCreatePurchasesOrGrantRights(string kind) => Run(async () =>
+    {
+        await using var scope = await TestWindow.Create();
+        using var handler = new MembershipHttpHandler { LifetimeFeatures = false };
+        using var http = new HttpClient(handler);
+        using var accounts = new AccountService(scope.Paths, new AccountTestProtector(), http);
+        await accounts.SignInAsync(AccountService.DefaultServerUrl, handler.User.Username, MembershipHttpHandler.Password);
+        var page = new AccountCenterView(accounts, new DeviceMembershipService(accounts));
+        try
+        {
+            MountAccountCenter(scope, page);
+            await Until(() => page.FindControl<StackPanel>("DeviceListPanel")!.Children.Count == 2 && page.FindControl<StackPanel>("MembershipPanel")!.IsEnabled);
+            var refresh = page.FindControl<Button>("LifetimeRightsButton")!;
+            Assert.True(refresh.IsEnabled);
+            Assert.Null(refresh.Tag);
+            refresh.Tag = kind;
+            var checks = handler.DeviceStatusChecks;
+            refresh.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Until(() => handler.DeviceStatusChecks > checks && page.FindControl<StackPanel>("MembershipPanel")!.IsEnabled);
+            Assert.False(handler.LifetimeFeatures);
+            Assert.Equal("Free", page.FindControl<TextBlock>("TierBadgeText")!.Text);
+            AssertNoRetiredAccountControls(page);
+            AssertNoRetiredAccountRequests(handler);
+            AssertAccountHasNoOfficialCloudControls(page);
+        }
+        finally { UnmountAccountCenter(scope, page); }
+    });
+
+    [Theory]
+    [InlineData("trial")]
+    [InlineData("lifetime")]
+    public Task AccountLoginPreservesTheConfiguredSelfHostedProvider(string tier) => Run(async () =>
+    {
+        await using var scope = await TestWindow.Create();
+        using var handler = new MembershipHttpHandler
+        {
+            LifetimeFeatures = tier == "lifetime", ProExpiresAt = tier == "trial" ? DateTimeOffset.UtcNow.AddDays(7) : null
+        };
+        using var http = new HttpClient(handler);
+        var accounts = scope.Field<Libzora.ApplicationServices.ApplicationModules>("_modules").Accounts.Service;
+        typeof(AccountService).GetField("_http", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.SetValue(accounts, http);
+        var saved = await scope.Sync.LoadSettingsAsync();
+        var settings = saved.Settings with { Provider = SyncProvider.WebDav, WebDavEndpoint = "https://dav.example.invalid/dav",
+            WebDavUsername = "fictional-dav-reader", WebDavPassword = "fictional-dav-password", Enabled = false, AutomaticSyncEnabled = false };
+        await scope.Sync.SaveSettingsAsync(saved.DeviceId, settings);
+        scope.Set("_s3SyncStoredSettings", new S3SyncStoredSettings(saved.DeviceId, settings));
+        scope.Call("PopulateS3SyncControls", (object?)null);
+        scope.Get<Button>("AccountNavigationButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        var host = scope.Get<ContentControl>("AccountCenterHost");
+        await Until(() => host.Content is AccountCenterView && host.IsVisible);
+        var page = Assert.IsType<AccountCenterView>(host.Content);
+        try
+        {
+            await Until(() => page.FindControl<Button>("SubmitButton")!.IsEnabled);
+            page.FindControl<TextBox>("UsernameBox")!.Text = handler.User.Username;
+            page.FindControl<TextBox>("PasswordBox")!.Text = MembershipHttpHandler.Password;
+            page.FindControl<Button>("SubmitButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Until(() => page.FindControl<StackPanel>("DeviceListPanel")!.Children.Count == 2 && page.FindControl<StackPanel>("MembershipPanel")!.IsEnabled);
+            await scope.Call<Task>("RefreshAccountSummaryAsync");
+            Assert.Equal(settings, (await scope.Sync.LoadSettingsAsync()).Settings);
+            AssertAccountHasNoOfficialCloudControls(page);
+        }
+        finally { UnmountAccountCenter(scope, page); }
+    });
+
+    private static string[] BenefitText(StackPanel panel) => panel.GetVisualDescendants()
+        .OfType<TextBlock>().Select(text => text.Text ?? "").ToArray();
+
+    private static void AssertAccountHasNoOfficialCloudControls(AccountCenterView page)
+    {
+        foreach (var name in new[] { "CloudUsagePanel", "CloudLockedPanel", "StorageCard", "TrafficCard", "ViewPlusButton",
+                     "PlusPlanCard", "PlusPurchaseButton", "PlusBenefitsPanel", "StorageUsageRing", "TrafficUsageRing" })
+            Assert.Null(page.FindControl<Control>(name));
+    }
 
     private static void AssertWithinAccountViewport(Control control, ScrollViewer viewport)
     {

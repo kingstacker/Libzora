@@ -25,7 +25,7 @@ public sealed class AccountAndReadingDataTests(MobileUiSession session)
         var services = Services(paths, protector);
         using var modules = MobileComposition.Create(services);
         var shell = new MobileShell(modules, services, new MobilePreferencesStore(paths));
-        var page = new AccountPage(accounts, shell);
+        var page = new AccountPage(accounts, shell, registrationAvailable: true);
         var window = new Window { Width = 411, Height = 880, Content = page };
         T Get<T>(string name) where T : Control => page.FindControl<T>(name)!;
         try
@@ -87,7 +87,7 @@ public sealed class AccountAndReadingDataTests(MobileUiSession session)
         var services = Services(paths, protector);
         using var modules = MobileComposition.Create(services);
         var shell = new MobileShell(modules, services, new MobilePreferencesStore(paths));
-        var page = new AccountPage(accounts, shell);
+        var page = new AccountPage(accounts, shell, registrationAvailable: true);
         var window = new Window { Width = 411, Height = 880, Content = page };
         try
         {
@@ -117,6 +117,46 @@ public sealed class AccountAndReadingDataTests(MobileUiSession session)
             await Until(() => Get<StackPanel>("SignInPanel").IsVisible);
             Assert.True(handler.Revoked);
             Assert.False((await accounts.GetStatusAsync()).IsLoggedIn);
+        }
+        finally
+        {
+            page.OnClosed(); window.Close(); SqliteConnection.ClearAllPools();
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+        return true;
+    }, CancellationToken.None);
+
+    [Fact]
+    public Task RegistrationShowsUnavailableNoticeAndDoesNotSendCredentials() => session.Session.Dispatch(async () =>
+    {
+        var root = Path.Combine(Path.GetTempPath(), "libzora-mobile-register-closed-" + Guid.NewGuid().ToString("N"));
+        var paths = new AppPaths(root);
+        var protector = new TestProtector();
+        using var handler = new AccountHttpHandler();
+        using var http = new HttpClient(handler);
+        using var accounts = new AccountService(paths, protector, http);
+        var services = Services(paths, protector);
+        using var modules = MobileComposition.Create(services);
+        var shell = new MobileShell(modules, services, new MobilePreferencesStore(paths));
+        var page = new AccountPage(accounts, shell);
+        var window = new Window { Width = 411, Height = 880, Content = page };
+        try
+        {
+            window.Show();
+            T Get<T>(string name) where T : Control => page.FindControl<T>(name)!;
+            await Until(() => Get<Button>("SubmitButton").IsEnabled);
+            Click(Get<Button>("RegisterModeButton"));
+            Assert.True(Get<Border>("RegistrationNoticeBorder").IsVisible);
+            Assert.False(Get<Button>("SubmitButton").IsEnabled);
+            Assert.Contains("注册暂未上线", Get<Button>("SubmitButton").Content!.ToString());
+            Get<TextBox>("UsernameBox").Text = "test_reader";
+            Get<TextBox>("RegistrationEmailBox").Text = "reader@example.invalid";
+            Get<TextBox>("PasswordBox").Text = AccountHttpHandler.TestPassword;
+            Get<TextBox>("ConfirmPasswordBox").Text = AccountHttpHandler.TestPassword;
+            Click(Get<Button>("SubmitButton"));
+            Assert.Contains("注册暂未上线", Get<TextBlock>("StatusText").Text);
+            Assert.Equal(0, handler.CredentialRequests);
+            Assert.True(Get<StackPanel>("SignInPanel").IsVisible);
         }
         finally
         {
@@ -160,7 +200,7 @@ public sealed class AccountAndReadingDataTests(MobileUiSession session)
     }, CancellationToken.None);
 
     [Fact]
-    public Task MembershipPageManagesDevicesOrdersAndDailyInvalidation() => session.Session.Dispatch(async () =>
+    public Task MembershipPageManagesDevicesRightsRefreshAndDailyInvalidation() => session.Session.Dispatch(async () =>
     {
         var root = Path.Combine(Path.GetTempPath(), "libzora-mobile-membership-" + Guid.NewGuid().ToString("N"));
         var paths = new AppPaths(root); var protector = new TestProtector();
@@ -178,17 +218,18 @@ public sealed class AccountAndReadingDataTests(MobileUiSession session)
         {
             window.Show();
             await Until(() => Get<StackPanel>("DeviceListPanel").Children.Count == 2 && Get<StackPanel>("MembershipPanel").IsEnabled);
-            Assert.Contains("功能解锁", Get<TextBlock>("MembershipSummary").Text);
+            Assert.Contains("买断订阅", Get<TextBlock>("MembershipSummary").Text);
             Assert.Contains("已登录 2/6 台", Get<TextBlock>("MembershipSummary").Text);
             var kick = Get<StackPanel>("DeviceListPanel").Children.OfType<StackPanel>().SelectMany(row => row.Children).OfType<Button>()
                 .Single(button => button.Tag is Guid id && id == handler.OtherDeviceId);
             Click(kick);
             await Until(() => Get<StackPanel>("DeviceListPanel").Children.Count == 1 && Get<StackPanel>("MembershipPanel").IsEnabled);
             Assert.Equal(1, confirmations); Assert.True((await accounts.GetStatusAsync()).IsLoggedIn);
-            Click(Get<Button>("PurchaseButton"));
-            await Until(() => Get<StackPanel>("OrderListPanel").Children.Count == 1 && Get<StackPanel>("MembershipPanel").IsEnabled);
-            Click(((StackPanel)Get<StackPanel>("OrderListPanel").Children[0]).Children.OfType<Button>().Single());
-            await Until(() => handler.Orders[0].State == "cancelled" && Get<StackPanel>("MembershipPanel").IsEnabled);
+            var checks = handler.DeviceStatusChecks;
+            Click(Get<Button>("LifetimeRightsButton"));
+            await Until(() => handler.DeviceStatusChecks > checks && Get<StackPanel>("MembershipPanel").IsEnabled);
+            AssertNoRetiredMemberControls(page);
+            AssertNoRetiredMemberRequests(handler);
             using var monitor = new AccountDeviceMonitor(accounts, paths); handler.Revoked = true;
             await monitor.CheckIfDueAsync(); await Until(() => Get<StackPanel>("SignInPanel").IsVisible);
             Assert.Contains("重新登录", Get<TextBlock>("StatusText").Text); Assert.False(Get<StackPanel>("MembershipPanel").IsVisible);
@@ -239,9 +280,9 @@ public sealed class AccountAndReadingDataTests(MobileUiSession session)
     }, CancellationToken.None);
 
     [Fact]
-    public Task MobileActivationRefreshesRightsAndClearsCodesOnRegionChange() => session.Session.Dispatch(async () =>
+    public Task MobileRightsRefreshOnlyUsesServerGrantsAndKeepsRegionsSeparate() => session.Session.Dispatch(async () =>
     {
-        var root = Path.Combine(Path.GetTempPath(), "libzora-mobile-code-" + Guid.NewGuid().ToString("N"));
+        var root = Path.Combine(Path.GetTempPath(), "libzora-mobile-rights-" + Guid.NewGuid().ToString("N"));
         var paths = new AppPaths(root); var protector = new TestProtector();
         using var handler = new MembershipHttpHandler { LifetimeFeatures = false }; using var http = new HttpClient(handler);
         using var accounts = new AccountService(paths, protector, http);
@@ -254,16 +295,53 @@ public sealed class AccountAndReadingDataTests(MobileUiSession session)
         try
         {
             window.Show(); await Until(() => Get<StackPanel>("DeviceListPanel").Children.Count == 2 && Get<StackPanel>("MembershipPanel").IsEnabled);
-            Get<TextBox>("ActivationCodeBox").Text = "fictional-plus-code"; Click(Get<Button>("ActivationRedeemButton"));
-            await Until(() => Get<TextBlock>("ActivationStatusText").Text?.Contains("已增加 1 年") == true);
-            Assert.Contains("Plus", Get<TextBlock>("MembershipSummary").Text); Assert.Equal("", Get<TextBox>("ActivationCodeBox").Text);
-            Get<TextBox>("ActivationCodeBox").Text = "fictional-lifetime-code"; Click(Get<Button>("InternationalRegionButton"));
+            AssertNoRetiredMemberControls(page);
+            Assert.Contains("Free", Get<TextBlock>("MembershipSummary").Text);
+            var checks = handler.DeviceStatusChecks;
+            Click(Get<Button>("LifetimeRightsButton"));
+            await Until(() => handler.DeviceStatusChecks > checks && Get<StackPanel>("MembershipPanel").IsEnabled);
+            Assert.False(handler.LifetimeFeatures);
+            Assert.Contains("Free", Get<TextBlock>("MembershipSummary").Text);
+            Assert.Null(handler.TrialClaimedAt);
+
+            // A fictional protected server grant is the only source of permanent rights.
+            handler.LifetimeFeatures = true;
+            checks = handler.DeviceStatusChecks;
+            Click(Get<Button>("LifetimeRightsButton"));
+            await Until(() => handler.DeviceStatusChecks > checks && Get<StackPanel>("MembershipPanel").IsEnabled);
+            Assert.Contains("买断订阅", Get<TextBlock>("MembershipSummary").Text);
+            Assert.DoesNotContain("Plus", Get<TextBlock>("MembershipSummary").Text);
+            AssertNoRetiredMemberRequests(handler);
+
+            handler.LifetimeFeatures = false;
+            checks = handler.DeviceStatusChecks;
+            Click(Get<Button>("LifetimeRightsButton"));
+            await Until(() => handler.DeviceStatusChecks > checks && Get<StackPanel>("MembershipPanel").IsEnabled);
+            Assert.Contains("Free", Get<TextBlock>("MembershipSummary").Text);
+            Assert.True((await accounts.GetStatusAsync()).IsLoggedIn);
+            Click(Get<Button>("SignOutButton"));
             await Until(() => Get<StackPanel>("SignInPanel").IsVisible && Get<Button>("SubmitButton").IsEnabled);
-            Assert.Equal("", Get<TextBox>("ActivationCodeBox").Text); Assert.False(Get<StackPanel>("MembershipPanel").IsVisible);
+            Click(Get<Button>("InternationalRegionButton"));
+            await Until(() => Get<Button>("SubmitButton").IsEnabled && (Get<TextBlock>("PlansRegionText").Text?.Contains("国际区") == true));
+            Assert.False(Get<StackPanel>("MembershipPanel").IsVisible);
+            Assert.False((await accounts.GetStatusAsync()).IsLoggedIn);
+            Assert.Equal(AccountRegion.International, (await accounts.GetStatusAsync()).Region);
+            AssertNoRetiredMemberControls(page);
+            AssertNoRetiredMemberRequests(handler);
         }
         finally { page.OnClosed(); window.Close(); SqliteConnection.ClearAllPools(); if (Directory.Exists(root)) Directory.Delete(root, true); }
         return true;
     }, CancellationToken.None);
+
+    private static void AssertNoRetiredMemberControls(AccountPage page)
+    {
+        foreach (var name in new[] { "ActivationCodeBox", "ActivationRedeemButton", "ActivationStatusText", "ProductsBox", "PurchaseButton", "OrderListPanel" })
+            Assert.Null(page.FindControl<Control>(name));
+    }
+
+    private static void AssertNoRetiredMemberRequests(MembershipHttpHandler handler) =>
+        Assert.DoesNotContain(handler.RequestedActions, action => action is "products" or "orders"
+            || action.StartsWith("orders/", StringComparison.Ordinal) || action.StartsWith("activation-codes/", StringComparison.Ordinal));
 
     private static MobileServices Services(AppPaths paths, ISecretProtector protector) => new(paths, protector,
         new BookMetadataService(), new UnavailableBookFormatConverter(), new NoFiles());

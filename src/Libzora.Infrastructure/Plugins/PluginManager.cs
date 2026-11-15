@@ -58,6 +58,9 @@ public sealed class PluginManager
 {
     private const string StateFileName = "plugins.json";
     private const string BundledStateFileName = "bundled-plugins.json";
+    // Plugins used to start enabled. This marker makes the opt-in policy apply
+    // once, without overriding enable choices the user makes afterwards.
+    private const string DisabledByDefaultMarkerFileName = ".plugins-disabled-by-default";
 
     /// <summary>Folder next to the executable that holds plugins shipped with the app.</summary>
     public const string BundledDirectoryName = "bundled-plugins";
@@ -85,7 +88,7 @@ public sealed class PluginManager
         lock (_gate)
         {
             if (!Directory.Exists(_pluginsDirectory)) return [];
-            var state = LoadState();
+            var state = LoadStateWithPolicy();
             var plugins = new List<InstalledPlugin>();
             foreach (var directory in Directory.EnumerateDirectories(_pluginsDirectory))
             {
@@ -98,7 +101,7 @@ public sealed class PluginManager
                     var manifest = PluginManifest.Parse(File.ReadAllText(manifestPath));
                     if (!string.Equals(manifest.Id, name, StringComparison.Ordinal)) continue;
                     var known = state.TryGetValue(manifest.Id, out var entry);
-                    plugins.Add(new InstalledPlugin(manifest, directory, !known || entry!.Enabled)
+                    plugins.Add(new InstalledPlugin(manifest, directory, known && entry!.Enabled)
                     {
                         Trust = known ? entry!.Trust : PluginTrustLevel.Unsigned,
                         SignerKeyId = known ? entry!.SignerKeyId : null,
@@ -268,8 +271,10 @@ public sealed class PluginManager
                 TryDeleteDirectory(backup);
             }
 
-            var state = LoadState();
-            var enabled = !state.TryGetValue(manifest.Id, out var entry) || entry.Enabled;
+            var state = LoadStateWithPolicy();
+            // Installing or updating never enables a plugin implicitly: the
+            // user has to switch it on after reading the responsibility notice.
+            var enabled = state.TryGetValue(manifest.Id, out var entry) && entry.Enabled;
             state[manifest.Id] = new PluginStateEntry
             {
                 Enabled = enabled,
@@ -294,7 +299,7 @@ public sealed class PluginManager
     {
         lock (_gate)
         {
-            var state = LoadState();
+            var state = LoadStateWithPolicy();
             var entry = state.TryGetValue(pluginId, out var existing) ? existing : new PluginStateEntry();
             entry.Enabled = enabled;
             state[pluginId] = entry;
@@ -401,6 +406,35 @@ public sealed class PluginManager
         }
     }
 
+    /// <summary>
+    /// Older releases enabled plugins as soon as they were installed. Plugins
+    /// are now opt-in, so the first operation after this change switches them
+    /// all off once. The marker preserves later user choices.
+    /// </summary>
+    private Dictionary<string, PluginStateEntry> LoadStateWithPolicy()
+    {
+        var state = LoadState();
+        var marker = Path.Combine(_pluginsDirectory, DisabledByDefaultMarkerFileName);
+        if (File.Exists(marker)) return state;
+        var changed = false;
+        foreach (var entry in state.Values)
+        {
+            if (!entry.Enabled) continue;
+            entry.Enabled = false;
+            changed = true;
+        }
+        try
+        {
+            if (changed) SaveState(state);
+            Directory.CreateDirectory(_pluginsDirectory);
+            File.WriteAllText(marker, "1");
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // Apply the policy for this launch anyway; the next launch retries.
+        }
+        return state;    }
+
     private Dictionary<string, PluginStateEntry> LoadState()
     {
         var path = Path.Combine(_pluginsDirectory, StateFileName);
@@ -437,7 +471,7 @@ public sealed class PluginManager
 
     private sealed class PluginStateEntry
     {
-        public bool Enabled { get; set; } = true;
+        public bool Enabled { get; set; }
         public DateTimeOffset InstalledAt { get; set; } = DateTimeOffset.UtcNow;
         public PluginTrustLevel Trust { get; set; }
         public string? SignerKeyId { get; set; }

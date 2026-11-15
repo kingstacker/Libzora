@@ -59,7 +59,7 @@ public sealed class S3SyncSettingsStore
             var settings = S3SyncSettings.Normalize(new S3SyncSettings
             {
                 Provider = persisted.Provider,
-                ProviderChosenByUser = persisted.ProviderChosenByUser,
+                ProviderChosenByUser = persisted.ProviderChosenByUser ?? false,
                 Enabled = persisted.Enabled,
                 AutomaticSyncEnabled = persisted.AutomaticSyncEnabled,
                 DownloadBookFilesOnSync = persisted.DownloadBookFilesOnSync,
@@ -83,10 +83,9 @@ public sealed class S3SyncSettingsStore
                 EncryptionKey = Unprotect(persisted.ProtectedEncryptionKey)
             });
 
-            // Older settings files predate the explicit-choice flag. A saved
-            // custom connection is a choice too, so a later Plus sign-in must
-            // not replace it with Libzora cloud sync after upgrading.
-            if (!settings.ProviderChosenByUser && settings.Provider != SyncProvider.AccountServer
+            // Older settings files predate the explicit-choice flag. Preserve
+            // their custom connection; a removed official-cloud choice needs user review.
+            if (persisted.ProviderChosenByUser is null && persisted.Provider != SyncProvider.AccountServer
                 && (settings.Provider == SyncProvider.WebDav
                     || !string.IsNullOrWhiteSpace(settings.Endpoint)
                     || !string.IsNullOrWhiteSpace(settings.AccessKey)
@@ -206,7 +205,7 @@ public sealed class S3SyncSettingsStore
     {
         public string? DeviceId { get; set; }
         public SyncProvider Provider { get; set; }
-        public bool ProviderChosenByUser { get; set; }
+        public bool? ProviderChosenByUser { get; set; }
         public bool Enabled { get; set; }
         public bool AutomaticSyncEnabled { get; set; } = true;
         public bool DownloadBookFilesOnSync { get; set; }

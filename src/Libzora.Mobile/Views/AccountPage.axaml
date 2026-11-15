@@ -39,6 +39,10 @@
               </Grid>
             </Border>
           </c:NativeSegmentGroup>
+          <Border Name="RegistrationNoticeBorder" IsVisible="False" Background="{DynamicResource SunkBrush}" CornerRadius="14" Padding="14">
+            <TextBlock Name="RegistrationNoticeText" Classes="muted" FontSize="13" TextWrapping="Wrap"
+                       Text="注册暂未上线。当前版本无需注册即可免费使用全部功能。" />
+          </Border>
           <StackPanel Spacing="6">
             <TextBlock Classes="label" Text="账号服务地址" />
             <TextBox Name="ServerUrlBox" PlaceholderText="https://accounts.example.com"
@@ -93,11 +97,11 @@
           <TextBlock Classes="title" Text="会员与设备" />
           <TextBlock Name="MembershipSummary" TextWrapping="Wrap" />
           <TextBlock Name="MembershipStatus" Classes="muted" TextWrapping="Wrap" />
-          <TextBlock Classes="muted" FontSize="12" Text="Free 不支持多端同步。功能解锁永久使用自备 S3 / WebDAV；Plus 按年订阅，订阅期内可使用自备 S3 / WebDAV，并提供官方云同步、10GB 空间和每年 50GB 下载。Plus 到期后，官方云同步、下载以及自备 S3 / WebDAV 一并停用；已购功能解锁不受影响，云数据保留一个月。每个账号最多登录 6 台设备。" TextWrapping="Wrap" />
+          <TextBlock Classes="muted" FontSize="12" Text="Free 保留完整本地阅读。7 天试用订阅与买断订阅解锁相同的自备 S3 / WebDAV 多端同步功能；买断永久有效。所有方案均不提供官方云存储或官方云同步。试用到期不删除本地书库或自备存储数据，每个账号最多登录 6 台设备。" TextWrapping="Wrap" />
           <Border Name="TrialCard" IsVisible="False" Background="{DynamicResource SunkBrush}" CornerRadius="18" Padding="16">
             <StackPanel Spacing="7">
-              <TextBlock Classes="label" FontSize="16" Text="免费试用 Plus 7 天" />
-              <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap" Text="100MB 云空间 · 200MB 累计下载。只有主动打开领取开关才会领取；试用到期后，云端数据保留 7 天后自动销毁。" />
+              <TextBlock Classes="label" FontSize="16" Text="7 天试用订阅" />
+              <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap" Text="每账号仅可主动领取一次。试用与买断同步功能相同；试用到期只停用同步，不删除本地或自备存储数据。" />
               <ToggleSwitch Name="TrialClaimSwitch" OnContent="试用已领取" OffContent="领取 7 天免费试用" IsCheckedChanged="OnTrialClaimChanged" />
               <TextBlock Name="TrialStatusText" Classes="muted" FontSize="12" TextWrapping="Wrap" IsVisible="False" />
             </StackPanel>
@@ -105,23 +109,11 @@
           <Button Classes="secondary" Content="刷新会员与设备" Click="OnMembershipRefreshClick" />
           <StackPanel Name="DeviceListPanel" Spacing="10" />
           <TextBlock Name="PlansRegionText" Classes="muted" FontSize="12" Text="会员方案 · 中国区" />
-          <TextBlock Name="PlansUnavailableText" Classes="muted" FontSize="12" Text="国际区会员计划暂未上线。上线后将在这里公布国际区的价格与会员权益。" TextWrapping="Wrap" IsVisible="False" />
-          <StackPanel Name="PurchasePanel" Spacing="12">
-            <TextBlock Classes="label" Text="购买会员" />
-            <TextBlock Name="NoRefundPolicyText" Classes="muted" FontSize="12" Text="功能解锁、Plus 会员及扩容服务均不支持退款，请在购买前确认方案和期限。" TextWrapping="Wrap" />
-            <ComboBox Name="ProductsBox" HorizontalAlignment="Stretch" />
-            <TextBlock Name="ProductDescription" Classes="muted" TextWrapping="Wrap" FontSize="12" />
-            <Button Name="PurchaseButton" Classes="primary" Content="创建购买订单" Click="OnPurchaseClick" />
-            <TextBlock Classes="muted" FontSize="12" Text="Plus 最多可持有 5 年有效期，付费和激活码共用上限。" TextWrapping="Wrap" />
-            <TextBlock Classes="label" Text="激活码兑换" />
-            <TextBlock Classes="muted" FontSize="12" Text="激活码绑定当前已登录账户。功能会员永久有效，Plus 激活码每个增加 1 年。" TextWrapping="Wrap" />
-            <TextBox Name="ActivationCodeBox" MaxLength="80" PlaceholderText="输入激活码"
-                     TextInputOptions.AutoCapitalization="False" TextInputOptions.ShowSuggestions="False" TextInputOptions.IsSensitive="True"
-                     TextChanged="OnActivationCodeChanged" />
-            <Button Name="ActivationRedeemButton" Classes="secondary" Content="兑换激活码" IsEnabled="False" Click="OnActivationRedeemClick" />
-            <TextBlock Name="ActivationStatusText" Classes="muted" TextWrapping="Wrap" IsVisible="False" />
-            <TextBlock Classes="label" Text="订单" />
-            <StackPanel Name="OrderListPanel" Spacing="10" />
+          <StackPanel Name="ActivationPanel" Spacing="12">
+            <TextBlock Classes="label" Text="买断订阅 · ¥88 永久" />
+            <TextBlock Name="NoRefundPolicyText" Classes="muted" FontSize="12" Text="买断订阅为一次性购买，无自动续费。购买与退款适用购买渠道规则及当地法律。" TextWrapping="Wrap" />
+            <TextBlock Classes="muted" FontSize="12" Text="买断权益直接绑定账号，开通后刷新即可使用。服务端仅验证功能权益，不处理支付或订单。" TextWrapping="Wrap" />
+            <Button Name="LifetimeRightsButton" Classes="secondary" Content="刷新权益" Click="OnMembershipRefreshClick" />
           </StackPanel>
         </StackPanel>
         <StackPanel Name="RegionPanel" Spacing="8">

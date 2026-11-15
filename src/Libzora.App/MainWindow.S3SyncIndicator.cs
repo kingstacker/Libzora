@@ -38,13 +38,13 @@ public partial class MainWindow
     {
         if (_s3SyncBusy) return;
         var settings = _s3SyncStoredSettings.Settings;
+        var ready = settings.Enabled && settings.IsConfigured && settings.HasChosenCustomProvider;
         UpdateS3SyncIndicator(
-            settings.Enabled && settings.IsConfigured && _s3DeletionConfirmationPending
+            ready && _s3DeletionConfirmationPending
                 ? S3SyncIndicatorState.ConfirmationRequired
-                : settings.Enabled && settings.IsConfigured && HasPendingS3LocalChanges
+                : ready && HasPendingS3LocalChanges
                 ? S3SyncIndicatorState.Pending
-                : settings.Enabled && settings.IsConfigured
-                ? S3SyncIndicatorState.Ready
+                : ready ? S3SyncIndicatorState.Ready
                 : S3SyncIndicatorState.NotConfigured);
     }
 
@@ -135,12 +135,13 @@ public partial class MainWindow
     private async void S3SyncIndicatorButton_Click(object? sender, RoutedEventArgs e)
     {
         var settings = _s3SyncStoredSettings.Settings;
-        if (_s3SyncBusy || !settings.Enabled || settings.Validate() is not null)
+        if (_s3SyncBusy || !settings.HasChosenCustomProvider || !settings.Enabled || settings.Validate() is not null)
         {
             OpenSettingsExpander("Data", SettingsS3Expander);
             if (_s3SyncBusy) return;
-            S3SyncStatusText.Text = settings.Enabled
-                ? T("请先完善 云端同步设置。")
+            S3SyncStatusText.Text = !settings.HasChosenCustomProvider
+                ? T("请确认自备 S3 / WebDAV 连接信息并保存后再同步。")
+                : settings.Enabled ? T("请先完善 云端同步设置。")
                 : T("请先开启 云端同步。 ");
             return;
         }

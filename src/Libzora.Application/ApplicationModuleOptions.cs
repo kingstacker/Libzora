@@ -15,6 +15,12 @@ public sealed record ApplicationModuleOptions
     public required IBookFormatConverter FormatConverter { get; init; }
     public IAppUpdateInstaller? UpdateInstaller { get; init; }
     public ISyncService? SyncService { get; init; }
+    /// <summary>
+    /// Optional provider registry. Platform heads can start from
+    /// <see cref="SyncProviderRegistry.CreateDefault"/> and register additional
+    /// stores; leaving it null keeps the built-in S3/WebDAV set.
+    /// </summary>
+    public SyncProviderRegistry? SyncProviders { get; init; }
     public string? TtsCacheDirectory { get; init; }
     public Action<string>? RetrievalLog { get; init; }
 }

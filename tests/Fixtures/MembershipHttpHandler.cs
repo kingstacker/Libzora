@@ -18,7 +18,6 @@ public sealed class MembershipHttpHandler : HttpMessageHandler
     public Guid CurrentDeviceId { get; private set; }
     public Guid OtherDeviceId { get; } = Guid.NewGuid();
     public List<AccountDevice> Devices { get; } = [];
-    public List<PurchaseOrder> Orders { get; } = [];
     public bool LifetimeFeatures { get; set; } = true;
     public DateTimeOffset? ProExpiresAt { get; set; }
     public bool TrialAvailable { get; set; }
@@ -32,30 +31,19 @@ public sealed class MembershipHttpHandler : HttpMessageHandler
     public int EmailVerificationRequests { get; private set; }
     public bool EmailServiceAvailable { get; set; } = true;
     public Guid? LastKickedDevice { get; private set; }
-    public PurchaseRequest? LastPurchase { get; private set; }
-    public ActivationCodeRedeemRequest? LastActivationRequest { get; private set; }
-    public int ActivationAttempts { get; private set; }
-    public string? ActivationFailureCode { get; set; }
-    public bool LoseNextActivationResponse { get; set; }
-    public Func<ActivationCodeRedemption, ActivationCodeRedemption>? TransformRedemption { get; set; }
-    public Dictionary<string, string> ActivationCodes { get; } = new(StringComparer.OrdinalIgnoreCase)
-    { ["fictionalpluscode"] = "pro", ["fictionallifetimecode"] = "lifetime" };
-    private readonly Dictionary<string, (Guid Id, Guid Request, string Kind, DateTimeOffset At)> _redemptions = new(StringComparer.OrdinalIgnoreCase);
+    public List<string> RequestedActions { get; } = [];
+    public int DeviceStatusChecks { get; private set; }
+    public bool UseMinimalMembershipContract { get; set; } = true;
     public Func<DeviceFeatureStatus, DeviceFeatureStatus>? TransformStatus { get; set; }
-    public bool ProductsUnavailable { get; set; }
     public bool AccountClosed { get; private set; }
     public string UnavailableUsername { get; set; } = "taken_reader";
-    public MembershipProduct[] Products { get; set; } =
-    [
-        new("fictional-lifetime", "Fictional lifetime product", "lifetime", 8800, "CNY", 0, 0,
-            "Fictional local purchase; manual confirmation required.")
-    ];
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
     {
         if (Offline) throw new HttpRequestException("fictional network outage");
         var region = request.Headers.GetValues("X-Libzora-Region").Single() == "china" ? AccountRegion.China : AccountRegion.International;
         var action = request.RequestUri!.AbsolutePath.Split("/api/accounts/")[1];
+        RequestedActions.Add(action);
         if (action is "login" or "register")
         {
             var credentials = await request.Content!.ReadFromJsonAsync(AccountJsonContext.Default.AccountCredentials, token);
@@ -129,39 +117,10 @@ public sealed class MembershipHttpHandler : HttpMessageHandler
         if (action == "close")
         {
             var closure = (await request.Content!.ReadFromJsonAsync(AccountJsonContext.Default.AccountClosureRequest, token))!;
-            if (closure.Confirmation != "注销账号") return Error(HttpStatusCode.BadRequest, "confirmation_required");
+            if (closure.Confirmation != "停用账号") return Error(HttpStatusCode.BadRequest, "confirmation_required");
             if (closure.CurrentPassword != _password) return Error(HttpStatusCode.Forbidden, "current_password_incorrect");
             AccountClosed = true; Revoked = true;
             return new(HttpStatusCode.Accepted);
-        }
-        if (action == "activation-codes/redeem")
-        {
-            ActivationAttempts++;
-            LastActivationRequest = (await request.Content!.ReadFromJsonAsync(AccountJsonContext.Default.ActivationCodeRedeemRequest, token))!;
-            var code = LastActivationRequest.Code.Replace("-", "", StringComparison.Ordinal).Replace(" ", "", StringComparison.Ordinal);
-            if (ActivationFailureCode is { } failure) return Error(HttpStatusCode.Conflict, failure);
-            if (!ActivationCodes.TryGetValue(code, out var kind)) return Error(HttpStatusCode.BadRequest, "invalid_activation_code");
-            var alreadyRedeemed = _redemptions.TryGetValue(code, out var redemption);
-            if (!alreadyRedeemed)
-            {
-                if (_redemptions.Values.Any(item => item.Request == LastActivationRequest.RequestId)) return Error(HttpStatusCode.Conflict, "activation_request_conflict");
-                if (kind == "pro")
-                {
-                    if (!MemberEntitlements.CanExtendPlus(Status(region).Membership, 365, Now)) return Error(HttpStatusCode.Conflict, "membership_limit");
-                    ProExpiresAt = (ProExpiresAt > Now ? ProExpiresAt.Value : Now).AddDays(365);
-                }
-                else
-                {
-                    if (LifetimeFeatures) return Error(HttpStatusCode.Conflict, "lifetime_already_active");
-                    LifetimeFeatures = true;
-                }
-                redemption = (Guid.NewGuid(), LastActivationRequest.RequestId, kind, Now);
-                _redemptions.Add(code, redemption);
-            }
-            else if (redemption.Request != LastActivationRequest.RequestId) return Error(HttpStatusCode.Conflict, "activation_already_used");
-            if (LoseNextActivationResponse) { LoseNextActivationResponse = false; throw new HttpRequestException("fictional lost activation response"); }
-            var reply = new ActivationCodeRedemption(redemption.Id, kind, kind == "pro" ? 1 : 0, redemption.At, Status(region), alreadyRedeemed);
-            return new(HttpStatusCode.OK) { Content = JsonContent.Create(TransformRedemption?.Invoke(reply) ?? reply, AccountJsonContext.Default.ActivationCodeRedemption) };
         }
         if (action.StartsWith("devices/", StringComparison.Ordinal))
         {
@@ -184,71 +143,67 @@ public sealed class MembershipHttpHandler : HttpMessageHandler
             if (action.EndsWith("/features", StringComparison.Ordinal))
             {
                 FeatureChecks++;
-                if (!LifetimeFeatures && !(ProExpiresAt > Now))
+                if (!LifetimeFeatures && !((ProExpiresAt ?? TrialExpiresAt) > Now))
                 {
                     var denied = new HttpResponseMessage(HttpStatusCode.PaymentRequired);
                     denied.Headers.Add("X-Libzora-Error", "membership_required");
                     return denied;
                 }
             }
-            return new(HttpStatusCode.OK) { Content = JsonContent.Create(Status(region),
-                AccountJsonContext.Default.DeviceFeatureStatus) };
+            DeviceStatusChecks++;
+            var status = Status(region);
+            return new(HttpStatusCode.OK) { Content = UseMinimalMembershipContract
+                ? JsonContent.Create(new { membership = MinimalMembership(status.Membership), devices = status.Devices, currentDeviceId = status.CurrentDeviceId })
+                : JsonContent.Create(status, AccountJsonContext.Default.DeviceFeatureStatus) };
         }
         if (action == "trial")
         {
             if (TrialClaimedAt is null)
             {
-                if (!TrialAvailable || ProExpiresAt is not null) return Error(HttpStatusCode.Conflict, "trial_unavailable");
+                if (!TrialAvailable || LifetimeFeatures || ProExpiresAt is not null) return Error(HttpStatusCode.Conflict, "trial_unavailable");
                 TrialClaimedAt = Now;
-                TrialExpiresAt = Now.AddDays(7);
-                ProExpiresAt = TrialExpiresAt;
+                TrialExpiresAt = Now.AddDays(MemberEntitlements.TrialDays);
             }
-            return new(HttpStatusCode.OK) { Content = JsonContent.Create(Status(region).Membership,
-                AccountJsonContext.Default.AccountMembership) };
+            var member = Status(region).Membership;
+            return new(HttpStatusCode.OK) { Content = UseMinimalMembershipContract
+                ? JsonContent.Create(MinimalMembership(member))
+                : JsonContent.Create(member, AccountJsonContext.Default.AccountMembership) };
         }
-        if (action == "products") return ProductsUnavailable ? new(HttpStatusCode.ServiceUnavailable)
-            : new(HttpStatusCode.OK) { Content = JsonContent.Create(Products, AccountJsonContext.Default.MembershipProductArray) };
-        if (action == "orders" && request.Method == HttpMethod.Get) return new(HttpStatusCode.OK)
-            { Content = JsonContent.Create(Orders.ToArray(), AccountJsonContext.Default.PurchaseOrderArray) };
-        if (action == "orders" && request.Method == HttpMethod.Post)
-        {
-            LastPurchase = await request.Content!.ReadFromJsonAsync(AccountJsonContext.Default.PurchaseRequest, token);
-            var product = Products.FirstOrDefault(item => item.Id == LastPurchase!.ProductId);
-            if (product is null) return Error(HttpStatusCode.BadRequest, "invalid_product");
-            if (product.Kind == "pro" && !MemberEntitlements.CanExtendPlus(Status(region).Membership, product.DurationDays, Now))
-                return Error(HttpStatusCode.Conflict, "membership_limit");
-            var order = new PurchaseOrder(Guid.NewGuid(), User.Id, LastPurchase!.ProductId, product.Name,
-                product.Kind, product.PriceMinor, product.Currency, product.DurationDays, product.Bytes, "pending", Now, Now.AddDays(2), null);
-            Orders.Insert(0, order);
-            return new(HttpStatusCode.Created) { Content = JsonContent.Create(order, AccountJsonContext.Default.PurchaseOrder) };
-        }
-        if (action.StartsWith("orders/", StringComparison.Ordinal) && action.EndsWith("/cancel", StringComparison.Ordinal))
-        {
-            var id = Guid.Parse(action.Split('/')[1]);
-            var index = Orders.FindIndex(order => order.Id == id);
-            if (index < 0) return new(HttpStatusCode.NotFound);
-            Orders[index] = Orders[index] with { State = "cancelled" };
-            return new(HttpStatusCode.NoContent);
-        }
+        if (action is "products" or "orders" || action.StartsWith("orders/", StringComparison.Ordinal)
+            || action.StartsWith("activation-codes/", StringComparison.Ordinal)) return new(HttpStatusCode.Gone);
         return new(HttpStatusCode.NotFound);
     }
 
     private DeviceFeatureStatus Status(AccountRegion region)
     {
         var active = Devices.Count(device => device.State == "active");
-        var plus = ProExpiresAt > Now;
-        var features = LifetimeFeatures || plus;
-        var member = new AccountMembership(User.Id, region, plus ? "pro" : LifetimeFeatures ? "lifetime" : "free", features,
-            ProExpiresAt, MemberEntitlements.DeviceLimit, active, features ? active : 0, 256, 1024, 128, plus ? 100L * 1024 * 1024 * 1024 : 0, 0,
-            512, plus ? 20L * 1024 * 1024 * 1024 : 0, null, plus ? 100L * 1024 * 1024 * 1024 : 0, 0,
-            plus ? ProExpiresAt!.Value.AddDays(-365) : null, plus ? ProExpiresAt : null, Now.AddYears(5),
-            Orders.Where(order => order.Kind == "pro" && order.State == "pending" && order.ExpiresAt > Now).Sum(order => order.DurationDays),
-            null, 0, null, 512L * 1024 * 1024, 0, Now.UtcDateTime.Date.AddDays(1),
-            TrialAvailable && TrialClaimedAt is null && ProExpiresAt is null,
-            TrialClaimedAt is not null, TrialClaimedAt, TrialExpiresAt);
+        var limitedFeatures = (ProExpiresAt ?? TrialExpiresAt) > Now;
+        var features = LifetimeFeatures || limitedFeatures;
+        var member = new AccountMembership(User.Id, region, LifetimeFeatures ? "lifetime" : limitedFeatures ? "trial" : "free", features,
+            ProExpiresAt, MemberEntitlements.DeviceLimit, active, features ? active : 0,
+            0, 0, 0, 0, 0, 0, 0, null,
+            TrialAvailable: TrialAvailable && !LifetimeFeatures && TrialClaimedAt is null && ProExpiresAt is null,
+            TrialClaimed: TrialClaimedAt is not null, TrialClaimedAt: TrialClaimedAt, TrialExpiresAt: TrialExpiresAt);
         var status = new DeviceFeatureStatus(member, Devices.ToArray(), CurrentDeviceId);
         return TransformStatus?.Invoke(status) ?? status;
     }
+
+    // The activation service has no catalog, orders, codes, cloud usage or quota fields.
+    private static object MinimalMembership(AccountMembership member) => new
+    {
+        accountId = member.AccountId,
+        region = member.Region,
+        tier = member.Tier,
+        hasLifetimeFeatures = member.HasLifetimeFeatures,
+        featureExpiresAt = member.Tier == "lifetime" ? null : member.FeatureExpiresAt,
+        deviceLimit = member.DeviceLimit,
+        loggedInDeviceCount = member.LoggedInDeviceCount,
+        activatedDeviceCount = member.ActivatedDeviceCount,
+        trialAvailable = member.TrialAvailable,
+        trialClaimed = member.TrialClaimed,
+        trialClaimedAt = member.TrialClaimedAt,
+        trialExpiresAt = member.TrialExpiresAt
+    };
 
     private static HttpResponseMessage Error(HttpStatusCode status, string code)
     {

@@ -128,8 +128,21 @@ public sealed class SyncSettingsPageTests(MobileUiSession session)
             }
             await Until(() => Get<Button>("SaveButton").IsEnabled);
             Assert.Equal(originalBytes, await File.ReadAllBytesAsync(store.SettingsPath));
+            Get<TextBox>("EncryptionKeyConfirmBox").Text = "wrong-key";
             Click(Get<Button>("SaveButton"));
-            await Until(() => Get<Button>("SaveButton").IsEnabled);
+            await Until(() => Get<TextBlock>("StatusText").Text?.Contains("不一致") == true);
+            Assert.Equal(originalBytes, await File.ReadAllBytesAsync(store.SettingsPath));
+            Get<TextBox>("EncryptionKeyConfirmBox").Text = "draft-key";
+            Click(Get<Button>("SaveButton"));
+            await Until(() => shell.GetVisualDescendants().OfType<PromptSheet>().Any());
+            var confirmation = shell.GetVisualDescendants().OfType<PromptSheet>().Single();
+            Assert.Contains("同步密钥用于加密", confirmation.FindControl<TextBlock>("MessageText")!.Text);
+            Click(confirmation.FindControl<Button>("ConfirmButton")!);
+            using (var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
+            {
+                while ((await store.LoadAsync()).Settings.EncryptionKey != "draft-key")
+                    await Task.Delay(10, timeout.Token);
+            }
             var saved = (await store.LoadAsync()).Settings;
             Assert.Equal(provider, saved.Provider);
             Assert.Equal("edited/draft", saved.Prefix);

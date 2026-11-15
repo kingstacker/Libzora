@@ -13,6 +13,7 @@ public sealed class AccountHttpHandler : HttpMessageHandler
     { [AccountRegion.China] = new(), [AccountRegion.International] = new() };
     private readonly DateTimeOffset _expiry = DateTimeOffset.UtcNow.AddDays(30);
     public int CredentialRequests { get; private set; }
+    public int RequestCount { get; private set; }
     public bool Revoked { get; private set; }
     public AccountRegion LastRequestRegion { get; private set; }
     public IReadOnlyDictionary<string, string>? LastFeedbackFields { get; private set; }
@@ -22,6 +23,7 @@ public sealed class AccountHttpHandler : HttpMessageHandler
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
     {
+        RequestCount++;
         var region = request.Headers.GetValues("X-Libzora-Region").Single() == "international" ? AccountRegion.International : AccountRegion.China;
         LastRequestRegion = region;
         var session = _sessions[region];

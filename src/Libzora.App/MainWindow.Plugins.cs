@@ -56,7 +56,6 @@ public partial class MainWindow
             }
         });
         StartPluginBackgroundTasks();
-        _ = CheckPluginUpdatesAfterStartupAsync(_lifetimeCancellation.Token);
     }
 
     private void RefreshPluginContributions()
@@ -69,7 +68,6 @@ public partial class MainWindow
         RefreshPluginCommandMenu();
         RefreshReaderPluginActions();
         RefreshReaderTranslationPluginProviders();
-        if (PluginCatalogSection.IsVisible && _pluginCatalogEntries is not null) RenderPluginCatalog();
         PluginsChanged?.Invoke(this, EventArgs.Empty);
     }
 
@@ -486,9 +484,23 @@ public partial class MainWindow
         };
         ToolTip.SetTip(enabledToggle, T("启用"));
         Avalonia.Automation.AutomationProperties.SetName(enabledToggle, T("启用"));
-        enabledToggle.IsCheckedChanged += (_, _) =>
+        var suppressToggle = false;
+        enabledToggle.IsCheckedChanged += async (_, _) =>
         {
-            if (enabledToggle.IsChecked == plugin.Enabled) return;
+            if (suppressToggle || enabledToggle.IsChecked == plugin.Enabled) return;
+            if (enabledToggle.IsChecked == true
+                && !await ConfirmAsync(
+                    T("启用插件"),
+                    T("插件由第三方提供，启用后可以按插件声明的权限读取书库、访问网络或修改数据。请只启用你信任的插件。启用即表示你理解并自行承担使用插件及其生成内容所产生的责任。"),
+                    T("启用插件"),
+                    cancelText: T("取消")))
+            {
+                // Put the switch back without recording another user choice.
+                suppressToggle = true;
+                try { enabledToggle.IsChecked = false; }
+                finally { suppressToggle = false; }
+                return;
+            }
             _pluginManager.SetEnabled(plugin.Id, enabledToggle.IsChecked == true);
         };
 
@@ -708,6 +720,7 @@ public partial class MainWindow
             string.Empty,
             DescribePluginPermissions(manifest),
             string.Empty,
+            T("插件默认不启用，安装后需要你在“设置 → 插件”中自行开启。开启前请确认来源可信，并自行承担使用插件及生成内容的责任。"),
             T("插件页面运行在受限的网页视图中，只能通过应用提供的接口访问网络和书库。请只安装来自可信来源的插件。")
         };
         if (preview.IsDowngrade)

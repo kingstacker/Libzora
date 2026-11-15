@@ -345,7 +345,8 @@ public partial class MobileShell : UserControl
 
     public void OpenSyncSettings() => Push(new SyncSettingsPage(_modules, this));
 
-    public void OpenAccount() => Push(new AccountPage(_modules.Accounts.Service, this, _modules.Accounts.Membership));
+    public void OpenAccount() => Push(new AccountPage(_modules.Accounts.Service, this, _modules.Accounts.Membership,
+        AccountAvailability.RegistrationAvailable));
 
     public void OpenAiSettings() => Push(new AiSettingsPage(_modules, this));
 

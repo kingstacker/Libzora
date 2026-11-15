@@ -95,13 +95,23 @@ public sealed partial class SettingsTests
     private sealed class PortableSyncService : ISyncService
     {
         public int SyncCount { get; private set; }
+        public int FileDownloadCount { get; private set; }
+        public S3SyncStoredSettings StoredSettings { get; set; } = new("test-device", new S3SyncSettings());
         public event EventHandler? RemoteSettingsApplied { add { } remove { } }
-        public Task<S3SyncStoredSettings> LoadSettingsAsync(CancellationToken cancellationToken = default) => Task.FromResult(new S3SyncStoredSettings("test-device", new S3SyncSettings()));
-        public Task SaveSettingsAsync(string deviceId, S3SyncSettings settings, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task<S3SyncStoredSettings> LoadSettingsAsync(CancellationToken cancellationToken = default) => Task.FromResult(StoredSettings);
+        public Task SaveSettingsAsync(string deviceId, S3SyncSettings settings, CancellationToken cancellationToken = default)
+        {
+            StoredSettings = new(deviceId, settings);
+            return Task.CompletedTask;
+        }
         public Task ResetLocalBaselineAsync(string deviceId, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task TestConnectionAsync(S3SyncSettings settings, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task<S3SyncStatusSummary> GetStatusAsync(string deviceId, S3SyncSettings settings, CancellationToken cancellationToken = default) => throw new NotImplementedException();
-        public Task<string> EnsureBookFileDownloadedAsync(string deviceId, S3SyncSettings settings, BookFile file, IProgress<string>? progress = null, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<string> EnsureBookFileDownloadedAsync(string deviceId, S3SyncSettings settings, BookFile file, IProgress<string>? progress = null, CancellationToken cancellationToken = default)
+        {
+            FileDownloadCount++;
+            return Task.FromResult("fictional-downloaded-book.epub");
+        }
         public Task<IReadOnlyDictionary<Guid, BookSyncStatus>> GetBookSyncStatusesAsync(string deviceId, S3SyncSettings settings, IReadOnlyCollection<Book> books, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyDictionary<Guid, BookSyncStatus>>(new Dictionary<Guid, BookSyncStatus>());
         public Task<S3SyncResult> SyncAsync(string deviceId, S3SyncSettings settings, IProgress<string>? progress = null, CancellationToken cancellationToken = default, S3SyncOptions? options = null)
         { SyncCount++; return Task.FromResult(new S3SyncResult(1, 0, 0, 0, 0, false)); }
@@ -285,6 +295,7 @@ public sealed partial class SettingsTests
         public string GetSelectedTextForTranslation() => "";
         public string GetSelectedTextForCopy() => "";
         public void ClearSelection() { }
+        public bool SelectWordAt(double x, double y) => false;
         public void ScrollToOffset(int offset) { }
         public void ClearSearch() { }
         public void SetSpeechHighlight(int start, int length) { }

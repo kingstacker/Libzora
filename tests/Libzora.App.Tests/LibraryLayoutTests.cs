@@ -56,6 +56,8 @@ public sealed partial class SettingsTests
         var manager = scope.Field<Libzora.Infrastructure.Plugins.PluginManager>("_pluginManager");
         var installed = manager.Install(package);
         Assert.Equal("com.example.layout", installed.Id);
+        Assert.False(installed.Enabled);
+        manager.SetEnabled(installed.Id, true);
         scope.Call("RefreshPluginContributions");
         await Render();
 
@@ -69,6 +71,14 @@ public sealed partial class SettingsTests
         await Render();
         Assert.True(scope.Get<StackPanel>("SettingsPluginsSection").IsVisible);
         Assert.Equal("Plugins", scope.Get<Button>("SettingsPluginsButton").Tag);
+        Assert.True(scope.Get<Button>("ImportPluginButton").IsVisible);
+        Assert.True(scope.Get<Button>("OpenPluginsFolderButton").IsVisible);
+        Assert.Null(scope.Window.FindControl<Button>("PluginCatalogButton"));
+        Assert.Null(scope.Window.FindControl<StackPanel>("PluginCatalogSection"));
+        Assert.False(scope.Get<Button>("InstallPluginFromFolderButton").IsVisible);
+        scope.Get<ToggleSwitch>("PluginDeveloperModeCheck").IsChecked = true;
+        await Render();
+        Assert.True(scope.Get<Button>("InstallPluginFromFolderButton").IsVisible);
         var card = scope.Window.ViewModel.Books[0];
         scope.Get<ListBox>("BookGrid").SelectedItem = card;
         await Until(() => scope.Get<Border>("LibraryDetailPane").IsVisible);

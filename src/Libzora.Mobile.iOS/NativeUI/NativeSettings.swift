@@ -18,6 +18,8 @@ struct NativeProfilePage: View {
     @State private var membership: AccountMembership?
 
     private var account: AccountStatus? { store.account ?? summary?.account }
+    private var secondaryColor: Color { store.preferences.colorfulMode ? NativeTheme.secondaryOnColorful : NativeTheme.secondary }
+    private var detailColor: Color { store.preferences.colorfulMode ? NativeTheme.mutedOnColorful : NativeTheme.muted }
 
     var body: some View {
         ScrollView {
@@ -25,63 +27,56 @@ struct NativeProfilePage: View {
                 Text("我的").font(NativeTheme.pageTitleFont).accessibilityIdentifier("page.profile")
                     .padding(.bottom, 18)
 
-                accountCard
+                accountSection
 
                 groupLabel("阅读与外观")
-                groupCard {
+                profileGroup {
                     themeRow
-                    rowDivider
                     NavigationLink { NativeLibrarySettings(store: store) } label: {
-                        NativeSettingsRow(title: "书库设置")
+                        profileRow(title: "书库设置")
                     }.accessibilityIdentifier("profile.librarySettings")
-                    rowDivider
                     NavigationLink { NativeDictionary(store: store, initialTerm: "").nativeBackButton() } label: {
-                        NativeSettingsRow(title: "本地词典")
+                        profileRow(title: "本地词典")
                     }.accessibilityIdentifier("profile.dictionary")
                 }
 
                 groupLabel("服务与扩展")
-                groupCard {
+                profileGroup {
                     NavigationLink { NativeAiSettings(store: store) } label: {
-                        NativeSettingsRow(title: "AI 助手", value: summary?.ai ?? "")
+                        profileRow(title: "AI 助手", value: summary?.ai ?? "")
                     }.accessibilityIdentifier("profile.ai")
-                    rowDivider
                     NavigationLink { NativeEmailSettings(store: store) } label: {
-                        NativeSettingsRow(title: "发送到 Kindle", value: summary?.kindle ?? "")
+                        profileRow(title: "发送到 Kindle", value: summary?.kindle ?? "")
                     }.accessibilityIdentifier("profile.kindle")
                 }
 
                 groupLabel("数据与存储")
-                groupCard {
-                    NativeSettingsRow(title: "书籍占用", value: summary?.storage ?? "—", chevron: false)
-                    rowDivider
+                profileGroup {
+                    profileRow(title: "书籍占用", value: summary?.storage ?? "—", chevron: false)
                     NavigationLink { NativeBackupPage(store: store) } label: {
-                        NativeSettingsRow(title: "备份与恢复")
+                        profileRow(title: "备份与恢复")
                     }.accessibilityIdentifier("profile.backup")
-                    rowDivider
                     NavigationLink { NativeTrash(store: store) } label: {
-                        NativeSettingsRow(title: "回收站")
+                        profileRow(title: "回收站")
                     }.accessibilityIdentifier("profile.trash")
                 }
 
                 groupLabel("支持与关于")
-                groupCard {
+                profileGroup {
                     NavigationLink { NativeFeedbackPage(store: store) } label: {
-                        NativeSettingsRow(title: "问题反馈")
+                        profileRow(title: "问题反馈")
                     }.accessibilityIdentifier("profile.feedback")
-                    rowDivider
                     Button {
                         UIPasteboard.general.string = "1109898894"
                         store.showToast("群号已复制到剪贴板")
                     } label: {
-                        NativeSettingsRow(title: "QQ 交流群", value: "1109898894", chevron: false)
+                        profileRow(title: "QQ 交流群", value: "1109898894", chevron: false)
                     }
-                    rowDivider
                     NavigationLink { NativeAboutPage(store: store, version: summary?.version ?? "") } label: {
-                        NativeSettingsRow(title: "关于 Libzora", value: summary?.version ?? "")
+                        profileRow(title: "关于 Libzora", value: summary?.version ?? "")
                     }.accessibilityIdentifier("profile.about")
                 }
-            }.padding(.horizontal, 20).padding(.top, 20).padding(.bottom, 120).buttonStyle(.plain)
+            }.padding(.horizontal, 24).padding(.top, 20).padding(.bottom, 120).buttonStyle(.plain)
         }.background(NativeAmbientBackground()).navigationBarHidden(true)
             .overlay(alignment: .top) { NativeStatusBarGlass() }
             .task {
@@ -94,9 +89,9 @@ struct NativeProfilePage: View {
             }
     }
 
-    /// Identity and cloud sync share one card: both belong to the account and
-    /// keep the first screen from opening with a one-row section.
-    @ViewBuilder private var accountCard: some View {
+    /// Identity and cloud sync stay together without a surrounding card. The
+    /// avatar and text hierarchy distinguish the account from the settings.
+    @ViewBuilder private var accountSection: some View {
         let signedIn = account?.isLoggedIn == true
         let name = signedIn ? (account?.user?.username ?? "已登录") : "登录 / 注册"
         VStack(spacing: 0) {
@@ -112,20 +107,21 @@ struct NativeProfilePage: View {
                                                 accent: NativeTheme.planAccent(membership.plan))
                             }
                         }
-                        Text(accountSubtitle)
-                            .font(NativeTheme.font(12, relativeTo: .caption))
-                            .foregroundStyle(NativeTheme.muted).lineLimit(2)
+                        if let subtitle = accountSubtitle {
+                            Text(subtitle)
+                                .font(NativeTheme.font(12, relativeTo: .caption))
+                                .foregroundStyle(detailColor).lineLimit(2)
+                        }
                     }
                     Spacer(minLength: 8)
                     Image(systemName: "chevron.right").font(.system(size: 12, weight: .regular))
-                        .foregroundStyle(NativeTheme.muted)
+                        .foregroundStyle(detailColor)
                 }.padding(.vertical, 16).contentShape(Rectangle())
             }.accessibilityIdentifier("profile.account")
-            rowDivider
             NavigationLink { NativeSyncSettings(store: store) } label: {
-                NativeSettingsRow(title: "云同步", value: summary?.sync ?? "")
+                profileRow(title: "云同步", value: summary?.sync ?? "")
             }.accessibilityIdentifier("profile.sync")
-        }.padding(.horizontal, 16).background { cardBackground }
+        }
     }
 
     @ViewBuilder private var themeRow: some View {
@@ -145,23 +141,17 @@ struct NativeProfilePage: View {
         }.padding(.vertical, 12)
     }
 
-    @ViewBuilder private var cardBackground: some View {
-        if store.preferences.colorfulMode {
-            RoundedRectangle(cornerRadius: 18, style: .continuous).fill(.ultraThinMaterial)
-        } else {
-            RoundedRectangle(cornerRadius: 18, style: .continuous).fill(NativeTheme.sunk)
-        }
-    }
-
-    private var rowDivider: some View { NativeTheme.divider.frame(height: 1) }
-
     private func groupLabel(_ title: String) -> some View {
-        Text(title).font(NativeTheme.font(13, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary)
-            .padding(.top, 28).padding(.bottom, 8).padding(.leading, 2)
+        Text(title).font(NativeTheme.font(13, relativeTo: .caption)).foregroundStyle(secondaryColor)
+            .padding(.top, 26).padding(.bottom, 6)
     }
 
-    private func groupCard<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        VStack(spacing: 0) { content() }.padding(.horizontal, 16).background { cardBackground }
+    private func profileGroup<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 0) { content() }.frame(maxWidth: .infinity)
+    }
+
+    private func profileRow(title: String, value: String = "", chevron: Bool = true) -> some View {
+        NativeSettingsRow(title: title, value: value, chevron: chevron, detailColor: detailColor)
     }
 
     private func avatar(signedIn: Bool, name: String) -> some View {
@@ -177,14 +167,14 @@ struct NativeProfilePage: View {
         }.frame(width: 46, height: 46).accessibilityHidden(true)
     }
 
-    private var accountSubtitle: String {
+    private var accountSubtitle: String? {
+        guard account?.isLoggedIn == true else { return nil }
         let region = account?.regionName ?? "中国区"
-        guard account?.isLoggedIn == true else { return region + " · 登录后同步书籍与阅读进度" }
         guard let membership else { return region }
         switch membership.plan {
-        case "plus": return region + " · " + membership.planExpiryText
-        case "lifetime": return region + " · 功能解锁 · 永久有效"
-        default: return membership.isPlusExpired ? region + " · Plus 已到期" : region + " · 免费账户"
+        case "trial": return region + " · 试用订阅 · " + membership.planExpiryText
+        case "lifetime": return region + " · 买断订阅 · 永久有效"
+        default: return membership.isTrialExpired ? region + " · 试用订阅已到期" : region + " · 免费账户"
         }
     }
 
@@ -309,40 +299,26 @@ struct NativeSyncSettings: View {
     @ObservedObject var store: NativeStore
     @State private var form = SyncForm()
     @State private var formLoaded = false
-    @State private var savedProvider = 0
-    @State private var providerTouched = false
     @State private var summary = ""
     @State private var status = ""
     @State private var busy = false
     @State private var loading = true
     @State private var advanced = false
     @State private var actionTask: Task<Void, Never>?
-    @State private var member: DeviceFeatureStatus?
-    @State private var memberMessage = ""
-
-    private var accountMode: Bool { form.provider == 2 }
-    private var signedIn: Bool { store.account?.isLoggedIn == true }
-    private var memberKey: String { accountMode ? (store.account?.user?.id ?? "signed-out") : "" }
-
-    /// A deliberate picker change outranks the automatic Plus default until saved.
-    private var providerSelection: Binding<Int> {
-        Binding(get: { form.provider }, set: { value in
-            form.provider = value
-            if !loading { providerTouched = true }
-        })
-    }
+    @State private var confirmEncryptionKey = ""
+    @State private var savedEncryptionKey = ""
+    @State private var showEncryptionKeyConfirmation = false
 
     var body: some View {
         NativeForm {
             Section {
-                Picker("同步方式", selection: providerSelection) { Text("账号云同步").tag(2); Text("S3").tag(0); Text("WebDAV").tag(1) }
+                Picker("同步方式", selection: $form.provider) { Text("S3").tag(0); Text("WebDAV").tag(1) }
                     .pickerStyle(.segmented).accessibilityIdentifier("sync.provider")
-                if !accountMode {
-                    Toggle("启用同步", isOn: $form.enabled).tint(NativeTheme.systemSwitchTint)
-                    Toggle("自动同步", isOn: $form.automaticSyncEnabled).tint(NativeTheme.systemSwitchTint)
-                }
+                Toggle("启用同步", isOn: $form.enabled).tint(NativeTheme.systemSwitchTint)
+                Toggle("自动同步", isOn: $form.automaticSyncEnabled).tint(NativeTheme.systemSwitchTint)
+                caption("仅支持自备 S3 / WebDAV，不提供官方云同步。试用与买断同步功能相同。")
             }
-            if accountMode { accountSections } else { customStorageSections }
+            customStorageSections
             Section {
                 VStack(alignment: .leading, spacing: 10) {
                     if !status.isEmpty {
@@ -351,8 +327,7 @@ struct NativeSyncSettings: View {
                     }
                     if busy { ProgressView() }
                     HStack(spacing: 12) {
-                        if accountMode { Button("立即同步") { run("run") }.accessibilityIdentifier("sync.run") }
-                        else { Button("测试连接") { run("test") } }
+                        Button("测试连接") { run("test") }
                         Button("保存") { run("save") }.accessibilityIdentifier("sync.save")
                     }.buttonStyle(NativePrimaryButtonStyle()).disabled(busy || loading)
                 }
@@ -363,111 +338,17 @@ struct NativeSyncSettings: View {
             .modifier(NativeKeyboardDone())
             .modifier(NativeHideTabBar())
             .task { await load() }
-            .task(id: memberKey) { await loadMembership() }
             .onChange(of: store.syncStatus) { status = $0 }
             .onDisappear { actionTask?.cancel() }
-    }
-
-    /// Mirrors the desktop's account mode: connection details, the directory
-    /// prefix, advanced options and profile import/export don't apply here.
-    @ViewBuilder private var accountSections: some View {
-        Section {
-            NavigationLink { NativeAccountPage(store: store) } label: { accountSummary }
-                .accessibilityIdentifier("sync.account")
-            if store.account?.requiresDataRestart == true {
-                caption("区域已切换，请重新打开应用后同步。", color: NativeTheme.warning)
+            .alert(Text(form.encryptionKey.isEmpty ? "清除同步密钥" : "确认同步密钥"),
+                   isPresented: $showEncryptionKeyConfirmation) {
+                Button("取消", role: .cancel) { }
+                Button(form.encryptionKey.isEmpty ? "清除密钥" : "使用此密钥") { perform("save") }
+            } message: {
+                Text(form.encryptionKey.isEmpty
+                     ? "清除本机保存的同步密钥后，将无法再解密已有加密备份或云端同步数据。确定清除吗？"
+                     : "同步密钥用于加密备份和自备存储中的同步数据。请确认两次输入一致，并已妥善保存。密钥遗忘后无法找回，已有加密数据也无法恢复。")
             }
-            if let member { cloudStatus(member) }
-            if !memberMessage.isEmpty { caption(memberMessage).accessibilityIdentifier("sync.membership.status") }
-        }
-        Section("同步设置") {
-            Toggle("启用同步", isOn: $form.enabled).tint(NativeTheme.systemSwitchTint)
-            Toggle("自动同步", isOn: $form.automaticSyncEnabled).tint(NativeTheme.systemSwitchTint)
-            Toggle("同步时下载书籍文件", isOn: $form.downloadBookFilesOnSync).tint(NativeTheme.systemSwitchTint)
-            caption("关闭时仅同步书籍元数据和封面；打开书籍或点击下载图标时再下载书籍文件")
-            syncKey
-            // The summary describes the saved settings, not an unsaved provider switch.
-            if savedProvider == 2 && !summary.isEmpty { caption(summary).accessibilityIdentifier("sync.summary") }
-        }
-        // Plans, activation codes and orders live in the account page; this row
-        // keeps the upgrade path next to the feature that needs it.
-        Section("会员") {
-            NavigationLink { NativeAccountPage(store: store) } label: {
-                NativeSettingsRow(title: "会员方案",
-                                  value: member?.membership.tierName ?? (signedIn ? "—" : "登录后查看"),
-                                  chevron: false)
-            }.accessibilityIdentifier("sync.membership.manage")
-        }
-    }
-
-    private var accountSummary: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 8) {
-                Text(signedIn ? store.account?.user?.username ?? "" : "登录 / 注册")
-                    .font(NativeTheme.font(17, relativeTo: .headline)).lineLimit(1)
-                if signedIn, let membership = member?.membership {
-                    NativePlanBadge(text: membership.planName, accent: NativeTheme.planAccent(membership.plan))
-                }
-            }
-            caption(accountDetail)
-            caption("仅同步当前区域账号的数据，两区不互通。")
-        }
-    }
-
-    private var accountDetail: String {
-        let region = store.account?.regionName ?? "中国区"
-        guard signedIn else { return region + " · 登录 Plus 账户后使用云同步" }
-        return member.map { region + " · " + $0.membership.planExpiryText } ?? region
-    }
-
-    @ViewBuilder private func cloudStatus(_ entitlement: DeviceFeatureStatus) -> some View {
-        let membership = entitlement.membership
-        if membership.plan == "plus" && entitlement.canUseAccountCloudSync == true {
-            VStack(alignment: .leading, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Libzora 云同步权益已开通").font(NativeTheme.font(15)).foregroundStyle(NativeTheme.success)
-                    caption("书籍、阅读进度、书签与批注，可通过 Libzora 云同步在设备之间同步。")
-                }
-                usage("云端空间", used: membership.storageBytes, quota: membership.storageQuota)
-                if let quota = membership.plusDownloadQuotaBytes, let used = membership.plusDownloadUsedBytes {
-                    usage("年度下载", used: used, quota: quota, footnote: membership.plusDownloadPeriodText)
-                } else { caption("年度下载用量暂不可用") }
-            }.accessibilityElement(children: .contain).accessibilityIdentifier("sync.membership.cloud")
-        } else {
-            // A one-line notice like the desktop's, so the sync key stays on the first screen.
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(membership.plan == "plus" ? "当前设备暂不能使用 Libzora 云同步"
-                        : membership.isPlusExpired ? "Libzora 云同步已停用" : "Libzora 云同步需要 Plus 会员")
-                        .font(NativeTheme.font(14)).foregroundStyle(NativeTheme.warning)
-                    Spacer(minLength: 8)
-                    if membership.plan != "plus" {
-                        NavigationLink { NativeAccountPage(store: store) } label: {
-                            Text(membership.isPlusExpired ? "续费 Plus" : "了解 Plus")
-                                .font(NativeTheme.font(14)).foregroundStyle(NativeTheme.planPlus)
-                        }.buttonStyle(.plain).accessibilityIdentifier("sync.plans.view")
-                    }
-                }
-                caption(membership.plan == "plus" ? "请在账号页面检查当前设备是否仍在已登录设备中。"
-                    : membership.plusExpiryMessage ?? (membership.plan == "lifetime"
-                        ? "功能解锁使用自备 S3 / WebDAV；Libzora 云空间与下载需要 Plus。"
-                        : "开通 Plus 即可同步书籍与阅读数据，无需配置自备存储。"))
-                    .accessibilityIdentifier("sync.membership.notice")
-            }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
-                .background(NativeTheme.sunk, in: RoundedRectangle(cornerRadius: 12))
-        }
-    }
-
-    private func usage(_ title: String, used: Int64, quota: Int64, footnote: String? = nil) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack {
-                Text(title).font(NativeTheme.font(13, relativeTo: .caption))
-                Spacer(minLength: 8)
-                caption(memberSize(used) + " / " + memberSize(quota))
-            }
-            NativeThinProgress(value: Double(max(0, used)), total: Double(max(0, quota)), height: 4)
-            if let footnote { caption(footnote) }
-        }
     }
 
     @ViewBuilder private var customStorageSections: some View {
@@ -503,9 +384,13 @@ struct NativeSyncSettings: View {
 
     @ViewBuilder private var syncKey: some View {
         // This user-owned key must not be offered to password AutoFill.
-        NativeTextField(title: "同步密钥（账号云同步与备份必填）", text: $form.encryptionKey, secure: true)
+        NativeTextField(title: "同步密钥（备份必填，同步建议加密）", text: $form.encryptionKey, secure: true,
+                        identifier: "sync.encryptionKey")
             .textContentType(.oneTimeCode).textInputAutocapitalization(.never).disableAutocorrection(true)
-        caption("密钥由你自行牢记，不会上传或写入备份。遗忘后无法解密已有数据，设置新密钥也无法恢复旧数据。")
+        NativeTextField(title: "再次输入同步密钥", text: $confirmEncryptionKey, secure: true,
+                        identifier: "sync.encryptionKeyConfirm")
+            .textContentType(.oneTimeCode).textInputAutocapitalization(.never).disableAutocorrection(true)
+        caption("设置或更改密钥时需要输入两次，并在弹窗中确认。密钥由你自行牢记，不会上传或写入备份。遗忘后无法解密已有数据，设置新密钥也无法恢复旧数据。")
     }
 
     private func caption(_ text: String, color: Color = NativeTheme.secondary) -> some View {
@@ -519,7 +404,7 @@ struct NativeSyncSettings: View {
     }
     private func loadSnapshot() async throws -> SyncForm {
         let value: SyncFormSnapshot = try await store.request("settings.sync.get")
-        summary = value.summary; savedProvider = value.settings.provider
+        summary = value.summary
         return value.settings
     }
     private func load() async {
@@ -527,32 +412,23 @@ struct NativeSyncSettings: View {
         do {
             let saved = try await loadSnapshot()
             // This reruns on return from the account page; keep unsaved edits.
-            if !formLoaded { form = saved; formLoaded = true }
+            if !formLoaded { form = saved; savedEncryptionKey = saved.encryptionKey; formLoaded = true }
             let account: AccountStatus = try await store.request("settings.account.get"); store.account = account
-            await applyAccountCloudSyncDefault(saved: saved)
         }
         catch { if !Task.isCancelled { status = error.localizedDescription } }
     }
-    /// A Plus account opens on Libzora cloud sync until the user saves a
-    /// provider of their own; that saved choice always keeps its interface.
-    private func applyAccountCloudSyncDefault(saved: SyncForm) async {
-        guard !providerTouched, form.provider != 2, !saved.providerChosenByUser,
-              let account = store.account, account.isLoggedIn, !account.requiresDataRestart else { return }
-        guard let member: DeviceFeatureStatus = try? await store.request("settings.membership.get"),
-              member.canUseAccountCloudSync == true, !Task.isCancelled else { return }
-        form.provider = 2
-    }
-    private func loadMembership() async {
-        let key = memberKey
-        member = nil; memberMessage = ""
-        guard accountMode && signedIn else { return }
-        do {
-            let value: DeviceFeatureStatus = try await store.request("settings.membership.get")
-            guard !Task.isCancelled && key == memberKey else { return }
-            member = value
-        } catch { if !Task.isCancelled && key == memberKey { memberMessage = error.localizedDescription } }
-    }
     private func run(_ operation: String) {
+        if operation == "save" && form.encryptionKey != savedEncryptionKey {
+            if !form.encryptionKey.isEmpty && form.encryptionKey != confirmEncryptionKey {
+                status = "两次输入的同步密钥不一致，请重新输入。"
+                return
+            }
+            showEncryptionKeyConfirmation = true
+            return
+        }
+        perform(operation)
+    }
+    private func perform(_ operation: String) {
         busy = true; status = operation == "run" ? "正在同步…" : operation == "test" ? "正在测试连接…" : ""
         actionTask = Task {
             defer { busy = false }
@@ -568,6 +444,8 @@ struct NativeSyncSettings: View {
                 } else {
                     try await store.command("settings.sync.\(operation)", args)
                     if operation == "save" {
+                        savedEncryptionKey = form.encryptionKey
+                        confirmEncryptionKey = ""
                         status = "已保存"; _ = try? await loadSnapshot()
                         if store.preferences.showBookSyncStatus { try await store.refreshLibrary() }
                     }

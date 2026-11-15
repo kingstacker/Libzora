@@ -6,8 +6,8 @@
       <SolidColorBrush x:Key="AccountFreeTintBrush" Color="#11667085" />
       <SolidColorBrush x:Key="AccountLifetimeAccentBrush" Color="#7955B4" />
       <SolidColorBrush x:Key="AccountLifetimeTintBrush" Color="#147955B4" />
-      <SolidColorBrush x:Key="AccountPlusAccentBrush" Color="#98651D" />
-      <SolidColorBrush x:Key="AccountPlusTintBrush" Color="#1698651D" />
+      <SolidColorBrush x:Key="AccountTrialAccentBrush" Color="#98651D" />
+      <SolidColorBrush x:Key="AccountTrialTintBrush" Color="#1698651D" />
       <SolidColorBrush x:Key="AccountSuccessBrush" Color="#288064" />
       <SolidColorBrush x:Key="AccountSuccessTintBrush" Color="#12288064" />
       <SolidColorBrush x:Key="AccountStorageBrush" Color="#557ED0" />
@@ -22,8 +22,8 @@
       <SolidColorBrush x:Key="AccountFreeTintBrush" Color="#19B0B8C6" />
       <SolidColorBrush x:Key="AccountLifetimeAccentBrush" Color="#BAA0EA" />
       <SolidColorBrush x:Key="AccountLifetimeTintBrush" Color="#20BAA0EA" />
-      <SolidColorBrush x:Key="AccountPlusAccentBrush" Color="#E6BC75" />
-      <SolidColorBrush x:Key="AccountPlusTintBrush" Color="#20E6BC75" />
+      <SolidColorBrush x:Key="AccountTrialAccentBrush" Color="#E6BC75" />
+      <SolidColorBrush x:Key="AccountTrialTintBrush" Color="#20E6BC75" />
       <SolidColorBrush x:Key="AccountSuccessBrush" Color="#78C8AC" />
       <SolidColorBrush x:Key="AccountSuccessTintBrush" Color="#1978C8AC" />
       <SolidColorBrush x:Key="AccountStorageBrush" Color="#8AAAF0" />

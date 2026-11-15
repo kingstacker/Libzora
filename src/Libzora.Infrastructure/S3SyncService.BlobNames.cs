@@ -16,16 +16,6 @@ public sealed partial class S3SyncService
         IReadOnlyList<S3SyncSnapshot> remotes, bool createIfMissing)
     {
         if (settings.EncryptionKey.Length == 0) return;
-        if (settings.Provider == SyncProvider.AccountServer)
-        {
-            // Public account identity isolates dictionaries between users/regions.
-            // Do not include the URL: changing a deployment domain must not change
-            // object names. The v2 namespace is disjoint from old dev clients' GC.
-            var identity = $"LIBZORA-ACCOUNT-OBJECTS2|{AccountRegions.Slug(settings.AccountRegion)}|{settings.AccountUserId:N}";
-            _blobNamingSession = new([], [CreateBlobNamingMaterial(settings.EncryptionKey, identity)]);
-            return;
-        }
-
         // A custom store has no account ID. Keep its random salt in encrypted
         // snapshots, not in a key-derived public path or an overwriteable singleton
         // salt file. Union handles simultaneous first-device syncs without losing
@@ -61,7 +51,7 @@ public sealed partial class S3SyncService
         string deviceId, string storageIdentity, S3SyncState state, CancellationToken token)
     {
         IReadOnlyList<S3SyncSnapshot> remotes = [];
-        if (settings.EncryptionKey.Length > 0 && settings.Provider != SyncProvider.AccountServer
+        if (settings.EncryptionKey.Length > 0
             && state.LastUploadedSnapshot?.BlobNamingSalts is not { Length: > 0 })
         {
             // Normal on-demand downloads reuse the persisted baseline and need
@@ -148,10 +138,7 @@ public sealed partial class S3SyncService
                 {
                     throw new InvalidDataException("读取旧版加密对象需要目录列表权限，请允许列出加密对象目录后重试。");
                 }
-                var prefixes = settings.Provider == SyncProvider.AccountServer
-                    ? new[] { root + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
-                        $"LIBZORA-ACCOUNT-OBJECTS1|{AccountRegions.Slug(settings.AccountRegion)}|{settings.AccountUserId:N}"))).ToLowerInvariant() + "/" }
-                    : new[] { root + "v2/", root + EncryptionKeyFingerprint(settings.EncryptionKey) + "/" };
+                var prefixes = new[] { root + "v2/", root + SyncProviderIdentity.EncryptionKeyFingerprint(settings.EncryptionKey) + "/" };
                 var discovered = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var prefix in prefixes)
                     foreach (var key in listed.Where(key => key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)

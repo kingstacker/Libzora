@@ -1014,7 +1014,6 @@ public partial class MainWindow
         ReleaseReaderHosts();
         ReaderRoot.IsVisible = false;
         LibraryRoot.IsVisible = true;
-        ScheduleAmbientRefresh();
         WindowBrandText.IsVisible = false;
         ReaderLayoutSettingsPopup.IsOpen = false;
         ReaderInPageSearchBar.IsVisible = false;

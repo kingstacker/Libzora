@@ -30,7 +30,11 @@ public sealed class PluginBackgroundSchedulerTests : IDisposable
             """);
         File.WriteAllText(Path.Combine(folder, "bg.js"), "libzora.register.background(function () { return 1; });");
         var paths = new AppPaths(Path.Combine(_root, "app"));
-        return new PluginManager(paths).InstallFromDirectory(folder);
+        var manager = new PluginManager(paths);
+        var installed = manager.InstallFromDirectory(folder);
+        // Plugins start disabled; these tests exercise the scheduler itself.
+        manager.SetEnabled(installed.Id, true);
+        return installed with { Enabled = true };
     }
 
     [Fact]

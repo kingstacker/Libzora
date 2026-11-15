@@ -1,6 +1,5 @@
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
 using System.Text.Json.Nodes;
@@ -12,8 +11,8 @@ namespace Libzora;
 
 /// <summary>
 /// Plugin capabilities that run without a plugin window: dictionary and
-/// translator providers in the reader popups, background tasks, the shared
-/// content/AI/reader hosts lent to plugin pages, and the plugin market.
+/// translator providers in the reader popups, background tasks, and the shared
+/// content/AI/reader hosts lent to plugin pages.
 /// </summary>
 public partial class MainWindow
 {
@@ -23,12 +22,9 @@ public partial class MainWindow
     private PluginAiHost? _pluginAi;
     private PluginScriptRuntime? _pluginScripts;
     private PluginBackgroundScheduler? _pluginBackground;
-    private PluginCatalogService? _pluginCatalog;
     private CancellationTokenSource? _readerDictionaryPluginCancellation;
     private string? _readerTranslationPluginTitle;
     private bool _pluginBackgroundStarted;
-    private bool _pluginCatalogBusy;
-    private IReadOnlyList<PluginCatalogEntry>? _pluginCatalogEntries;
 
     private PluginBookContentService PluginContent =>
         _pluginContent ??= new PluginBookContentService(_paths, _library, EnsureBookFileAvailableAsync);
@@ -48,8 +44,6 @@ public partial class MainWindow
         _readerData,
         PluginContent,
         PluginAi));
-
-    private PluginCatalogService PluginCatalog => _pluginCatalog ??= new PluginCatalogService();
 
     /// <summary>Reader navigation for one plugin window; closes it before opening the book.</summary>
     private IPluginReaderHost CreatePluginReaderHost(Func<PluginWindow?> window) =>
@@ -442,220 +436,4 @@ public partial class MainWindow
         }
     }
 
-    // ---- plugin market ------------------------------------------------
-
-    private async void PluginCatalogButton_Click(object? sender, RoutedEventArgs e) =>
-        await LoadPluginCatalogAsync(force: true);
-
-    private async Task LoadPluginCatalogAsync(bool force)
-    {
-        if (_pluginCatalogBusy) return;
-        PluginCatalogSection.IsVisible = true;
-        if (!force && _pluginCatalogEntries is not null)
-        {
-            RenderPluginCatalog();
-            return;
-        }
-        if (!_appSettings.NetworkEnabled && !PluginCatalogService.IndexUri.IsFile)
-        {
-            PluginCatalogStatusText.Text = T("网络功能已关闭，无法读取插件市场。");
-            PluginCatalogPanel.Children.Clear();
-            return;
-        }
-
-        _pluginCatalogBusy = true;
-        PluginCatalogButton.IsEnabled = false;
-        PluginCatalogStatusText.Text = T("正在读取插件市场…");
-        try
-        {
-            _pluginCatalogEntries = await PluginCatalog.GetEntriesAsync(cancellationToken: _lifetimeCancellation.Token);
-            RenderPluginCatalog();
-        }
-        catch (OperationCanceledException) when (_lifetimeCancellation.IsCancellationRequested)
-        {
-        }
-        catch (Exception exception) when (exception is not OutOfMemoryException)
-        {
-            PluginCatalogStatusText.Text = T("无法读取插件市场：{0}", UiText.Localize(exception.Message));
-        }
-        finally
-        {
-            _pluginCatalogBusy = false;
-            PluginCatalogButton.IsEnabled = true;
-        }
-    }
-
-    private void RenderPluginCatalog()
-    {
-        PluginCatalogPanel.Children.Clear();
-        var entries = _pluginCatalogEntries ?? [];
-        PluginCatalogStatusText.Text = entries.Count == 0
-            ? T("插件市场暂时没有插件。")
-            : T("共 {0} 个插件。安装前仍会显示权限和签名信息。", entries.Count);
-        var installed = _pluginManager.List().ToDictionary(plugin => plugin.Id, StringComparer.Ordinal);
-        foreach (var entry in entries)
-            PluginCatalogPanel.Children.Add(BuildPluginCatalogRow(entry, installed.GetValueOrDefault(entry.Id)));
-    }
-
-    private Control BuildPluginCatalogRow(PluginCatalogEntry entry, InstalledPlugin? installed)
-    {
-        var mutedBrush = new SolidColorBrush(Color.Parse(GetPluginTheme().MutedInk));
-        var language = UiText.CurrentLanguage;
-        var meta = string.IsNullOrWhiteSpace(entry.Author)
-            ? T("版本 {0}", entry.Version)
-            : T("版本 {0} · {1}", entry.Version, entry.Author);
-        var description = entry.GetDescription(language);
-
-        var button = new Button { VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center };
-        var installedVersion = installed is not null && PluginManifest.TryParseVersion(installed.Manifest.Version, out var current)
-            ? current
-            : null;
-        PluginManifest.TryParseVersion(entry.Version, out var available);
-        if (!entry.IsCompatible)
-        {
-            button.Content = T("需要 Libzora {0}", entry.MinAppVersion!.ToString(3));
-            button.IsEnabled = false;
-        }
-        else if (installed is null)
-        {
-            button.Content = T("安装");
-        }
-        else if (installedVersion is not null && available is not null && available > installedVersion)
-        {
-            button.Content = T("更新到 {0}", entry.Version);
-        }
-        else
-        {
-            button.Content = T("已安装");
-            button.IsEnabled = false;
-        }
-        button.Click += async (_, _) => await InstallFromPluginCatalogAsync(entry, button);
-
-        var header = new Grid
-        {
-            ColumnDefinitions = new ColumnDefinitions("*,Auto"),
-            ColumnSpacing = 12,
-            Children =
-            {
-                new StackPanel
-                {
-                    Spacing = 4,
-                    Children =
-                    {
-                        new TextBlock
-                        {
-                            Text = entry.GetName(language),
-                            FontSize = 14,
-                            FontWeight = FontWeight.SemiBold,
-                            TextWrapping = TextWrapping.Wrap
-                        },
-                        new TextBlock
-                        {
-                            Text = meta,
-                            FontSize = 12,
-                            Foreground = mutedBrush,
-                            TextWrapping = TextWrapping.Wrap
-                        }
-                    }
-                },
-                button
-            }
-        };
-        Grid.SetColumn(button, 1);
-        return new Border
-        {
-            Classes = { "flatSubsection" },
-            Padding = new Thickness(12),
-            Child = new StackPanel
-            {
-                Spacing = 6,
-                Children =
-                {
-                    header,
-                    new TextBlock
-                    {
-                        Text = description,
-                        FontSize = 12,
-                        Foreground = mutedBrush,
-                        TextWrapping = TextWrapping.Wrap,
-                        IsVisible = !string.IsNullOrWhiteSpace(description)
-                    }
-                }
-            }
-        };
-    }
-
-    private async Task InstallFromPluginCatalogAsync(PluginCatalogEntry entry, Button button)
-    {
-        if (_pluginCatalogBusy) return;
-        _pluginCatalogBusy = true;
-        button.IsEnabled = false;
-        var original = button.Content;
-        string? package = null;
-        try
-        {
-            var progress = new Progress<double>(value => button.Content = $"{value:P0}");
-            package = await PluginCatalog.DownloadAsync(entry, progress, _lifetimeCancellation.Token);
-            button.Content = original;
-            await InstallPluginFromPathAsync(package);
-            RenderPluginCatalog();
-        }
-        catch (OperationCanceledException) when (_lifetimeCancellation.IsCancellationRequested)
-        {
-        }
-        catch (PluginPackageException exception) when (exception.Message == T("已取消导入。"))
-        {
-            button.Content = original;
-            button.IsEnabled = true;
-        }
-        catch (Exception exception) when (exception is not OutOfMemoryException)
-        {
-            button.Content = original;
-            button.IsEnabled = true;
-            await ShowMessageAsync(T("安装插件失败"), UiText.Localize(exception.Message));
-        }
-        finally
-        {
-            _pluginCatalogBusy = false;
-            if (package is not null)
-            {
-                try { File.Delete(package); }
-                catch (IOException) { }
-                catch (UnauthorizedAccessException) { }
-            }
-        }
-    }
-
-    /// <summary>
-    /// Once per launch, when update checks and the network are on, looks for
-    /// newer versions of installed plugins and mentions them in the status bar.
-    /// </summary>
-    private async Task CheckPluginUpdatesAfterStartupAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            await Task.Delay(TimeSpan.FromSeconds(45), cancellationToken);
-            if (!_appSettings.AutoUpdateCheckEnabled || !_appSettings.NetworkEnabled) return;
-            var installed = _pluginManager.List();
-            if (installed.Count == 0) return;
-            var entries = await PluginCatalog.GetEntriesAsync(cancellationToken: cancellationToken);
-            _pluginCatalogEntries = entries;
-            var updates = PluginCatalogService.FindUpdates(installed, entries);
-            if (updates.Count == 0) return;
-            SetTaskStatus(updates.Count == 1
-                ? T("插件“{0}”有新版本 {1}，可在设置 → 插件 → 插件市场中更新。",
-                    updates[0].Installed.Manifest.GetName(UiText.CurrentLanguage),
-                    updates[0].Available.Version)
-                : T("{0} 个插件有新版本，可在设置 → 插件 → 插件市场中更新。", updates.Count));
-            if (PluginCatalogSection.IsVisible) RenderPluginCatalog();
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-        }
-        catch (Exception exception) when (exception is HttpRequestException or IOException or InvalidDataException
-            or System.Text.Json.JsonException or TaskCanceledException)
-        {
-            // A missing or unreachable index is not worth interrupting the user.
-        }
-    }
 }

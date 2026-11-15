@@ -3,6 +3,7 @@ using Avalonia.iOS;
 using Avalonia.Styling;
 using Foundation;
 using Libzora.Mobile;
+using System.Runtime.InteropServices;
 using UIKit;
 
 namespace Libzora.iOSHead;
@@ -21,6 +22,27 @@ public partial class AppDelegate : AvaloniaAppDelegate<MobileApp>
 
     protected override AppBuilder CustomizeAppBuilder(AppBuilder builder) =>
         base.CustomizeAppBuilder(builder);
+
+    // SwiftUI fullScreenCover creates its own hosting controllers. Enforce the
+    // phone's portrait default at the application/window level so those covers
+    // only gain landscape while a reader media viewer is actually visible.
+    [Export("application:supportedInterfaceOrientationsForWindow:")]
+    public UIInterfaceOrientationMask GetSupportedInterfaceOrientations(
+        UIApplication application, UIWindow? forWindow)
+    {
+#if LIBZORA_SWIFT_UI
+        return (UIInterfaceOrientationMask)NativeSupportedInterfaceOrientations(
+            forWindow is null ? IntPtr.Zero : (IntPtr)forWindow.Handle);
+#else
+        return UIDevice.CurrentDevice.UserInterfaceIdiom == UIUserInterfaceIdiom.Pad
+            ? UIInterfaceOrientationMask.All : UIInterfaceOrientationMask.Portrait;
+#endif
+    }
+
+#if LIBZORA_SWIFT_UI
+    [DllImport("__Internal", EntryPoint = "lz_ios_supported_interface_orientations")]
+    private static extern nuint NativeSupportedInterfaceOrientations(IntPtr window);
+#endif
 
     public AppDelegate()
     {

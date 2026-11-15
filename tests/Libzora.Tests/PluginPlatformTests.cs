@@ -1,5 +1,4 @@
 using System.IO.Compression;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -12,8 +11,8 @@ namespace Libzora.Tests;
 
 /// <summary>
 /// The third-party plugin platform: manifest fields added for providers,
-/// i18n and compatibility, package signing, the plugin catalog, provider
-/// result normalization and the content/AI/reading-write bridge methods.
+/// i18n and compatibility, package signing, provider result normalization
+/// and the content/AI/reading-write bridge methods.
 /// </summary>
 public sealed class PluginPlatformTests : IDisposable
 {
@@ -165,75 +164,6 @@ public sealed class PluginPlatformTests : IDisposable
         var manager = new PluginManager(new AppPaths(Path.Combine(_root, "app")));
         Assert.Equal(PluginTrustLevel.Unsigned, manager.Inspect(package).Signature.Trust);
         Assert.Equal(PluginTrustLevel.Unsigned, manager.Install(package).Trust);
-    }
-
-    // ---- catalog --------------------------------------------------------
-
-    [Fact]
-    public void CatalogParsesEntriesAndSkipsInvalidOnes()
-    {
-        var sha = new string('a', 64);
-        var entries = PluginCatalogService.Parse($$"""
-            {
-              "format": 1,
-              "plugins": [
-                { "id": "com.example.one", "name": "一", "version": "1.2.0", "download": "one.libzoraplugin", "sha256": "{{sha}}", "size": 10,
-                  "author": "A", "minAppVersion": "1.0.0", "i18n": { "en-US": { "name": "One" } } },
-                { "id": "com.example.bad-hash", "name": "坏", "version": "1.0.0", "download": "x.libzoraplugin", "sha256": "123" },
-                { "id": "com.example.http", "name": "明文", "version": "1.0.0", "download": "http://evil.example/x.libzoraplugin", "sha256": "{{sha}}" },
-                { "id": "com.example.one", "name": "重复", "version": "9.0.0", "download": "dup.libzoraplugin", "sha256": "{{sha}}" }
-              ]
-            }
-            """, new Uri("https://libzora.example/plugins/index.json"));
-
-        var entry = Assert.Single(entries);
-        Assert.Equal("com.example.one", entry.Id);
-        Assert.Equal(new Uri("https://libzora.example/plugins/one.libzoraplugin"), entry.Download);
-        Assert.Equal("One", entry.GetName("en-US"));
-        Assert.Equal("一", entry.GetName("zh-CN"));
-        Assert.True(entry.IsCompatible);
-
-        Assert.Throws<InvalidDataException>(() =>
-            PluginCatalogService.Parse("""{ "format": 2, "plugins": [] }""", new Uri("https://libzora.example/")));
-    }
-
-    [Fact]
-    public async Task CatalogFindsUpdatesAndVerifiesDownloads()
-    {
-        var manager = new PluginManager(new AppPaths(Path.Combine(_root, "app")));
-        var installed = manager.Install(WritePackage(ProviderManifest, ("providers/main.js", "// v1")));
-        var newer = WritePackage(ProviderManifest.Replace("2.1.0", "2.5.0"), ("providers/main.js", "// v2"));
-        var hash = Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(newer))).ToLowerInvariant();
-        var indexPath = Path.Combine(_root, "index.json");
-        await File.WriteAllTextAsync(indexPath, $$"""
-            { "format": 1, "plugins": [
-              { "id": "{{installed.Id}}", "name": "平台测试", "version": "2.5.0",
-                "download": "{{Path.GetFileName(newer)}}", "sha256": "{{hash}}", "size": {{new FileInfo(newer).Length}} },
-              { "id": "com.example.future", "name": "未来", "version": "1.0.0", "minAppVersion": "999.0.0",
-                "download": "future.libzoraplugin", "sha256": "{{hash}}" }
-            ] }
-            """);
-
-        using var catalog = new PluginCatalogService();
-        var entries = await catalog.GetEntriesAsync(new Uri(indexPath));
-        Assert.Equal(2, entries.Count);
-        Assert.False(entries.Single(entry => entry.Id == "com.example.future").IsCompatible);
-
-        var update = Assert.Single(PluginCatalogService.FindUpdates(manager.List(), entries));
-        Assert.Equal("2.5.0", update.Available.Version);
-
-        var downloaded = await catalog.DownloadAsync(update.Available);
-        try
-        {
-            Assert.Equal("2.5.0", manager.Install(downloaded).Manifest.Version);
-        }
-        finally
-        {
-            File.Delete(downloaded);
-        }
-
-        var tampered = update.Available with { Sha256 = new string('0', 64) };
-        await Assert.ThrowsAsync<InvalidDataException>(() => catalog.DownloadAsync(tampered));
     }
 
     // ---- provider results -----------------------------------------------

@@ -318,7 +318,20 @@ public static class ChapterLayoutInteraction
     }
 
     /// <summary>Finds the nearest character boundary to a page point.</summary>
-    public static int HitTest(this ChapterLayout layout, int pageIndex, SKPoint point)
+    public static int HitTest(this ChapterLayout layout, int pageIndex, SKPoint point) =>
+        layout.HitTestCore(pageIndex, point, advancePastMidpoint: true);
+
+    /// <summary>
+    /// Finds the character actually drawn under a page point. Unlike
+    /// <see cref="HitTest"/>, pressing past the glyph midpoint still returns
+    /// that glyph instead of the following caret boundary, which is what a
+    /// long press needs for word selection.
+    /// </summary>
+    public static int HitTestCharacter(this ChapterLayout layout, int pageIndex, SKPoint point) =>
+        layout.HitTestCore(pageIndex, point, advancePastMidpoint: false);
+
+    private static int HitTestCore(this ChapterLayout layout, int pageIndex, SKPoint point,
+        bool advancePastMidpoint)
     {
         if (pageIndex < 0 || pageIndex >= layout.Pages.Count)
         {
@@ -354,7 +367,7 @@ public static class ChapterLayoutInteraction
             }
         }
 
-        if (best >= 0 && bestAfterMidpoint)
+        if (best >= 0 && advancePastMidpoint && bestAfterMidpoint)
         {
             best++;
         }

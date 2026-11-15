@@ -19,6 +19,8 @@ artifacts/
 /debug-senddiag/
 .opensquilla/
 .claude/
+__pycache__/
+*.pyc
 
 # Plugin packaging output
 dist/

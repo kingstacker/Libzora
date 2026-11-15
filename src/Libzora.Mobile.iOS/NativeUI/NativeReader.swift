@@ -3,15 +3,23 @@ import UIKit
 import CoreText
 
 private enum ReaderPanel: String, Identifiable {
-    case toc, typography, speech, dictionary, assistant, note, annotation, translation, info
+    case toc, typography, speech, dictionary, assistant, translation, info
     var id: String { rawValue }
     var title: String {
         switch self {
         case .toc: return "目录"; case .typography: return "阅读设置"
         case .speech: return "朗读设置"; case .dictionary: return "本地词典"; case .assistant: return "AI 助手"
-        case .note: return "笔记"; case .annotation: return "批注"; case .translation: return "翻译"; case .info: return "注释"
+        case .translation: return "翻译"; case .info: return "注释"
         }
     }
+}
+
+/// A note being written or edited in the reader's floating card.
+private struct ReaderNoteRequest: Identifiable, Equatable {
+    let id = UUID()
+    let quote: String
+    let annotationId: String?
+    let initialNote: String
 }
 
 struct NativeReaderPage: View {
@@ -21,10 +29,10 @@ struct NativeReaderPage: View {
     let appColorScheme: ColorScheme
     let appearanceSessionId: String
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(\.colorScheme) private var readerColorEnvironment
-    @State private var appearanceRevision = 0
     @State private var panel: ReaderPanel?
     @State private var dialog: ReaderDialog?
+    @State private var noteRequest: ReaderNoteRequest?
+    @State private var keyboardHeight: CGFloat = 0
     @State private var selectedText = ""
     @State private var seekProgress = 0.0
     @State private var dragging = false
@@ -62,14 +70,22 @@ struct NativeReaderPage: View {
         let bodyInset = min(64, max(16, store.preferences.readerBodyPadding))
         return max(0, footerHeight - CGFloat(bodyInset))
     }
-    private var currentAppColorScheme: ColorScheme {
-        store.preferences.readerThemeFollowsAppearance ? readerColorEnvironment : appColorScheme
-    }
+    /// The app's effective appearance, which is what "follow" means. The
+    /// reader's own environment is not a safe source: the ink paper forces the
+    /// reader presentation dark, and that forced scheme can outlive the paper
+    /// choice, which would keep "follow" on the dark paper.
     private var effectiveReaderTheme: Int {
-        store.preferences.readerThemeFollowsAppearance ? (currentAppColorScheme == .dark ? 5 : 0) : store.preferences.readerTheme
+        store.preferences.readerThemeFollowsAppearance
+            ? (appColorScheme == .dark ? 5 : 0)
+            : store.preferences.readerTheme
     }
-    private var readerColorScheme: ColorScheme? {
-        store.preferences.readerThemeFollowsAppearance ? store.preferences.colorScheme : (store.preferences.readerTheme == 5 ? .dark : .light)
+    /// Resolve a concrete scheme even when the app follows the system. Passing
+    /// nil can let the presentation retain its previous dark override after the
+    /// ink paper, so switching back to "follow" could stay dark.
+    private var readerColorScheme: ColorScheme {
+        store.preferences.readerThemeFollowsAppearance
+            ? appColorScheme
+            : (store.preferences.readerTheme == 5 ? .dark : .light)
     }
     private var paper: Color { store.preferences.paper(for: effectiveReaderTheme) }
     // Assistant conversations take the full screen; the other reader tools
@@ -134,7 +150,7 @@ struct NativeReaderPage: View {
                         .modifier(NativeReaderTocSheetBackground(
                             enabled: panel == .toc, paper: paper,
                             usesAmbient: store.preferences.readerThemeFollowsAppearance && store.preferences.colorfulMode,
-                            ambientOpacity: readerColorEnvironment == .dark ? 0.14 : 0.10))
+                            ambientOpacity: appColorScheme == .dark ? 0.14 : 0.10))
                 }
             }
             .font(NativeTheme.font()).foregroundStyle(NativeTheme.ink).tint(NativeTheme.ink)
@@ -153,20 +169,37 @@ struct NativeReaderPage: View {
             .font(NativeTheme.font()).foregroundStyle(NativeTheme.ink).tint(NativeTheme.ink)
             .preferredColorScheme(readerColorScheme)
         }
-        .onAppear { seekProgress = reader.progress; syncAppAppearance() }
+        .onAppear { seekProgress = reader.progress; syncAppAppearance(appColorScheme) }
         .task(id: store.preferences.readerFontFamily) { await loadBodyFont() }
-        .onChange(of: appColorScheme) { _ in syncAppAppearance() }
-        .onChange(of: readerColorEnvironment) { _ in
-            if store.preferences.readerThemeFollowsAppearance { syncAppAppearance() }
+        // Forward the new value: a transition can invoke the callback on the
+        // previous view, whose captured appColorScheme is one change behind.
+        .onChange(of: appColorScheme) { syncAppAppearance($0) }
+        .onChange(of: store.preferences.readerThemeFollowsAppearance) { _ in resyncAppAppearance() }
+        .onChange(of: scenePhase) { if $0 == .active { resyncAppAppearance() } }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
+            guard let frame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
+            let screen = UIScreen.main.bounds
+            // A floating or split keyboard must not reserve the whole bottom
+            // of the reader; only a docked keyboard moves the note card.
+            keyboardHeight = frame.width >= screen.width * 0.8
+                ? max(0, screen.maxY - frame.minY) : 0
         }
-        .onChange(of: store.preferences.readerThemeFollowsAppearance) { _ in syncAppAppearance() }
-        .onChange(of: scenePhase) { if $0 == .active { syncAppAppearance() } }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            keyboardHeight = 0
+        }
         .onChange(of: reader.progress) { if !dragging { seekProgress = $0 } }
         .onChange(of: reader.chromeVisible) { if !$0 && searching { closeSearch() } }
         .onChange(of: session.dialog) { value in
             guard let value else { return }
             if searching { closeSearch() }
-            dialog = value; panel = value.kind == "annotation" ? .annotation : .info
+            if value.kind == "annotation" {
+                dialog = nil
+                panel = nil
+                beginNote(value.text, annotationId: value.annotationId, initial: value.note ?? "")
+            } else {
+                dialog = value
+                panel = .info
+            }
             session.dialog = nil
         }
         .task(id: searchGeneration) {
@@ -183,10 +216,19 @@ struct NativeReaderPage: View {
             if !Task.isCancelled, generation == searchGeneration { searchBusy = false }
         }
     }
-    private func syncAppAppearance() {
-        appearanceRevision += 1
-        let args: [String: Any] = ["sessionId": appearanceSessionId, "revision": appearanceRevision,
-                                   "dark": currentAppColorScheme == .dark]
+    private func resyncAppAppearance() {
+        // Lifecycle and preference callbacks can also hold an older view. Only
+        // resend the latest app appearance, never that view's captured scheme.
+        guard let colorScheme = session.appearanceColorScheme else { return }
+        syncAppAppearance(colorScheme)
+    }
+    private func syncAppAppearance(_ colorScheme: ColorScheme) {
+        session.appearanceColorScheme = colorScheme
+        session.appearanceRevision += 1
+        // Always report the app's appearance. While the paper follows, the
+        // renderer must not inherit the dark scheme forced by the ink paper.
+        let args: [String: Any] = ["sessionId": appearanceSessionId, "revision": session.appearanceRevision,
+                                   "dark": colorScheme == .dark]
         Task { try? await store.command("reader.appearance", args) }
     }
     /// Resolves the reading font to the PostScript name CoreText needs. The
@@ -238,19 +280,38 @@ struct NativeReaderPage: View {
             if store.preferences.readerThemeFollowsAppearance && store.preferences.colorfulMode {
                 // One continuous wash covers both the rendered page and the
                 // progress/footer paper, so following appearance never leaves a seam.
-                NativeAmbientWash().opacity(readerColorEnvironment == .dark ? 0.14 : 0.10)
+                NativeAmbientWash().opacity(appColorScheme == .dark ? 0.14 : 0.10)
                     .ignoresSafeArea().allowsHitTesting(false)
             }
         }
         .overlay {
             GeometryReader { geometry in
-                if let text = reader.selectedText, panel == nil, !showingSearchResults {
+                if let text = reader.selectedText, panel == nil, noteRequest == nil, !showingSearchResults {
                     selectionBar(text)
                         .frame(width: NativeSelectionToolbarLayout.width(in: geometry.size),
                                height: NativeSelectionToolbarLayout.height)
                         .position(NativeSelectionToolbarLayout.position(bounds: reader.selectionBounds,
                             in: geometry.size, chromeVisible: reader.chromeVisible,
                             speechVisible: speechActive && speechExpanded))
+                }
+            }
+        }
+        .overlay {
+            if let request = noteRequest {
+                GeometryReader { geometry in
+                    ZStack(alignment: .bottom) {
+                        Color.black.opacity(0.06).ignoresSafeArea()
+                            .onTapGesture { dismissNoteEditor() }
+                        NativeFloatingNoteEditor(store: store, request: request) {
+                            dismissNoteEditor()
+                        }
+                        // Match the reader chrome's side inset so the floating
+                        // note card lines up with the top and bottom bars.
+                        .frame(width: max(0, geometry.size.width - chromeSideInset * 2))
+                        .padding(.horizontal, chromeSideInset)
+                        .padding(.bottom, keyboardHeight + 12)
+                    }
+                    .animation(.easeOut(duration: 0.22), value: keyboardHeight)
                 }
             }
         }
@@ -387,25 +448,31 @@ struct NativeReaderPage: View {
             .padding(.horizontal, chromeSideInset)
     }
     private func selectionBar(_ text: String) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 0) {
-                selectionAction("复制", "doc.on.doc") {
-                    UIPasteboard.general.string = text; run("clearSelection"); store.showToast("已复制")
-                }
-                selectionAction("划线", "underline") { run("annotate") }
-                selectionAction("笔记", "square.and.pencil") { selectedText = text; dialog = nil; panel = .note }
-                selectionAction("搜索", "magnifyingglass") {
-                    store.perform {
-                        try await store.command("reader.clearSelection")
-                        try await store.command("reader.showChrome")
-                        searching = true; searchQuery = text; submitSearch()
+        GeometryReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 0) {
+                    selectionAction("复制", "doc.on.doc") {
+                        UIPasteboard.general.string = text; run("clearSelection"); store.showToast("已复制")
                     }
+                    selectionAction("划线", "underline") { run("annotate") }
+                    selectionAction("笔记", "square.and.pencil") { beginNote(text) }
+                    selectionAction("搜索", "magnifyingglass") {
+                        store.perform {
+                            try await store.command("reader.clearSelection")
+                            try await store.command("reader.showChrome")
+                            searching = true; searchQuery = text; submitSearch()
+                        }
+                    }
+                    selectionAction("词典", "book.closed") { selectedText = text; panel = .dictionary }
+                    selectionAction("AI", "sparkles") { selectedText = text; panel = .assistant }
+                    selectionAction("翻译", "character.bubble") { selectedText = text; panel = .translation }
+                    selectionAction("朗读", "speaker.wave.2") { run("selectionSpeech") }
                 }
-                selectionAction("词典", "book.closed") { selectedText = text; panel = .dictionary }
-                selectionAction("AI", "sparkles") { selectedText = text; panel = .assistant }
-                selectionAction("翻译", "character.bubble") { selectedText = text; panel = .translation }
-                selectionAction("朗读", "speaker.wave.2") { run("selectionSpeech") }
-            }.padding(4)
+                .padding(4)
+                // Keep the icon row centred when the capsule is wider than
+                // the actions; a horizontal ScrollView otherwise pins it left.
+                .frame(minWidth: proxy.size.width, alignment: .center)
+            }
         }
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
         .overlay(RoundedRectangle(cornerRadius: 18).stroke(NativeTheme.divider.opacity(0.6), lineWidth: 0.5))
@@ -415,7 +482,7 @@ struct NativeReaderPage: View {
     private func selectionAction(_ title: String, _ symbol: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol).font(.system(size: 19, weight: .regular))
-                .frame(width: 44, height: 44).contentShape(Rectangle())
+                .frame(width: 44, height: 44, alignment: .center).contentShape(Rectangle())
         }.buttonStyle(.plain).accessibilityLabel(title).accessibilityIdentifier("reader.\(title)")
     }
     private func tool(_ title: String, _ image: String, action: @escaping () -> Void) -> some View {
@@ -432,17 +499,26 @@ struct NativeReaderPage: View {
         switch panel {
         case .toc: NativeReaderTocView(store: store, paper: paper,
                                       usesAmbient: store.preferences.readerThemeFollowsAppearance && store.preferences.colorfulMode,
-                                      ambientOpacity: readerColorEnvironment == .dark ? 0.14 : 0.10,
+                                      ambientOpacity: appColorScheme == .dark ? 0.14 : 0.10,
                                       close: { self.panel = nil })
         case .typography: NativeTypography(store: store, isPdf: reader.isPdf)
         case .speech: NativeSpeechSettings(store: store, close: { self.panel = nil })
         case .dictionary: NativeDictionary(store: store, initialTerm: selectedText)
         case .assistant: NativeAssistant(store: store, session: session, book: book, selection: selectedText)
-        case .note, .annotation: NativeNoteEditor(store: store, quote: dialog?.text ?? selectedText, annotationId: dialog?.annotationId, initial: dialog?.note ?? "", close: { self.panel = nil })
         case .translation: NativeTranslation(store: store, text: selectedText)
         case .info: ScrollView { Text(dialog?.text ?? "").textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).padding(24) }
         }
     }
+
+    private func beginNote(_ quote: String, annotationId: String? = nil, initial: String = "") {
+        selectedText = quote
+        noteRequest = ReaderNoteRequest(quote: quote, annotationId: annotationId, initialNote: initial)
+    }
+
+    private func dismissNoteEditor() {
+        noteRequest = nil
+    }
+
     private func run(_ command: String, _ args: [String: Any] = [:]) { store.perform { try await store.command("reader.\(command)", args) } }
 }
 
@@ -991,29 +1067,112 @@ struct NativeSpeechSettings: View {
     }
 }
 
-struct NativeNoteEditor: View {
+private struct NativeFloatingNoteEditor: View {
     @ObservedObject var store: NativeStore
-    let quote: String
-    let annotationId: String?
+    let request: ReaderNoteRequest
     let close: () -> Void
     @State private var note: String
     @State private var busy = false
-    init(store: NativeStore, quote: String, annotationId: String?, initial: String, close: @escaping () -> Void) {
-        self.store = store; self.quote = quote; self.annotationId = annotationId; self.close = close; _note = State(initialValue: initial)
+    @FocusState private var focused: Bool
+
+    init(store: NativeStore, request: ReaderNoteRequest, close: @escaping () -> Void) {
+        self.store = store
+        self.request = request
+        self.close = close
+        _note = State(initialValue: request.initialNote)
     }
+
+    private var isEditing: Bool { request.annotationId != nil }
+
     var body: some View {
-        NativeForm {
-            Section("原文") { Text(quote).foregroundStyle(NativeTheme.secondary).textSelection(.enabled) }
-            Section("笔记") { TextEditor(text: $note).frame(minHeight: 150) }
-            Button("保存") {
-                busy = true
-                store.perform { defer { busy = false }; var args: [String: Any] = ["note": note]; if let annotationId { args["id"] = annotationId }
-                    try await store.command(annotationId == nil ? "reader.annotate" : "reader.annotationEdit", args); close() }
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text("批注")
+                    .font(NativeTheme.font(17, relativeTo: .headline))
+                Spacer(minLength: 0)
+                Button(action: close) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 17, weight: .regular))
+                        .foregroundStyle(NativeTheme.secondary)
+                        .frame(width: 28, height: 28, alignment: .center)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("关闭")
+                .accessibilityIdentifier("reader.note.close")
             }
-            if let annotationId {
-                Button("删除批注", role: .destructive) { busy = true; store.perform { defer { busy = false }; try await store.command("reader.annotationDelete", ["id": annotationId]); close() } }
+            Text(request.quote)
+                .font(NativeTheme.font(13, relativeTo: .footnote))
+                .foregroundStyle(NativeTheme.secondary)
+                .lineLimit(2)
+            TextEditor(text: $note)
+                .font(NativeTheme.font(15, relativeTo: .body))
+                .modifier(NativeScrollContentBackgroundHidden())
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .frame(minHeight: 96, maxHeight: 150)
+                .background(NativeTheme.sunk, in: RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(NativeTheme.divider, lineWidth: 0.5))
+                .focused($focused)
+                .accessibilityIdentifier("reader.note.text")
+            HStack(spacing: 16) {
+                if isEditing {
+                    Button("删除", role: .destructive, action: delete)
+                        .disabled(busy)
+                        .accessibilityIdentifier("reader.note.delete")
+                }
+                Spacer(minLength: 0)
+                Button("取消", action: close)
+                    .buttonStyle(.plain)
+                    .foregroundStyle(NativeTheme.secondary)
+                    .accessibilityIdentifier("reader.note.cancel")
+                Button(action: save) {
+                    Text("保存")
+                        .font(NativeTheme.font(15, relativeTo: .body))
+                        .foregroundStyle(NativeTheme.page)
+                        .padding(.horizontal, 18)
+                        .frame(height: 36)
+                        .background(NativeTheme.ink, in: Capsule())
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .opacity(busy ? 0.5 : 1)
+                .disabled(busy)
+                .accessibilityIdentifier("reader.note.save")
             }
-        }.disabled(busy).modifier(NativeKeyboardDone())
+        }
+        .padding(16)
+        .modifier(NativeFloatingSurface())
+        .onAppear {
+            // Focus once the card is in the hierarchy, so the keyboard rises
+            // for direct typing without covering the editor.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { focused = true }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("reader.note.editor")
+    }
+
+    private func save() {
+        guard !busy else { return }
+        busy = true
+        var args: [String: Any] = ["note": note]
+        if let annotationId = request.annotationId { args["id"] = annotationId }
+        store.perform {
+            defer { busy = false }
+            try await store.command(
+                request.annotationId == nil ? "reader.annotate" : "reader.annotationEdit", args)
+            close()
+        }
+    }
+
+    private func delete() {
+        guard let annotationId = request.annotationId, !busy else { return }
+        busy = true
+        store.perform {
+            defer { busy = false }
+            try await store.command("reader.annotationDelete", ["id": annotationId])
+            close()
+        }
     }
 }
 

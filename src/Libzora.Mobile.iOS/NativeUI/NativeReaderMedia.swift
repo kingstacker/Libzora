@@ -10,6 +10,7 @@ struct NativeReaderMediaViewer: View {
     let close: () -> Void
     @State private var failed = false
     @State private var hintVisible = true
+    @StateObject private var orientation = ReaderMediaOrientation()
 
     private var label: String { media.kind == "table" ? "表格" : "图片" }
 
@@ -34,7 +35,12 @@ struct NativeReaderMediaViewer: View {
                     .font(.system(size: 13, weight: .medium)).lineLimit(1)
                     .foregroundStyle(.white.opacity(0.88))
                 Spacer(minLength: 12)
-                Button(action: close) {
+                Button {
+                    // Restore the presenting reader's policy before dismissal,
+                    // including on iOS 15 where UIKit owns the rotation request.
+                    orientation.deactivate()
+                    close()
+                } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 15, weight: .semibold))
                         .frame(width: 44, height: 44)
@@ -57,12 +63,108 @@ struct NativeReaderMediaViewer: View {
                 }.allowsHitTesting(false)
             }
         }
+        .background(ReaderMediaOrientationObserver(orientation: orientation).frame(width: 0, height: 0))
         .statusBarHidden(true)
         .preferredColorScheme(.dark)
         .onAppear {
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
                 withAnimation(.easeOut(duration: 0.3)) { hintVisible = false }
             }
+        }
+    }
+}
+
+/// The application delegate asks this policy for the actual window. A weak,
+/// per-viewer scope prevents one scene (or a removed cover) unlocking another.
+@MainActor
+private final class ReaderMediaOrientation: ObservableObject {
+    private static let viewers = NSHashTable<ReaderMediaOrientation>.weakObjects()
+    private weak var window: UIWindow?
+
+    static func supported(in window: UIWindow?) -> UIInterfaceOrientationMask {
+        guard UIDevice.current.userInterfaceIdiom == .phone else { return .all }
+        guard let window, viewers.allObjects.contains(where: { $0.window === window }) else { return .portrait }
+        return .allButUpsideDown
+    }
+
+    func activate(in window: UIWindow) {
+        guard UIDevice.current.userInterfaceIdiom == .phone, self.window !== window else { return }
+        self.window = window
+        Self.viewers.add(self)
+        Self.refresh(window)
+    }
+
+    func deactivate() {
+        guard let window else { return }
+        self.window = nil
+        Self.viewers.remove(self)
+        Self.refresh(window)
+    }
+
+    static func refresh(_ window: UIWindow) {
+        guard UIDevice.current.userInterfaceIdiom == .phone else { return }
+        if #available(iOS 16.0, *) {
+            // The reader and media are separate full-screen SwiftUI hosts, so
+            // invalidate the whole presentation chain, not just the window root.
+            var controller = window.rootViewController
+            while let current = controller {
+                current.setNeedsUpdateOfSupportedInterfaceOrientations()
+                controller = current.presentedViewController
+            }
+            window.windowScene?.requestGeometryUpdate(.iOS(interfaceOrientations: supported(in: window)))
+        } else {
+            UIViewController.attemptRotationToDeviceOrientation()
+        }
+    }
+}
+
+@_cdecl("lz_ios_supported_interface_orientations")
+@MainActor
+public func nativeSupportedInterfaceOrientations(_ windowPointer: UnsafeMutableRawPointer?) -> UInt {
+    let window = windowPointer.map { Unmanaged<UIWindow>.fromOpaque($0).takeUnretainedValue() }
+    return ReaderMediaOrientation.supported(in: window).rawValue
+}
+
+/// UIKit appearance follows the real full-screen cover, including dismissal
+/// through navigation/deep links rather than the viewer's close button.
+private struct ReaderMediaOrientationObserver: UIViewControllerRepresentable {
+    let orientation: ReaderMediaOrientation
+
+    func makeUIViewController(context: Context) -> Controller { Controller(orientation) }
+    func updateUIViewController(_ controller: Controller, context: Context) { }
+
+    static func dismantleUIViewController(_ controller: Controller, coordinator: ()) {
+        controller.orientation.deactivate()
+    }
+
+    final class Controller: UIViewController {
+        let orientation: ReaderMediaOrientation
+        private weak var previousWindow: UIWindow?
+
+        init(_ orientation: ReaderMediaOrientation) {
+            self.orientation = orientation
+            super.init(nibName: nil, bundle: nil)
+        }
+
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            guard let window = view.window else { return }
+            previousWindow = window
+            orientation.activate(in: window)
+        }
+
+        override func viewWillDisappear(_ animated: Bool) {
+            super.viewWillDisappear(animated)
+            orientation.deactivate()
+        }
+
+        override func viewDidDisappear(_ animated: Bool) {
+            super.viewDidDisappear(animated)
+            // Retry after the presentation transition, when the returning
+            // reader is the orientation authority and geometry can settle.
+            if let window = previousWindow { ReaderMediaOrientation.refresh(window) }
         }
     }
 }
@@ -74,6 +176,7 @@ private struct ZoomableReaderImage: UIViewRepresentable {
 
     func makeUIView(context: Context) -> ReaderZoomScrollView {
         let view = ReaderZoomScrollView()
+        view.accessibilityIdentifier = "reader.media.viewport"
         view.onFailure = onFailure
         view.load(path, maxPixelSize: maxPixelSize)
         return view

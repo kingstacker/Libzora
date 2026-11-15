@@ -60,15 +60,6 @@ internal sealed partial class IOSNativeFrontend
             case "settings.membership.trialClaim":
                 await modules.Accounts.Membership.ClaimTrialAsync(token);
                 return await modules.Accounts.Membership.RefreshAsync(token);
-            case "settings.membership.products": return await modules.Accounts.Membership.ProductsAsync(token);
-            case "settings.membership.orders": return await modules.Accounts.Membership.OrdersAsync(token);
-            case "settings.membership.redeem":
-                return await modules.Accounts.Membership.RedeemActivationCodeAsync(Text(args, "code"), Guid.Parse(Text(args, "requestId")), token);
-            case "settings.membership.purchase":
-                return await modules.Accounts.Membership.PurchaseAsync(Text(args, "productId"), Guid.Parse(Text(args, "requestId")), token);
-            case "settings.membership.cancel":
-                await modules.Accounts.Membership.CancelOrderAsync(Guid.Parse(Text(args, "orderId")), token);
-                return Data(("message", "订单已取消。"));
             case "settings.membership.kick":
                 await modules.Accounts.Membership.KickAsync(Guid.Parse(Text(args, "deviceId")), token);
                 return Data(("message", "设备已退出登录。"));
@@ -76,12 +67,8 @@ internal sealed partial class IOSNativeFrontend
                 if (!_shell.TryToggleDeveloperMode(Text(args, "password"))) throw new InvalidOperationException("密码错误");
                 break;
             case "settings.feedback.submit":
-                return await modules.Accounts.Service.SubmitFeedbackAsync(
-                    NativeFeedbackRequest.ReadDraft(args,
-                        ApplicationVersion.GetDisplayVersion(typeof(MobileApp).Assembly)),
-                    NativeFeedbackRequest.ReadImages(args),
-                    NativeFeedbackRequest.ReadAttachLogs(args) ? SoftwareLog.CaptureFeedbackLog() : null,
-                    token);
+                // Reject legacy calls before reading content, images or local logs.
+                throw new InvalidOperationException(UiText.Get("账号服务不接收反馈、截图或日志，请使用 GitHub Issues。"));
             case "settings.profile":
                 await modules.Library.Books.InitializeAsync(token);
                 var profileBooks = await modules.Library.Books.SearchAsync(cancellationToken: token);
@@ -105,8 +92,6 @@ internal sealed partial class IOSNativeFrontend
                 var settings = ReadSyncSettings(args, _syncDraft ?? current.Settings);
                 // Saving this form records the user's explicit provider choice.
                 settings = settings with { AccountRegion = modules.DataRegion, ProviderChosenByUser = true };
-                if (settings.Provider == SyncProvider.AccountServer)
-                    settings = await modules.Accounts.Service.CreateSyncSettingsAsync(settings, token);
                 if (command == "settings.sync.run") settings = settings with { Enabled = true };
                 if ((settings.Enabled || command != "settings.sync.save") && settings.Validate() is { } invalid)
                     throw new InvalidOperationException(invalid);
@@ -186,8 +171,7 @@ internal sealed partial class IOSNativeFrontend
 
     private async Task<string> SyncSummaryAsync(S3SyncStoredSettings stored, CancellationToken token)
     {
-        if (!stored.Settings.IsConfigured) return stored.Settings.Provider == SyncProvider.AccountServer
-            ? "登录账号并设置同步密钥后可与其他设备同步" : "填写连接信息后可与其他设备同步";
+        if (!stored.Settings.IsConfigured) return "填写自备 S3 / WebDAV 连接信息后可与其他设备同步";
         var status = await _shell.Modules.Sync.Service.GetStatusAsync(stored.DeviceId, stored.Settings, token);
         return status.LastSyncAt is { } last
             ? $"上次同步 {last.LocalDateTime:yyyy/MM/dd HH:mm} · {status.SnapshotBookCount} 本"
@@ -198,6 +182,8 @@ internal sealed partial class IOSNativeFrontend
     private static S3SyncSettings ReadSyncSettings(JsonElement args, S3SyncSettings current)
     {
         var draft = Read(args.GetProperty("settings"), current, IOSNativeJsonContext.Default.S3SyncSettings);
+        if (draft.Provider is not (SyncProvider.S3 or SyncProvider.WebDav))
+            throw new InvalidOperationException(MemberEntitlements.AccountCloudRequirement);
         // Preserve service settings the phone doesn't edit, including fields
         // loaded by an imported connection profile.
         return S3SyncSettings.Normalize(current with

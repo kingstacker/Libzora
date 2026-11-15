@@ -1,3 +1,4 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Libzora.Core;
@@ -9,10 +10,79 @@ namespace Libzora.Ui.Tests;
 
 public sealed partial class SettingsTests
 {
-    [Fact]
-    public Task FeedbackWindowRequiresSignInBeforeShowingTheForm() => Run(async () =>
+    [Theory]
+    [InlineData("zh-CN", false)]
+    [InlineData("zh-CN", true)]
+    [InlineData("en-US", false)]
+    [InlineData("en-US", true)]
+    public Task FeedbackGuideNeedsNoAccountAndHasNoUploadControls(string language, bool signedIn) => Run(async () =>
     {
         await using var scope = await TestWindow.Create();
+        ((Libzora.App)Application.Current!).ApplyLanguage(language);
+        using var handler = new AccountHttpHandler();
+        using var http = new HttpClient(handler);
+        using var service = new AccountService(scope.Paths, new AccountTestProtector(), http);
+        if (signedIn) await service.SignInAsync(AccountService.DefaultServerUrl, "test_reader", AccountHttpHandler.TestPassword);
+        var requests = handler.RequestCount;
+        var window = new FeedbackWindow(service);
+        try
+        {
+            window.Show();
+            await Render();
+            Assert.Equal("https://github.com/kingstacker/Libzora/issues", window.FindControl<TextBlock>("IssuesUrlText")!.Text);
+            var explanation = window.FindControl<TextBlock>("FeedbackServiceNote")!.Text!;
+            Assert.Contains("GitHub Issues", explanation);
+            Assert.Contains(language == "en-US" ? "does not accept" : "不接收", explanation);
+            Assert.True(window.FindControl<Button>("OpenIssuesButton")!.IsEnabled);
+            foreach (var name in new[] { "LoginPanel", "OpenAccountCenterButton", "FormPanel", "ContentBox", "ContactBox",
+                         "AddScreenshotButton", "ScreenshotPanel", "AttachSoftwareLogCheckBox", "SubmitButton", "SuccessPanel" })
+                Assert.Null(window.FindControl<Control>(name));
+            Assert.Equal(requests, handler.RequestCount);
+            Assert.Equal(signedIn, (await service.GetStatusAsync()).IsLoggedIn);
+            window.FindControl<Button>("CloseButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.False(window.IsVisible);
+        }
+        finally
+        {
+            window.Close();
+            ((Libzora.App)Application.Current!).ApplyLanguage("zh-CN");
+        }
+    });
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task RetiredFeedbackServiceCallsNeverUploadOrInvalidateTheSession(bool signedIn) => Run(async () =>
+    {
+        await using var scope = await TestWindow.Create();
+        using var handler = new AccountHttpHandler();
+        using var http = new HttpClient(handler);
+        using var service = new AccountService(scope.Paths, new AccountTestProtector(), http);
+        if (signedIn) await service.SignInAsync(AccountService.DefaultServerUrl, "test_reader", AccountHttpHandler.TestPassword);
+        var requests = handler.RequestCount;
+        var draft = new FeedbackDraft { RequestId = Guid.NewGuid(), Type = FeedbackTypes.Bug, Content = "Fictional retired feedback report.",
+            AppVersion = "test", Platform = "macos", PlatformVersion = "test", DeviceModel = "fictional" };
+        var image = new FeedbackImage("fictional.png", "image/png", [0x89, 0x50, 0x4E, 0x47]);
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => service.SubmitFeedbackAsync(draft, [image]));
+        Assert.Contains("不接收反馈", error.Message);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.SubmitFeedbackAsync(draft, [image], "fictional software log"));
+        Assert.Empty(await service.GetFeedbackAsync());
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.GetFeedbackAsync(Guid.NewGuid()));
+        Assert.Equal(requests, handler.RequestCount);
+        Assert.Null(handler.LastFeedbackFields);
+        Assert.Null(handler.LastFeedbackLog);
+        Assert.Equal(0, handler.LastFeedbackImageCount);
+        Assert.Equal(signedIn, (await service.GetStatusAsync()).IsLoggedIn);
+    });
+
+    [Fact]
+    public Task OpeningFeedbackGuideDoesNotCaptureOrUploadLocalLogs() => Run(async () =>
+    {
+        await using var scope = await TestWindow.Create();
+        SoftwareLog.Configure(scope.Paths, "test-version", "macos");
+        SoftwareLog.Error("reader.open", new InvalidOperationException("fictional reader failure"));
+        var logPath = Path.Combine(scope.Paths.Data, "logs", "software.log");
+        var before = await File.ReadAllBytesAsync(logPath);
         using var handler = new AccountHttpHandler();
         using var http = new HttpClient(handler);
         using var service = new AccountService(scope.Paths, new AccountTestProtector(), http);
@@ -20,137 +90,11 @@ public sealed partial class SettingsTests
         try
         {
             window.Show();
-            await Until(() => window.FindControl<Border>("LoginPanel")!.IsVisible);
-            Assert.False(window.FindControl<StackPanel>("FormPanel")!.IsVisible);
-            Assert.Equal(0, handler.CredentialRequests);
-        }
-        finally { window.Close(); }
-    });
-
-    [Fact]
-    public Task FeedbackWindowSubmitsThroughTheSignedInAccount() => Run(async () =>
-    {
-        await using var scope = await TestWindow.Create();
-        ((Libzora.App)Avalonia.Application.Current!).ApplyLanguage("zh-CN");
-        using var handler = new AccountHttpHandler();
-        using var http = new HttpClient(handler);
-        using var service = new AccountService(scope.Paths, new AccountTestProtector(), http, transferHttp: http);
-        await service.SignInAsync(AccountService.DefaultServerUrl, "test_reader", AccountHttpHandler.TestPassword,
-            register: true, email: "reader@example.invalid", confirmPassword: AccountHttpHandler.TestPassword);
-        var window = new FeedbackWindow(service);
-        try
-        {
-            window.Show();
-            await Until(() => window.FindControl<StackPanel>("FormPanel")!.IsVisible);
-            var type = window.FindControl<ComboBox>("TypeBox")!;
-            Assert.Equal(FeedbackTypes.Bug, ((ComboBoxItem)type.SelectedItem!).Tag);
-            Assert.True(window.FindControl<CheckBox>("AttachSoftwareLogCheckBox")!.IsChecked);
-            window.FindControl<TextBox>("ContentBox")!.Text = "点击同步后书籍封面没有刷新。";
-            window.FindControl<TextBox>("ContactBox")!.Text = "reader@example.invalid";
-            window.FindControl<Button>("SubmitButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            await Until(() => window.FindControl<Border>("SuccessPanel")!.IsVisible);
-            Assert.Contains("#7", window.FindControl<TextBlock>("SuccessNumberText")!.Text!);
-            Assert.False(window.FindControl<StackPanel>("FormPanel")!.IsVisible);
-            Assert.NotNull(handler.LastFeedbackFields);
-            Assert.Equal(FeedbackTypes.Bug, handler.LastFeedbackFields!["type"]);
-            Assert.Equal("点击同步后书籍封面没有刷新。", handler.LastFeedbackFields["content"]);
-            Assert.Equal("reader@example.invalid", handler.LastFeedbackFields["contact"]);
-            Assert.Equal("macos", handler.LastFeedbackFields["platform"]);
-            Assert.Equal(0, handler.LastFeedbackImageCount);
-        }
-        finally { window.Close(); }
-    });
-
-    [Fact]
-    public Task FeedbackWindowAttachesASanitizedSoftwareLog() => Run(async () =>
-    {
-        await using var scope = await TestWindow.Create();
-        ((Libzora.App)Avalonia.Application.Current!).ApplyLanguage("zh-CN");
-        SoftwareLog.Configure(scope.Paths, "test-version", "macos");
-        SoftwareLog.Error("reader.open",
-            new InvalidOperationException("无法打开 /Users/test-reader/Books/三体.epub，reader@example.invalid"),
-            ("format", "epub"));
-        using var handler = new AccountHttpHandler();
-        using var http = new HttpClient(handler);
-        using var service = new AccountService(scope.Paths, new AccountTestProtector(), http, transferHttp: http);
-        await service.SignInAsync(AccountService.DefaultServerUrl, "test_reader", AccountHttpHandler.TestPassword,
-            register: true, email: "reader@example.invalid", confirmPassword: AccountHttpHandler.TestPassword);
-        var window = new FeedbackWindow(service);
-        try
-        {
-            window.Show();
-            await Until(() => window.FindControl<StackPanel>("FormPanel")!.IsVisible);
-            window.FindControl<TextBox>("ContentBox")!.Text = "打开书籍时出现异常。";
-            window.FindControl<Button>("SubmitButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            await Until(() => window.FindControl<Border>("SuccessPanel")!.IsVisible);
-
-            var log = handler.LastFeedbackLog;
-            Assert.NotNull(log);
-            Assert.Contains("session.start", log, StringComparison.Ordinal);
-            Assert.Contains("reader.open", log, StringComparison.Ordinal);
-            Assert.Contains("InvalidOperationException", log, StringComparison.Ordinal);
-            Assert.Contains("<path>", log, StringComparison.Ordinal);
-            Assert.DoesNotContain("三体", log, StringComparison.Ordinal);
-            Assert.DoesNotContain("reader@example.invalid", log, StringComparison.Ordinal);
-            Assert.DoesNotContain("/Users/test-reader", log, StringComparison.Ordinal);
-        }
-        finally { window.Close(); }
-    });
-
-    [Fact]
-    public Task FeedbackWindowOmitsSoftwareLogsWhenUnchecked() => Run(async () =>
-    {
-        await using var scope = await TestWindow.Create();
-        ((Libzora.App)Avalonia.Application.Current!).ApplyLanguage("zh-CN");
-        SoftwareLog.Configure(scope.Paths, "test-version", "macos");
-        using var handler = new AccountHttpHandler();
-        using var http = new HttpClient(handler);
-        using var service = new AccountService(scope.Paths, new AccountTestProtector(), http, transferHttp: http);
-        await service.SignInAsync(AccountService.DefaultServerUrl, "test_reader", AccountHttpHandler.TestPassword,
-            register: true, email: "reader@example.invalid", confirmPassword: AccountHttpHandler.TestPassword);
-        var window = new FeedbackWindow(service);
-        try
-        {
-            window.Show();
-            await Until(() => window.FindControl<StackPanel>("FormPanel")!.IsVisible);
-            window.FindControl<CheckBox>("AttachSoftwareLogCheckBox")!.IsChecked = false;
-            window.FindControl<TextBox>("ContentBox")!.Text = "不需要附加日志的反馈。";
-            window.FindControl<Button>("SubmitButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            await Until(() => window.FindControl<Border>("SuccessPanel")!.IsVisible);
+            await Render();
+            Assert.Equal(before, await File.ReadAllBytesAsync(logPath));
+            Assert.Equal(0, handler.RequestCount);
             Assert.Null(handler.LastFeedbackLog);
-        }
-        finally { window.Close(); }
-    });
-
-    [Fact]
-    public Task FeedbackRetryReusesTheRequestId() => Run(async () =>
-    {
-        await using var scope = await TestWindow.Create();
-        ((Libzora.App)Avalonia.Application.Current!).ApplyLanguage("zh-CN");
-        using var handler = new AccountHttpHandler();
-        using var http = new HttpClient(handler);
-        using var service = new AccountService(scope.Paths, new AccountTestProtector(), http, transferHttp: http);
-        await service.SignInAsync(AccountService.DefaultServerUrl, "test_reader", AccountHttpHandler.TestPassword,
-            register: true, email: "reader@example.invalid", confirmPassword: AccountHttpHandler.TestPassword);
-        handler.FailNextFeedback = true;
-        var window = new FeedbackWindow(service);
-        try
-        {
-            window.Show();
-            await Until(() => window.FindControl<StackPanel>("FormPanel")!.IsVisible);
-            window.FindControl<TextBox>("ContentBox")!.Text = "网络失败后重试不应生成重复反馈。";
-            var submit = window.FindControl<Button>("SubmitButton")!;
-            submit.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            await Until(() => submit.IsEnabled);
-            Assert.False(window.FindControl<Border>("SuccessPanel")!.IsVisible);
-            var status = window.FindControl<TextBlock>("StatusText")!;
-            Assert.True(status.IsVisible);
-            Assert.False(string.IsNullOrWhiteSpace(status.Text));
-            var requestId = handler.LastFeedbackFields!["requestId"];
-
-            submit.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            await Until(() => window.FindControl<Border>("SuccessPanel")!.IsVisible);
-            Assert.Equal(requestId, handler.LastFeedbackFields!["requestId"]);
+            Assert.Null(window.FindControl<CheckBox>("AttachSoftwareLogCheckBox"));
         }
         finally { window.Close(); }
     });

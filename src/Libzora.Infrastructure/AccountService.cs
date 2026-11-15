@@ -1,7 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using Libzora.Core;
@@ -14,8 +13,6 @@ public sealed class AccountService : IDisposable
     public static string DefaultServerUrl => AccountRegions.DefaultServerUrl(AccountRegion.China);
     private readonly HttpClient _http;
     private readonly bool _ownsHttp;
-    private readonly HttpClient _transferHttp;
-    private readonly bool _ownsTransferHttp;
     private readonly AccountSessionStore _store;
     private readonly DeviceIdentityStore _identity;
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -29,18 +26,13 @@ public sealed class AccountService : IDisposable
     private AccountSessionResponse? _session;
 
     public AccountService(AppPaths paths, ISecretProtector protector, HttpClient? http = null, TimeProvider? clock = null,
-        AccountRegion? dataRegion = null, Func<AccountRegion, string>? defaultServerUrl = null, HttpClient? transferHttp = null)
+        AccountRegion? dataRegion = null, Func<AccountRegion, string>? defaultServerUrl = null)
     {
         _store = new(paths, protector);
         _identity = new(paths, protector);
         _ownsHttp = http is null;
         // A redirect must never forward a password or a bearer token to another host.
         _http = http ?? new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(15) };
-        _ownsTransferHttp = transferHttp is null;
-        // Screenshot submissions carry several megabytes; uploads need a longer
-        // deadline than the small authentication requests above.
-        _transferHttp = transferHttp ?? new HttpClient(new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false })
-            { Timeout = TimeSpan.FromSeconds(90) };
         _clock = clock ?? TimeProvider.System;
         _dataRegion = dataRegion;
         _defaultServerUrl = defaultServerUrl ?? AccountRegions.DefaultServerUrl;
@@ -109,41 +101,16 @@ public sealed class AccountService : IDisposable
         "device_mismatch" => "本机设备身份已改变，请重新登录。",
         "invalid_device" => "设备信息无效，请检查系统密钥库或更新客户端。",
         "membership_required" => MemberEntitlements.SyncRequirement,
-        "plus_required" => MemberEntitlements.AccountCloudRequirement,
-        "traffic_quota_exceeded" => "本会员年度下载额度与额外下载余额已用尽。请等待下一会员年度开始；提前续费不会增加本年度额度。",
-        "new_user_traffic_exceeded" => "新开通 Plus 的临时下载额度已用尽，请稍后再试；年度下载额度不受影响。",
-        "metadata_traffic_exceeded" => "同步元数据今日流量已达上限，将于次日 UTC 零点重置；书籍下载额度不受影响。",
-        "download_rate_limited" => "下载请求过于频繁，请稍后再试。",
-        "storage_quota_exceeded" => "云空间额度已用尽，请删除不再需要的同步文件或调整额度。",
-        "download_link_used" => "该下载链接已经使用，请重新获取下载授权。",
-        "transfer_expired" => "同步链接已失效，请重新同步。",
-        "purchases_disabled" => "购买服务暂未开放，请联系管理员。",
-        "invalid_product" => "商品不存在或已下架，请刷新商品列表。",
-        "order_request_conflict" => "请为不同商品创建新的订单。",
-        "too_many_orders" => "请先处理或取消已有的待支付订单。",
-        "order_not_pending" => "该订单已取消、到账或超过付款期限。",
-        "membership_limit" => "Plus 最多可持有 5 年有效期，付费和激活码共用此上限。请先处理待支付的 Plus 订单或等待可续费后再试。",
-        "invalid_membership" => "Plus 单次有效期需为 1–1825 天，最多 5 年。",
-        "invalid_activation_code" => "激活码无效，请检查后重试。",
-        "activation_region_mismatch" => "此激活码属于其他区域，请切换到发行区域并登录后兑换。",
-        "activation_disabled" => "此激活码已停用，请联系发行方。",
-        "activation_expired" => "此激活码已超过兑换截止时间。",
-        "activation_already_used" => "此激活码已使用，不能再次兑换。",
-        "activation_request_conflict" => "请为其他激活码创建新的兑换请求。",
-        "invalid_activation_request" => "兑换请求标识无效。",
-        "invalid_activation_kind" => "激活码仅支持永久功能会员或 1 年 Plus。",
-        "lifetime_already_active" => "此账号已永久解锁功能，无需再次购买或兑换。",
+        "official_cloud_removed" or "plus_required" or "pro_required" or "traffic_quota_exceeded"
+            or "new_user_traffic_exceeded" or "metadata_traffic_exceeded" or "storage_quota_exceeded"
+            or "download_link_used" or "transfer_expired" or "download_rate_limited" or "cloud_retention_due"
+            => MemberEntitlements.AccountCloudRequirement,
+        "invalid_membership" => "账号服务返回了无效的响应。",
         "rate_limited" => "请求过于频繁，请稍后再试。",
-        "feedback_rate_limited" => "提交过于频繁，请稍后再试。",
-        "invalid_feedback" => "反馈内容无效，请检查后重试。",
-        "invalid_feedback_attachment" => "截图格式或大小无效，仅支持 JPEG、PNG 或 WebP。",
-        "feedback_too_large" => "截图总大小超过限制，请减少图片数量或大小。",
-        "feedback_not_found" => "反馈不存在或已被删除。",
         "registration_limit_reached" => "此网络的注册次数已达上限，请稍后再试或联系管理员。",
         "registration_blocked" => "此网络或账号信息暂不支持注册，请联系管理员。",
         "username_blocked" => "此用户名暂不可用，请选择其他用户名。",
-        "cloud_retention_due" => "云数据保留期限已结束，正在清理，请稍后重新开通 Plus。",
-        "trial_unavailable" => "此账号已使用过 Plus 或领取过免费试用，不能再次领取。",
+        "trial_unavailable" => "此账号已领取过试用、已有买断订阅或历史功能权益，不能再次领取。",
         "region_mismatch" => "账号服务区域不匹配，请检查所选区域。",
         "username_exists" => "该用户名已注册，请换一个用户名。",
         "email_exists" => "该邮箱已被其他账号使用。",
@@ -161,7 +128,7 @@ public sealed class AccountService : IDisposable
         "invalid_email_code" => "邮箱验证码无效或已过期，请重新获取。",
         "email_unavailable" => "邮件服务暂不可用，请稍后再试。",
         "email_not_set" => "此账号未设置注册邮箱，无法验证或找回密码。",
-        "confirmation_required" => "请输入“注销账号”确认文字。",
+        "confirmation_required" => "请输入“停用账号”确认文字。",
         _ => null
     };
 
@@ -183,14 +150,9 @@ public sealed class AccountService : IDisposable
         finally { _gate.Release(); }
     }
 
-    public async Task<S3SyncSettings> CreateSyncSettingsAsync(S3SyncSettings current, CancellationToken cancellationToken = default)
-    {
-        var status = await GetStatusAsync(validateSession: true, cancellationToken: cancellationToken);
-        if (!status.IsLoggedIn) throw new InvalidOperationException("请先登录当前区域的用户账号。");
-        if (status.RequiresDataRestart) throw new InvalidOperationException("区域已切换，请重新打开应用后使用该区域的独立书库和同步。");
-        return current with { Provider = SyncProvider.AccountServer, AccountRegion = status.Region,
-            AccountServerUrl = status.ServerUrl, AccountUserId = status.User!.Id };
-    }
+    /// <summary>Legacy callers cannot create an official-cloud connection.</summary>
+    public Task<S3SyncSettings> CreateSyncSettingsAsync(S3SyncSettings current, CancellationToken cancellationToken = default) =>
+        Task.FromException<S3SyncSettings>(new InvalidOperationException(MemberEntitlements.AccountCloudRequirement));
 
     public async Task EnsureSyncRegionAsync(AccountRegion dataRegion, CancellationToken token = default)
     {
@@ -199,156 +161,24 @@ public sealed class AccountService : IDisposable
             throw new InvalidOperationException("区域已切换，请重新打开应用后使用该区域的独立书库和同步。");
     }
 
-    /// <summary>Submits one feedback item and up to three screenshots through the signed-in account.</summary>
+    /// <summary>Fail-closed source compatibility: no feedback content is read or sent.</summary>
     public Task<FeedbackReceipt> SubmitFeedbackAsync(FeedbackDraft draft, IReadOnlyList<FeedbackImage> images,
         CancellationToken cancellationToken = default) =>
         SubmitFeedbackAsync(draft, images, softwareLog: null, cancellationToken);
 
-    /// <summary>
-    /// Submits feedback with an optional, already sanitized software log. The
-    /// server stores it as a plain text attachment next to the screenshots.
-    /// </summary>
-    public async Task<FeedbackReceipt> SubmitFeedbackAsync(FeedbackDraft draft, IReadOnlyList<FeedbackImage> images,
-        string? softwareLog, CancellationToken cancellationToken = default)
-    {
-        if (FeedbackValidation.ValidateDraft(draft) is { } invalid) throw new ArgumentException(invalid, nameof(draft));
-        if (FeedbackValidation.ValidateImages(images) is { } imageInvalid) throw new ArgumentException(imageInvalid, nameof(images));
-        if (FeedbackValidation.ValidateSoftwareLog(softwareLog) is { } logInvalid)
-            throw new ArgumentException(logInvalid, nameof(softwareLog));
-        var logText = string.IsNullOrWhiteSpace(softwareLog) ? null : softwareLog.Trim();
-        await _gate.WaitAsync(cancellationToken);
-        try
-        {
-            await LoadAsync(cancellationToken);
-            if (_session is null) throw new InvalidOperationException("请先登录当前区域的账号后提交反馈。");
-            if (Status().RequiresDataRestart)
-                throw new InvalidOperationException("区域已切换，请重新打开应用后提交反馈。");
-            using var content = new MultipartFormDataContent();
-            AddFeedbackField(content, "requestId", draft.RequestId.ToString());
-            AddFeedbackField(content, "type", draft.Type);
-            AddFeedbackField(content, "content", draft.Content);
-            AddFeedbackField(content, "contact", draft.Contact ?? "");
-            AddFeedbackField(content, "appVersion", draft.AppVersion);
-            AddFeedbackField(content, "platform", draft.Platform);
-            AddFeedbackField(content, "platformVersion", draft.PlatformVersion);
-            AddFeedbackField(content, "deviceModel", draft.DeviceModel);
-            if (logText is not null) AddFeedbackField(content, "softwareLog", logText);
-            for (var index = 0; index < images.Count; index++)
-            {
-                var image = images[index];
-                var part = new ByteArrayContent(image.Bytes);
-                part.Headers.ContentType = new MediaTypeHeaderValue(image.ContentType);
-                content.Add(part, "attachments", FeedbackFileName(image, index));
-            }
-            using var request = FeedbackRequest(HttpMethod.Post, _serverUrl, "", _session.Token);
-            request.Content = content;
-            using var response = await SendTransferAsync(request, cancellationToken);
-            await ThrowFeedbackFailureAsync(response, cancellationToken);
-            return await ReadAsync(response, AccountJsonContext.Default.FeedbackReceipt, cancellationToken);
-        }
-        finally { _gate.Release(); }
-    }
+    public Task<FeedbackReceipt> SubmitFeedbackAsync(FeedbackDraft draft, IReadOnlyList<FeedbackImage> images,
+        string? softwareLog, CancellationToken cancellationToken = default) =>
+        Task.FromException<FeedbackReceipt>(FeedbackRemoved());
 
-    /// <summary>Returns feedback owned by the signed-in account; the server also verifies ownership.</summary>
-    public async Task<FeedbackItem[]> GetFeedbackAsync(CancellationToken cancellationToken = default)
-    {
-        await _gate.WaitAsync(cancellationToken);
-        try
-        {
-            await LoadAsync(cancellationToken);
-            if (_session is null) throw new InvalidOperationException("请先登录当前区域的账号后查看反馈。");
-            using var request = FeedbackRequest(HttpMethod.Get, _serverUrl, "", _session.Token);
-            using var response = await SendAsync(request, cancellationToken);
-            await ThrowFeedbackFailureAsync(response, cancellationToken);
-            return await ReadAsync(response, AccountJsonContext.Default.FeedbackItemArray, cancellationToken, maximumBytes: 256 * 1024);
-        }
-        finally { _gate.Release(); }
-    }
+    /// <summary>The retired account-server feedback list is never requested.</summary>
+    public Task<FeedbackItem[]> GetFeedbackAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult<FeedbackItem[]>([]);
 
-    public async Task<FeedbackItem> GetFeedbackAsync(Guid id, CancellationToken cancellationToken = default)
-    {
-        if (id == Guid.Empty) throw new ArgumentException("反馈编号无效。", nameof(id));
-        await _gate.WaitAsync(cancellationToken);
-        try
-        {
-            await LoadAsync(cancellationToken);
-            if (_session is null) throw new InvalidOperationException("请先登录当前区域的账号后查看反馈。");
-            using var request = FeedbackRequest(HttpMethod.Get, _serverUrl, id.ToString("N"), _session.Token);
-            using var response = await SendAsync(request, cancellationToken);
-            await ThrowFeedbackFailureAsync(response, cancellationToken);
-            return await ReadAsync(response, AccountJsonContext.Default.FeedbackItem, cancellationToken, maximumBytes: 64 * 1024);
-        }
-        finally { _gate.Release(); }
-    }
+    public Task<FeedbackItem> GetFeedbackAsync(Guid id, CancellationToken cancellationToken = default) =>
+        Task.FromException<FeedbackItem>(FeedbackRemoved());
 
-    private static void AddFeedbackField(MultipartFormDataContent content, string name, string value) =>
-        content.Add(new StringContent(value, Encoding.UTF8), name);
-
-    private static string FeedbackFileName(FeedbackImage image, int index) =>
-        $"screenshot-{index + 1}{FeedbackValidation.ExtensionFor(image.ContentType)}";
-
-    private HttpRequestMessage FeedbackRequest(HttpMethod method, string server, string suffix, string bearer)
-    {
-        var request = new HttpRequestMessage(method,
-            new Uri(AccountValidation.ServerUri(server), "api/v1/feedback" + (suffix.Length == 0 ? "" : "/" + suffix)));
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearer);
-        request.Headers.Add("X-Libzora-Region", AccountRegions.Slug(_region));
-        return request;
-    }
-
-    private async Task<HttpResponseMessage> SendTransferAsync(HttpRequestMessage request, CancellationToken token)
-    {
-        try { return await _transferHttp.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token); }
-        catch (HttpRequestException) { throw new InvalidOperationException("无法连接账号服务，请检查服务地址和网络。"); }
-        catch (OperationCanceledException) when (!token.IsCancellationRequested)
-        { throw new InvalidOperationException("反馈提交超时，请检查网络后重试。"); }
-    }
-
-    private async Task ThrowFeedbackFailureAsync(HttpResponseMessage response, CancellationToken token)
-    {
-        if (response.IsSuccessStatusCode) return;
-        if (response.StatusCode == HttpStatusCode.Unauthorized)
-        {
-            await InvalidateAsync(token);
-            throw new InvalidOperationException("登录状态已失效，请重新登录后提交反馈。");
-        }
-        var code = response.Headers.TryGetValues("X-Libzora-Error", out var values) ? values.FirstOrDefault() : null;
-        if (code is not null && ApiMessage(code) is { } mapped) throw new InvalidOperationException(mapped);
-        string? message = null;
-        try
-        {
-            await response.Content.LoadIntoBufferAsync(4096);
-            message = (await response.Content.ReadFromJsonAsync(AccountJsonContext.Default.AccountApiError, token))?.Message;
-        }
-        catch (Exception exception) when (exception is JsonException or HttpRequestException or NotSupportedException) { }
-        if (!string.IsNullOrWhiteSpace(message)) throw new InvalidOperationException(message);
-        throw new InvalidOperationException(response.StatusCode switch
-        {
-            HttpStatusCode.BadRequest => "反馈内容无效，请检查后重试。",
-            HttpStatusCode.Forbidden => "账号服务区域不匹配，请检查所选区域和服务地址。",
-            HttpStatusCode.RequestEntityTooLarge => "截图过大，请减少图片数量或大小后重试。",
-            HttpStatusCode.TooManyRequests => "提交过于频繁，请稍后再试。",
-            HttpStatusCode.NotFound => "反馈不存在或已被删除。",
-            _ => "反馈服务暂时不可用，请稍后重试。"
-        });
-    }
-
-    internal async Task AuthorizeSyncRequestAsync(HttpRequestMessage request, S3SyncSettings settings, CancellationToken token)
-    {
-        await _gate.WaitAsync(token);
-        try
-        {
-            await LoadAsync(token);
-            if (Status().RequiresDataRestart) throw new InvalidOperationException("区域已切换，请重新打开应用后使用该区域的独立书库和同步。");
-            if (_session is null || _session.User.Id != settings.AccountUserId || _region != settings.AccountRegion
-                || !string.Equals(_serverUrl, settings.AccountServerUrl, StringComparison.Ordinal)
-                || request.RequestUri is null || !AccountValidation.ServerUri(_serverUrl).IsBaseOf(request.RequestUri))
-                throw new InvalidOperationException("同步账号或区域已改变，请重新登录并选择当前账号的云同步。");
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _session.Token);
-            request.Headers.Add("X-Libzora-Region", AccountRegions.Slug(_region));
-        }
-        finally { _gate.Release(); }
-    }
+    private static InvalidOperationException FeedbackRemoved() =>
+        new(UiText.Get("账号服务不接收反馈、截图或日志，请使用 GitHub Issues。"));
 
     public async Task<AccountStatus> GetStatusAsync(bool validateSession = false, CancellationToken cancellationToken = default)
     {
@@ -550,7 +380,7 @@ public sealed class AccountService : IDisposable
 
     public async Task CloseAccountAsync(string currentPassword, string confirmation, CancellationToken token = default)
     {
-        if (confirmation != "注销账号") throw new ArgumentException("请输入“注销账号”确认文字。");
+        if (confirmation != "停用账号") throw new ArgumentException("请输入“停用账号”确认文字。");
         if (!AccountValidation.IsPassword(currentPassword)) throw new ArgumentException("请输入当前密码。");
         await _gate.WaitAsync(token);
         try
@@ -717,7 +547,6 @@ public sealed class AccountService : IDisposable
     public void Dispose()
     {
         if (_ownsHttp) _http.Dispose();
-        if (_ownsTransferHttp) _transferHttp.Dispose();
     }
 }
 

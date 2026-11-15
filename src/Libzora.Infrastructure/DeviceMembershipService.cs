@@ -1,4 +1,3 @@
-using System.Net.Http.Json;
 using Libzora.Core;
 
 namespace Libzora.Infrastructure;
@@ -17,15 +16,16 @@ public sealed class DeviceMembershipService(AccountService accounts) : IDeviceFe
     public async Task EnsureFeatureAsync(DeviceFeature feature, CancellationToken cancellationToken = default)
     {
         if (!Enum.IsDefined(feature)) throw new ArgumentOutOfRangeException(nameof(feature));
+        if (feature == DeviceFeature.AccountCloudSync)
+            throw new DeviceFeatureRequiredException(MemberEntitlements.AccountCloudRequirement);
         var device = await accounts.GetDeviceAsync(cancellationToken);
-        var officialCloud = feature == DeviceFeature.AccountCloudSync;
-        var reply = await accounts.MemberRequestAsync(officialCloud ? HttpMethod.Get : HttpMethod.Post,
-            "devices/" + device.DeviceId + (officialCloud ? "" : "/features"),
+        var reply = await accounts.MemberRequestAsync(HttpMethod.Post,
+            "devices/" + device.DeviceId + "/features",
             AccountJsonContext.Default.DeviceFeatureStatus, null, cancellationToken);
         Validate(reply.Value, reply.Scope, device.DeviceId);
         if (reply.Scope.RequiresDataRestart) throw new DeviceFeatureRequiredException("区域已切换，请重新打开应用后使用该区域的账号和功能权益。");
-        if (officialCloud ? !reply.Value.CanUseAccountCloudSync : !reply.Value.CanUseFeatures)
-            throw new DeviceFeatureRequiredException(officialCloud ? MemberEntitlements.AccountCloudRequirement : MemberEntitlements.SyncRequirement);
+        if (!reply.Value.CanUseFeatures)
+            throw new DeviceFeatureRequiredException(MemberEntitlements.SyncRequirement);
     }
 
     public async Task KickAsync(Guid device, CancellationToken token = default)
@@ -35,22 +35,13 @@ public sealed class DeviceMembershipService(AccountService accounts) : IDeviceFe
         if (current.DeviceId == device) await accounts.GetStatusAsync(validateSession: true, cancellationToken: token);
     }
 
-    public async Task<MembershipProduct[]> ProductsAsync(CancellationToken token = default) =>
-        (await accounts.MemberRequestAsync(HttpMethod.Get, "products", AccountJsonContext.Default.MembershipProductArray, null, token)).Value;
-
-    public async Task<PurchaseOrder[]> OrdersAsync(CancellationToken token = default) =>
-        (await accounts.MemberRequestAsync(HttpMethod.Get, "orders", AccountJsonContext.Default.PurchaseOrderArray, null, token)).Value;
-
-    public async Task<PurchaseOrder> PurchaseAsync(string productId, Guid requestId, CancellationToken token = default)
-    {
-        var reply = await accounts.MemberRequestAsync(HttpMethod.Post, "orders", AccountJsonContext.Default.PurchaseOrder,
-            JsonContent.Create(new PurchaseRequest { ProductId = productId, RequestId = requestId }, AccountJsonContext.Default.PurchaseRequest), token);
-        if (reply.Value.AccountId != reply.Scope.User?.Id || reply.Value.Id == Guid.Empty || reply.Value.ProductId != productId)
-            throw new InvalidOperationException("服务器返回了无效的订单。");
-        return reply.Value;
-    }
-
-    public Task CancelOrderAsync(Guid order, CancellationToken token = default) => accounts.MemberActionAsync("orders/" + order + "/cancel", token);
+    // Source-compatible retirement stubs: no catalog, orders or payment request reaches the activation server.
+    public Task<MembershipProduct[]> ProductsAsync(CancellationToken token = default) => Task.FromResult<MembershipProduct[]>([]);
+    public Task<PurchaseOrder[]> OrdersAsync(CancellationToken token = default) => Task.FromResult<PurchaseOrder[]>([]);
+    public Task<PurchaseOrder> PurchaseAsync(string productId, Guid requestId, CancellationToken token = default) =>
+        Task.FromException<PurchaseOrder>(new InvalidOperationException(UiText.Get("账号服务仅用于功能激活与验证，不处理购买订单。")));
+    public Task CancelOrderAsync(Guid order, CancellationToken token = default) =>
+        Task.FromException(new InvalidOperationException(UiText.Get("账号服务仅用于功能激活与验证，不处理购买订单。")));
 
     /// <summary>Claims the one-time free trial. Only called after the user turns on the claim switch.</summary>
     public async Task<AccountMembership> ClaimTrialAsync(CancellationToken token = default)
@@ -64,26 +55,11 @@ public sealed class DeviceMembershipService(AccountService accounts) : IDeviceFe
         return reply.Value;
     }
 
-    public async Task<ActivationCodeRedemption> RedeemActivationCodeAsync(string code, Guid requestId, CancellationToken token = default)
-    {
-        if (string.IsNullOrWhiteSpace(code) || code.Length > 80) throw new InvalidOperationException(UiText.Get("请输入有效的激活码。"));
-        if (requestId == Guid.Empty) throw new ArgumentException("兑换请求标识无效。", nameof(requestId));
-        var device = await accounts.GetDeviceAsync(token);
-        var reply = await accounts.MemberRequestAsync(HttpMethod.Post, "activation-codes/redeem", AccountJsonContext.Default.ActivationCodeRedemption,
-            JsonContent.Create(new ActivationCodeRedeemRequest { Code = code.Trim(), RequestId = requestId }, AccountJsonContext.Default.ActivationCodeRedeemRequest),
-            token, UiText.Get("请先登录当前区域的账号后兑换激活码。"));
-        if (reply.Value.CodeId == Guid.Empty || reply.Value.Kind is not ("lifetime" or "pro")
-            || (reply.Value.Kind == "pro" ? reply.Value.Years != 1 : reply.Value.Years != 0) || reply.Value.Status is null)
-            throw new InvalidOperationException(UiText.Get("服务器返回了无效的激活结果。"));
-        Validate(reply.Value.Status, reply.Scope, device.DeviceId);
-        return reply.Value;
-    }
-
     private static void Validate(DeviceFeatureStatus status, AccountStatus scope, Guid device)
     {
         if (status.Membership is null || status.Devices is null || status.Membership.AccountId != scope.User?.Id
             || status.Membership.Region != scope.Region || status.CurrentDeviceId != device
-            || status.Membership.DeviceLimit != MemberEntitlements.DeviceLimit || status.Membership.Tier is not ("free" or "lifetime" or "pro")
+            || status.Membership.DeviceLimit != MemberEntitlements.DeviceLimit || status.Membership.Tier is not ("free" or "trial" or "lifetime" or "pro")
             || status.Membership.LoggedInDeviceCount is < 0 or > MemberEntitlements.DeviceLimit
             || status.Membership.PendingPlusDays < 0
             || status.Devices.Length > 100 || status.Devices.Any(item => item.DeviceId == Guid.Empty)

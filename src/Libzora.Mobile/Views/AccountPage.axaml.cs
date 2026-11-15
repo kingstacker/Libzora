@@ -10,6 +10,7 @@ public partial class AccountPage : UserControl, IShellPage
     private readonly AccountService? _accounts;
     private readonly DeviceMembershipService? _membership;
     private readonly MobileShell? _shell;
+    private readonly bool _registrationAvailable;
     private readonly CancellationTokenSource _lifetime = new();
     private bool _register;
     private bool _busy;
@@ -18,19 +19,18 @@ public partial class AccountPage : UserControl, IShellPage
     private bool _emailCodeSent;
     private AccountStatus? _status;
     private DeviceFeatureStatus? _memberStatus;
-    private Guid _activationRequestId;
-    private string? _activationAttemptCode;
 
     public AccountPage() => InitializeComponent();
 
-    public AccountPage(AccountService accounts, MobileShell shell, DeviceMembershipService? membership = null)
+    public AccountPage(AccountService accounts, MobileShell shell, DeviceMembershipService? membership = null,
+        bool registrationAvailable = false)
     {
         _accounts = accounts;
         _membership = membership;
         _shell = shell;
+        _registrationAvailable = registrationAvailable;
         InitializeComponent();
         accounts.DeviceInvalidated += OnDeviceInvalidated;
-        ProductsBox.SelectionChanged += (_, _) => PresentProduct();
         KeyboardAvoidance.Attach(this, FormScroller, ActionBar);
         Loaded += async (_, _) =>
         {
@@ -62,7 +62,6 @@ public partial class AccountPage : UserControl, IShellPage
     {
         if (_status?.User?.Id != status.User?.Id || _status?.Region != status.Region)
         {
-            ClearActivationCode();
             _memberStatus = null;
             TrialCard.IsVisible = false;
             _presentingTrial = true;
@@ -80,10 +79,8 @@ public partial class AccountPage : UserControl, IShellPage
         ApplyResetMode();
         SignOutButton.IsVisible = status.IsLoggedIn;
         MembershipPanel.IsVisible = status.IsLoggedIn && _membership is not null;
-        var internationalPlans = status.Region == AccountRegion.International;
-        PlansRegionText.Text = "会员方案 · " + AccountRegions.DisplayName(status.Region);
-        PlansUnavailableText.IsVisible = internationalPlans;
-        PurchasePanel.IsVisible = !internationalPlans;
+        PlansRegionText.Text = "功能权益 · " + AccountRegions.DisplayName(status.Region);
+        ActivationPanel.IsVisible = true;
         UsernameText.Text = status.User?.Username;
         ServerText.Text = AccountRegions.DisplayName(status.Region) + " · " + status.ServerUrl;
         ExpiryText.Text = status.ExpiresAt is { } expiry ? $"会话有效至 {expiry.LocalDateTime:yyyy/MM/dd}" : "";
@@ -98,6 +95,11 @@ public partial class AccountPage : UserControl, IShellPage
         ForgotPasswordButton.IsVisible = _status?.IsLoggedIn != true && !_register && !_resetMode;
         ConfirmPasswordPanel.IsVisible = _register && !_resetMode;
         RegistrationEmailPanel.IsVisible = _register && !_resetMode;
+        RegistrationNoticeBorder.IsVisible = _register && !_registrationAvailable && !_resetMode;
+        SubmitButton.Content = _register
+            ? (_registrationAvailable ? "注册并登录" : "注册暂未上线")
+            : "登录";
+        SubmitButton.IsEnabled = !_busy && !(_register && !_registrationAvailable);
     }
 
     private void PresentEmailVerification()
@@ -117,10 +119,9 @@ public partial class AccountPage : UserControl, IShellPage
         _busy = value;
         RegionPanel.IsEnabled = !value;
         SignInPanel.IsEnabled = !value;
-        SubmitButton.IsEnabled = !value;
+        SubmitButton.IsEnabled = !value && !(_register && !_registrationAvailable);
         SignOutButton.IsEnabled = !value;
         MembershipPanel.IsEnabled = !value;
-        UpdateActivationButton();
     }
 
     private async void OnRegionClick(object? sender, RoutedEventArgs e)
@@ -131,7 +132,6 @@ public partial class AccountPage : UserControl, IShellPage
         _resetMode = false;
         _emailCodeSent = false;
         ClearPasswords();
-        ClearActivationCode();
         UsernameBox.Text = "";
         RegistrationEmailBox.Text = "";
         ShowStatus(null);
@@ -163,7 +163,6 @@ public partial class AccountPage : UserControl, IShellPage
         LoginIdentifierLabel.Text = _register ? "用户名" : "用户名或邮箱";
         UsernameHintText.Text = _register ? "3–32 位字母、数字、点、下划线或连字符" : "使用用户名或邮箱登录同一个账号";
         UsernameBox.MaxLength = _register ? 32 : 254;
-        SubmitButton.Content = _register ? "注册并登录" : "登录";
         ClearPasswords();
         ShowStatus(null);
     }
@@ -171,6 +170,8 @@ public partial class AccountPage : UserControl, IShellPage
     private async void OnSubmitClick(object? sender, RoutedEventArgs e)
     {
         if (_busy || _accounts is null) return;
+        if (_register && !_registrationAvailable)
+        { ShowStatus("注册暂未上线。当前版本无需注册即可免费使用全部功能。"); return; }
         if (_register && PasswordBox.Text != ConfirmPasswordBox.Text)
         { ShowStatus("两次输入的密码不一致。"); return; }
         SetBusy(true);
@@ -297,7 +298,7 @@ public partial class AccountPage : UserControl, IShellPage
         ResetCodeBox.Text = ""; ResetPasswordBox.Text = ""; ResetConfirmPasswordBox.Text = "";
     }
     private void OnBackClick(object? sender, RoutedEventArgs e) => _shell?.GoBack();
-    public void OnClosed() { if (_accounts is not null) _accounts.DeviceInvalidated -= OnDeviceInvalidated; _lifetime.Cancel(); ClearPasswords(); ClearActivationCode(); }
+    public void OnClosed() { if (_accounts is not null) _accounts.DeviceInvalidated -= OnDeviceInvalidated; _lifetime.Cancel(); ClearPasswords(); }
 
     private async Task LoadMembershipAsync()
     {
@@ -307,31 +308,16 @@ public partial class AccountPage : UserControl, IShellPage
             var status = await _membership.RefreshAsync(_lifetime.Token); var member = status.Membership;
             if (_status?.User?.Id != member.AccountId || _status.Region != member.Region) return;
             _memberStatus = status;
-            MembershipSummary.Text = $"{MemberEntitlements.TierName(member.Tier)} · 已登录 {member.LoggedInDeviceCount}/{member.DeviceLimit} 台\n"
+            var tier = MemberEntitlements.EffectiveTier(member, DateTimeOffset.UtcNow);
+            MembershipSummary.Text = $"{MemberEntitlements.TierName(tier)} · 已登录 {member.LoggedInDeviceCount}/{member.DeviceLimit} 台\n"
                 + (status.CanUseFeatures ? "自备 S3 / WebDAV 多端同步已解锁" : "Free 不支持多端同步")
-                + (status.CanUseAccountCloudSync
-                    ? $"\n官方云空间 {MobileFormat.Size(member.StorageBytes)} / {MobileFormat.Size(member.StorageQuota)}"
-                        + $"\n已下载 {MobileFormat.Size(member.DownloadBytes)} · 下载剩余 {MobileFormat.Size(member.DownloadRemainingBytes)}"
-                        + (member.DownloadCreditBytes > 0 ? $" · 购买余额 {MobileFormat.Size(member.DownloadCreditBytes)}" : "")
-                        + (member.PlusDownloadQuotaBytes is { } annualQuota && member.PlusDownloadUsedBytes is { } annualUsed
-                            ? $"\n本会员年度 {MobileFormat.Size(annualUsed)} / {MobileFormat.Size(annualQuota)}"
-                                + $" · 剩余 {MobileFormat.Size(Math.Max(0, annualQuota - annualUsed))}"
-                            : "")
-                        + (member.PlusEarlyDownloadQuotaBytes is { } earlyQuota
-                            && member.PlusEarlyDownloadEndsAt is { } earlyEnd && earlyEnd > DateTimeOffset.UtcNow
-                            ? $"\n新用户限额 {MobileFormat.Size(member.PlusEarlyDownloadUsedBytes ?? 0)} / {MobileFormat.Size(earlyQuota)}"
-                                + $" · 截止 {earlyEnd.LocalDateTime:yyyy/MM/dd HH:mm}"
-                            : "")
-                        + (member.MetadataDownloadQuotaBytes is { } metadataQuota && member.MetadataDownloadUsedBytes is { } metadataUsed
-                            ? $"\n今日元数据流量 {MobileFormat.Size(metadataUsed)} / {MobileFormat.Size(metadataQuota)}（UTC 零点重置）"
-                            : "")
-                    : "\n官方云空间与下载：未开通（需要 Plus）")
-                + (member.ProExpiresAt is { } expiry
-                    ? member.Tier == "pro"
-                        ? $"\nPlus 有效至 {expiry.LocalDateTime:yyyy/MM/dd}"
-                            + (MemberEntitlements.PlusRenewalReminder(expiry, DateTimeOffset.UtcNow) is not null
-                                ? "\n" + MemberEntitlements.PlusRenewalMessage(expiry, DateTimeOffset.UtcNow, member.TrialExpiresAt) : "")
-                        : "\n" + MemberEntitlements.PlusExpiryMessage(expiry, DateTimeOffset.UtcNow, member.TrialExpiresAt)
+                + "\n所有方案均不提供官方云同步。"
+                + (tier != "lifetime" && member.FeatureExpiresAt is { } expiry
+                    ? expiry > DateTimeOffset.UtcNow
+                        ? $"\n试用订阅有效至 {expiry.LocalDateTime:yyyy/MM/dd}"
+                            + (MemberEntitlements.TrialRenewalReminder(expiry, DateTimeOffset.UtcNow) is not null
+                                ? "\n" + MemberEntitlements.TrialRenewalMessage(expiry, DateTimeOffset.UtcNow) : "")
+                        : "\n" + MemberEntitlements.TrialExpiryMessage(expiry, DateTimeOffset.UtcNow)
                     : "");
             PresentTrial(member);
             DeviceListPanel.Children.Clear();
@@ -342,20 +328,6 @@ public partial class AccountPage : UserControl, IShellPage
                 row.Children.Add(new TextBlock { Text = $"{device.Platform} · 最近访问 {device.LastSeenAt.LocalDateTime:MM/dd HH:mm}", FontSize = 11 });
                 var button = new Button { Content = "踢出设备", Tag = device.DeviceId }; button.Classes.Add("secondary"); button.Click += OnKickDeviceClick;
                 row.Children.Add(button); DeviceListPanel.Children.Add(row);
-            }
-            var products = await _membership.ProductsAsync(_lifetime.Token);
-            ProductsBox.ItemsSource = products;
-            ProductsBox.ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<MembershipProduct>((product, _) =>
-                new TextBlock { Text = product?.Name, TextWrapping = Avalonia.Media.TextWrapping.Wrap });
-            ProductsBox.SelectedIndex = products.Length > 0 ? 0 : -1; PresentProduct();
-            OrderListPanel.Children.Clear();
-            foreach (var order in await _membership.OrdersAsync(_lifetime.Token))
-            {
-                var row = new StackPanel { Spacing = 5 };
-                row.Children.Add(new TextBlock { Text = $"{order.ProductName} · {order.PriceMinor/100m:0.00} {order.Currency}\n"
-                    + (order.State == "fulfilled" ? "已到账" : order.State == "cancelled" ? "已取消" : order.ExpiresAt <= DateTimeOffset.UtcNow ? "已过期" : "待确认付款 · " + order.Id), FontSize = 12, TextWrapping = Avalonia.Media.TextWrapping.Wrap });
-                if (order.State == "pending" && order.ExpiresAt > DateTimeOffset.UtcNow) { var button = new Button { Content = "取消订单", Tag = order.Id }; button.Classes.Add("secondary"); button.Click += OnCancelOrderClick; row.Children.Add(button); }
-                OrderListPanel.Children.Add(row);
             }
             MembershipStatus.Text = "";
         }
@@ -376,18 +348,19 @@ public partial class AccountPage : UserControl, IShellPage
     }
     private void PresentTrial(AccountMembership member)
     {
-        var active = member.TrialClaimed && member.TrialExpiresAt is { } until && until > DateTimeOffset.UtcNow;
-        TrialCard.IsVisible = member.TrialAvailable || active;
+        var tier = MemberEntitlements.EffectiveTier(member, DateTimeOffset.UtcNow);
+        var active = tier == "trial" && member.TrialClaimed && member.TrialExpiresAt is { } until && until > DateTimeOffset.UtcNow;
+        TrialCard.IsVisible = tier != "lifetime" && (member.TrialAvailable || active);
         _presentingTrial = true;
         try
         {
             TrialClaimSwitch.IsChecked = member.TrialClaimed;
-            TrialClaimSwitch.IsEnabled = member.TrialAvailable;
+            TrialClaimSwitch.IsEnabled = tier == "free" && member.TrialAvailable && !member.TrialClaimed;
         }
         finally { _presentingTrial = false; }
         TrialStatusText.IsVisible = active;
         TrialStatusText.Text = active
-            ? $"试用期至 {member.TrialExpiresAt!.Value.LocalDateTime:yyyy/MM/dd}，到期后云端数据保留 7 天；可随时开通正式 Plus 继续使用。"
+            ? $"试用期至 {member.TrialExpiresAt!.Value.LocalDateTime:yyyy/MM/dd}，到期只停用同步，不删除本地或自备存储数据；可购买永久买断继续使用。"
             : "";
     }
 
@@ -402,7 +375,7 @@ public partial class AccountPage : UserControl, IShellPage
             var member = await _membership.ClaimTrialAsync(_lifetime.Token);
             if (_status?.User?.Id != member.AccountId || _status.Region != member.Region) return;
             await LoadMembershipAsync();
-            MembershipStatus.Text = "Plus 免费试用已开通，7 天内可使用云同步、下载和自备存储同步。";
+            MembershipStatus.Text = "7 天试用已开通，可使用自备 S3 / WebDAV 同步书籍、阅读进度、书签和批注。";
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
         catch (Exception error) when (error is not OutOfMemoryException)
@@ -411,67 +384,6 @@ public partial class AccountPage : UserControl, IShellPage
             try { TrialClaimSwitch.IsChecked = false; } finally { _presentingTrial = false; }
             MembershipStatus.Text = UiText.Localize(error.Message);
         }
-        finally { SetBusy(false); }
-    }
-    private async void OnPurchaseClick(object? sender, RoutedEventArgs e)
-    {
-        if (_busy || _membership is null || !PurchaseButton.IsEnabled || ProductsBox.SelectedItem is not MembershipProduct product) return;
-        SetBusy(true);
-        try { await _membership.PurchaseAsync(product.Id, Guid.NewGuid(), _lifetime.Token); await LoadMembershipAsync(); MembershipStatus.Text = "订单已创建，等待确认付款。到账后刷新即可使用。"; }
-        catch (Exception error) when (error is not OutOfMemoryException) { MembershipStatus.Text = UiText.Localize(error.Message); }
-        finally { SetBusy(false); }
-    }
-    private async void OnCancelOrderClick(object? sender, RoutedEventArgs e)
-    {
-        if (_busy || _membership is null || sender is not Button { Tag: Guid order }) return;
-        SetBusy(true);
-        try { await _membership.CancelOrderAsync(order, _lifetime.Token); await LoadMembershipAsync(); }
-        catch (Exception error) when (error is not OutOfMemoryException) { MembershipStatus.Text = UiText.Localize(error.Message); }
-        finally { SetBusy(false); }
-    }
-
-    private void PresentProduct()
-    {
-        var product = ProductsBox.SelectedItem as MembershipProduct;
-        ProductDescription.Text = product is null ? "" : $"{product.PriceMinor/100m:0.00} {product.Currency} · {product.Description}";
-        PurchaseButton.IsEnabled = product is not null && (product.Kind != "pro" || _memberStatus is { } status
-            && MemberEntitlements.CanExtendPlus(status.Membership, product.DurationDays, DateTimeOffset.UtcNow));
-    }
-
-    private void OnActivationCodeChanged(object? sender, TextChangedEventArgs e)
-    { if (ActivationRedeemButton is not null) UpdateActivationButton(); }
-
-    private void UpdateActivationButton() => ActivationRedeemButton.IsEnabled = !_busy && _membership is not null
-        && _status?.IsLoggedIn == true && !string.IsNullOrWhiteSpace(ActivationCodeBox.Text);
-
-    private void ClearActivationCode()
-    {
-        ActivationCodeBox.Text = ""; _activationAttemptCode = null; _activationRequestId = Guid.Empty;
-        ActivationStatusText.Text = ""; ActivationStatusText.IsVisible = false;
-    }
-
-    private async void OnActivationRedeemClick(object? sender, RoutedEventArgs e)
-    {
-        if (_busy || _membership is null || _status?.IsLoggedIn != true) return;
-        var code = ActivationCodeBox.Text?.Trim() ?? "";
-        if (code.Length == 0) return;
-        var normalized = code.ToUpperInvariant().Replace("-", "", StringComparison.Ordinal).Replace(" ", "", StringComparison.Ordinal);
-        if (_activationAttemptCode != normalized || _activationRequestId == Guid.Empty)
-        { _activationAttemptCode = normalized; _activationRequestId = Guid.NewGuid(); }
-        SetBusy(true);
-        ActivationStatusText.Text = UiText.Get("正在兑换激活码…"); ActivationStatusText.IsVisible = true;
-        try
-        {
-            var result = await _membership.RedeemActivationCodeAsync(code, _activationRequestId, _lifetime.Token);
-            if (_status?.User?.Id != result.Status.Membership.AccountId || _status.Region != result.Status.Membership.Region) return;
-            _memberStatus = result.Status;
-            ClearActivationCode(); await LoadMembershipAsync();
-            ActivationStatusText.Text = MemberEntitlements.ActivationMessage(result);
-            ActivationStatusText.IsVisible = true;
-        }
-        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
-        catch (Exception error) when (error is not OutOfMemoryException)
-        { ActivationStatusText.Text = UiText.Localize(error.Message); ActivationStatusText.IsVisible = true; }
         finally { SetBusy(false); }
     }
 }

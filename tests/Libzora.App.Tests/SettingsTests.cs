@@ -622,17 +622,27 @@ public sealed partial class SettingsTests(SettingsUiSession session)
         var helpTarget = (Control)description.Parent!;
         var help = Assert.IsType<StackPanel>(ToolTip.GetTip(helpTarget));
         ToolTip.SetIsOpen(helpTarget, true);
-        await Render();
-        var helpText = Assert.IsType<TextBlock>(Assert.Single(help.Children));
-        Assert.Contains("与反馈中自动附加的日志一致", helpText.Text);
-        Assert.True(string.IsNullOrEmpty(scope.Get<TextBlock>("AboutLogsStatusText").Text));
+        try
+        {
+            await Render();
+            var helpText = Assert.IsType<TextBlock>(Assert.Single(help.Children));
+            Assert.Contains("导出到本地", helpText.Text);
+            Assert.Contains("不会自动上传日志", helpText.Text);
+            Assert.DoesNotContain("自动附加", helpText.Text);
+            Assert.True(string.IsNullOrEmpty(scope.Get<TextBlock>("AboutLogsStatusText").Text));
 
-        ((Libzora.App)Application.Current!).ApplyLanguage("en-US");
-        await Render();
-        Assert.Equal("Export software logs", button.Content?.ToString());
-        Assert.Contains("the same log attached to feedback", helpText.Text);
-        ToolTip.SetIsOpen(helpTarget, false);
-        ((Libzora.App)Application.Current!).ApplyLanguage("zh-CN");
+            ((Libzora.App)Application.Current!).ApplyLanguage("en-US");
+            await Render();
+            Assert.Equal("Export software logs", button.Content?.ToString());
+            Assert.Contains("locally", helpText.Text);
+            Assert.Contains("never uploads logs automatically", helpText.Text);
+            Assert.DoesNotContain("attached to feedback", helpText.Text);
+        }
+        finally
+        {
+            ToolTip.SetIsOpen(helpTarget, false);
+            ((Libzora.App)Application.Current!).ApplyLanguage("zh-CN");
+        }
     });
 
     [Fact]

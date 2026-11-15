@@ -6,7 +6,7 @@ struct NativeLibraryPage: View {
     @State private var query = ""
     @State private var searching = false
     @FocusState private var searchFocused: Bool
-    @State private var loading = true
+    @State private var loading = false
     @State private var importing = false
     @State private var filter = 0
     @State private var advancedFilter = NativeLibraryFilterSelection()
@@ -60,7 +60,8 @@ struct NativeLibraryPage: View {
                     masthead(floating: false)
                         .opacity(floatingMasthead ? 0 : 1)
                         .accessibilityHidden(floatingMasthead)
-                    if store.preferences.collectionsView { foldersView(width: geometry.size.width) }
+                    if !store.libraryLoaded, let error = store.libraryLoadError { libraryFailure(error) }
+                    else if store.preferences.collectionsView { foldersView(width: geometry.size.width) }
                     else { booksView(width: geometry.size.width) }
                 }
                 .background {
@@ -76,6 +77,7 @@ struct NativeLibraryPage: View {
                     }
                 }
             }.refreshable { await refresh() }
+                .accessibilityIdentifier(store.libraryLoaded ? "library.ready" : "library.loading")
                 .coordinateSpace(name: NativeLibraryScrollState.space)
                 .onPreferenceChange(NativeCoverPositionKey.self) { positions in
                     guard isActive, pageVisible, store.readerBook == nil, store.preferences.colorfulMode,
@@ -135,10 +137,6 @@ struct NativeLibraryPage: View {
         .onAppear { pageVisible = true; publishVisibleColors() }
         .onDisappear { pageVisible = false }
         .onChange(of: isActive) { active in if active { publishVisibleColors() } }
-        .task {
-            defer { loading = false }
-            await refresh()
-        }
         .task(id: filterRequest) { await updateFilterResults(for: filterRequest) }
         .task(id: visibleCovers) {
             guard store.preferences.colorfulMode else { return }
@@ -260,9 +258,27 @@ struct NativeLibraryPage: View {
             }
         }.padding(.horizontal, 24).padding(.top, 8).padding(.bottom, 28)
     }
+    private func libraryFailure(_ message: String) -> some View {
+        VStack(spacing: 12) {
+            Image(systemName: "exclamationmark.circle").font(.system(size: 32, weight: .ultraLight))
+                .foregroundStyle(mutedText)
+            Text("书库加载失败").font(NativeTheme.font(18, relativeTo: .headline))
+            Text(message).font(NativeTheme.font(13)).foregroundStyle(secondaryText)
+                .multilineTextAlignment(.center)
+            Button { Task { await refresh() } } label: {
+                HStack(spacing: 8) {
+                    if loading { ProgressView() }
+                    Text(loading ? "正在重试…" : "重新加载")
+                }
+            }.buttonStyle(NativePrimaryButtonStyle()).disabled(loading)
+                .accessibilityIdentifier("library.retry")
+                .frame(maxWidth: 240).padding(.top, 8)
+        }.padding(.horizontal, 32).frame(maxWidth: .infinity).padding(.top, 96)
+            .accessibilityElement(children: .contain).accessibilityIdentifier("library.loadError")
+    }
     private var emptyView: some View {
         VStack(spacing: 6) {
-            if loading { ProgressView("正在加载书库…") }
+            if loading || store.preparingLibrary { ProgressView("正在加载书库…") }
             else {
                 Image(systemName: "book").font(.system(size: 34, weight: .ultraLight)).foregroundStyle(mutedText)
                 Text(store.library.isEmpty ? "书库还是空的" : "没有找到相关书籍")
@@ -382,11 +398,16 @@ struct NativeLibraryPage: View {
         }
     }
     private func refresh() async {
-        do { try await store.refreshLibrary() }
+        guard !loading else { return }
+        loading = true
+        defer { loading = false }
+        do { try await store.refreshLibrary(timeoutNanoseconds: 30_000_000_000) }
         catch {
             if !Task.isCancelled {
                 store.releaseLaunchRestore()
-                store.failure = error.localizedDescription
+                // A failed initial load has an inline, retryable result. Keep
+                // the existing alert behaviour when refreshing a loaded shelf.
+                if store.libraryLoaded { store.failure = error.localizedDescription }
             }
         }
     }
@@ -562,8 +583,8 @@ enum NativeBookOrder {
     }
 }
 
-/// Menu entries are data rather than SwiftUI views because the menu is
-/// presented by UIKit, where the highlight preview's background can be cleared.
+/// Menu entries are data so the long-press overlay can render them with the
+/// same glass look as the rest of the native frontend.
 struct NativeBookMenuItem {
     let title: String
     let destructive: Bool
@@ -578,9 +599,9 @@ struct NativeBookMenuItem {
 /// text, spacing, navigation and persisted grid/list preference.
 struct NativeBookShelf: View {
     @ObservedObject var store: NativeStore
+    @ObservedObject private var previewCenter = NativeBookPreviewCenter.shared
     @State private var detailBookID: String?
     @State private var showingDetail = false
-    @State private var liftedBookID: String?
     let books: [LibraryBook]
     let pageWidth: CGFloat
     let tracksVisibleCovers: Bool
@@ -591,8 +612,13 @@ struct NativeBookShelf: View {
         self.store = store; self.books = books; self.pageWidth = pageWidth
         self.tracksVisibleCovers = tracksVisibleCovers; self.actions = actions
     }
-    private var columns: Int { max(3, Int((pageWidth - 32) / 136)) }
-    private var coverWidth: CGFloat { max(1, (pageWidth - 48 - CGFloat(columns - 1) * 16) / CGFloat(columns)) }
+    static func columnCount(pageWidth: CGFloat) -> Int { max(3, Int((pageWidth - 32) / 136)) }
+    static func coverWidth(pageWidth: CGFloat) -> CGFloat {
+        let columns = columnCount(pageWidth: pageWidth)
+        return max(1, (pageWidth - 48 - CGFloat(columns - 1) * 16) / CGFloat(columns))
+    }
+    private var columns: Int { Self.columnCount(pageWidth: pageWidth) }
+    private var coverWidth: CGFloat { Self.coverWidth(pageWidth: pageWidth) }
     private var galleryMode: Bool { store.preferences.galleryMode && !store.preferences.listView }
     private var mutedText: Color { store.preferences.colorfulMode ? NativeTheme.mutedOnColorful : NativeTheme.muted }
 
@@ -616,25 +642,22 @@ struct NativeBookShelf: View {
             }
     }
     private func bookLink(_ book: LibraryBook) -> some View {
-        let lifted = liftedBookID == book.id
+        // The app-owned preview draws its own copy, so the source tile hides
+        // while it is up, exactly like the system lift used to.
+        let lifted = previewCenter.request?.id == book.id
         return Button { store.perform { try await store.openReader(book) } } label: {
-            if store.preferences.listView { BookRow(book: book, showRating: store.preferences.showBookRating, showSyncStatus: store.preferences.showBookSyncStatus, muted: mutedText) }
-            else { NativeBookTile(book: book, width: coverWidth, muted: mutedText, galleryMode: galleryMode,
-                                  showRating: store.preferences.showBookRating,
-                                  showSyncStatus: store.preferences.showBookSyncStatus) }
+            Group {
+                if store.preferences.listView { BookRow(book: book, showRating: store.preferences.showBookRating, showSyncStatus: store.preferences.showBookSyncStatus, muted: mutedText) }
+                else { NativeBookTile(book: book, width: coverWidth, muted: mutedText, galleryMode: galleryMode,
+                                      showRating: store.preferences.showBookRating,
+                                      showSyncStatus: store.preferences.showBookSyncStatus) }
+            }.opacity(lifted ? 0 : 1)
         }.buttonStyle(.plain).disabled(store.openingReader)
-            .scaleEffect(lifted ? 1.08 : 1)
-            .shadow(color: .black.opacity(lifted ? 0.27 : 0), radius: lifted ? 17 : 0, x: 0, y: lifted ? 9 : 0)
             .overlay {
                 NativeBookLink(enabled: !store.openingReader,
-                               actions: actions(book) + [NativeBookMenuItem("书籍详情") { detailBookID = book.id; showingDetail = true }],
                                tap: { store.perform { try await store.openReader(book) } },
-                               onMenuWillShow: {
-                                   withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { liftedBookID = book.id }
-                               },
-                               onMenuWillHide: {
-                                   withAnimation(.easeOut(duration: 0.2)) { if liftedBookID == book.id { liftedBookID = nil } }
-                               })
+                               longPress: { frame in showPreview(book, sourceFrame: frame) })
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .accessibilityHint("轻点阅读，长按查看更多操作")
             .accessibilityIdentifier("book.\(book.id)")
@@ -651,108 +674,79 @@ struct NativeBookShelf: View {
                     }
                 }
             }
-            .zIndex(lifted ? 1 : 0)
+    }
+
+    /// The preview request carries everything the overlay needs to draw the
+    /// same card, plus the source's window frame so it scales about its own
+    /// centre instead of following UIKit's menu placement.
+    private func showPreview(_ book: LibraryBook, sourceFrame: CGRect) {
+        NativeBookPreviewCenter.shared.show(NativeBookPreviewRequest(
+            book: book,
+            sourceFrame: sourceFrame,
+            coverWidth: coverWidth,
+            muted: mutedText,
+            showRating: store.preferences.showBookRating,
+            showSyncStatus: store.preferences.showBookSyncStatus,
+            actions: actions(book) + [NativeBookMenuItem("书籍详情") { detailBookID = book.id; showingDetail = true }]))
     }
 }
 
-/// UIKit's context menu morphs the menu out of a platter derived from the
-/// pressed view. SwiftUI's `contextMenu` always used the whole tile as that
-/// source, which flashed a grey rounded rectangle over the transparent tile.
-/// Presenting the system menu through `UIContextMenuInteraction` with an
-/// invisible highlight removes the platter; the shelf then lifts the pressed
-/// tile itself so the menu still floats out of an enlarged book.
+/// A transparent touch layer over the card. A quick tap opens the book; a
+/// long press hands the card's window frame to the app-owned preview overlay,
+/// which draws no system plate, mask or rounded card edge.
 private struct NativeBookLink: UIViewRepresentable {
     let enabled: Bool
-    let actions: [NativeBookMenuItem]
     let tap: () -> Void
-    let onMenuWillShow: () -> Void
-    let onMenuWillHide: () -> Void
+    let longPress: (CGRect) -> Void
 
-    func makeUIView(context: Context) -> NativeBookLinkView {
-        NativeBookLinkView()
-    }
+    func makeUIView(context: Context) -> NativeBookLinkView { NativeBookLinkView() }
 
     func updateUIView(_ view: NativeBookLinkView, context: Context) {
         view.isEnabled = enabled
         view.onTap = tap
-        view.actions = actions
-        view.onMenuWillShow = onMenuWillShow
-        view.onMenuWillHide = onMenuWillHide
+        view.onLongPress = longPress
     }
 }
 
 private final class NativeBookLinkView: UIButton {
     var onTap: (() -> Void)?
-    var onMenuWillShow: (() -> Void)?
-    var onMenuWillHide: (() -> Void)?
-    var actions: [NativeBookMenuItem] = []
+    var onLongPress: ((CGRect) -> Void)?
+    private var suppressTap = false
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         // The SwiftUI button underneath stays the accessibility element; this
-        // transparent view only adds the long-press menu and tap forwarding.
+        // transparent view only forwards taps and detects the long press.
         isAccessibilityElement = false
         backgroundColor = .clear
-        addInteraction(UIContextMenuInteraction(delegate: self))
         addTarget(self, action: #selector(handleTap), for: .touchUpInside)
+        let press = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
+        press.minimumPressDuration = 0.45
+        press.allowableMovement = 14
+        press.cancelsTouchesInView = true
+        addGestureRecognizer(press)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    @objc private func handleTap() { onTap?() }
+    @objc private func handleTap() {
+        guard !suppressTap else { suppressTap = false; return }
+        onTap?()
+    }
 
-    override func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
-                                         configurationForMenuAtLocation location: CGPoint) -> UIContextMenuConfiguration? {
-        guard isEnabled else { return nil }
-        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
-            guard let self else { return nil }
-            return UIMenu(children: self.actions.map { item in
-                UIAction(title: item.title, attributes: item.destructive ? .destructive : []) { _ in item.action() }
-            })
+    @objc private func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
+        switch gesture.state {
+        case .began:
+            guard isEnabled, let window else { return }
+            suppressTap = true
+            // The overlay positions the card using window coordinates, so it
+            // lands exactly where the pressed card is, whatever the scroll.
+            onLongPress?(convert(bounds, to: window))
+        case .ended, .cancelled, .failed:
+            DispatchQueue.main.async { [weak self] in self?.suppressTap = false }
+        default:
+            break
         }
-    }
-
-    override func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
-                                         willDisplayMenuFor configuration: UIContextMenuConfiguration,
-                                         animator: UIContextMenuInteractionAnimating?) {
-        onMenuWillShow?()
-    }
-
-    override func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
-                                         willEndFor configuration: UIContextMenuConfiguration,
-                                         animator: UIContextMenuInteractionAnimating?) {
-        onMenuWillHide?()
-    }
-
-    func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
-                                highlightPreviewForItemWithIdentifier identifier: NSCopying) -> UITargetedPreview? {
-        invisiblePreview()
-    }
-
-    func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
-                                dismissalPreviewForItemWithIdentifier identifier: NSCopying) -> UITargetedPreview? {
-        invisiblePreview()
-    }
-
-    @available(iOS, deprecated: 16.0)
-    override func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
-                                         previewForHighlightingMenuWithConfiguration configuration: UIContextMenuConfiguration) -> UITargetedPreview? {
-        invisiblePreview()
-    }
-
-    @available(iOS, deprecated: 16.0)
-    override func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
-                                         previewForDismissingMenuWithConfiguration configuration: UIContextMenuConfiguration) -> UITargetedPreview? {
-        invisiblePreview()
-    }
-
-    private func invisiblePreview() -> UITargetedPreview {
-        let parameters = UIPreviewParameters()
-        parameters.backgroundColor = .clear
-        let marker = UIView(frame: CGRect(x: 0, y: 0, width: 2, height: 2))
-        marker.backgroundColor = UIColor(white: 0, alpha: 0.01)
-        let target = UIPreviewTarget(container: self, center: CGPoint(x: bounds.midX, y: bounds.midY))
-        return UITargetedPreview(view: marker, parameters: parameters, target: target)
     }
 }
 
@@ -833,6 +827,7 @@ struct NativeBookTile: View {
     var galleryMode = false
     var showRating = false
     var showSyncStatus = false
+    var previewing = false
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             BookCover(book: book, width: width)
@@ -847,15 +842,22 @@ struct NativeBookTile: View {
                     }
                 }
             if !galleryMode {
-                Text(book.title).font(NativeTheme.font(13.5)).lineLimit(2).lineSpacing(3).padding(.top, 8)
-                Text(book.authors).font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(muted)
-                    .lineLimit(1).padding(.top, 2)
+                previewMetadata(Text(book.title).font(NativeTheme.font(13.5)).lineLimit(2).lineSpacing(3).padding(.top, 8),
+                                "book.preview.title")
+                previewMetadata(Text(book.authors).font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(muted)
+                    .lineLimit(1).padding(.top, 2), "book.preview.author")
             }
         }.frame(maxWidth: .infinity, alignment: .topLeading).contentShape(Rectangle())
-            .accessibilityElement(children: .ignore)
+            .accessibilityElement(children: previewing ? .contain : .ignore)
             .accessibilityLabel(book.title
                 + (showRating ? book.onlineRating.map { "，评分 \(NativeBookRatingBadge.text($0))" } ?? "" : "")
                 + (showSyncStatus && NativeBookSyncBadge.isPending(book.syncStatus) ? NativeBookSyncBadge.description(book.syncStatus).map { "，\($0)" } ?? "" : ""))
+    }
+
+    /// Only the menu preview exposes separate title/author elements; the
+    /// shelf tile stays one compact accessibility element.
+    @ViewBuilder private func previewMetadata<Content: View>(_ content: Content, _ identifier: String) -> some View {
+        if previewing { content.accessibilityIdentifier(identifier) } else { content }
     }
 }
 

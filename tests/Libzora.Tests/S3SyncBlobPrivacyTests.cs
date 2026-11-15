@@ -25,9 +25,7 @@ public sealed partial class S3SyncIntegrationTests
     private static string ExpectedEncryptedBlobKey(S3SyncSettings settings, string hash, S3SyncSnapshot snapshot,
         string? customSalt = null)
     {
-        var identity = settings.Provider == SyncProvider.AccountServer
-            ? $"LIBZORA-ACCOUNT-OBJECTS2|{AccountRegions.Slug(settings.AccountRegion)}|{settings.AccountUserId:N}"
-            : "LIBZORA-CUSTOM-OBJECTS3|" + (customSalt ?? snapshot.BlobNamingSalts!.Order(StringComparer.Ordinal).First());
+        var identity = "LIBZORA-CUSTOM-OBJECTS3|" + (customSalt ?? snapshot.BlobNamingSalts!.Order(StringComparer.Ordinal).First());
         var objectNamespace = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity))).ToLowerInvariant();
         var salt = SHA256.HashData(Encoding.UTF8.GetBytes("LIBZORA-BLOB-NAMING-SALT1|" + identity));
         var baseKey = Rfc2898DeriveBytes.Pbkdf2(settings.EncryptionKey, salt, 120_000, HashAlgorithmName.SHA256, 32);
@@ -37,12 +35,12 @@ public sealed partial class S3SyncIntegrationTests
     }
 
     [Fact]
-    public async Task AccountNamesRemainStableWhenDeploymentUrlChanges()
+    public async Task CustomNamesDoNotDependOnHistoricalAccountServerMetadata()
     {
         const string passphrase = "fictional-deployment-independent-key";
         var bucket = new MemoryBucket();
         await using var a = await Device.CreateAsync(bucket, passphrase);
-        a.Settings = a.Settings with { Provider = SyncProvider.AccountServer, AccountUserId = Guid.NewGuid(), AccountServerUrl = "http://127.0.0.1:5088" };
+        a.Settings = a.Settings with { AccountUserId = Guid.NewGuid(), AccountServerUrl = "http://127.0.0.1:5088" };
         var book = await a.AddBookAsync();
         await a.SyncAsync();
         var originalKey = Assert.Single(bucket.Objects.Keys, key => key.Contains("/objects/", StringComparison.Ordinal));
@@ -63,7 +61,6 @@ public sealed partial class S3SyncIntegrationTests
     [Theory]
     [InlineData(SyncProvider.S3)]
     [InlineData(SyncProvider.WebDav)]
-    [InlineData(SyncProvider.AccountServer)]
     public async Task EncryptedGcListsOpaquePrefixesAndKeepsReferencedFilesCoversAndOldNamespaces(SyncProvider provider)
     {
         const string passphrase = "fictional-opaque-gc-key";
@@ -156,7 +153,6 @@ public sealed partial class S3SyncIntegrationTests
     [Theory]
     [InlineData(SyncProvider.S3, false)]
     [InlineData(SyncProvider.WebDav, true)]
-    [InlineData(SyncProvider.AccountServer, false)]
     public async Task OldEncryptedNamesAreReadOnlyAndOnlyRequestedAfterDiscovery(SyncProvider provider, bool releasedLegacy)
     {
         const string passphrase = "fictional-old-object-discovery-key";
@@ -167,9 +163,7 @@ public sealed partial class S3SyncIntegrationTests
         var modern = Assert.Single(bucket.Objects.Keys, key => key.Contains("/objects/", StringComparison.Ordinal));
         bucket.Objects.TryRemove(modern, out _);
         var fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(passphrase))).ToLowerInvariant();
-        var oldNamespace = provider == SyncProvider.AccountServer
-            ? Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"LIBZORA-ACCOUNT-OBJECTS1|china|{a.Settings.AccountUserId:N}"))).ToLowerInvariant()
-            : releasedLegacy ? fingerprint : "v2";
+        var oldNamespace = releasedLegacy ? fingerprint : "v2";
         var legacy = $"sync/objects/encrypted/{oldNamespace}/{book.Hash}";
         var originalBytes = await File.ReadAllBytesAsync(Path.Combine(a.Paths.Data, Assert.Single(Assert.Single(await a.Library.SearchAsync()).Files).RelativePath));
         bucket.Objects[legacy] = (byte[])ProtectSnapshot.Invoke(null, [originalBytes, passphrase])!;

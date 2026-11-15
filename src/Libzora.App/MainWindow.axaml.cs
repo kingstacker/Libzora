@@ -984,6 +984,13 @@ public partial class MainWindow : Window
             DisposeDeviceChangeNotifier();
             return;
         }
+        if (OperatingSystem.IsMacOS() && ReaderRoot.IsVisible
+            && e.CloseReason == WindowCloseReason.ApplicationShutdown)
+        {
+            e.Cancel = true;
+            _ = QuitMacOSAfterReaderAsync();
+            return;
+        }
         if (ReaderRoot.IsVisible || Volatile.Read(ref _readerCloseInProgress) != 0)
         {
             e.Cancel = true;

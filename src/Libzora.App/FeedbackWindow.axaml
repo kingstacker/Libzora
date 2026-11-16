@@ -1,0 +1,28 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Libzora.FeedbackWindow" Title="{DynamicResource Ui.Feedback.Title}"
+        Width="560" SizeToContent="Height" MaxHeight="820" CanResize="False" ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner" Background="{DynamicResource PaperBrush}"
+        FontFamily="{StaticResource DefaultAppFontFamily}">
+  <Window.Styles>
+    <Style Selector="TextBlock"><Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" /></Style>
+    <Style Selector="Button"><Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" /></Style>
+    <Style Selector="TextBlock.feedbackHint">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Foreground" Value="{DynamicResource MutedInkBrush}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+  </Window.Styles>
+  <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+    <StackPanel Margin="24" Spacing="14">
+      <TextBlock Text="{DynamicResource Ui.Feedback.Title}" FontSize="21" FontWeight="SemiBold" TextWrapping="Wrap" />
+      <TextBlock Name="FeedbackServiceNote" Text="{DynamicResource Ui.Feedback.Introduction}" FontSize="13" TextWrapping="Wrap" />
+      <TextBlock Text="{DynamicResource Ui.Feedback.PrivacyNote}" Classes="feedbackHint" />
+      <TextBlock Name="IssuesUrlText" Text="https://github.com/kingstacker/Libzora/issues" TextWrapping="Wrap" />
+      <TextBlock Name="StatusText" IsVisible="False" Classes="feedbackHint" />
+      <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right">
+        <Button Name="CloseButton" Content="{DynamicResource Ui.Feedback.Close}" Click="OnCloseClick" />
+        <Button Name="OpenIssuesButton" Content="{DynamicResource Ui.Feedback.OpenIssues}" Click="OnOpenIssuesClick" />
+      </StackPanel>
+    </StackPanel>
+  </ScrollViewer>
+</Window>

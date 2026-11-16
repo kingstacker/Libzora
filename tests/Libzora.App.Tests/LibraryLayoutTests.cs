@@ -1,0 +1,617 @@
+using System.IO.Compression;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
+using Avalonia.Headless;
+using Avalonia.Input;
+using Avalonia.Interactivity;
+using Avalonia.VisualTree;
+using Libzora.Core;
+using Libzora.Infrastructure;
+using SkiaSharp;
+using Xunit;
+
+namespace Libzora.Ui.Tests;
+
+public sealed partial class SettingsTests
+{
+    [Fact]
+    public Task DetailCoverRightClickOpensChangeCoverMenu() => Run(async () =>
+    {
+        await using var scope = await TestWindow.Create();
+        await SeedLayoutLibrary(scope);
+        scope.Get<ListBox>("BookGrid").SelectedItem = scope.Window.ViewModel.Books[0];
+        await Until(() => scope.Get<Border>("LibraryDetailPane").IsVisible);
+        await Task.Delay(600);
+        await Render();
+
+        var frame = scope.Get<Border>("DetailCoverFrame");
+        var menu = Assert.IsType<ContextMenu>(frame.ContextMenu);
+        var item = Assert.Single(menu.Items.OfType<MenuItem>());
+        foreach (var hasCover in new[] { true, false })
+        {
+            if (!hasCover)
+            {
+                scope.Get<Image>("DetailCoverImage").Source = null;
+                scope.Get<TextBlock>("DetailCoverPlaceholder").IsVisible = true;
+            }
+            await Render();
+            var point = frame.TranslatePoint(new Point(frame.Bounds.Width / 2, frame.Bounds.Height / 2), scope.Window)!.Value;
+            scope.Window.MouseDown(point, MouseButton.Right);
+            scope.Window.MouseUp(point, MouseButton.Right);
+            await Until(() => menu.IsOpen);
+            Assert.Equal("更换封面", item.Header);
+            menu.Close();
+        }
+    });
+
+    [Fact]
+    public Task InstalledPluginAddsBookActionsToTheLibrary() => Run(async () =>
+    {
+        await using var scope = await TestWindow.Create();
+        await SeedLayoutLibrary(scope);
+        Assert.False(scope.Get<Button>("DetailPluginActionsButton").IsVisible);
+
+        var package = WriteTestPlugin();
+        var manager = scope.Field<Libzora.Infrastructure.Plugins.PluginManager>("_pluginManager");
+        var installed = manager.Install(package);
+        Assert.Equal("com.example.layout", installed.Id);
+        Assert.False(installed.Enabled);
+        manager.SetEnabled(installed.Id, true);
+        scope.Call("RefreshPluginContributions");
+        await Render();
+
+        Assert.True(scope.Get<Button>("DetailPluginActionsButton").IsVisible);
+        var panel = scope.Get<StackPanel>("PluginsPanel");
+        Assert.Single(panel.Children);
+        Assert.Contains(panel.GetVisualDescendants().OfType<Button>(),
+            button => Avalonia.Automation.AutomationProperties.GetName(button) == UiText.Get("打开"));
+        Assert.False(scope.Get<TextBlock>("PluginsEmptyText").IsVisible);
+        scope.Call("ShowSettingsSection", "Plugins");
+        await Render();
+        Assert.True(scope.Get<StackPanel>("SettingsPluginsSection").IsVisible);
+        Assert.Equal("Plugins", scope.Get<Button>("SettingsPluginsButton").Tag);
+        Assert.True(scope.Get<Button>("ImportPluginButton").IsVisible);
+        Assert.True(scope.Get<Button>("OpenPluginsFolderButton").IsVisible);
+        Assert.Null(scope.Window.FindControl<Button>("PluginCatalogButton"));
+        Assert.Null(scope.Window.FindControl<StackPanel>("PluginCatalogSection"));
+        Assert.False(scope.Get<Button>("InstallPluginFromFolderButton").IsVisible);
+        scope.Get<ToggleSwitch>("PluginDeveloperModeCheck").IsChecked = true;
+        await Render();
+        Assert.True(scope.Get<Button>("InstallPluginFromFolderButton").IsVisible);
+        var card = scope.Window.ViewModel.Books[0];
+        scope.Get<ListBox>("BookGrid").SelectedItem = card;
+        await Until(() => scope.Get<Border>("LibraryDetailPane").IsVisible);
+        await Render();
+
+        var menu = (ContextMenu)scope.Call("BuildBookContextMenu", card)!;
+        Assert.Contains(menu.Items.OfType<MenuItem>(),
+            item => (item.Header as string) == "匹配书籍详情");
+
+        manager.SetEnabled(installed.Id, false);
+        scope.Call("RefreshPluginContributions");
+        await Render();
+        Assert.False(scope.Get<Button>("DetailPluginActionsButton").IsVisible);
+
+        manager.SetEnabled(installed.Id, true);
+        manager.Uninstall(installed.Id);
+        scope.Call("RefreshPluginContributions");
+        await Render();
+        Assert.False(scope.Get<Button>("DetailPluginActionsButton").IsVisible);
+        File.Delete(package);
+    });
+
+    private static string WriteTestPlugin()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"libzora-test-plugin-{Guid.NewGuid():N}.libzoraplugin");
+        using var archive = ZipFile.Open(path, ZipArchiveMode.Create);
+        AddEntry(archive, "manifest.json",
+            """
+            {
+              "id": "com.example.layout",
+              "name": "布局测试插件",
+              "version": "1.0.0",
+              "apiVersion": 1,
+              "permissions": { "library": "write", "import": true, "secrets": true, "storage": true },
+              "contributes": {
+                "bookActions": [ { "id": "match", "title": "匹配书籍详情", "page": "ui/app.html" } ],
+                "app": { "title": "布局工具", "page": "ui/library.html" }
+              }
+            }
+            """);
+        AddEntry(archive, "ui/app.html", "<html><body>test</body></html>");
+        AddEntry(archive, "ui/library.html", "<html><body>library</body></html>");
+        return path;
+
+        static void AddEntry(ZipArchive archive, string name, string content)
+        {
+            var entry = archive.CreateEntry(name);
+            using var stream = entry.Open();
+            var bytes = System.Text.Encoding.UTF8.GetBytes(content);
+            stream.Write(bytes, 0, bytes.Length);
+        }
+    }
+
+    [Fact]
+    public Task SyncStatusesSurviveLibraryCardRebuild() => Run(async () =>
+    {
+        await using var scope = await TestWindow.Create();
+        await SeedLayoutLibrary(scope);
+
+        var cards = scope.Window.ViewModel.Books.ToArray();
+        var statusCache = scope.Field<System.Collections.Concurrent.ConcurrentDictionary<Guid, BookSyncStatus>>(
+            "_bookSyncStatusCache");
+        statusCache[cards[0].Book.Id] = BookSyncStatus.Synced;
+        statusCache[cards[1].Book.Id] = BookSyncStatus.NotDownloaded;
+        scope.Call("UpdateLibraryUi");
+
+        await scope.Window.ViewModel.RefreshAsync();
+        await Render();
+
+        var refreshed = scope.Window.ViewModel.Books.ToDictionary(card => card.Book.Id);
+        Assert.Equal(BookSyncStatus.Synced, refreshed[cards[0].Book.Id].SyncStatus);
+        Assert.Equal(BookSyncStatus.NotDownloaded, refreshed[cards[1].Book.Id].SyncStatus);
+    });
+
+    [Theory]
+    [InlineData(1024, 664, "zh-CN")]
+    [InlineData(1294, 804, "zh-CN")]
+    [InlineData(1920, 1080, "zh-CN")]
+    [InlineData(1024, 664, "en-US")]
+    public Task LibraryToolbarAndDockedDetailsRemainAccessible(int width, int height, string language) => Run(async () =>
+    {
+        await using var scope = await TestWindow.Create();
+        await SeedLayoutLibrary(scope);
+        scope.Window.Width = width;
+        scope.Window.Height = height;
+        ((Libzora.App)Application.Current!).ApplyLanguage(language);
+        await Until(() => !scope.Window.ViewModel.IsBusy);
+        await Render();
+
+        AssertLibraryToolbar(scope);
+        var shelf = scope.Get<Grid>("LibraryContentHost");
+        var originalWidth = shelf.Bounds.Width;
+        Capture(scope.Window, $"{language}-{width}-library-toolbar");
+        scope.Get<Button>("DeviceManagementSectionButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        scope.Get<Button>("ReadingSectionButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await Render();
+        var navigationNames = new[] { "AllBooksButton", "KindleBooksButton",
+            "FontManagementButton", "DictionaryManagementButton", "ReaderNotesNavigationButton", "ReadingDashboardButton" };
+        double? labelLeft = null;
+        foreach (var navigationName in navigationNames)
+        {
+            var button = scope.Get<Button>(navigationName);
+            var label = button.GetVisualDescendants().OfType<TextBlock>()
+                .Single(text => text.Classes.Contains("sidebarLabel"));
+            var left = label.TranslatePoint(default, scope.Window)!.Value.X;
+            labelLeft ??= left;
+            Assert.Equal(labelLeft.Value, left, 2);
+            AssertWithinWindow(button, scope.Window);
+            // Expanded navigation must fit above the persistent settings row.
+            var bottom = button.TranslatePoint(new Point(0, button.Bounds.Height), scope.Window)!.Value.Y;
+            var settingsTop = scope.Get<Button>("SettingsNavigationButton")
+                .TranslatePoint(default, scope.Window)!.Value.Y;
+            Assert.True(bottom <= settingsTop, "Expanded destinations must not be obscured by settings.");
+        }
+        Capture(scope.Window, $"{language}-{width}-sidebar-expanded");
+
+        var grid = scope.Get<ListBox>("BookGrid");
+        grid.SelectedItem = scope.Window.ViewModel.Books[0];
+        var detail = scope.Get<Border>("LibraryDetailPane");
+        await Until(() => detail.IsVisible);
+        await Task.Delay(600);
+        await Render();
+        AssertLibraryToolbar(scope);
+        AssertWithinWindow(scope.Get<Button>("LibraryDetailCloseButton"), scope.Window);
+        Assert.True(shelf.Bounds.Width < originalWidth - 250);
+        var shelfRight = shelf.TranslatePoint(default, scope.Window)!.Value.X + shelf.Bounds.Width;
+        var detailLeft = detail.TranslatePoint(default, scope.Window)!.Value.X;
+        Assert.True(shelfRight <= detailLeft, "The detail pane must not cover books.");
+        Assert.True(grid.Bounds.Width <= shelf.Bounds.Width + 1);
+        Assert.Contains("EPUB", scope.Get<TextBlock>("DetailFormatText").Text);
+        // Plugin book actions only appear once an enabled plugin contributes them.
+        Assert.False(scope.Get<Button>("DetailPluginActionsButton").IsVisible);
+        var detailButtons = new[]
+        {
+            scope.Get<Button>("LibraryDetailCloseButton"),
+            scope.Get<Button>("EditBookReflectionButton"),
+            scope.Get<Button>("DetailFavoriteButton"),
+            scope.Get<Button>("DetailReadingStatusButton")
+        };
+        var buttonCenters = detailButtons
+            .Select(button => button.TranslatePoint(
+                new Point(button.Bounds.Width / 2, button.Bounds.Height / 2),
+                scope.Window)!.Value.X)
+            .ToArray();
+        Assert.All(buttonCenters, center => Assert.Equal(buttonCenters[0], center, 1));
+        Capture(scope.Window, $"{language}-{width}-library-details");
+
+        // Opening and closing filters must leave the independent sort control available.
+        scope.Get<Button>("FilterButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await Render();
+        Assert.True(scope.Get<Border>("FilterPanel").IsVisible);
+        Assert.True(scope.Get<Button>("LibrarySortButton").IsEffectivelyVisible);
+        Assert.True(scope.Get<Button>("LibrarySortButton").IsEnabled);
+        Capture(scope.Window, $"{language}-{width}-library-filters");
+        scope.Get<Button>("FilterButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+        scope.Get<Button>("LibraryDetailCloseButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await Until(() => !detail.IsVisible);
+        await Render();
+        Assert.InRange(Math.Abs(shelf.Bounds.Width - originalWidth), 0, 1);
+        await scope.Call<Task>("RefreshLibraryAsync");
+        Assert.False(detail.IsVisible);
+
+        // Selecting several books releases the detail column for batch actions.
+        grid.SelectedItem = scope.Window.ViewModel.Books[0];
+        await Render();
+        grid.SelectedItems!.Add(scope.Window.ViewModel.Books[1]);
+        await Until(() => !detail.IsVisible);
+        await Render();
+        Assert.True(scope.Get<Border>("MultiSelectionBar").IsVisible);
+        AssertWithinWindow(scope.Get<Border>("MultiSelectionBar"), scope.Window);
+        Assert.InRange(Math.Abs(shelf.Bounds.Width - originalWidth), 0, 1);
+
+        // Leaving the library must not carry the rubber-band selection into a
+        // later return to the page.
+        scope.Call("ShowStage3Page", scope.Get<Grid>("DevicePage"), null);
+        await Render();
+        Assert.False(scope.Get<Border>("MultiSelectionBar").IsVisible);
+        Assert.Empty(scope.Field<HashSet<Guid>>("_selectedBookIds"));
+    });
+
+    [Fact]
+    public Task BookReflectionPreviewIsLoadedIntoBookDetails() => Run(async () =>
+    {
+        await using var scope = await TestWindow.Create();
+        await SeedLayoutLibrary(scope);
+        var card = scope.Window.ViewModel.Books[0];
+        var reader = scope.Field<ReaderDataService>("_readerData");
+        await reader.SaveBookReflectionAsync(new ReaderBookReflection
+        {
+            BookId = card.Book.Id,
+            Content = "A reflection long enough to verify that the book details expose a dedicated preview.",
+            CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-1),
+            UpdatedAt = DateTimeOffset.UtcNow
+        });
+
+        scope.Get<ListBox>("BookGrid").SelectedItem = card;
+        await Until(() => scope.Get<Border>("LibraryDetailPane").IsVisible
+            && scope.Get<KreaderMarkdownTextBlock>("DetailReflectionPreviewText").Markdown?.Contains("A reflection", StringComparison.Ordinal) == true);
+        await Render();
+
+        var reflectionPanel = scope.Get<Border>("DetailReflectionPanel");
+        Assert.True(reflectionPanel.Bounds.Width >= 240);
+        var editReflectionButton = scope.Get<Button>("EditBookReflectionButton");
+        Assert.True(editReflectionButton.IsEffectivelyVisible);
+        Assert.IsType<Avalonia.Controls.Shapes.Path>(editReflectionButton.Content);
+        var detailActionButton = scope.Get<Button>("DetailFavoriteButton");
+        Assert.Equal(detailActionButton.Bounds.Width, editReflectionButton.Bounds.Width, 1);
+        Assert.Equal(detailActionButton.Bounds.Height, editReflectionButton.Bounds.Height, 1);
+        var preview = scope.Get<KreaderMarkdownTextBlock>("DetailReflectionPreviewText");
+        Assert.Contains("A reflection", preview.Markdown ?? string.Empty);
+        Assert.Equal(6, preview.MaxLines);
+        var hoverArea = scope.Get<Border>("DetailReflectionHoverArea");
+        var reflectionFlyout = scope.Field<Flyout>("_bookReflectionFlyout");
+        var flyoutBorder = Assert.IsType<Border>(reflectionFlyout.Content);
+        var flyoutScroll = Assert.IsType<ScrollViewer>(flyoutBorder.Child);
+        var flyoutPreview = Assert.IsType<KreaderMarkdownTextBlock>(flyoutScroll.Content);
+        Assert.Contains("A reflection", flyoutPreview.Markdown ?? string.Empty);
+        Assert.Equal(new CornerRadius(0), flyoutBorder.CornerRadius);
+        Assert.Equal(0, flyoutBorder.BoxShadow.Count);
+        Assert.Equal(PlacementMode.LeftEdgeAlignedTop, reflectionFlyout.Placement);
+        reflectionFlyout.ShowAt(hoverArea);
+        await Render();
+        Assert.True(reflectionFlyout.IsOpen);
+        Assert.True(flyoutPreview.Bounds.Width > 0);
+        Assert.True(flyoutPreview.Bounds.Width <= flyoutScroll.Bounds.Width + 1);
+        reflectionFlyout.Hide();
+        var detailStack = scope.Get<StackPanel>("DetailContentStack");
+        var cover = scope.Get<Grid>("DetailCoverAndActions");
+        var format = scope.Get<TextBlock>("DetailFormatText");
+        var saveRow = Assert.IsType<Grid>(scope.Get<Button>("SaveDetailsButton").Parent);
+        Assert.True(format.TranslatePoint(default, scope.Window)!.Value.Y
+                    < cover.TranslatePoint(default, scope.Window)!.Value.Y);
+        Assert.True(detailStack.Children.IndexOf(cover) < detailStack.Children.IndexOf(reflectionPanel));
+        Assert.True(detailStack.Children.IndexOf(reflectionPanel) < detailStack.Children.IndexOf(saveRow));
+    });
+
+    [Fact]
+    public Task LibraryViewMenuAndSortingPreserveCollectionScope() => Run(async () =>
+    {
+        await using var scope = await TestWindow.Create();
+        await SeedLayoutLibrary(scope);
+        var viewModel = scope.Window.ViewModel;
+        var library = scope.Field<IBookLibraryService>("_library");
+        var collection = await library.CreateCollectionAsync("Layout collection");
+        var alpha = viewModel.Books.Single(card => card.Title == "Alpha");
+        await library.AddBookToCollectionAsync(alpha.Book.Id, collection.Id);
+        await scope.Call<Task>("RefreshLibraryAsync");
+
+        var sort = scope.Get<ComboBox>("LibrarySortBox");
+        sort.SelectedIndex = (int)LibrarySortMode.TitleAscending;
+        Assert.Equal(LibrarySortMode.TitleAscending, viewModel.SortMode);
+        await Until(() => !viewModel.IsBusy && viewModel.Books.FirstOrDefault()?.Title == "Alpha");
+        Assert.Equal(new[] { "Alpha", "Zulu" }, viewModel.Books.Select(card => card.Title));
+        Assert.False(scope.Get<Border>("FilterPanel").IsVisible);
+
+        viewModel.CollectionFilterId = collection.Id;
+        viewModel.CollectionFilterName = collection.Name;
+        await viewModel.RefreshViewAsync();
+        Assert.Single(viewModel.Books);
+        await Render();
+        AssertCollectionHeaderMatchesToolbar(scope);
+        var gridToolbarBounds = GetToolbarControlBounds(scope.Get<StackPanel>("LibraryToolbarActions"), scope.Window);
+        Capture(scope.Window, "view-switch-grid");
+        var viewButton = scope.Get<Button>("LibraryViewToggleButton");
+        viewButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Assert.False(viewButton.ContextMenu!.IsOpen);
+        Assert.True(scope.Get<ListBox>("BookList").IsVisible);
+        Assert.Equal(collection.Id, viewModel.CollectionFilterId);
+        Assert.Equal(LibrarySortMode.TitleAscending, viewModel.SortMode);
+        Assert.True(scope.Get<MenuItem>("LibraryListViewMenuItem").IsChecked);
+        await Render();
+        Assert.Equal(gridToolbarBounds, GetToolbarControlBounds(scope.Get<StackPanel>("LibraryToolbarActions"), scope.Window));
+        Capture(scope.Window, "view-switch-list");
+
+        viewButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await Until(() => !viewModel.IsBusy);
+        Assert.True(scope.Get<ListBox>("CollectionList").IsVisible);
+        Assert.Null(viewModel.CollectionFilterId);
+        Assert.True(scope.Get<MenuItem>("LibraryCollectionsViewMenuItem").IsChecked);
+        Assert.Equal(LibrarySortMode.TitleAscending, viewModel.SortMode);
+        await Render();
+        Assert.Equal(gridToolbarBounds, GetToolbarControlBounds(scope.Get<StackPanel>("LibraryToolbarActions"), scope.Window));
+        Capture(scope.Window, "view-switch-collections");
+
+        // Hidden grid controls retain their old bounds. A resize in another view
+        // must still place the buttons where the grid will place them next.
+        scope.Window.Width = 1024;
+        await Render();
+        var resizedToolbarBounds = GetToolbarControlBounds(scope.Get<StackPanel>("LibraryToolbarActions"), scope.Window);
+        Capture(scope.Window, "view-switch-resized-collections");
+        viewButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await Render();
+        Assert.Equal(resizedToolbarBounds, GetToolbarControlBounds(scope.Get<StackPanel>("LibraryToolbarActions"), scope.Window));
+        Capture(scope.Window, "view-switch-resized-grid");
+    });
+
+    [Fact]
+    public Task LibraryListRowsStayWithinToolbarBoundaryAndHideScrollbarWhenIdle() => Run(async () =>
+    {
+        await using var scope = await TestWindow.Create();
+        await SeedLayoutLibrary(scope);
+
+        for (var index = 0; index < 12; index++)
+        {
+            var id = Guid.NewGuid();
+            scope.Window.ViewModel.Books.Add(new BookCardViewModel(new Book
+            {
+                Id = id,
+                Title = $"Synthetic {index}",
+                Authors = "Layout test",
+                Files = [new BookFile { Id = Guid.NewGuid(), BookId = id, Format = "epub", RelativePath = $"synthetic-{index}.epub" }]
+            }, scope.Paths.Data));
+        }
+
+        scope.Get<MenuItem>("LibraryListViewMenuItem")
+            .RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+        await Render();
+
+        var list = scope.Get<ListBox>("BookList");
+        var toolbar = scope.Get<Grid>("LibraryToolbar");
+        var listOrigin = list.TranslatePoint(default, scope.Window)!.Value;
+        var toolbarOrigin = toolbar.TranslatePoint(default, scope.Window)!.Value;
+        var listRight = listOrigin.X + list.Bounds.Width;
+        var toolbarRight = toolbarOrigin.X + toolbar.Bounds.Width;
+        Assert.InRange(Math.Abs(listRight - toolbarRight), 0, 1);
+        var rows = list.GetVisualDescendants().OfType<Border>()
+            .Where(border => border.Classes.Contains("bookRow"))
+            .ToArray();
+        Assert.NotEmpty(rows);
+        foreach (var row in rows)
+        {
+            var rowOrigin = row.TranslatePoint(default, scope.Window)!.Value;
+            Assert.InRange(Math.Abs(rowOrigin.X + row.Bounds.Width - toolbarRight), 0, 1);
+        }
+
+        var viewer = Assert.Single(list.GetVisualDescendants().OfType<ScrollViewer>());
+        var thumb = Assert.Single(viewer.GetVisualDescendants().OfType<Thumb>());
+        Assert.Contains("bookScroll", viewer.Classes);
+        Assert.True(viewer.Extent.Height > viewer.Viewport.Height);
+
+        viewer.Offset = new Vector(0, 50);
+        await Render();
+        Assert.Contains("scrolling", viewer.Classes);
+        // The thumb fades through an opacity transition, so wait for it to
+        // settle rather than assuming a fixed render delay is long enough.
+        await UntilSettled(() => thumb.Opacity >= 1, "The scrollbar thumb did not fade in while scrolling.");
+        Assert.Equal(1, thumb.Opacity);
+
+        // The idle class is removed by a dispatcher timer; the settle loop
+        // below keeps real time flowing until both effects have finished.
+        await UntilSettled(
+            () => !viewer.Classes.Contains("scrolling") && thumb.Opacity <= 0,
+            "The scrollbar thumb did not fade out after scrolling stopped.");
+        Assert.DoesNotContain("scrolling", viewer.Classes);
+        Assert.Equal(0, thumb.Opacity);
+    });
+
+    [Fact]
+    public Task LibraryViewModeRestoresAndPersists() => Run(async () =>
+    {
+        await using var scope = await TestWindow.Create(new AppSettings
+        {
+            UiLanguage = "zh-CN",
+            OnboardingCompleted = true,
+            NetworkEnabled = false,
+            AutoUpdateCheckEnabled = false,
+            AutoConnectDevice = false,
+            LibraryViewMode = "Collections"
+        });
+
+        Assert.True(scope.Get<ListBox>("CollectionList").IsVisible);
+        Assert.True(scope.Get<MenuItem>("LibraryCollectionsViewMenuItem").IsChecked);
+
+        scope.Get<MenuItem>("LibraryListViewMenuItem").RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+        Assert.True(await scope.Call<Task<bool>>("FlushAppSettingsAsync"));
+        Assert.Equal("List", (await new AppSettingsStore(scope.Paths).LoadAsync()).LibraryViewMode);
+        Assert.False(scope.Get<Border>("SettingsSavedCapsule").IsVisible);
+
+        scope.Get<MenuItem>("LibraryCollectionsViewMenuItem").RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+        Assert.True(await scope.Call<Task<bool>>("FlushAppSettingsAsync"));
+        Assert.Equal("List", (await new AppSettingsStore(scope.Paths).LoadAsync()).LibraryViewMode);
+        Assert.False(scope.Get<Border>("SettingsSavedCapsule").IsVisible);
+    });
+
+    [Fact]
+    public Task LibraryViewAndSortRestoreFromSettings() => Run(async () =>
+    {
+        await using var scope = await TestWindow.Create(new AppSettings
+        {
+            UiLanguage = "zh-CN",
+            OnboardingCompleted = true,
+            NetworkEnabled = false,
+            AutoUpdateCheckEnabled = false,
+            AutoConnectDevice = false,
+            LibraryViewMode = "List",
+            LibrarySortMode = nameof(LibrarySortMode.TitleAscending)
+        });
+
+        Assert.True(scope.Get<ListBox>("BookList").IsVisible);
+        Assert.False(scope.Get<ListBox>("BookGrid").IsVisible);
+        Assert.Equal(LibrarySortMode.TitleAscending, scope.Window.ViewModel.SortMode);
+        Assert.Equal((int)LibrarySortMode.TitleAscending, scope.Get<ComboBox>("LibrarySortBox").SelectedIndex);
+    });
+
+    [Fact]
+    public Task LibraryViewAndSortPersist() => Run(async () =>
+    {
+        await using var scope = await TestWindow.Create();
+        scope.Get<MenuItem>("LibraryListViewMenuItem").RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+        scope.Get<ComboBox>("LibrarySortBox").SelectedIndex = (int)LibrarySortMode.AuthorAscending;
+        Assert.True(await scope.Call<Task<bool>>("FlushAppSettingsAsync"));
+
+        var saved = await new AppSettingsStore(scope.Paths).LoadAsync();
+        Assert.Equal("List", saved.LibraryViewMode);
+        Assert.Equal(nameof(LibrarySortMode.AuthorAscending), saved.LibrarySortMode);
+    });
+
+    [Fact]
+    public Task CollectionModeSearchFiltersFoldersByMatchingBooks() => Run(async () =>
+    {
+        await using var scope = await TestWindow.Create();
+        await SeedLayoutLibrary(scope);
+        var library = scope.Field<IBookLibraryService>("_library");
+        var collection = await library.CreateCollectionAsync("Alpha collection");
+        var alpha = scope.Window.ViewModel.Books.Single(card => card.Title == "Alpha");
+        await library.AddBookToCollectionAsync(alpha.Book.Id, collection.Id);
+        await scope.Call<Task>("RefreshLibraryAsync");
+
+        scope.Get<MenuItem>("LibraryCollectionsViewMenuItem")
+            .RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+        await Until(() => !scope.Window.ViewModel.IsBusy);
+        await Render();
+        Assert.Equal(2, scope.Window.FilteredCollectionFolders.Count);
+
+        scope.Get<TextBox>("SearchBox").Text = "Alpha";
+        await Until(() => !scope.Window.ViewModel.IsBusy
+            && scope.Window.FilteredCollectionFolders.Count == 1);
+        Assert.Equal(collection.Id, Assert.Single(scope.Window.FilteredCollectionFolders).Collection.Id);
+    });
+
+    private static Rect[] GetToolbarControlBounds(Control toolbar, Window window) => toolbar
+        .GetVisualDescendants().OfType<Control>()
+        .Where(control => control is Button or ComboBox)
+        .Select(control => new Rect(control.TranslatePoint(default, window)!.Value, control.Bounds.Size))
+        .ToArray();
+
+    private static void AssertCollectionHeaderMatchesToolbar(TestWindow scope)
+    {
+        var toolbar = scope.Get<Grid>("LibraryToolbar");
+        var header = scope.Get<Border>("CollectionHeader");
+        var toolbarOrigin = toolbar.TranslatePoint(default, scope.Window)!.Value;
+        var headerOrigin = header.TranslatePoint(default, scope.Window)!.Value;
+        var toolbarRight = toolbarOrigin.X + toolbar.Bounds.Width;
+        var headerRight = headerOrigin.X + header.Bounds.Width;
+        Assert.InRange(Math.Abs(header.Margin.Left - toolbar.Margin.Left), 0, 1);
+        Assert.InRange(Math.Abs(header.Margin.Right - toolbar.Margin.Right), 0, 1);
+        Assert.InRange(Math.Abs(headerOrigin.X - toolbarOrigin.X), 0, 1);
+        Assert.InRange(Math.Abs(headerRight - toolbarRight), 0, 1);
+    }
+
+    private static void AssertLibraryToolbar(TestWindow scope)
+    {
+        foreach (var name in new[] { "SearchBox", "FilterButton", "LibrarySortBox", "LibraryViewToggleButton", "BackgroundTaskHistoryButton", "ImportButton" })
+            AssertWithinWindow(scope.Get<Control>(name), scope.Window);
+        var import = scope.Get<Button>("ImportButton");
+        var importPosition = import.TranslatePoint(default, scope.Window)!.Value;
+        Assert.True(importPosition.Y >= 38, "Toolbar actions must remain below the title-bar hit region.");
+        var workspace = scope.Get<Grid>("LibraryBody");
+        var workspaceRight = workspace.TranslatePoint(default, scope.Window)!.Value.X + workspace.Bounds.Width
+                             - scope.Get<Grid>("LibraryToolbar").Margin.Right;
+        Assert.InRange(Math.Abs(workspaceRight - importPosition.X - import.Bounds.Width), 0, 1);
+        var search = scope.Get<TextBox>("SearchBox");
+        var actions = scope.Get<StackPanel>("LibraryToolbarActions");
+        var searchPosition = search.TranslatePoint(default, scope.Window)!.Value;
+        var actionsPosition = actions.TranslatePoint(default, scope.Window)!.Value;
+        Assert.True(search.Bounds.Width >= 239);
+        Assert.True(searchPosition.X + search.Bounds.Width + 20 <= actionsPosition.X
+                    || searchPosition.Y + search.Bounds.Height <= actionsPosition.Y,
+            "Search and actions must not overlap.");
+        Assert.InRange(Math.Abs(workspaceRight - actionsPosition.X - actions.Bounds.Width), 0, 1);
+    }
+
+    private static async Task SeedLayoutLibrary(TestWindow scope)
+    {
+        var sources = new List<string>();
+        foreach (var title in new[] { "Alpha", "Zulu" })
+        {
+            var path = Path.Combine(scope.Paths.Data, title + ".epub");
+            using (var archive = ZipFile.Open(path, ZipArchiveMode.Create))
+            {
+                WriteEntry("mimetype", "application/epub+zip");
+                WriteEntry("META-INF/container.xml", """
+                    <container xmlns="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0">
+                      <rootfiles><rootfile full-path="content.opf" media-type="application/oebps-package+xml" /></rootfiles>
+                    </container>
+                    """);
+                WriteEntry("content.opf", $$"""
+                    <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id">
+                      <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+                        <dc:identifier id="id">layout-{{title}}</dc:identifier><dc:title>{{title}}</dc:title>
+                        <dc:creator>Library layout test</dc:creator><dc:language>en</dc:language>
+                        <meta name="cover" content="cover" />
+                      </metadata>
+                      <manifest><item id="cover" href="cover.png" media-type="image/png" properties="cover-image" />
+                        <item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml" /></manifest>
+                      <spine><itemref idref="chapter" /></spine>
+                    </package>
+                    """);
+                WriteEntry("chapter.xhtml", $"<html xmlns=\"http://www.w3.org/1999/xhtml\"><body><p>{title}</p></body></html>");
+                using var bitmap = new SKBitmap(152, 212);
+                using var canvas = new SKCanvas(bitmap);
+                canvas.Clear(title == "Alpha" ? new SKColor(216, 215, 207) : new SKColor(185, 192, 188));
+                using var ink = new SKPaint { Color = new SKColor(58, 60, 54), IsAntialias = true };
+                using var typeface = SKTypeface.FromFamilyName("Georgia");
+                using var font = new SKFont(typeface, 26);
+                canvas.DrawText(title, 20, 110, font, ink);
+                using var cover = archive.CreateEntry("cover.png").Open();
+                bitmap.Encode(cover, SKEncodedImageFormat.Png, 100);
+
+                void WriteEntry(string name, string content)
+                {
+                    using var writer = new StreamWriter(archive.CreateEntry(name).Open());
+                    writer.Write(content);
+                }
+            }
+            sources.Add(path);
+        }
+        await scope.Field<IBookLibraryService>("_library").ImportAsync(sources);
+        await scope.Call<Task>("RefreshLibraryAsync");
+        // This fixture initializes services explicitly instead of running the
+        // desktop startup sequence that normally enables filter interactions.
+        scope.Set("_filterControlsReady", true);
+        await Render();
+    }
+}

@@ -1,6 +1,6 @@
 # Native AZW3 reader fixtures
 
-These small test books contain text authored for Kkindle tests, a one-pixel PNG,
+These small test books contain text authored for Libzora tests, a one-pixel PNG,
 a two-level chapter directory, CSS, Unicode text and links between chapters.
 They were generated from the same EPUB using Calibre's AZW3 writer, with default
 PalmDOC compression, `--dont-compress`, and `--mobi-file-type both`, respectively.
@@ -13,3 +13,10 @@ authored text/images/links, written with `--mobi-file-type old` (and
 byte-offset links and NCX navigation (Calibre flattens the legacy directory).
 The hybrid fixture retains its hierarchical directory. Calibre was used only to
 generate these checked-in fixtures, never by the tests or reader.
+
+`native-compressed-assembled.dat` is an independent byte-position oracle for
+the authored compressed fixture. It is KindleUnpack's unmodified debug
+`mobi8/assembled_text.dat` output (upstream commit
+`bf0ca6ece4e73494625e7950be3e259b6260774c`). The UTF-8 selection
+`你好，世界。😀` occupies bytes 1537–1559. It deliberately tests reconstructed
+KF8 reading order instead of round-tripping positions through our own parser.

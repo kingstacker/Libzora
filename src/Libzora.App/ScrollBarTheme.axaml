@@ -1,0 +1,288 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    x:ClassModifier="internal">
+    <!--
+        Libzora's scrollbar keeps the standard Avalonia ScrollBar parts so it
+        remains fully compatible with ScrollViewer: the two line buttons,
+        Track, page buttons and Thumb are all wired exactly like the Fluent
+        theme. The visual language is intentionally spare: no rounded corners,
+        no visible track line, and a light-grey thumb that appears while the
+        bar is expanded or being used.
+    -->
+    <ControlTheme x:Key="LibzoraScrollBarThumb" TargetType="Thumb">
+        <Setter Property="Background" Value="{DynamicResource LibzoraScrollBarThumbBrush}" />
+        <Setter Property="CornerRadius" Value="0" />
+        <!-- Auto-hide surfaces (see ScrollViewer.autoHideScroll styles in
+             App.axaml) fade the thumb via Opacity; give it a gentle transition. -->
+        <Setter Property="Transitions">
+            <Transitions>
+                <DoubleTransition Property="Opacity" Duration="0:0:0.18" />
+            </Transitions>
+        </Setter>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate>
+                    <Border Background="{TemplateBinding Background}"
+                            CornerRadius="{TemplateBinding CornerRadius}" />
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+        <Style Selector="^:pointerover /template/ Border">
+            <Setter Property="Background" Value="{DynamicResource LibzoraScrollBarThumbPointerOverBrush}" />
+        </Style>
+        <Style Selector="^:pressed /template/ Border">
+            <Setter Property="Background" Value="{DynamicResource LibzoraScrollBarThumbPressedBrush}" />
+        </Style>
+        <Style Selector="^:disabled /template/ Border">
+            <Setter Property="Background" Value="{DynamicResource LibzoraScrollBarThumbDisabledBrush}" />
+        </Style>
+    </ControlTheme>
+
+    <ControlTheme x:Key="LibzoraScrollBarPageButton" TargetType="RepeatButton">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Opacity" Value="0" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate>
+                    <Border Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}" />
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </ControlTheme>
+
+    <ControlTheme x:Key="LibzoraScrollBarLineButton" TargetType="RepeatButton">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Opacity" Value="0" />
+        <Setter Property="Foreground" Value="{DynamicResource LibzoraScrollBarArrowBrush}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate>
+                    <ContentPresenter x:Name="PART_ContentPresenter"
+                                      Background="{DynamicResource LibzoraScrollBarButtonBrush}"
+                                      BorderBrush="{DynamicResource LibzoraScrollBarButtonBorderBrush}"
+                                      BorderThickness="0"
+                                      Content="{TemplateBinding Content}"
+                                      Foreground="{TemplateBinding Foreground}" />
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+        <Setter Property="Transitions">
+            <Setter.Value>
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.1" />
+                </Transitions>
+            </Setter.Value>
+        </Setter>
+        <Style Selector="^:pointerover">
+            <Setter Property="Foreground" Value="{DynamicResource LibzoraScrollBarArrowPointerOverBrush}" />
+            <Style Selector="^ /template/ ContentPresenter">
+                <Setter Property="Background" Value="{DynamicResource LibzoraScrollBarButtonPointerOverBrush}" />
+                <Setter Property="BorderBrush" Value="{DynamicResource LibzoraScrollBarButtonPointerOverBorderBrush}" />
+            </Style>
+        </Style>
+        <Style Selector="^:pressed">
+            <Setter Property="Foreground" Value="{DynamicResource LibzoraScrollBarArrowPressedBrush}" />
+            <Style Selector="^ /template/ ContentPresenter">
+                <Setter Property="Background" Value="{DynamicResource LibzoraScrollBarButtonPressedBrush}" />
+                <Setter Property="BorderBrush" Value="{DynamicResource LibzoraScrollBarButtonPressedBorderBrush}" />
+            </Style>
+        </Style>
+        <Style Selector="^:disabled">
+            <Setter Property="Foreground" Value="{DynamicResource LibzoraScrollBarArrowDisabledBrush}" />
+            <Style Selector="^ /template/ ContentPresenter">
+                <Setter Property="Background" Value="{DynamicResource LibzoraScrollBarButtonDisabledBrush}" />
+                <Setter Property="BorderBrush" Value="{DynamicResource LibzoraScrollBarButtonDisabledBorderBrush}" />
+            </Style>
+        </Style>
+    </ControlTheme>
+
+    <ControlTheme x:Key="{x:Type ScrollBar}" TargetType="ScrollBar">
+        <Setter Property="MinWidth" Value="{DynamicResource LibzoraScrollBarSize}" />
+        <Setter Property="MinHeight" Value="{DynamicResource LibzoraScrollBarSize}" />
+        <Setter Property="Background" Value="{DynamicResource LibzoraScrollBarBackgroundBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource LibzoraScrollBarThumbBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource LibzoraScrollBarBorderBrush}" />
+        <Setter Property="CornerRadius" Value="0" />
+
+        <Style Selector="^:vertical">
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Grid x:Name="Root">
+                        <Border x:Name="VerticalRoot"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}">
+                            <Grid RowDefinitions="Auto,*,Auto">
+                                <Rectangle x:Name="TrackRect"
+                                           Grid.RowSpan="3"
+                                           Fill="Transparent"
+                                           Stroke="Transparent"
+                                           Opacity="0">
+                                    <Rectangle.Transitions>
+                                        <Transitions>
+                                            <DoubleTransition Property="Opacity" Duration="0:0:0.1" />
+                                        </Transitions>
+                                    </Rectangle.Transitions>
+                                </Rectangle>
+
+                                <RepeatButton Name="PART_LineUpButton"
+                                              Grid.Row="0"
+                                              HorizontalAlignment="Center"
+                                              Focusable="False"
+                                              MinWidth="{DynamicResource LibzoraScrollBarSize}"
+                                              Height="{DynamicResource LibzoraScrollBarSize}"
+                                              Theme="{StaticResource LibzoraScrollBarLineButton}"
+                                              AutomationProperties.Name="{DynamicResource Ui.Auto.A1C2931850241896}">
+                                    <PathIcon Data="M 10,4 L 4,10 L 5,11 L 10,6 L 15,11 L 16,10 Z"
+                                              Width="6"
+                                              Height="6" />
+                                </RepeatButton>
+
+                                <Track Grid.Row="1"
+                                       Minimum="{TemplateBinding Minimum}"
+                                       Maximum="{TemplateBinding Maximum}"
+                                       Value="{TemplateBinding Value, Mode=TwoWay}"
+                                       DeferThumbDrag="{TemplateBinding ScrollViewer.IsDeferredScrollingEnabled}"
+                                       ViewportSize="{TemplateBinding ViewportSize}"
+                                       Orientation="{TemplateBinding Orientation}"
+                                       IsDirectionReversed="True">
+                                    <Track.DecreaseButton>
+                                        <RepeatButton Name="PART_PageUpButton"
+                                                      Classes="largeIncrease"
+                                                      Focusable="False"
+                                                      Theme="{StaticResource LibzoraScrollBarPageButton}"
+                                                      AutomationProperties.Name="{DynamicResource Ui.Auto.D918C1A9A342DD02}" />
+                                    </Track.DecreaseButton>
+                                    <Track.IncreaseButton>
+                                        <RepeatButton Name="PART_PageDownButton"
+                                                      Classes="largeIncrease"
+                                                      Focusable="False"
+                                                      Theme="{StaticResource LibzoraScrollBarPageButton}"
+                                                      AutomationProperties.Name="{DynamicResource Ui.Auto.F031682B9F295E32}" />
+                                    </Track.IncreaseButton>
+                                    <Thumb Theme="{StaticResource LibzoraScrollBarThumb}"
+                                           Width="{DynamicResource LibzoraScrollBarSize}"
+                                           MinHeight="{DynamicResource LibzoraScrollBarSize}"
+                                           AutomationProperties.Name="{DynamicResource Ui.Auto.B01EAEAC61FA05C7}" />
+                                </Track>
+
+                                <RepeatButton Name="PART_LineDownButton"
+                                              Grid.Row="2"
+                                              HorizontalAlignment="Center"
+                                              Focusable="False"
+                                              MinWidth="{DynamicResource LibzoraScrollBarSize}"
+                                              Height="{DynamicResource LibzoraScrollBarSize}"
+                                              Theme="{StaticResource LibzoraScrollBarLineButton}"
+                                              AutomationProperties.Name="{DynamicResource Ui.Auto.DBE66822E12D3B28}">
+                                    <PathIcon Data="M 4,6 L 10,12 L 16,6 L 15,5 L 10,10 L 5,5 Z"
+                                              Width="6"
+                                              Height="6" />
+                                </RepeatButton>
+                            </Grid>
+                        </Border>
+                    </Grid>
+                </ControlTemplate>
+            </Setter>
+        </Style>
+
+        <Style Selector="^:horizontal">
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Grid x:Name="Root">
+                        <Border x:Name="HorizontalRoot"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}">
+                            <Grid ColumnDefinitions="Auto,*,Auto">
+                                <Rectangle x:Name="TrackRect"
+                                           Grid.ColumnSpan="3"
+                                           Fill="Transparent"
+                                           Stroke="Transparent"
+                                           Opacity="0">
+                                    <Rectangle.Transitions>
+                                        <Transitions>
+                                            <DoubleTransition Property="Opacity" Duration="0:0:0.1" />
+                                        </Transitions>
+                                    </Rectangle.Transitions>
+                                </Rectangle>
+
+                                <RepeatButton Name="PART_LineUpButton"
+                                              Grid.Column="0"
+                                              VerticalAlignment="Center"
+                                              Focusable="False"
+                                              MinHeight="{DynamicResource LibzoraScrollBarSize}"
+                                              Width="{DynamicResource LibzoraScrollBarSize}"
+                                              Theme="{StaticResource LibzoraScrollBarLineButton}"
+                                              AutomationProperties.Name="{DynamicResource Ui.Auto.F3FB0EC333960844}">
+                                    <PathIcon Data="M 10,4 L 4,10 L 10,16 L 11,15 L 6,10 L 11,5 Z"
+                                              Width="6"
+                                              Height="6" />
+                                </RepeatButton>
+
+                                <Track Grid.Column="1"
+                                       Minimum="{TemplateBinding Minimum}"
+                                       Maximum="{TemplateBinding Maximum}"
+                                       Value="{TemplateBinding Value, Mode=TwoWay}"
+                                       DeferThumbDrag="{TemplateBinding ScrollViewer.IsDeferredScrollingEnabled}"
+                                       ViewportSize="{TemplateBinding ViewportSize}"
+                                       Orientation="{TemplateBinding Orientation}">
+                                    <Track.DecreaseButton>
+                                        <RepeatButton Name="PART_PageUpButton"
+                                                      Classes="largeIncrease"
+                                                      Focusable="False"
+                                                      Theme="{StaticResource LibzoraScrollBarPageButton}"
+                                                      AutomationProperties.Name="{DynamicResource Ui.Auto.36CDC1A35EC4D971}" />
+                                    </Track.DecreaseButton>
+                                    <Track.IncreaseButton>
+                                        <RepeatButton Name="PART_PageDownButton"
+                                                      Classes="largeIncrease"
+                                                      Focusable="False"
+                                                      Theme="{StaticResource LibzoraScrollBarPageButton}"
+                                                      AutomationProperties.Name="{DynamicResource Ui.Auto.4A615D188ACF04C3}" />
+                                    </Track.IncreaseButton>
+                                    <Thumb Theme="{StaticResource LibzoraScrollBarThumb}"
+                                           Height="{DynamicResource LibzoraScrollBarSize}"
+                                           MinWidth="{DynamicResource LibzoraScrollBarSize}"
+                                           AutomationProperties.Name="{DynamicResource Ui.Auto.B01EAEAC61FA05C7}" />
+                                </Track>
+
+                                <RepeatButton Name="PART_LineDownButton"
+                                              Grid.Column="2"
+                                              VerticalAlignment="Center"
+                                              Focusable="False"
+                                              MinHeight="{DynamicResource LibzoraScrollBarSize}"
+                                              Width="{DynamicResource LibzoraScrollBarSize}"
+                                              Theme="{StaticResource LibzoraScrollBarLineButton}"
+                                              AutomationProperties.Name="{DynamicResource Ui.Auto.8071F3D80A537824}">
+                                    <PathIcon Data="M 10,4 L 16,10 L 10,16 L 9,15 L 14,10 L 9,5 Z"
+                                              Width="6"
+                                              Height="6" />
+                                </RepeatButton>
+                            </Grid>
+                        </Border>
+                    </Grid>
+                </ControlTemplate>
+            </Setter>
+        </Style>
+
+        <Style Selector="^[IsExpanded=true]">
+            <Style Selector="^ /template/ Grid#Root">
+                <Setter Property="Background" Value="{DynamicResource LibzoraScrollBarExpandedBackgroundBrush}" />
+            </Style>
+            <Style Selector="^ /template/ Rectangle#TrackRect">
+                <Setter Property="Opacity" Value="0" />
+            </Style>
+            <Style Selector="^ /template/ Thumb">
+                <Setter Property="Background" Value="{DynamicResource LibzoraScrollBarThumbBrush}" />
+            </Style>
+            <Style Selector="^ /template/ RepeatButton">
+                <Setter Property="Opacity" Value="1" />
+            </Style>
+        </Style>
+    </ControlTheme>
+</ResourceDictionary>

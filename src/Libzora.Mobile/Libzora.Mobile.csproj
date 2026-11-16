@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Mobile shell views. Deliberately plain net10.0: the Android head wires
+         platform services, and keeping this project platform-neutral makes the
+         compiler reject Android-only API usage from creeping into view code. -->
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Libzora.Mobile</RootNamespace>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Libzora.App\ReaderTransitionPlayer.cs" Link="ReaderTransitionPlayer.cs" />
+    <AvaloniaResource Include="..\Libzora.App\Assets\Fonts\KingHwaOldSong-v3.0.ttf" Link="Assets\Fonts\KingHwaOldSong-v3.0.ttf" />
+    <ProjectReference Include="..\Libzora.Core\Libzora.Core.csproj" />
+    <ProjectReference Include="..\Libzora.Application\Libzora.Application.csproj" />
+    <ProjectReference Include="..\Libzora.Infrastructure\Libzora.Infrastructure.csproj" />
+    <ProjectReference Include="..\Libzora.Layout\Libzora.Layout.csproj" />
+    <ProjectReference Include="..\Libzora.Reader\Libzora.Reader.csproj" />
+    <PackageReference Include="Avalonia" Version="12.1.1" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.1" />
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+  </ItemGroup>
+</Project>

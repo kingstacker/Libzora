@@ -1,0 +1,233 @@
+using System.ComponentModel;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using Libzora.Core;
+
+namespace Libzora.Infrastructure;
+
+/// <summary>
+/// Persists sync connection metadata as JSON while keeping credentials and the
+/// optional client-side encryption key protected in the platform secret store.
+/// The device id is intentionally stable and is used as the owner's snapshot
+/// prefix in the shared bucket.
+/// </summary>
+public sealed class S3SyncSettingsStore
+{
+    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
+    private readonly AppPaths _paths;
+    private readonly ISecretProtector _protector;
+
+    public S3SyncSettingsStore(AppPaths paths, ISecretProtector protector)
+    {
+        _paths = paths;
+        _protector = protector;
+    }
+
+    public string SettingsPath => Path.Combine(_paths.Data, "s3-sync-settings.json");
+
+    public async Task<S3SyncStoredSettings> LoadAsync(
+        CancellationToken cancellationToken = default,
+        bool initializeIfMissing = true)
+    {
+        _paths.EnsureDirectories();
+        if (!File.Exists(SettingsPath))
+        {
+            var initial = new S3SyncStoredSettings(Guid.NewGuid().ToString("N"), new S3SyncSettings());
+            if (initializeIfMissing)
+                await SaveAsync(initial.DeviceId, initial.Settings, cancellationToken);
+            return initial;
+        }
+
+        try
+        {
+            await using var stream = new FileStream(
+                SettingsPath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read | FileShare.Delete,
+                81920,
+                useAsync: true);
+            var persisted = await JsonSerializer.DeserializeAsync<PersistedS3SyncSettings>(
+                stream,
+                JsonOptions,
+                cancellationToken);
+            if (persisted is null)
+                return new S3SyncStoredSettings(Guid.NewGuid().ToString("N"), new S3SyncSettings());
+
+            var deviceId = NormalizeDeviceId(persisted.DeviceId);
+            var settings = S3SyncSettings.Normalize(new S3SyncSettings
+            {
+                Provider = persisted.Provider,
+                ProviderChosenByUser = persisted.ProviderChosenByUser ?? false,
+                Enabled = persisted.Enabled,
+                AutomaticSyncEnabled = persisted.AutomaticSyncEnabled,
+                DownloadBookFilesOnSync = persisted.DownloadBookFilesOnSync,
+                IntervalMinutes = persisted.IntervalMinutes,
+                Endpoint = persisted.Endpoint ?? string.Empty,
+                AccessKey = Unprotect(persisted.ProtectedAccessKey),
+                SecretKey = Unprotect(persisted.ProtectedSecretKey),
+                WebDavEndpoint = persisted.WebDavEndpoint ?? string.Empty,
+                WebDavUsername = Unprotect(persisted.ProtectedWebDavUsername),
+                WebDavPassword = Unprotect(persisted.ProtectedWebDavPassword),
+                Bucket = persisted.Bucket ?? string.Empty,
+                Region = persisted.Region ?? "us-east-1",
+                PathStyle = persisted.PathStyle,
+                SkipTlsVerify = persisted.SkipTlsVerify,
+                TimeoutSeconds = persisted.TimeoutSeconds,
+                ConcurrentRequests = persisted.ConcurrentRequests,
+                Prefix = persisted.Prefix ?? "libzora",
+                AccountRegion = persisted.AccountRegion,
+                AccountServerUrl = persisted.AccountServerUrl ?? string.Empty,
+                AccountUserId = persisted.AccountUserId,
+                EncryptionKey = Unprotect(persisted.ProtectedEncryptionKey)
+            });
+
+            // Older settings files predate the explicit-choice flag. Preserve
+            // their custom connection; a removed official-cloud choice needs user review.
+            if (persisted.ProviderChosenByUser is null && persisted.Provider != SyncProvider.AccountServer
+                && (settings.Provider == SyncProvider.WebDav
+                    || !string.IsNullOrWhiteSpace(settings.Endpoint)
+                    || !string.IsNullOrWhiteSpace(settings.AccessKey)
+                    || !string.IsNullOrWhiteSpace(settings.SecretKey)
+                    || !string.IsNullOrWhiteSpace(settings.Bucket)))
+                settings = settings with { ProviderChosenByUser = true };
+
+            // An unavailable machine-bound credential is not an intentional
+            // anonymous WebDAV configuration. Never auto-connect anonymously
+            // after copying settings to a machine that cannot decrypt them.
+            if (settings.Provider == SyncProvider.WebDav
+                && ((!string.IsNullOrEmpty(persisted.ProtectedWebDavUsername) && settings.WebDavUsername.Length == 0)
+                    || (!string.IsNullOrEmpty(persisted.ProtectedWebDavPassword) && settings.WebDavPassword.Length == 0)))
+                settings = settings with { Enabled = false };
+
+            if (!string.Equals(deviceId, persisted.DeviceId, StringComparison.Ordinal))
+                await SaveAsync(deviceId, settings, cancellationToken);
+            return new S3SyncStoredSettings(deviceId, settings);
+        }
+        catch (Exception exception) when (exception is IOException
+            or JsonException
+            or FormatException
+            or CryptographicException
+            or Win32Exception)
+        {
+            // A malformed or machine-bound secret must not prevent the app
+            // from opening. The user can re-enter the sync credentials.
+            return new S3SyncStoredSettings(Guid.NewGuid().ToString("N"), new S3SyncSettings());
+        }
+        catch (SecretStoreUnavailableException)
+        {
+            // The Keychain is locked or access was refused. The encrypted
+            // credentials are still valid, so keep sync off for this run and
+            // refuse saves that would overwrite them with empty values.
+            SecretStoreGuard.MarkUnreadable(SettingsPath);
+            return new S3SyncStoredSettings(Guid.NewGuid().ToString("N"), new S3SyncSettings());
+        }
+    }
+
+    public async Task SaveAsync(
+        string deviceId,
+        S3SyncSettings settings,
+        CancellationToken cancellationToken = default)
+    {
+        SecretStoreGuard.ThrowIfUnreadable(SettingsPath);
+        using var lease = await SettingsWriteLock.AcquireAsync(_paths, cancellationToken);
+        _paths.EnsureDirectories();
+        var normalized = S3SyncSettings.Normalize(settings);
+        var persisted = new PersistedS3SyncSettings
+        {
+            DeviceId = NormalizeDeviceId(deviceId),
+            Provider = normalized.Provider,
+            ProviderChosenByUser = normalized.ProviderChosenByUser,
+            Enabled = normalized.Enabled,
+            AutomaticSyncEnabled = normalized.AutomaticSyncEnabled,
+            DownloadBookFilesOnSync = normalized.DownloadBookFilesOnSync,
+            IntervalMinutes = normalized.IntervalMinutes,
+            Endpoint = normalized.Endpoint,
+            ProtectedAccessKey = Protect(normalized.AccessKey),
+            ProtectedSecretKey = Protect(normalized.SecretKey),
+            WebDavEndpoint = normalized.WebDavEndpoint,
+            ProtectedWebDavUsername = Protect(normalized.WebDavUsername),
+            ProtectedWebDavPassword = Protect(normalized.WebDavPassword),
+            Bucket = normalized.Bucket,
+            Region = normalized.Region,
+            PathStyle = normalized.PathStyle,
+            SkipTlsVerify = normalized.SkipTlsVerify,
+            TimeoutSeconds = normalized.TimeoutSeconds,
+            ConcurrentRequests = normalized.ConcurrentRequests,
+            Prefix = normalized.Prefix,
+            AccountRegion = normalized.AccountRegion,
+            AccountServerUrl = normalized.AccountServerUrl,
+            AccountUserId = normalized.AccountUserId,
+            ProtectedEncryptionKey = Protect(normalized.EncryptionKey)
+        };
+
+        var temporaryPath = SettingsPath + ".tmp";
+        await using (var stream = new FileStream(
+            temporaryPath,
+            FileMode.Create,
+            FileAccess.Write,
+            FileShare.None,
+            81920,
+            useAsync: true))
+        {
+            await JsonSerializer.SerializeAsync(stream, persisted, JsonOptions, cancellationToken);
+        }
+
+        SettingsFile.Publish(temporaryPath, SettingsPath);
+    }
+
+    private string Protect(string value)
+    {
+        if (string.IsNullOrEmpty(value)) return string.Empty;
+        return Convert.ToBase64String(_protector.Protect(Encoding.UTF8.GetBytes(value)));
+    }
+
+    private string Unprotect(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return string.Empty;
+        try
+        {
+            return Encoding.UTF8.GetString(_protector.Unprotect(Convert.FromBase64String(value)));
+        }
+        catch (Exception exception) when (exception is FormatException or CryptographicException or Win32Exception)
+        {
+            return string.Empty;
+        }
+    }
+
+    private static string NormalizeDeviceId(string? deviceId) =>
+        Guid.TryParseExact(deviceId, "N", out var parsed)
+            ? parsed.ToString("N")
+            : Guid.NewGuid().ToString("N");
+
+    private sealed class PersistedS3SyncSettings
+    {
+        public string? DeviceId { get; set; }
+        public SyncProvider Provider { get; set; }
+        public bool? ProviderChosenByUser { get; set; }
+        public bool Enabled { get; set; }
+        public bool AutomaticSyncEnabled { get; set; } = true;
+        public bool DownloadBookFilesOnSync { get; set; }
+        public int IntervalMinutes { get; set; } = 30;
+        public string? Endpoint { get; set; }
+        public string? ProtectedAccessKey { get; set; }
+        public string? ProtectedSecretKey { get; set; }
+        public string? WebDavEndpoint { get; set; }
+        public string? ProtectedWebDavUsername { get; set; }
+        public string? ProtectedWebDavPassword { get; set; }
+        public string? Bucket { get; set; }
+        public string? Region { get; set; }
+        public bool PathStyle { get; set; }
+        public bool SkipTlsVerify { get; set; }
+        public int TimeoutSeconds { get; set; } = 60;
+        public int ConcurrentRequests { get; set; } = 4;
+        public string? Prefix { get; set; }
+        public AccountRegion AccountRegion { get; set; }
+        public string? AccountServerUrl { get; set; }
+        public Guid AccountUserId { get; set; }
+        public string? ProtectedEncryptionKey { get; set; }
+    }
+}
+
+public sealed record S3SyncStoredSettings(string DeviceId, S3SyncSettings Settings);

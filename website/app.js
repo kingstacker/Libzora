@@ -1,6 +1,7 @@
-const REPOSITORY = "kingstacker/Kkindle";
+const REPOSITORY = "kingstacker/Libzora";
 const RELEASE_PAGE = `https://github.com/${REPOSITORY}/releases/latest`;
 const RELEASE_API = `https://api.github.com/repos/${REPOSITORY}/releases/latest`;
+const SITE_RELEASE_JSON = "_release.json";
 
 const translations = {
   zh: {
@@ -8,6 +9,7 @@ const translations = {
     menuLabel: "打开菜单",
     navProduct: "产品",
     navFeatures: "功能",
+    navMembership: "会员",
     navDownload: "下载",
     navManual: "使用手册",
     navChangelog: "更新日志",
@@ -15,10 +17,14 @@ const translations = {
     headerGitHub: "GitHub",
     heroKicker: "KINDLE, WITHOUT THE FRICTION.",
     heroTitle: "把书库、阅读与 Kindle 连接起来。",
-    heroLead: "Kkindle 是一款安静、跨平台的电子书书库与 Kindle 工作台。整理你的书，专注地读，然后把它们带到真正的阅读设备上。",
-    heroDownload: "下载 Kkindle",
+    heroLead: "Libzora 是一款安静、跨平台的电子书书库与 Kindle 工作台。整理你的书，专注地读，然后把它们带到真正的阅读设备上。",
+    heroDownload: "下载 Libzora",
     heroSource: "查看源码",
-    heroFactPlatforms: "桌面平台",
+    heroPlatformsLabel: "按平台下载",
+    heroPlatformWindowsNote: "安装版",
+    heroPlatformMacNote: "Apple Silicon / Intel",
+    comingSoon: "即将推出",
+    heroFactPlatforms: "平台",
     heroFactFormats: "常用格式",
     heroFactLicense: "开源许可",
     signalLocal: "LOCAL-FIRST",
@@ -52,10 +58,67 @@ const translations = {
     aiTag1: "AI 阅读助手",
     aiTag2: "词典查询",
     aiTag3: "阅读数据",
-    aboutKicker: "ABOUT KKINDLE",
+    membershipKicker: "MEMBERSHIP",
+    membershipTitle: "Free / 试用订阅 / 买断订阅",
+    membershipLead: "当前发布的版本全部功能免费，自备 S3 / WebDAV 跨端同步无需登录；账号注册、购买与支付暂未上线。以下会员方案为账号服务上线后的规划。",
+    membershipRegionLabel: "服务器区域",
+    regionChina: "中国区",
+    regionInternational: "国际区",
+    regionUnavailable: "暂未上线",
+    chinaNotice: "中国区会员暂未上线，以下方案为上线预告；购买和开通方式以实际渠道公告为准。",
+    intlTitle: "国际区会员暂未上线",
+    intlBody: "上线后将在这里公布国际区的价格与会员权益。",
+    planFreeTagline: "让阅读自由开始",
+    planFreePeriod: "永久免费",
+    planFreeFeature1: "完整本地阅读与书库管理",
+    planFreeFeature2: "USB Kindle 书籍双向同步",
+    planFreeFeature3: "USB Kindle 批注双向同步",
+    planFreeFeature4: "插件扩展与自配 AI 接口",
+    planFreeFoot: "当前版本可直接使用自备 S3 / WebDAV 跨端同步",
+    planTrialName: "试用订阅",
+    planTrialTagline: "先体验，再决定",
+    planTrialPeriod: "7 天免费试用 · 每账号一次",
+    planTrialFeature1: "包含全部 Free 权益",
+    planTrialFeature2: "解锁自备 S3 / WebDAV 同步",
+    planTrialFeature3: "同步跨端书籍与阅读进度",
+    planTrialFeature4: "同步跨端书签与批注",
+    planTrialFeature5: "账号最多登录 6 台设备",
+    planTrialFoot: "由用户在账号中心主动领取，不自动开通",
+    planLifetimeName: "买断订阅",
+    planLifetimeTagline: "你的书库，由你掌控",
+    planLifetimePeriod: "¥128 永久 · 一次购买，无需续费",
+    planLifetimeFeature1: "包含全部 Free 权益",
+    planLifetimeFeature2: "永久解锁自备 S3 / WebDAV 同步",
+    planLifetimeFeature3: "同步跨端书籍与阅读进度",
+    planLifetimeFeature4: "同步跨端书签与批注",
+    planLifetimeFeature5: "账号最多登录 6 台设备",
+    planLifetimeFoot: "买断权益直接绑定账号。购买和开通方式以实际渠道公告为准；开通后刷新权益。需自备 S3 / WebDAV，存储与流量费用自付",
+    compareCaption: "中国区会员权益对比",
+    compareFeature: "功能",
+    compareIncluded: "包含",
+    compareExcluded: "不包含",
+    comparePrice: "价格",
+    compareFreePrice: "免费",
+    compareTrialPrice: "7 天免费试用",
+    compareLifetimePrice: "¥128 永久",
+    compareLocal: "完整本地书库管理与阅读",
+    compareUsbBooks: "USB Kindle 书籍双向同步",
+    compareUsbNotes: "USB Kindle 批注双向同步",
+    comparePlugins: "插件功能",
+    compareAi: "自配 AI 接口",
+    compareProgress: "自备存储跨端阅读进度同步",
+    compareNotes: "自备存储跨端书签、批注同步",
+    compareBooks: "自备存储跨端书籍文件同步",
+    compareDevices: "账号同时登录设备上限",
+    compareDeviceCount: "6 台",
+    compareS3: "自备 S3 / WebDAV",
+    compareDuringTrial: "试用期内",
+    compareExpiryNote: "7 天试用由用户主动领取，每账号一次。过期只停用付费同步，不删除自备数据或本地书库；买断永久、无需续费。",
+    compareCompatibilityNote: "USB Kindle 双向批注同步的兼容范围因设备型号和书籍格式而异。",
+    aboutKicker: "About Libzora",
     aboutTitle: "面向个人阅读的开源桌面工作台。",
-    aboutBody: "Kkindle 是一款面向 Windows、Linux 和 macOS 的开源电子书书库与 Kindle 管理工具。它将书库整理、阅读、批注和设备传输放在同一个本地优先的工作流中。",
-    aboutPoint1: "Windows / Linux / macOS",
+    aboutBody: "Libzora 是一款面向 Windows、Linux、macOS、Android 和 iOS 的开源电子书书库与 Kindle 管理工具。它将书库整理、阅读、批注和设备传输放在同一个本地优先的工作流中。",
+    aboutPoint1: "Windows / Linux / macOS / Android / iOS",
     aboutPoint2: "EPUB / PDF / MOBI / AZW3",
     aboutPoint3: "GPL-3.0 开源许可",
     aboutSource: "查看 GitHub 项目",
@@ -63,7 +126,7 @@ const translations = {
     qqGroupCopied: "已复制群号 1109898894",
     qqGroupCopyFailed: "复制失败，请手动记录群号 1109898894。",
     qqGroupButtonLabel: "复制 QQ 用户群号 1109898894",
-    downloadKicker: "DOWNLOAD Kkindle",
+    downloadKicker: "DOWNLOAD Libzora",
     downloadTitle: "选一个平台，开始建立你的书库。",
     downloadLead: "下载区会自动选择最新稳定版，安装包优先通过本站镜像下载；也可通过百度网盘下载。",
     baiduKicker: "备用下载",
@@ -89,6 +152,14 @@ const translations = {
     macNote: "macOS 12+，提供 Intel 与 Apple Silicon 包。",
     macArm64: "Apple Silicon",
     macX64: "Intel",
+    androidNote: "The Android build is in preparation. Installers and download links will be published later.",
+    iosNote: "The iOS build is in preparation. Installers and download links will be published later.",
+    androidAssetNote: "No download link yet",
+    iosAssetNote: "No download link yet",
+    androidNote: "Android 版正在准备中，安装包和下载链接稍后公布。",
+    iosNote: "iOS 版正在准备中，安装包和下载链接稍后公布。",
+    androidAssetNote: "暂时没有下载链接",
+    iosAssetNote: "暂时没有下载链接",
     loadingAsset: "正在读取文件…",
     checksum: "SHA-256 校验值",
     releaseLoading: "正在获取最新版本…",
@@ -111,10 +182,10 @@ const translations = {
     changelogPerformance: "性能",
     faqKicker: "BEFORE YOU START",
     faqTitle: "下载前，先知道这几件事。",
-    faq1Question: "Kkindle 支持哪些文件格式？",
+    faq1Question: "Libzora 支持哪些文件格式？",
     faq1Answer: "可以导入和阅读 EPUB、PDF、MOBI 与 AZW3。格式转换依赖用户自行安装的 Calibre。",
     faq2Question: "我的书和 API Key 会上传吗？",
-    faq2Answer: "书籍、封面、阅读记录默认保存在本机。AI 请求只发送相关片段，API Key 使用系统安全存储。",
+    faq2Answer: "书籍、封面、阅读记录默认保存在本机。账号服务只做身份和功能权益管理，不接收用户书籍；试用订阅与买断订阅的跨端同步直连你自备的 S3 / WebDAV。AI 请求只发送相关片段到你配置的服务，API Key 使用系统安全存储。",
     faq3Question: "macOS 下载后如何打开？",
     faq3Answer: "请按照仓库中的 macOS 安装说明操作。发布包是否经过公证，以对应版本的发布说明为准。",
     faq4Question: "在哪里反馈问题或查看更新？",
@@ -123,18 +194,19 @@ const translations = {
     footerGitHub: "GitHub",
     footerChangelog: "更新日志",
     footerLicense: "GPL-3.0 License",
-    footerNote: "官网与镜像下载由 kkindle.stacker.beauty 提供。",
-    libraryAlt: "Kkindle 电脑书库界面",
-    libraryGridAlt: "Kkindle 书库网格视图",
+    footerNote: "官网与镜像下载由 libzora.stacker.beauty 提供。",
+    libraryAlt: "Libzora 电脑书库界面",
+    libraryGridAlt: "Libzora 书库网格视图",
     readerAlt: "Kreader 阅读器界面",
     kindleAlt: "Kindle 设备书库管理界面",
-    aiAlt: "Kkindle AI 阅读助手"
+    aiAlt: "Libzora AI 阅读助手"
   },
   en: {
     skipToContent: "Skip to content",
     menuLabel: "Open menu",
     navProduct: "Product",
     navFeatures: "Features",
+    navMembership: "Membership",
     navDownload: "Download",
     navManual: "Chinese manual",
     navChangelog: "Changelog",
@@ -142,10 +214,14 @@ const translations = {
     headerGitHub: "GitHub",
     heroKicker: "KINDLE, WITHOUT THE FRICTION.",
     heroTitle: "Bring your library, reading, and Kindle together.",
-    heroLead: "Kkindle is a quiet, cross-platform ebook library and Kindle workspace. Organize your books, read with focus, and move them to the device you actually read on.",
-    heroDownload: "Download Kkindle",
+    heroLead: "Libzora is a quiet, cross-platform ebook library and Kindle workspace. Organize your books, read with focus, and move them to the device you actually read on.",
+    heroDownload: "Download Libzora",
     heroSource: "View source",
-    heroFactPlatforms: "desktop platforms",
+    heroPlatformsLabel: "Download by platform",
+    heroPlatformWindowsNote: "Installer",
+    heroPlatformMacNote: "Apple Silicon / Intel",
+    comingSoon: "Coming soon",
+    heroFactPlatforms: "platforms",
     heroFactFormats: "common formats",
     heroFactLicense: "open-source license",
     signalLocal: "LOCAL-FIRST",
@@ -179,10 +255,67 @@ const translations = {
     aiTag1: "AI reading assistant",
     aiTag2: "Dictionary lookup",
     aiTag3: "Reading data",
-    aboutKicker: "ABOUT KKINDLE",
+    membershipKicker: "MEMBERSHIP",
+    membershipTitle: "Free / Trial / Lifetime",
+    membershipLead: "Every feature is free in the current release, and cross-device sync with your own S3 / WebDAV works without an account. Registration, purchase, and payment are not available yet. The membership plans below are a preview of the planned account service.",
+    membershipRegionLabel: "Server region",
+    regionChina: "China",
+    regionInternational: "International",
+    regionUnavailable: "Not yet available",
+    chinaNotice: "China memberships are not available yet. The plans below are a preview; purchase and enablement methods follow actual channel announcements.",
+    intlTitle: "International memberships are not available yet",
+    intlBody: "Pricing and membership details for the International region will be published here at launch.",
+    planFreeTagline: "Start reading freely",
+    planFreePeriod: "Free forever",
+    planFreeFeature1: "Full local reading and library management",
+    planFreeFeature2: "Two-way USB Kindle book sync",
+    planFreeFeature3: "Two-way USB Kindle annotation sync",
+    planFreeFeature4: "Plugins and your own AI APIs",
+    planFreeFoot: "Cross-device sync with your own S3 / WebDAV works in the current release",
+    planTrialName: "Trial",
+    planTrialTagline: "Try it before you decide",
+    planTrialPeriod: "7-day free trial · once per account",
+    planTrialFeature1: "All Free features included",
+    planTrialFeature2: "Sync with your own S3 / WebDAV",
+    planTrialFeature3: "Sync books and reading progress across devices",
+    planTrialFeature4: "Sync bookmarks and annotations across devices",
+    planTrialFeature5: "Up to 6 signed-in devices per account",
+    planTrialFoot: "Claim it yourself in the account center; never activated automatically",
+    planLifetimeName: "Lifetime",
+    planLifetimeTagline: "Your library, in your hands",
+    planLifetimePeriod: "¥128 lifetime · buy once, no renewals",
+    planLifetimeFeature1: "All Free features included",
+    planLifetimeFeature2: "Lifetime sync with your own S3 / WebDAV",
+    planLifetimeFeature3: "Sync books and reading progress across devices",
+    planLifetimeFeature4: "Sync bookmarks and annotations across devices",
+    planLifetimeFeature5: "Up to 6 signed-in devices per account",
+    planLifetimeFoot: "Lifetime binds directly to your account. Purchase and enablement methods follow actual channel announcements; refresh entitlements after enablement. Bring your own S3 / WebDAV and cover storage and traffic costs",
+    compareCaption: "China region membership comparison",
+    compareFeature: "Feature",
+    compareIncluded: "Included",
+    compareExcluded: "Not included",
+    comparePrice: "Price",
+    compareFreePrice: "Free",
+    compareTrialPrice: "7-day free trial",
+    compareLifetimePrice: "¥128 lifetime",
+    compareLocal: "Full local library management and reading",
+    compareUsbBooks: "Two-way USB Kindle book sync",
+    compareUsbNotes: "Two-way USB Kindle annotation sync",
+    comparePlugins: "Plugins",
+    compareAi: "Your own AI APIs",
+    compareProgress: "Reading progress sync via your own storage",
+    compareNotes: "Bookmark and annotation sync via your own storage",
+    compareBooks: "Book file sync via your own storage",
+    compareDevices: "Simultaneously signed-in devices per account",
+    compareDeviceCount: "6 devices",
+    compareS3: "Your own S3 / WebDAV",
+    compareDuringTrial: "During the trial",
+    compareExpiryNote: "Claim the 7-day trial yourself, once per account. Expiry only disables paid sync, without deleting your storage data or local library. Lifetime is permanent with no renewals.",
+    compareCompatibilityNote: "Two-way USB Kindle annotation sync support varies by device model and book format.",
+    aboutKicker: "About Libzora",
     aboutTitle: "An open-source desktop workspace for personal reading.",
-    aboutBody: "Kkindle is an open-source ebook library and Kindle management tool for Windows, Linux, and macOS. It brings library organization, reading, annotations, and device transfer into one local-first workflow.",
-    aboutPoint1: "Windows / Linux / macOS",
+    aboutBody: "Libzora is an open-source ebook library and Kindle management tool for Windows, Linux, macOS, Android, and iOS. It brings library organization, reading, annotations, and device transfer into one local-first workflow.",
+    aboutPoint1: "Windows / Linux / macOS / Android / iOS",
     aboutPoint2: "EPUB / PDF / MOBI / AZW3",
     aboutPoint3: "GPL-3.0 License",
     aboutSource: "View the project on GitHub",
@@ -190,7 +323,7 @@ const translations = {
     qqGroupCopied: "Copied QQ group number 1109898894",
     qqGroupCopyFailed: "Copy failed. Please note group number 1109898894 manually.",
     qqGroupButtonLabel: "Copy QQ user group number 1109898894",
-    downloadKicker: "DOWNLOAD Kkindle",
+    downloadKicker: "DOWNLOAD Libzora",
     downloadTitle: "Choose a platform. Start your library.",
     downloadLead: "The download area selects the latest stable version automatically, with installers served primarily from this site's mirror. You can also download via Baidu Netdisk.",
     baiduKicker: "Alternative download",
@@ -216,6 +349,14 @@ const translations = {
     macNote: "macOS 12+, with Intel and Apple Silicon packages.",
     macArm64: "Apple Silicon",
     macX64: "Intel",
+    androidNote: "The Android build is in preparation. Installers and download links will be published later.",
+    iosNote: "The iOS build is in preparation. Installers and download links will be published later.",
+    androidAssetNote: "No download link yet",
+    iosAssetNote: "No download link yet",
+    androidNote: "Android 版正在准备中，安装包和下载链接稍后公布。",
+    iosNote: "iOS 版正在准备中，安装包和下载链接稍后公布。",
+    androidAssetNote: "暂时没有下载链接",
+    iosAssetNote: "暂时没有下载链接",
     loadingAsset: "Reading asset…",
     checksum: "SHA-256 checksums",
     releaseLoading: "Fetching the latest version…",
@@ -238,10 +379,10 @@ const translations = {
     changelogPerformance: "Perf.",
     faqKicker: "BEFORE YOU START",
     faqTitle: "A few things to know before downloading.",
-    faq1Question: "Which file formats does Kkindle support?",
+    faq1Question: "Which file formats does Libzora support?",
     faq1Answer: "You can import and read EPUB, PDF, MOBI, and AZW3. Format conversion requires Calibre to be installed separately.",
     faq2Question: "Are my books or API keys uploaded?",
-    faq2Answer: "Books, covers, and reading records stay local by default. AI requests include relevant excerpts only, and API keys use secure system storage.",
+    faq2Answer: "Books, covers, and reading records stay local by default. The account service handles identity and entitlements only and does not receive your books. Trial and Lifetime sync connects directly to your own S3 / WebDAV. AI requests send relevant excerpts only to your configured service, and API keys use secure system storage.",
     faq3Question: "How do I open the macOS download?",
     faq3Answer: "Follow the macOS installation notes in the repository. Check the release notes for the signing and notarization status of each package.",
     faq4Question: "Where can I report an issue or see updates?",
@@ -250,12 +391,12 @@ const translations = {
     footerGitHub: "GitHub",
     footerChangelog: "Changelog",
     footerLicense: "GPL-3.0 License",
-    footerNote: "The official site and mirror downloads are provided by kkindle.stacker.beauty.",
-    libraryAlt: "Kkindle desktop library",
-    libraryGridAlt: "Kkindle library grid view",
+    footerNote: "The official site and mirror downloads are provided by libzora.stacker.beauty.",
+    libraryAlt: "Libzora desktop library",
+    libraryGridAlt: "Libzora library grid view",
     readerAlt: "Kreader reading view",
     kindleAlt: "Kindle library management view",
-    aiAlt: "Kkindle AI reading assistant"
+    aiAlt: "Libzora AI reading assistant"
   }
 };
 
@@ -268,6 +409,7 @@ const assetMatchers = {
   "linux-tar-arm64": /-linux-arm64\.tar\.gz$/i,
   "mac-arm64": /-osx-arm64\.tar\.gz$/i,
   "mac-x64": /-osx-x64\.tar\.gz$/i,
+  "mac-auto": /-osx-(?:arm64|x64)\.tar\.gz$/i,
   checksums: /^SHA256SUMS\.txt$/i
 };
 
@@ -277,7 +419,7 @@ let releaseFailed = false;
 
 function getStoredLanguage() {
   try {
-    const stored = window.localStorage.getItem("kkindle-site-language");
+    const stored = window.localStorage.getItem("libzora-site-language");
     if (stored === "zh" || stored === "en") return stored;
   } catch {
     // Local storage is optional.
@@ -300,8 +442,8 @@ function applyChangelogLanguage() {
 
   document.querySelectorAll("[data-changelog-link]").forEach((link) => {
     link.href = currentLanguage === "en"
-      ? "https://github.com/kingstacker/Kkindle/blob/master/CHANGELOG.en.md"
-      : "https://github.com/kingstacker/Kkindle/blob/master/CHANGELOG.md";
+      ? "https://github.com/kingstacker/Libzora/blob/master/CHANGELOG.en.md"
+      : "https://github.com/kingstacker/Libzora/blob/master/CHANGELOG.md";
   });
 }
 
@@ -335,11 +477,11 @@ function applyLanguage(language) {
   }
 
   document.title = currentLanguage === "en"
-    ? "Kkindle — Personal ebook & Kindle workspace"
-    : "Kkindle — 个人电子书与 Kindle 工作台";
+    ? "Libzora — Personal ebook & Kindle workspace"
+    : "Libzora — 个人电子书与 Kindle 工作台";
 
   try {
-    window.localStorage.setItem("kkindle-site-language", currentLanguage);
+    window.localStorage.setItem("libzora-site-language", currentLanguage);
   } catch {
     // Local storage is optional.
   }
@@ -416,8 +558,10 @@ function setFallbackLinks() {
 
 function detectPlatform() {
   const platform = (navigator.userAgentData?.platform || navigator.platform || navigator.userAgent || "").toLowerCase();
+  if (platform.includes("android")) return "android";
+  if (platform.includes("iphone") || platform.includes("ipad") || platform.includes("ios")) return "ios";
   if (platform.includes("win")) return "windows";
-  if (platform.includes("mac") || platform.includes("iphone") || platform.includes("ipad")) return "macos";
+  if (platform.includes("mac")) return "macos";
   if (platform.includes("linux")) return "linux";
   return null;
 }
@@ -425,11 +569,25 @@ function detectPlatform() {
 function markRecommendedPlatform() {
   const detected = detectPlatform();
   document.querySelectorAll("[data-platform]").forEach((card) => {
-    const recommended = detected && card.dataset.platform === detected;
+    const unavailable = card.getAttribute("aria-disabled") === "true";
+    const recommended = !unavailable && detected && card.dataset.platform === detected;
     card.classList.toggle("is-recommended", Boolean(recommended));
+    if (unavailable) return;
     const badge = card.querySelector(".platform-badge");
     if (badge) badge.hidden = !recommended;
   });
+}
+
+function findReleaseAsset(key, assets) {
+  if (key === "mac-auto") {
+    const architecture = navigator.userAgentData?.architecture || "";
+    const preferX64 = /x86/i.test(architecture);
+    const preferred = assets.find((item) =>
+      (preferX64 ? /-osx-x64\.tar\.gz$/i : /-osx-arm64\.tar\.gz$/i).test(item.name || ""));
+    if (preferred) return preferred;
+  }
+  const matcher = assetMatchers[key];
+  return matcher ? assets.find((item) => matcher.test(item.name || "")) : undefined;
 }
 
 function renderRelease(release) {
@@ -446,8 +604,8 @@ function renderRelease(release) {
   });
 
   const assets = Array.isArray(release.assets) ? release.assets : [];
-  Object.entries(assetMatchers).forEach(([key, matcher]) => {
-    const asset = assets.find((item) => matcher.test(item.name || ""));
+  Object.entries(assetMatchers).forEach(([key]) => {
+    const asset = findReleaseAsset(key, assets);
     document.querySelectorAll(`[data-download-key="${key}"]`).forEach((link) => {
       const meta = document.querySelector(`[data-file-meta="${key}"]`);
       if (asset?.browser_download_url) {
@@ -471,21 +629,32 @@ function renderRelease(release) {
   });
   applyChangelogLanguage();
 
-  const primary = document.querySelector("[data-primary-download]");
-  if (primary) primary.href = "#platform-downloads";
   setStatus("releaseLoaded");
   resyncHashTarget();
 }
 
+async function fetchRelease(url, options = {}) {
+  const response = await fetch(url, { cache: "no-cache", ...options });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const release = await response.json();
+  if (!release || typeof release !== "object" || !Array.isArray(release.assets)) {
+    throw new Error("Invalid release payload");
+  }
+  return release;
+}
+
 async function loadLatestRelease() {
   try {
-    const response = await fetch(RELEASE_API, {
-      headers: { Accept: "application/vnd.github+json" },
-      cache: "default"
-    });
-    if (!response.ok) throw new Error(`GitHub returned ${response.status}`);
-    const release = await response.json();
-    renderRelease(release);
+    renderRelease(await fetchRelease(SITE_RELEASE_JSON));
+    return;
+  } catch {
+    // Fall back to the GitHub API when the bundled snapshot is missing.
+  }
+
+  try {
+    renderRelease(await fetchRelease(RELEASE_API, {
+      headers: { Accept: "application/vnd.github+json" }
+    }));
   } catch {
     setFallbackLinks();
   }
@@ -536,11 +705,43 @@ function setupQQGroupCopy() {
   });
 }
 
+function setupMembershipRegions() {
+  const tabs = Array.from(document.querySelectorAll("[data-region-tab]"));
+  if (tabs.length === 0) return;
+
+  // Tab pattern: one tab in the Tab order; arrows, Home and End move between tabs.
+  const select = (tab, moveFocus) => {
+    tabs.forEach((item) => {
+      const selected = item === tab;
+      item.setAttribute("aria-selected", String(selected));
+      item.tabIndex = selected ? 0 : -1;
+      const panel = document.getElementById(item.getAttribute("aria-controls"));
+      if (panel) panel.hidden = !selected;
+    });
+    if (moveFocus) tab.focus();
+  };
+
+  tabs.forEach((tab, index) => {
+    tab.addEventListener("click", () => select(tab, false));
+    tab.addEventListener("keydown", (event) => {
+      let next;
+      if (event.key === "ArrowRight") next = tabs[(index + 1) % tabs.length];
+      else if (event.key === "ArrowLeft") next = tabs[(index - 1 + tabs.length) % tabs.length];
+      else if (event.key === "Home") next = tabs[0];
+      else if (event.key === "End") next = tabs[tabs.length - 1];
+      if (!next) return;
+      event.preventDefault();
+      select(next, true);
+    });
+  });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   applyLanguage(getStoredLanguage());
   markRecommendedPlatform();
   setupNavigation();
   setupQQGroupCopy();
+  setupMembershipRegions();
 
   document.querySelector("#language-toggle")?.addEventListener("click", () => {
     applyLanguage(currentLanguage === "en" ? "zh" : "en");

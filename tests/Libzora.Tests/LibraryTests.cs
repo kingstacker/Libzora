@@ -1,0 +1,1281 @@
+using System.IO.Compression;
+using System.Text.Json;
+using Libzora.Core;
+using Libzora.Infrastructure;
+using Microsoft.Data.Sqlite;
+
+namespace Libzora.Tests;
+
+public sealed class LibraryTests
+{
+    [Fact]
+    public async Task GeneratedPdfCoverUpdatesSyncVersion()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            var library = new SqliteBookLibraryService(paths, new BookMetadataService());
+            await library.InitializeAsync();
+            await library.ImportAsync([Libzora.TestFixtures.PdfFixture.Write(root)]);
+            var book = Assert.Single(await library.SearchAsync());
+            await using (var connection = new SqliteConnection($"Data Source={paths.Database}"))
+            {
+                await connection.OpenAsync();
+                using var command = connection.CreateCommand();
+                command.CommandText = "UPDATE Books SET CoverPath=NULL, UpdatedAt='2020-01-01T00:00:00.0000000+00:00';";
+                await command.ExecuteNonQueryAsync();
+            }
+            var before = await library.GetBookAsync(book.Id);
+            var cover = await library.EnsurePdfCoverAsync(book.Id);
+            Assert.NotNull(cover);
+            var after = await library.GetBookAsync(book.Id);
+            Assert.Equal(cover, after!.CoverPath);
+            Assert.True(after.UpdatedAt > before!.UpdatedAt);
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
+    public async Task SummaryCachesReuseStatusOnlyChangesAndInvalidateExternalMetadataWrites()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            var service = new SqliteBookLibraryService(paths, new BookMetadataService());
+            await service.InitializeAsync();
+            var source = Path.Combine(root, "cache.epub");
+            CreateEpub(source);
+            await service.ImportAsync([source]);
+            var filters = await service.GetFilterOptionsAsync();
+            var matches = await service.GetLibraryMatchRecordsAsync();
+            await using var connection = new SqliteConnection($"Data Source={paths.Database}");
+            await connection.OpenAsync();
+            using var command = connection.CreateCommand();
+            command.CommandText = "UPDATE Books SET UpdatedAt='2026-10-14T12:00:00Z';";
+            await command.ExecuteNonQueryAsync();
+            Assert.Same(filters, await service.GetFilterOptionsAsync());
+            Assert.Same(matches, await service.GetLibraryMatchRecordsAsync());
+            command.CommandText = "UPDATE Books SET Authors='External author', Title='External title';";
+            await command.ExecuteNonQueryAsync();
+            Assert.Contains("External author", (await service.GetFilterOptionsAsync()).Authors);
+            Assert.Equal("External title", Assert.Single(await service.GetLibraryMatchRecordsAsync()).Title);
+            command.CommandText = "UPDATE BookFiles SET Sha256='changed';";
+            await command.ExecuteNonQueryAsync();
+            Assert.Equal("changed", Assert.Single(Assert.Single(await service.GetLibraryMatchRecordsAsync()).Files).Sha256);
+            command.CommandText = "DELETE FROM Books;";
+            await command.ExecuteNonQueryAsync();
+            Assert.Empty(await service.GetLibraryMatchRecordsAsync());
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DeletedBookDisplayInfoRetainsTitleAndCoverAfterRestart(bool keepFiles)
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var source = Path.Combine(root, "retained.epub");
+            CreateEpub(source);
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            var library = new SqliteBookLibraryService(paths, new BookMetadataService());
+            await library.InitializeAsync();
+            await library.ImportAsync([source]);
+            var book = Assert.Single(await library.SearchAsync());
+            var cover = Path.Combine(paths.Data, "retained-cover.png");
+            byte[] bytes = [1, 2, 3, 4];
+            await File.WriteAllBytesAsync(cover, bytes);
+            await using (var connection = new SqliteConnection($"Data Source={paths.Database}"))
+            {
+                await connection.OpenAsync();
+                using var update = connection.CreateCommand();
+                update.CommandText = "UPDATE Books SET CoverPath='retained-cover.png' WHERE Id=$id;";
+                update.Parameters.AddWithValue("$id", book.Id.ToString());
+                await update.ExecuteNonQueryAsync();
+            }
+            if (keepFiles) await library.RemoveFromLibraryKeepFilesAsync(book.Id);
+            else await library.DeleteAsync(book.Id);
+            library = new SqliteBookLibraryService(paths, new BookMetadataService());
+            await library.InitializeAsync();
+            var info = (await library.GetBookDisplayInfosAsync([book.Id]))[book.Id];
+            Assert.Equal(book.Title, info.Title);
+            Assert.Equal(bytes, await File.ReadAllBytesAsync(Path.Combine(paths.Data, info.CoverPath!)));
+            if (!keepFiles)
+            {
+                await library.PurgeTrashItemAsync(Assert.Single(await library.GetTrashItemsAsync()).Id);
+                info = (await library.GetBookDisplayInfosAsync([book.Id]))[book.Id];
+                Assert.Equal(book.Title, info.Title);
+                Assert.Equal(bytes, await File.ReadAllBytesAsync(Path.Combine(paths.Data, info.CoverPath!)));
+            }
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
+    public async Task RemovingBookFromLibraryKeepsImportedFilesOnDisk()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var source = Path.Combine(root, "keep.epub");
+            CreateEpub(source);
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            var library = new SqliteBookLibraryService(paths, new BookMetadataService());
+            await library.InitializeAsync();
+            await library.ImportAsync([source]);
+            var book = Assert.Single(await library.SearchAsync());
+            var imported = library.GetAbsoluteFilePath(Assert.Single(book.Files));
+            var cover = book.CoverPath is null ? null : Path.Combine(paths.Data, book.CoverPath);
+
+            await library.RemoveFromLibraryKeepFilesAsync(book.Id);
+
+            Assert.Empty(await library.SearchAsync());
+            Assert.Empty(await library.GetTrashItemsAsync());
+            Assert.True(File.Exists(source));
+            Assert.True(File.Exists(imported));
+            if (cover is not null) Assert.True(File.Exists(cover));
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
+    public async Task CreatesCollectionsAndPersistsDraggedBookMembership()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var source = Path.Combine(root, "collection.epub");
+            CreateEpub(source);
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            var service = new SqliteBookLibraryService(paths, new BookMetadataService());
+            await service.InitializeAsync();
+            await service.ImportAsync([source]);
+            var book = Assert.Single(await service.SearchAsync());
+
+            var uncollected = (await service.GetCollectionsAsync())
+                .Single(collection => collection.Name == BookLibraryDefaults.UncollectedCollectionName);
+            var reading = await service.CreateCollectionAsync("待读");
+            var favorites = await service.CreateCollectionAsync("喜欢的书");
+            await service.AddBookToCollectionAsync(book.Id, reading.Id);
+            await service.AddBookToCollectionAsync(book.Id, favorites.Id);
+
+            var restored = Assert.Single(await service.SearchAsync());
+            Assert.Equal(2, restored.CollectionIds.Count);
+            Assert.DoesNotContain(uncollected.Id, restored.CollectionIds);
+            Assert.Contains(reading.Id, restored.CollectionIds);
+            Assert.Contains(favorites.Id, restored.CollectionIds);
+            Assert.Empty((await service.SearchPageAsync(collectionId: uncollected.Id, pageSize: 20)).Books);
+            Assert.Equal(3, (await service.GetCollectionsAsync()).Count);
+
+            await service.RemoveBookFromCollectionAsync(book.Id, reading.Id);
+            restored = Assert.Single(await service.SearchAsync());
+            Assert.DoesNotContain(uncollected.Id, restored.CollectionIds);
+            Assert.Contains(favorites.Id, restored.CollectionIds);
+            await service.DeleteCollectionAsync(favorites.Id);
+
+            restored = Assert.Single(await service.SearchAsync());
+            Assert.Equal(uncollected.Id, Assert.Single(restored.CollectionIds));
+            Assert.Single((await service.SearchPageAsync(collectionId: uncollected.Id, pageSize: 20)).Books);
+            Assert.Equal(2, (await service.GetCollectionsAsync()).Count);
+            Assert.Contains(uncollected.Id, (await service.GetCollectionsAsync()).Select(collection => collection.Id));
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
+    public async Task DefaultUncollectedCollectionReceivesImportedBooks()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var first = Path.Combine(root, "first.epub");
+            var second = Path.Combine(root, "second.epub");
+            CreateEpub(first, "first", "第一本");
+            CreateEpub(second, "second", "第二本");
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            var service = new SqliteBookLibraryService(paths, new BookMetadataService());
+            await service.InitializeAsync();
+
+            var uncollected = Assert.Single(await service.GetCollectionsAsync());
+            Assert.Equal(BookLibraryDefaults.UncollectedCollectionName, uncollected.Name);
+
+            await service.ImportAsync([first, second]);
+            var books = await service.SearchAsync();
+            Assert.Equal(2, books.Count);
+            Assert.All(books, book => Assert.Contains(uncollected.Id, book.CollectionIds));
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
+    public async Task MergesCollectionsIntoTargetAndPreservesOtherMemberships()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var first = Path.Combine(root, "first.epub");
+            var second = Path.Combine(root, "second.epub");
+            CreateEpub(first, "first", "第一本");
+            CreateEpub(second, "second", "第二本");
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            var service = new SqliteBookLibraryService(paths, new BookMetadataService());
+            await service.InitializeAsync();
+            await service.ImportAsync([first, second]);
+
+            var books = (await service.SearchAsync()).OrderBy(book => book.Title).ToArray();
+            var source = await service.CreateCollectionAsync("待读");
+            var target = await service.CreateCollectionAsync("喜欢的书");
+            var other = await service.CreateCollectionAsync("稍后阅读");
+            await service.AddBookToCollectionAsync(books[0].Id, source.Id);
+            await service.AddBookToCollectionAsync(books[1].Id, source.Id);
+            await service.AddBookToCollectionAsync(books[0].Id, target.Id);
+            await service.AddBookToCollectionAsync(books[1].Id, other.Id);
+
+            await service.MergeCollectionsAsync(source.Id, target.Id);
+
+            var collections = await service.GetCollectionsAsync();
+            Assert.DoesNotContain(source.Id, collections.Select(collection => collection.Id));
+            Assert.Contains(target.Id, collections.Select(collection => collection.Id));
+            var restored = (await service.SearchAsync()).OrderBy(book => book.Title).ToArray();
+            Assert.Contains(target.Id, restored[0].CollectionIds);
+            Assert.Contains(target.Id, restored[1].CollectionIds);
+            Assert.Contains(other.Id, restored[1].CollectionIds);
+            var uncollected = collections.Single(collection =>
+                collection.Name == BookLibraryDefaults.UncollectedCollectionName);
+            Assert.DoesNotContain(uncollected.Id, restored.SelectMany(book => book.CollectionIds));
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
+    public async Task RenamesAndClearsCollectionWithoutBreakingOtherMemberships()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var first = Path.Combine(root, "first.epub");
+            var second = Path.Combine(root, "second.epub");
+            CreateEpub(first, "first", "第一本");
+            CreateEpub(second, "second", "第二本");
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            var service = new SqliteBookLibraryService(paths, new BookMetadataService());
+            await service.InitializeAsync();
+            await service.ImportAsync([first, second]);
+
+            var books = (await service.SearchAsync()).OrderBy(book => book.Title).ToArray();
+            var source = await service.CreateCollectionAsync("待读");
+            var other = await service.CreateCollectionAsync("稍后阅读");
+            await service.AddBookToCollectionAsync(books[0].Id, source.Id);
+            await service.AddBookToCollectionAsync(books[1].Id, source.Id);
+            await service.AddBookToCollectionAsync(books[1].Id, other.Id);
+
+            await service.RenameCollectionAsync(source.Id, "正在阅读");
+            Assert.Contains((await service.GetCollectionsAsync()), collection =>
+                collection.Id == source.Id && collection.Name == "正在阅读");
+
+            await service.ClearCollectionAsync(source.Id);
+
+            var collections = await service.GetCollectionsAsync();
+            Assert.Contains(source.Id, collections.Select(collection => collection.Id));
+            var uncollected = collections.Single(collection =>
+                collection.Name == BookLibraryDefaults.UncollectedCollectionName);
+            var restored = (await service.SearchAsync()).OrderBy(book => book.Title).ToArray();
+            Assert.Equal([uncollected.Id], restored[0].CollectionIds);
+            Assert.Contains(other.Id, restored[1].CollectionIds);
+            Assert.DoesNotContain(uncollected.Id, restored[1].CollectionIds);
+            Assert.DoesNotContain(source.Id, restored.SelectMany(book => book.CollectionIds));
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
+    public async Task RenamesBookAndGeneratedVariantFilesAsOneOperation()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var source = Path.Combine(root, "原书.epub");
+            var pinyin = Path.Combine(root, "原书_pinyin.epub");
+            var translated = Path.Combine(root, "原书_单译版.epub");
+            CreateEpub(source, "source", "原书");
+            CreateEpub(pinyin, "pinyin", "原书");
+            CreateEpub(translated, "translated", "原书");
+
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            var service = new SqliteBookLibraryService(paths, new BookMetadataService());
+            await service.InitializeAsync();
+            await service.ImportAsync([source, pinyin, translated]);
+            var book = Assert.Single(await service.SearchAsync());
+            var previousPaths = book.Files.Select(file => service.GetAbsoluteFilePath(file)).ToArray();
+
+            await service.RenameBookAsync(book.Id, "新书名");
+
+            var renamed = Assert.Single(await service.SearchAsync());
+            Assert.Equal("新书名", renamed.Title);
+            var names = renamed.Files
+                .Select(file => Path.GetFileName(file.RelativePath))
+                .Order(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            Assert.Equal(["新书名.epub", "新书名_pinyin.epub", "新书名_单译版.epub"], names);
+            Assert.All(renamed.Files, file => Assert.True(File.Exists(service.GetAbsoluteFilePath(file))));
+            Assert.All(previousPaths, path => Assert.False(File.Exists(path)));
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
+    public async Task ExistingDefaultMembershipsAreNormalizedWhenLibraryReopens()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var source = Path.Combine(root, "legacy-collection.epub");
+            CreateEpub(source);
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            var service = new SqliteBookLibraryService(paths, new BookMetadataService());
+            await service.InitializeAsync();
+            await service.ImportAsync([source]);
+            var book = Assert.Single(await service.SearchAsync());
+            var uncollected = (await service.GetCollectionsAsync())
+                .Single(collection => collection.Name == BookLibraryDefaults.UncollectedCollectionName);
+            var custom = await service.CreateCollectionAsync("旧收藏夹");
+            await service.AddBookToCollectionAsync(book.Id, custom.Id);
+
+            await using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+            {
+                DataSource = paths.Database
+            }.ToString()))
+            {
+                await connection.OpenAsync();
+                var command = connection.CreateCommand();
+                command.CommandText = """
+                    INSERT OR IGNORE INTO BookCollectionItems (CollectionId, BookId, AddedAt)
+                    VALUES ($collectionId, $bookId, $addedAt);
+                    """;
+                command.Parameters.AddWithValue("$collectionId", uncollected.Id.ToString());
+                command.Parameters.AddWithValue("$bookId", book.Id.ToString());
+                command.Parameters.AddWithValue("$addedAt", DateTimeOffset.UtcNow.ToString("O"));
+                await command.ExecuteNonQueryAsync();
+            }
+
+            var reopened = new SqliteBookLibraryService(paths, new BookMetadataService());
+            await reopened.InitializeAsync();
+            var normalized = Assert.Single(await reopened.SearchAsync());
+            Assert.Equal([custom.Id], normalized.CollectionIds);
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
+    public async Task RejectsDuplicateCollectionNamesIgnoringCase()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            var service = new SqliteBookLibraryService(paths, new BookMetadataService());
+            await service.InitializeAsync();
+            await service.CreateCollectionAsync("Science");
+
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                service.CreateCollectionAsync(" science "));
+
+            Assert.Contains("同名收藏夹", exception.Message);
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
+    public void PlansDefaultReaderFormatsFromImportedFormat()
+    {
+        Assert.Equal(
+            ["azw3"],
+            BookFormatConversionPolicy.GetMissingDefaultReaderFormats(
+                [new BookFile { Format = "epub" }]));
+        Assert.Equal(
+            ["epub"],
+            BookFormatConversionPolicy.GetMissingDefaultReaderFormats(
+                [new BookFile { Format = "azw3" }]));
+        Assert.Equal(
+            ["epub", "azw3"],
+            BookFormatConversionPolicy.GetMissingDefaultReaderFormats(
+                [new BookFile { Format = "mobi" }]));
+        Assert.Empty(BookFormatConversionPolicy.GetMissingDefaultReaderFormats(
+            [new BookFile { Format = "epub" }, new BookFile { Format = "azw3" }]));
+    }
+
+    [Fact]
+    public async Task ImportsEpubMetadataCoverAndAvoidsDuplicateHash()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var source = Path.Combine(root, "纸上书.epub");
+            CreateEpub(source);
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            var service = new SqliteBookLibraryService(paths, new BookMetadataService());
+            await service.InitializeAsync();
+
+            var first = await service.ImportAsync([source]);
+            var second = await service.ImportAsync([source]);
+            var books = await service.SearchAsync();
+
+            Assert.Equal(1, first.SuccessCount);
+            Assert.Equal(1, second.SuccessCount);
+            Assert.Equal(1, first.AddedCount);
+            Assert.Equal(0, first.SkippedCount);
+            Assert.Equal(0, second.AddedCount);
+            Assert.Equal(1, second.SkippedCount);
+            Assert.True(Assert.Single(first.Items).Added);
+            Assert.False(Assert.Single(second.Items).Added);
+            Assert.Contains("已在书库中，已跳过重复文件", Assert.Single(second.Items).Message, StringComparison.Ordinal);
+            Assert.Single(books);
+            Assert.Equal("测试书", books[0].Title);
+            Assert.Equal("测试作者", books[0].Authors);
+            Assert.Equal("一本测试用书", books[0].Description);
+            Assert.Single(books[0].Files);
+            Assert.Equal("纸上书.epub", Path.GetFileName(books[0].Files[0].RelativePath));
+            Assert.NotNull(books[0].CoverPath);
+            Assert.True(File.Exists(service.GetAbsoluteFilePath(books[0].Files[0])));
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
+    public async Task SearchMatchesTitleAndTags()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var source = Path.Combine(root, "search.epub");
+            CreateEpub(source);
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            var service = new SqliteBookLibraryService(paths, new BookMetadataService());
+            await service.InitializeAsync();
+            var imported = await service.ImportAsync([source]);
+            var book = (await service.SearchAsync()).Single();
+            book.Tags = "阅读,测试";
+            await service.UpdateMetadataAsync(book);
+
+            Assert.Single(await service.SearchAsync("测试"));
+            Assert.Empty(await service.SearchAsync("不存在"));
+            Assert.Equal(1, imported.SuccessCount);
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
+    public async Task PagedLibrarySearchMatchesPinyinAndInitials()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var first = Path.Combine(root, "first.epub");
+            var second = Path.Combine(root, "second.epub");
+            var third = Path.Combine(root, "third.epub");
+            CreateEpub(first, "first", "第一本");
+            CreateEpub(second, "second", "第二本");
+            CreateEpub(third, "third", "English Grammar");
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            var service = new SqliteBookLibraryService(paths, new BookMetadataService());
+            await service.InitializeAsync();
+            await service.ImportAsync([first, second, third]);
+
+            Assert.Empty(await service.SearchAsync("maozedongxuanji"));
+            var books = await service.SearchAsync();
+            var selected = books.Single(book => book.Title == "第一本");
+            selected.Title = "毛泽东选集";
+            selected.Authors = "毛泽东";
+            await service.UpdateMetadataAsync(selected);
+            var contradiction = books.Single(book => book.Title == "第二本");
+            contradiction.Title = "矛盾论";
+            contradiction.Authors = "毛泽东";
+            await service.UpdateMetadataAsync(contradiction);
+
+            var fullPinyin = await service.SearchPageAsync(
+                query: "mao ze dong xuan ji",
+                pageSize: 1);
+            Assert.Equal(1, fullPinyin.TotalCount);
+            Assert.Equal("毛泽东选集", Assert.Single(fullPinyin.Books).Title);
+
+            var initialsFirstPage = await service.SearchPageAsync(
+                query: "mzd",
+                pageIndex: 0,
+                pageSize: 1);
+            var initialsSecondPage = await service.SearchPageAsync(
+                query: "mzd",
+                pageIndex: 1,
+                pageSize: 1);
+            Assert.Equal(2, initialsFirstPage.TotalCount);
+            Assert.Single(initialsFirstPage.Books);
+            Assert.Equal(2, initialsSecondPage.TotalCount);
+            Assert.Single(initialsSecondPage.Books);
+            Assert.NotEqual(
+                initialsFirstPage.Books[0].Id,
+                initialsSecondPage.Books[0].Id);
+
+            Assert.Equal("毛泽东选集", Assert.Single(await service.SearchAsync("MZDXJ")).Title);
+            Assert.Equal(2, (await service.SearchAsync("maozedong")).Count);
+            Assert.Equal("English Grammar", Assert.Single((await service.SearchPageAsync("grammar")).Books).Title);
+            Assert.Empty(await service.SearchAsync("zhangjuzheng"));
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
+    public async Task PagedLibraryQueriesKeepFilteringAndCollectionCountsInSqlite()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var source = Path.Combine(root, "paged.epub");
+            CreateEpub(source);
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            var service = new SqliteBookLibraryService(paths, new BookMetadataService());
+            await service.InitializeAsync();
+            await service.ImportAsync([source]);
+            var book = Assert.Single(await service.SearchAsync());
+            book.Tags = "阅读,测试";
+            await service.UpdateMetadataAsync(book);
+
+            Assert.Equal(1, await service.GetBookCountAsync());
+            var page = await service.SearchPageAsync(
+                query: "测试",
+                author: "测试作者",
+                tag: "阅读",
+                format: "epub",
+                pageSize: 1);
+            var result = Assert.Single(page.Books);
+            Assert.Equal(1, page.TotalCount);
+            Assert.Equal(book.Id, result.Id);
+
+            var options = await service.GetFilterOptionsAsync();
+            Assert.Contains("测试作者", options.Authors);
+            Assert.Contains("阅读", options.Tags);
+            Assert.Contains("EPUB", options.Formats);
+
+            var collection = Assert.Single(await service.GetCollectionsAsync());
+            var summaries = await service.GetCollectionSummariesAsync();
+            var summary = Assert.Single(summaries);
+            Assert.Equal(collection.Id, summary.Collection.Id);
+            Assert.Equal(1, summary.BookCount);
+
+            var match = Assert.Single(await service.GetLibraryMatchRecordsAsync());
+            Assert.Equal(book.Id, match.Id);
+            Assert.Contains(match.Files, file => file.Sha256 == book.Files[0].Sha256);
+            Assert.Equal(book.Title, (await service.GetBookTitlesAsync([book.Id]))[book.Id]);
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
+    public async Task AddsConvertedFormatToExistingBookWithoutCreatingDuplicateBook()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var source = Path.Combine(root, "原书.epub");
+            CreateEpub(source);
+            var converted = Path.Combine(root, "测试书.pdf");
+            await File.WriteAllBytesAsync(converted, [1, 2, 3, 4]);
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            var service = new SqliteBookLibraryService(paths, new BookMetadataService());
+            await service.InitializeAsync();
+            await service.ImportAsync([source]);
+            var book = Assert.Single(await service.SearchAsync());
+
+            var added = await service.AddFileToBookAsync(book.Id, converted);
+            var books = await service.SearchAsync();
+
+            Assert.Equal(book.Id, added.BookId);
+            Assert.Single(books);
+            Assert.Equal(2, books[0].Files.Count);
+            Assert.Contains(books[0].Files, file => file.Format == "pdf");
+            Assert.All(books[0].Files, file => Assert.True(File.Exists(service.GetAbsoluteFilePath(file))));
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
+    public async Task DeletesOnlySelectedFormatAndRemovesBookAfterLastFormat()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var source = Path.Combine(root, "原书.epub");
+            CreateEpub(source);
+            var converted = Path.Combine(root, "原书.pdf");
+            await File.WriteAllBytesAsync(converted, [1, 2, 3, 4]);
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            var service = new SqliteBookLibraryService(paths, new BookMetadataService());
+            await service.InitializeAsync();
+            await service.ImportAsync([source]);
+            var book = Assert.Single(await service.SearchAsync());
+            var pdf = await service.AddFileToBookAsync(book.Id, converted);
+            var pdfPath = service.GetAbsoluteFilePath(pdf);
+
+            await service.DeleteFileAsync(book.Id, pdf.Id);
+
+            var remaining = Assert.Single(await service.SearchAsync());
+            Assert.Single(remaining.Files);
+            Assert.Equal("epub", remaining.Files[0].Format);
+            Assert.False(File.Exists(pdfPath));
+
+            var epub = remaining.Files[0];
+            var epubPath = service.GetAbsoluteFilePath(epub);
+            await service.DeleteFileAsync(remaining.Id, epub.Id);
+
+            Assert.Empty(await service.SearchAsync());
+            Assert.False(File.Exists(epubPath));
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
+    public async Task BookAnnotationsRemainRecoverableAfterTrashIsPurgedByDefault()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var source = Path.Combine(root, "带批注.epub");
+            CreateEpub(source);
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            var library = new SqliteBookLibraryService(paths, new BookMetadataService());
+            await library.InitializeAsync();
+            await library.ImportAsync([source]);
+            var book = Assert.Single(await library.SearchAsync());
+
+            var reader = new ReaderDataService(paths);
+            await reader.InitializeAsync();
+            var annotation = new ReaderAnnotation
+            {
+                BookId = book.Id,
+                BookFileId = book.Files[0].Id,
+                ChapterPath = "chapter.xhtml",
+                SelectedText = "删除书籍后保留的内容",
+                Note = "保留批注供笔记管理继续使用。",
+                EndOffset = 8
+            };
+            await reader.SaveAnnotationAsync(annotation);
+            Assert.Single(await reader.GetAllAnnotationsAsync());
+
+            await library.DeleteAsync(book.Id);
+            var trash = Assert.Single(await library.GetTrashItemsAsync());
+            Assert.Equal(annotation.Id, Assert.Single(await reader.GetAllAnnotationsAsync()).Id);
+
+            await library.RestoreTrashItemAsync(trash.Id);
+            Assert.Equal(annotation.Id, Assert.Single(await reader.GetAllAnnotationsAsync()).Id);
+
+            await library.DeleteAsync(book.Id);
+            trash = Assert.Single(await library.GetTrashItemsAsync());
+            await library.PurgeTrashItemAsync(trash.Id);
+            Assert.Equal(annotation.Id, Assert.Single(await reader.GetAllAnnotationsAsync()).Id);
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
+    public async Task ReinitializingReaderDataPreservesAnnotationsForRemovedBooks()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            var library = new SqliteBookLibraryService(paths, new BookMetadataService());
+            await library.InitializeAsync();
+            var reader = new ReaderDataService(paths);
+            await reader.InitializeAsync();
+            await reader.SaveAnnotationAsync(new ReaderAnnotation
+            {
+                BookId = Guid.NewGuid(),
+                BookFileId = Guid.NewGuid(),
+                ChapterPath = "orphan.xhtml",
+                SelectedText = "历史孤儿记录",
+                EndOffset = 6
+            });
+            Assert.Single(await reader.GetAllAnnotationsAsync());
+
+            await reader.InitializeAsync();
+
+            Assert.Single(await reader.GetAllAnnotationsAsync());
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
+    public async Task ReinitializingReaderDataPreservesAnnotationsForMissingFilesOfExistingBooks()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var source = Path.Combine(root, "existing.epub");
+            CreateEpub(source);
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            var library = new SqliteBookLibraryService(paths, new BookMetadataService());
+            await library.InitializeAsync();
+            await library.ImportAsync([source]);
+            var book = Assert.Single(await library.SearchAsync());
+            var reader = new ReaderDataService(paths);
+            await reader.InitializeAsync();
+            await reader.SaveAnnotationAsync(new ReaderAnnotation
+            {
+                BookId = book.Id,
+                BookFileId = Guid.NewGuid(),
+                ChapterPath = "missing.xhtml",
+                SelectedText = "失效格式批注",
+                EndOffset = 6
+            });
+            Assert.Single(await reader.GetAllAnnotationsAsync());
+            await reader.InitializeAsync();
+            Assert.Single(await reader.GetAllAnnotationsAsync());
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
+    public async Task BatchImportReportsMetadataFailureAndContinuesWithOtherFiles()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var broken = Path.Combine(root, "损坏.epub");
+            var valid = Path.Combine(root, "正常.epub");
+            CreateEpub(broken, "broken");
+            CreateEpub(valid, "valid");
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            var metadata = new SelectiveFailureMetadataService("损坏.epub", new BookMetadataService());
+            var service = new SqliteBookLibraryService(paths, metadata);
+            await service.InitializeAsync();
+
+            var result = await service.ImportAsync([broken, valid]);
+            var book = Assert.Single(await service.SearchAsync());
+
+            Assert.Equal(1, result.SuccessCount);
+            Assert.Equal(1, result.FailureCount);
+            Assert.Contains(result.Items, item => item.SourcePath == broken && !item.Succeeded);
+            Assert.Contains(result.Items, item => item.SourcePath == valid && item.Succeeded);
+            Assert.Equal("测试书", book.Title);
+            Assert.Empty(Directory.EnumerateFiles(paths.Library, "*.part", SearchOption.AllDirectories));
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
+    public async Task SameBookWithSameSourceNameKeepsBothFilesUsingNumberedName()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var firstDirectory = Path.Combine(root, "first");
+            var secondDirectory = Path.Combine(root, "second");
+            Directory.CreateDirectory(firstDirectory);
+            Directory.CreateDirectory(secondDirectory);
+            var first = Path.Combine(firstDirectory, "同名.epub");
+            var second = Path.Combine(secondDirectory, "同名.epub");
+            CreateEpub(first, "first");
+            CreateEpub(second, "second");
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            var service = new SqliteBookLibraryService(paths, new BookMetadataService());
+            await service.InitializeAsync();
+
+            var result = await service.ImportAsync([first, second]);
+            var book = Assert.Single(await service.SearchAsync());
+            var importedNames = book.Files
+                .Select(file => Path.GetFileName(file.RelativePath))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            Assert.Equal(2, result.SuccessCount);
+            Assert.Equal(2, book.Files.Count);
+            Assert.Contains("同名.epub", importedNames);
+            Assert.Contains("同名 (2).epub", importedNames);
+            Assert.All(book.Files, file => Assert.True(File.Exists(service.GetAbsoluteFilePath(file))));
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
+    public async Task ImportConflictResolverCanKeepSameTitleAsSeparateEdition()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var first = Path.Combine(root, "first.epub");
+            var second = Path.Combine(root, "second.epub");
+            CreateEpub(first, "first");
+            CreateEpub(second, "second");
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            var service = new SqliteBookLibraryService(paths, new BookMetadataService());
+            await service.InitializeAsync();
+            await service.ImportAsync([first]);
+
+            var seen = new List<ImportBookConflict>();
+            var result = await service.ImportAsync(
+                [second],
+                conflictResolver: conflict =>
+                {
+                    seen.Add(conflict);
+                    return Task.FromResult(ImportConflictResolution.KeepSeparate);
+                });
+
+            Assert.Single(seen);
+            Assert.Equal("second.epub", Path.GetFileName(seen[0].SourcePath));
+            Assert.Equal(1, result.SuccessCount);
+            Assert.Equal(2, (await service.SearchAsync()).Count);
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
+    public async Task DeletedBookAndFormatCanBeRestoredFromTrash()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var source = Path.Combine(root, "原书.epub");
+            CreateEpub(source);
+            var converted = Path.Combine(root, "原书.pdf");
+            await File.WriteAllBytesAsync(converted, [1, 2, 3, 4]);
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            var service = new SqliteBookLibraryService(paths, new BookMetadataService());
+            await service.InitializeAsync();
+            await service.ImportAsync([source]);
+            var book = Assert.Single(await service.SearchAsync());
+            var pdf = await service.AddFileToBookAsync(book.Id, converted);
+            var pdfPath = service.GetAbsoluteFilePath(pdf);
+            var coverPath = Path.Combine(paths.Data, book.CoverPath!);
+
+            await service.DeleteFileAsync(book.Id, pdf.Id);
+            var formatTrash = Assert.Single(await service.GetTrashItemsAsync());
+            Assert.Equal(LibraryTrashItemKind.File, formatTrash.Kind);
+            Assert.False(File.Exists(pdfPath));
+            await service.RestoreTrashItemAsync(formatTrash.Id);
+            var restoredWithFormat = Assert.Single(await service.SearchAsync());
+            Assert.Equal(2, restoredWithFormat.Files.Count);
+            Assert.True(File.Exists(service.GetAbsoluteFilePath(
+                restoredWithFormat.Files.Single(file => file.Id == pdf.Id))));
+
+            var epubPath = service.GetAbsoluteFilePath(restoredWithFormat.Files.Single(file => file.Format == "epub"));
+            await service.DeleteAsync(restoredWithFormat.Id);
+            var bookTrash = Assert.Single(await service.GetTrashItemsAsync());
+            Assert.Equal(LibraryTrashItemKind.Book, bookTrash.Kind);
+            Assert.Empty(await service.SearchAsync());
+            Assert.False(File.Exists(epubPath));
+            Assert.False(File.Exists(coverPath));
+
+            await service.RestoreTrashItemAsync(bookTrash.Id);
+            var restoredBook = Assert.Single(await service.SearchAsync());
+            Assert.Equal(book.Id, restoredBook.Id);
+            Assert.Equal(2, restoredBook.Files.Count);
+            Assert.All(restoredBook.Files, file => Assert.True(File.Exists(service.GetAbsoluteFilePath(file))));
+            Assert.True(File.Exists(coverPath));
+            Assert.Empty(await service.GetTrashItemsAsync());
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
+    public async Task PurgingTrashItemRemovesItsManagedContent()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var source = Path.Combine(root, "清理.epub");
+            CreateEpub(source);
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            var service = new SqliteBookLibraryService(paths, new BookMetadataService());
+            await service.InitializeAsync();
+            await service.ImportAsync([source]);
+            var book = Assert.Single(await service.SearchAsync());
+            await service.DeleteAsync(book.Id);
+            var trash = Assert.Single(await service.GetTrashItemsAsync());
+
+            await service.PurgeTrashItemAsync(trash.Id);
+
+            Assert.Empty(await service.GetTrashItemsAsync());
+            Assert.Empty(Directory.EnumerateFiles(paths.Trash, "*", SearchOption.AllDirectories));
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
+    public async Task RestoreFailureKeepsBookAndCoverInTrashAndCanBeRetried()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var source = Path.Combine(root, "恢复失败.epub");
+            CreateEpub(source);
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            var service = new SqliteBookLibraryService(paths, new BookMetadataService());
+            await service.InitializeAsync();
+            await service.ImportAsync([source]);
+            var book = Assert.Single(await service.SearchAsync());
+            await service.DeleteAsync(book.Id);
+            var trash = Assert.Single(await service.GetTrashItemsAsync());
+            var pathsInTrash = await ReadTrashPathsAsync(paths, trash.Id);
+            var trashBody = ResolveDataPath(paths, pathsInTrash.TrashPath);
+            var originalBody = ResolveDataPath(paths, pathsInTrash.OriginalPath);
+            var trashCover = pathsInTrash.TrashCoverPath is null
+                ? null
+                : ResolveDataPath(paths, pathsInTrash.TrashCoverPath);
+            var originalCover = pathsInTrash.OriginalCoverPath is null
+                ? null
+                : ResolveDataPath(paths, pathsInTrash.OriginalCoverPath);
+            Assert.True(PathExists(trashBody));
+            Assert.NotNull(trashCover);
+            Assert.True(PathExists(trashCover));
+
+            await ExecuteSqlAsync(
+                paths.Database,
+                """
+                CREATE TRIGGER BlockBookRestore BEFORE INSERT ON Books
+                BEGIN
+                    SELECT RAISE(FAIL, 'restore blocked');
+                END;
+                """);
+
+            await Assert.ThrowsAsync<SqliteException>(() => service.RestoreTrashItemAsync(trash.Id));
+
+            Assert.Empty(await service.SearchAsync());
+            Assert.Single(await service.GetTrashItemsAsync());
+            Assert.True(PathExists(trashBody));
+            Assert.True(PathExists(trashCover));
+            Assert.False(PathExists(originalBody));
+            Assert.False(PathExists(originalCover));
+
+            await ExecuteSqlAsync(paths.Database, "DROP TRIGGER BlockBookRestore;");
+            await service.RestoreTrashItemAsync(trash.Id);
+
+            Assert.Single(await service.SearchAsync());
+            Assert.Empty(await service.GetTrashItemsAsync());
+            Assert.True(PathExists(originalBody));
+            Assert.True(PathExists(originalCover));
+            Assert.False(PathExists(trashBody));
+            Assert.False(PathExists(trashCover));
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
+    public async Task PurgeDatabaseFailureRestoresStagedContentAndCanBeRetried()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var source = Path.Combine(root, "清理失败.epub");
+            CreateEpub(source);
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            var service = new SqliteBookLibraryService(paths, new BookMetadataService());
+            await service.InitializeAsync();
+            await service.ImportAsync([source]);
+            var book = Assert.Single(await service.SearchAsync());
+            await service.DeleteAsync(book.Id);
+            var trash = Assert.Single(await service.GetTrashItemsAsync());
+            var pathsInTrash = await ReadTrashPathsAsync(paths, trash.Id);
+            var trashBody = ResolveDataPath(paths, pathsInTrash.TrashPath);
+            var trashCover = pathsInTrash.TrashCoverPath is null
+                ? null
+                : ResolveDataPath(paths, pathsInTrash.TrashCoverPath);
+
+            await ExecuteSqlAsync(
+                paths.Database,
+                """
+                CREATE TRIGGER BlockTrashPurge BEFORE DELETE ON LibraryTrash
+                BEGIN
+                    SELECT RAISE(FAIL, 'purge blocked');
+                END;
+                """);
+
+            await Assert.ThrowsAsync<SqliteException>(() => service.PurgeTrashItemAsync(trash.Id));
+
+            Assert.Single(await service.GetTrashItemsAsync());
+            Assert.True(PathExists(trashBody));
+            Assert.True(PathExists(trashCover));
+            Assert.False(Directory.Exists(Path.Combine(
+                paths.Trash,
+                SqliteBookLibraryService.PurgeStagingFolderName,
+                trash.Id.ToString("N"))));
+
+            await ExecuteSqlAsync(paths.Database, "DROP TRIGGER BlockTrashPurge;");
+            await service.PurgeTrashItemAsync(trash.Id);
+
+            Assert.Empty(await service.GetTrashItemsAsync());
+            Assert.False(PathExists(trashBody));
+            Assert.False(PathExists(trashCover));
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
+    public async Task StartupRestoresInterruptedPurgeWhenTrashRowStillExists()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var source = Path.Combine(root, "启动恢复.epub");
+            CreateEpub(source);
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            var service = new SqliteBookLibraryService(paths, new BookMetadataService());
+            await service.InitializeAsync();
+            await service.ImportAsync([source]);
+            var book = Assert.Single(await service.SearchAsync());
+            await service.DeleteAsync(book.Id);
+            var trash = Assert.Single(await service.GetTrashItemsAsync());
+            var pathsInTrash = await ReadTrashPathsAsync(paths, trash.Id);
+            var trashBody = ResolveDataPath(paths, pathsInTrash.TrashPath);
+            var trashCover = pathsInTrash.TrashCoverPath is null
+                ? null
+                : ResolveDataPath(paths, pathsInTrash.TrashCoverPath);
+            var staging = Path.Combine(
+                paths.Trash,
+                SqliteBookLibraryService.PurgeStagingFolderName,
+                trash.Id.ToString("N"));
+            Directory.CreateDirectory(staging);
+            var stagedBody = Path.Combine(staging, SqliteBookLibraryService.PurgeBodyFileName);
+            Directory.Move(trashBody, stagedBody);
+            var stagedCover = Path.Combine(
+                staging,
+                SqliteBookLibraryService.PurgeCoverFilePrefix + Path.GetExtension(trashCover));
+            File.Move(trashCover!, stagedCover);
+            await File.WriteAllTextAsync(
+                Path.Combine(staging, SqliteBookLibraryService.PurgeManifestFileName),
+                JsonSerializer.Serialize(new LibraryTrashPurgeManifest
+                {
+                    TrashItemId = trash.Id,
+                    TrashPath = pathsInTrash.TrashPath,
+                    TrashCoverPath = pathsInTrash.TrashCoverPath
+                }));
+
+            var recovered = new SqliteBookLibraryService(paths, new BookMetadataService());
+            await recovered.InitializeAsync();
+
+            Assert.True(PathExists(trashBody));
+            Assert.True(PathExists(trashCover));
+            Assert.False(Directory.Exists(staging));
+            Assert.Single(await recovered.GetTrashItemsAsync());
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
+    public async Task StartupDeletesInterruptedPurgeAfterTrashRowWasCommitted()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            var service = new SqliteBookLibraryService(paths, new BookMetadataService());
+            await service.InitializeAsync();
+            var trashId = Guid.NewGuid();
+            var staging = Path.Combine(
+                paths.Trash,
+                SqliteBookLibraryService.PurgeStagingFolderName,
+                trashId.ToString("N"));
+            Directory.CreateDirectory(staging);
+            await File.WriteAllTextAsync(
+                Path.Combine(staging, SqliteBookLibraryService.PurgeBodyFileName),
+                "already committed");
+            await File.WriteAllTextAsync(
+                Path.Combine(staging, SqliteBookLibraryService.PurgeManifestFileName),
+                JsonSerializer.Serialize(new LibraryTrashPurgeManifest
+                {
+                    TrashItemId = trashId,
+                    TrashPath = Path.Combine("trash", "books", trashId.ToString("N"))
+                }));
+
+            var recovered = new SqliteBookLibraryService(paths, new BookMetadataService());
+            await recovered.InitializeAsync();
+
+            Assert.False(Directory.Exists(staging));
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
+    public async Task CancellationCleansPartialImportAndLeavesLibraryEmpty()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var source = Path.Combine(root, "取消导入.pdf");
+            await File.WriteAllBytesAsync(source, new byte[8 * 1024 * 1024]);
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            var service = new SqliteBookLibraryService(paths, new BookMetadataService());
+            await service.InitializeAsync();
+            using var cancellation = new CancellationTokenSource();
+            var progress = new TestHelpers.InlineProgress<TransferProgress>(_ => cancellation.Cancel());
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                service.ImportAsync([source], progress, cancellation.Token));
+
+            Assert.Empty(await service.SearchAsync());
+            Assert.Empty(Directory.EnumerateFiles(paths.Library, "*.part", SearchOption.AllDirectories));
+            Assert.Empty(Directory.EnumerateFiles(paths.Library, "*", SearchOption.AllDirectories));
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
+    public void RejectsBookFilePathOutsideManagedDataDirectory()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            var service = new SqliteBookLibraryService(paths, new BookMetadataService());
+            var outside = Path.Combine(root, "outside.epub");
+            var relativeOutsidePath = Path.GetRelativePath(paths.Data, outside);
+
+            Assert.Throws<InvalidOperationException>(() =>
+                service.GetAbsoluteFilePath(new BookFile { RelativePath = relativeOutsidePath }));
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
+    public async Task FallbackMetadataCleansTrailingHash()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var source = Path.Combine(root, "纸上作品_0123456789ABCDEF0123456789ABCDEF.pdf");
+            await File.WriteAllTextAsync(source, "not a parsed PDF");
+
+            var metadata = await new BookMetadataService().ReadMetadataAsync(source);
+
+            Assert.Equal("纸上作品", metadata.Title);
+            Assert.Equal("未知作者", metadata.Authors);
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FailedFileInsertRollsBackBookMetadataAndCopiedFiles(bool existingBook)
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            var library = new SqliteBookLibraryService(paths, new BookMetadataService());
+            await library.InitializeAsync();
+            Book? original = null;
+            if (existingBook)
+            {
+                var previous = Path.Combine(root, "previous.epub");
+                CreateEpub(previous, uniqueMarker: "previous");
+                await library.ImportAsync([previous]);
+                original = Assert.Single(await library.SearchAsync());
+            }
+            using var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = paths.Database }.ToString());
+            await connection.OpenAsync();
+            using var trigger = connection.CreateCommand();
+            trigger.CommandText = """
+                CREATE TRIGGER FailImportFile BEFORE INSERT ON BookFiles
+                BEGIN SELECT RAISE(ABORT, 'Simulated file insert failure'); END;
+                """;
+            await trigger.ExecuteNonQueryAsync();
+            var source = Path.Combine(root, "new.epub");
+            CreateEpub(source, uniqueMarker: "incoming");
+
+            var result = await library.ImportAsync([source]);
+
+            Assert.False(Assert.Single(result.Items).Succeeded);
+            var books = await library.SearchAsync();
+            if (original is null)
+                Assert.Empty(books);
+            else
+            {
+                var restored = Assert.Single(books);
+                Assert.Equal(original.Id, restored.Id);
+                Assert.Equal(original.UpdatedAt, restored.UpdatedAt);
+                Assert.Equal(original.Files[0].Id, Assert.Single(restored.Files).Id);
+                Assert.True(File.Exists(library.GetAbsoluteFilePath(restored.Files[0])));
+            }
+            Assert.Equal(existingBook ? 1 : 0, Directory.GetFiles(paths.Library, "*", SearchOption.AllDirectories).Length);
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    private static async Task<(string TrashPath, string OriginalPath, string? TrashCoverPath, string? OriginalCoverPath)>
+        ReadTrashPathsAsync(AppPaths paths, Guid trashId)
+    {
+        await using var connection = new SqliteConnection($"Data Source={paths.Database}");
+        await connection.OpenAsync();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT TrashPath, OriginalPath, TrashCoverPath, OriginalCoverPath
+            FROM LibraryTrash
+            WHERE Id = $id;
+            """;
+        command.Parameters.AddWithValue("$id", trashId.ToString());
+        await using var reader = await command.ExecuteReaderAsync();
+        Assert.True(await reader.ReadAsync());
+        return (
+            reader.GetString(0),
+            reader.GetString(1),
+            reader.IsDBNull(2) ? null : reader.GetString(2),
+            reader.IsDBNull(3) ? null : reader.GetString(3));
+    }
+
+    private static async Task ExecuteSqlAsync(string databasePath, string sql)
+    {
+        await using var connection = new SqliteConnection($"Data Source={databasePath}");
+        await connection.OpenAsync();
+        using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        await command.ExecuteNonQueryAsync();
+    }
+
+    private static string ResolveDataPath(AppPaths paths, string relativePath) =>
+        Path.Combine(paths.Data, relativePath);
+
+    private static bool PathExists(string? path) =>
+        !string.IsNullOrWhiteSpace(path) && (File.Exists(path) || Directory.Exists(path));
+
+    private static void CreateEpub(string path, string? uniqueMarker = null, string? title = null)
+    {
+        using var archive = ZipFile.Open(path, ZipArchiveMode.Create);
+        TestHelpers.AddZipEntry(archive, "META-INF/container.xml", """
+            <?xml version="1.0"?>
+            <container xmlns="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0">
+              <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml" /></rootfiles>
+            </container>
+            """);
+        TestHelpers.AddZipEntry(archive, "OEBPS/content.opf", $$"""
+            <?xml version="1.0" encoding="utf-8"?>
+            <package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+              <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+                <dc:title>{{(title ?? "测试书")}}</dc:title>
+                <dc:creator>测试作者</dc:creator>
+                <dc:description>一本测试用书</dc:description>
+                <meta name="cover" content="cover" />
+              </metadata>
+              <manifest><item id="cover" href="cover.jpg" media-type="image/jpeg" /></manifest>
+            </package>
+            """);
+        if (uniqueMarker is not null)
+            TestHelpers.AddZipEntry(archive, "OEBPS/test-marker.txt", uniqueMarker);
+        var cover = archive.CreateEntry("OEBPS/cover.jpg");
+        using var stream = cover.Open();
+        stream.Write([1, 2, 3, 4]);
+    }
+
+
+    private sealed class SelectiveFailureMetadataService(
+        string failingFileName,
+        IMetadataService inner) : IMetadataService
+    {
+        public Task<BookMetadata> ReadMetadataAsync(string path, CancellationToken cancellationToken = default)
+        {
+            return string.Equals(Path.GetFileName(path), failingFileName, StringComparison.Ordinal)
+                ? Task.FromException<BookMetadata>(new InvalidDataException("图书文件已损坏。"))
+                : inner.ReadMetadataAsync(path, cancellationToken);
+        }
+    }
+}

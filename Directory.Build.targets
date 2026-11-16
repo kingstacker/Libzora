@@ -1,0 +1,46 @@
+<Project>
+  <PropertyGroup>
+    <LibzoraLicenseRoot>$(MSBuildThisFileDirectory)</LibzoraLicenseRoot>
+    <LibzoraLicenseHead Condition="'$(MSBuildProjectName)' == 'Libzora.Desktop.Windows' Or '$(MSBuildProjectName)' == 'Libzora.Desktop.MacOS' Or '$(MSBuildProjectName)' == 'Libzora.Desktop.Linux' Or '$(MSBuildProjectName)' == 'Libzora.McpServer'">true</LibzoraLicenseHead>
+    <LibzoraLicenseMobile Condition="'$(MSBuildProjectName)' == 'Libzora.Mobile.Android' Or '$(MSBuildProjectName)' == 'Libzora.Mobile.iOS'">true</LibzoraLicenseMobile>
+    <LibzoraLicenseResourceDependencies Condition="'$(MSBuildProjectName)' == 'Libzora.Mobile.Android'">_ComputeAndroidAssetsPaths</LibzoraLicenseResourceDependencies>
+    <LibzoraLicenseDotnet Condition="'$(DotNetHostPath)' != ''">$(DotNetHostPath)</LibzoraLicenseDotnet>
+    <LibzoraLicenseDotnet Condition="'$(LibzoraLicenseDotnet)' == '' And '$(DOTNET_HOST_PATH)' != ''">$(DOTNET_HOST_PATH)</LibzoraLicenseDotnet>
+    <LibzoraLicenseDotnet Condition="'$(LibzoraLicenseDotnet)' == ''">dotnet</LibzoraLicenseDotnet>
+  </PropertyGroup>
+
+  <!-- License documents are checked in and copied by Infrastructure. This
+       offline check prevents a dependency upgrade or publish filtering from
+       silently dropping the original notices. It runs before release scripts
+       can archive a desktop/MCP publish directory. Mobile bundles use explicit
+       AndroidAsset/BundleResource items for the same files. -->
+  <Target Name="VerifyLibzoraPublishedLicenses" AfterTargets="Publish"
+          Condition="'$(LibzoraLicenseHead)' == 'true' And '$(TargetFramework)' != ''">
+    <Exec WorkingDirectory="$(MSBuildProjectDirectory)"
+          Command="&quot;$(LibzoraLicenseDotnet)&quot; run --file &quot;$(LibzoraLicenseRoot)scripts/verify-third-party.cs&quot; -- --repository &quot;$(LibzoraLicenseRoot).&quot; --assets &quot;$(ProjectAssetsFile)&quot; --publish &quot;$(PublishDir).&quot; --configuration &quot;$(Configuration)&quot;" />
+  </Target>
+
+  <!-- Mobile license texts need native asset/resource items. Validate both
+       restored dependency coverage and their evaluated destination paths. -->
+  <Target Name="VerifyLibzoraMobileLicenseResources" BeforeTargets="CoreCompile"
+          DependsOnTargets="$(LibzoraLicenseResourceDependencies)"
+          Condition="'$(LibzoraLicenseMobile)' == 'true' And '$(TargetFramework)' != ''">
+    <PropertyGroup>
+      <LibzoraMobileLicenseMap>$(IntermediateOutputPath)third-party-resources.map</LibzoraMobileLicenseMap>
+    </PropertyGroup>
+    <MakeDir Directories="$(IntermediateOutputPath)" />
+    <ItemGroup Condition="'$(MSBuildProjectName)' == 'Libzora.Mobile.Android'">
+      <_LibzoraAndroidLicenseSources Include="%(_AndroidAssetsDest.OriginalItemSpec)">
+        <LogicalName>%(_AndroidAssetsDest.LogicalName)</LogicalName>
+      </_LibzoraAndroidLicenseSources>
+    </ItemGroup>
+    <WriteLinesToFile Condition="'$(MSBuildProjectName)' == 'Libzora.Mobile.Android'"
+                      File="$(LibzoraMobileLicenseMap)" Lines="@(_LibzoraAndroidLicenseSources->'%(FullPath)|%(LogicalName)')"
+                      Overwrite="true" Encoding="UTF-8" />
+    <WriteLinesToFile Condition="'$(MSBuildProjectName)' == 'Libzora.Mobile.iOS'"
+                      File="$(LibzoraMobileLicenseMap)" Lines="@(BundleResource->'%(FullPath)|%(LogicalName)')"
+                      Overwrite="true" Encoding="UTF-8" />
+    <Exec WorkingDirectory="$(MSBuildProjectDirectory)"
+          Command="&quot;$(LibzoraLicenseDotnet)&quot; run --file &quot;$(LibzoraLicenseRoot)scripts/verify-third-party.cs&quot; -- --repository &quot;$(LibzoraLicenseRoot).&quot; --assets &quot;$(ProjectAssetsFile)&quot; --resources &quot;$(LibzoraMobileLicenseMap)&quot; --configuration &quot;$(Configuration)&quot;" />
+  </Target>
+</Project>

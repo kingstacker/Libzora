@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Libzora.Platform.MacOS</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Libzora.Platform.Common\Libzora.Platform.Common.csproj" />
+  </ItemGroup>
+</Project>

@@ -50,7 +50,7 @@ function Assert-RepositoryDotnetSdk {
     }
 
     if ($actualSdk -ne $requiredSdk) {
-        throw "Kkindle uses one .NET SDK version: $requiredSdk from global.json; found $actualSdk."
+        throw "Libzora uses one .NET SDK version: $requiredSdk from global.json; found $actualSdk."
     }
 }
 
@@ -61,10 +61,10 @@ if (Test-Path -LiteralPath $OutputRoot) {
     throw "Output directory already exists: $OutputRoot"
 }
 
-$publishDirectory = Join-Path $OutputRoot "Kkindle-$Version-win-x64"
+$publishDirectory = Join-Path $OutputRoot "Libzora-$Version-win-x64"
 New-Item -ItemType Directory -Path $publishDirectory -Force | Out-Null
 
-$projectPath = Join-Path $repositoryRoot 'src\Kkindle.Desktop.Windows\Kkindle.Desktop.Windows.csproj'
+$projectPath = Join-Path $repositoryRoot 'src\Libzora.Desktop.Windows\Libzora.Desktop.Windows.csproj'
 if (-not (Test-Path -LiteralPath $projectPath -PathType Leaf)) {
     throw "Avalonia desktop project was not found: $projectPath"
 }
@@ -89,16 +89,16 @@ finally {
     Pop-Location
 }
 
-$applicationPath = Join-Path $publishDirectory 'Kkindle.exe'
+$applicationPath = Join-Path $publishDirectory 'Libzora.exe'
 $licensePath = Join-Path $publishDirectory 'LICENSE'
 if (-not (Test-Path -LiteralPath $applicationPath -PathType Leaf)) {
-    throw "Published output does not contain Kkindle.exe: $applicationPath"
+    throw "Published output does not contain Libzora.exe: $applicationPath"
 }
 if (-not (Test-Path -LiteralPath $licensePath -PathType Leaf)) {
     throw "Published output does not contain LICENSE: $licensePath"
 }
 
-$mcpProjectPath = Join-Path $repositoryRoot 'src\Kkindle.McpServer\Kkindle.McpServer.csproj'
+$mcpProjectPath = Join-Path $repositoryRoot 'src\Libzora.McpServer\Libzora.McpServer.csproj'
 if (-not (Test-Path -LiteralPath $mcpProjectPath -PathType Leaf)) {
     throw "MCP server project was not found: $mcpProjectPath"
 }
@@ -127,12 +127,12 @@ finally {
     Pop-Location
 }
 
-$mcpApplicationPath = Join-Path $mcpPublishDirectory 'Kkindle.McpServer.exe'
+$mcpApplicationPath = Join-Path $mcpPublishDirectory 'Libzora.McpServer.exe'
 if (-not (Test-Path -LiteralPath $mcpApplicationPath -PathType Leaf)) {
-    throw "Published output does not contain Kkindle.McpServer.exe: $mcpApplicationPath"
+    throw "Published output does not contain Libzora.McpServer.exe: $mcpApplicationPath"
 }
 
-$portableArchive = Join-Path $OutputRoot "Kkindle-$Version-win-x64-portable.zip"
+$portableArchive = Join-Path $OutputRoot "Libzora-$Version-win-x64-portable.zip"
 Compress-Archive -Path (Join-Path $publishDirectory '*') -DestinationPath $portableArchive -CompressionLevel Optimal
 
 if (-not $SkipInstaller) {
@@ -154,7 +154,7 @@ if (-not $SkipInstaller) {
         $compilerPath = $compiler.Source
     }
 
-    $installerScript = Join-Path $repositoryRoot 'installer\Kkindle.iss'
+    $installerScript = Join-Path $repositoryRoot 'installer\Libzora.iss'
     $numericVersion = (($Version -split '-', 2)[0]) + '.0'
     & $compilerPath "/DMyAppVersion=$Version" "/DMyNumericVersion=$numericVersion" "/DSourceDir=$publishDirectory" "/DOutputDir=$OutputRoot" $installerScript
     if ($LASTEXITCODE -ne 0) {
@@ -166,7 +166,7 @@ $releaseFiles = Get-ChildItem -LiteralPath $OutputRoot -File |
     Where-Object { $_.Extension -in '.exe', '.zip' } |
     Sort-Object Name
 
-if (-not $SkipInstaller -and -not ($releaseFiles.Name -contains "Kkindle-$Version-win-x64-setup.exe")) {
+if (-not $SkipInstaller -and -not ($releaseFiles.Name -contains "Libzora-$Version-win-x64-setup.exe")) {
     throw 'The installer was not generated.'
 }
 

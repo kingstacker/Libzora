@@ -1,0 +1,1864 @@
+using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using Libzora.Core;
+using Libzora.Infrastructure;
+
+namespace Libzora.Platform.Windows;
+
+internal static class WpdKindleAccess
+{
+    private const int MyComputerShellFolder = 17;
+    private static readonly Guid WpdObjectPropertySet = new("EF6B490D-5CD8-437A-AFFC-DA8B60EE4A3C");
+
+    /// <summary>
+    /// One Shell/device/storage session reused for a whole scan. Opening the
+    /// WPD device and walking to the storage object is the expensive part of
+    /// every per-book copy; the previous code did it once per book and forced
+    /// two full GCs afterwards.
+    /// </summary>
+    internal sealed class WpdSession : IDisposable
+    {
+        private readonly dynamic _shell;
+        private readonly dynamic _device;
+        private readonly dynamic _storage;
+        private readonly Dictionary<string, dynamic> _folderCache = new(StringComparer.OrdinalIgnoreCase);
+        private bool _disposed;
+
+        public WpdSession(KindleDevice device)
+        {
+            _shell = CreateShell();
+            _device = FindDevice(_shell, device.RootPath)
+                ?? throw new IOException("设备已断开连接。");
+            _storage = FindFirstStorage(_device)
+                ?? throw new IOException("无法读取设备内部存储。");
+        }
+
+        public dynamic FindItem(string relativePath) =>
+            TryFindItem(relativePath) ?? throw new FileNotFoundException("设备文件不存在。", relativePath);
+
+        public dynamic? TryFindItem(string relativePath)
+        {
+            var normalized = relativePath.Replace('/', '\\').Trim('\\');
+            if (normalized.Length == 0) return _storage;
+
+            var segments = normalized.Split('\\', StringSplitOptions.RemoveEmptyEntries);
+            dynamic current = _storage;
+            var prefix = string.Empty;
+            for (var index = 0; index < segments.Length; index++)
+            {
+                prefix = prefix.Length == 0 ? segments[index] : $"{prefix}\\{segments[index]}";
+                if (_folderCache.TryGetValue(prefix, out var cached))
+                {
+                    current = cached;
+                    continue;
+                }
+
+                var child = FindChild(current, segments[index]);
+                if (child is null) return null;
+                // Folders are stable for the scan; files are released after
+                // each copy, so never keep their RCW in the cache.
+                if (index < segments.Length - 1 || (bool)child.IsFolder)
+                    _folderCache[prefix] = child;
+                current = child;
+            }
+            return current;
+        }
+
+        public static void ReleaseItem(object? item) => Release(item);
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            Release(_storage);
+            Release(_device);
+            Release(_shell);
+            // One finalizer flush per scan, not per book.
+            FlushReleasedComObjects();
+        }
+    }
+
+    public static void ReleaseDeviceSessions(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // Shell.Application exposes WPD objects through COM wrappers. Releasing
+        // their final references closes the WPD session, matching calibre's MTP
+        // eject semantics without placing the physical device in pending-eject.
+        FlushReleasedComObjects();
+        cancellationToken.ThrowIfCancellationRequested();
+    }
+
+    public static void CloseDeviceSession(KindleDevice device, CancellationToken cancellationToken)
+    {
+        ReleaseDeviceSessions(cancellationToken);
+        WpdSessionCloser.CloseSession(device.RootPath, cancellationToken);
+        FlushReleasedComObjects();
+    }
+
+    public static IReadOnlyList<KindleDevice> DetectDevices(CancellationToken cancellationToken)
+    {
+        var devices = new List<KindleDevice>();
+        dynamic? shell = null;
+        dynamic? computer = null;
+        dynamic? items = null;
+        try
+        {
+            shell = CreateShell();
+            computer = shell.NameSpace(MyComputerShellFolder);
+            items = computer.Items();
+            for (var index = 0; index < (int)items.Count; index++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                dynamic? item = null;
+                dynamic? storage = null;
+                try
+                {
+                    item = items.Item(index);
+                    if (!(bool)item.IsFolder) continue;
+                    string name = Convert.ToString(item.Name) ?? string.Empty;
+                    string shellPath = Convert.ToString(item.Path) ?? string.Empty;
+                    // WPD shell entries contain their native device path. Local disks
+                    // and unrelated virtual folders must not be probed as readers.
+                    if (!shellPath.Contains(@"\\?\", StringComparison.OrdinalIgnoreCase)) continue;
+                    storage = FindFirstStorage(item);
+                    if (storage is null) continue;
+                    bool HasDirectory(string relativePath)
+                    {
+                        dynamic? folder = null;
+                        try
+                        {
+                            folder = FindItemByRelativePath(storage, relativePath);
+                            return folder is not null && (bool)folder.IsFolder;
+                        }
+                        finally { Release(folder); }
+                    }
+                    var profile = ReaderDeviceProfiles.Detect(name, HasDirectory, shellPath);
+                    if (profile is null) continue;
+                    devices.Add(new KindleDevice
+                    {
+                        Profile = profile,
+                        RootPath = shellPath,
+                        VolumeSerial = shellPath,
+                        Name = string.IsNullOrWhiteSpace(name) ? profile.DisplayName : name,
+                        TotalBytes = ReadInt64Property(storage, "System.Capacity"),
+                        FreeBytes = ReadInt64Property(storage, "System.FreeSpace"),
+                        IsReady = true,
+                        Transport = KindleTransport.Wpd
+                    });
+                }
+                catch (COMException)
+                {
+                    // A locked or disconnected device must not hide other readers.
+                }
+                finally
+                {
+                    Release(storage);
+                    Release(item);
+                }
+            }
+        }
+        catch (COMException)
+        {
+            return devices;
+        }
+        finally
+        {
+            Release(items);
+            Release(computer);
+            Release(shell);
+            FlushReleasedComObjects();
+        }
+        return devices;
+    }
+
+    public static IReadOnlyList<KindleBook> ScanBooks(
+        KindleDevice device,
+        IReadOnlySet<string> supportedExtensions,
+        CancellationToken cancellationToken)
+    {
+        var books = new List<KindleBook>();
+        dynamic? shell = null;
+        try
+        {
+            shell = CreateShell();
+            dynamic? kindle = FindDevice(shell, device.RootPath);
+            if (kindle is null) throw new IOException("设备已断开，请重新连接并解锁设备后重试。");
+            dynamic? storage = FindFirstStorage(kindle);
+            if (storage is null) throw new IOException("无法读取设备存储，请确认设备已解锁后重试。");
+            dynamic? documents = FindItemByRelativePath(storage, device.Profile.BooksDirectory);
+            if (documents is null) return books;
+
+            var folders = new Stack<(object Folder, string RelativePath)>();
+            folders.Push((documents.GetFolder, string.Empty));
+            while (folders.Count > 0)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var entry = folders.Pop();
+                dynamic folder = entry.Folder;
+                dynamic children = folder.Items();
+                for (var index = 0; index < (int)children.Count; index++)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    dynamic child = children.Item(index);
+                    var name = GetItemFileName(child);
+                    var relativePath = string.IsNullOrEmpty(entry.RelativePath)
+                        ? name
+                        : $"{entry.RelativePath}\\{name}";
+                    if ((bool)child.IsFolder)
+                    {
+                        var isRootDictionaryFolder = string.IsNullOrEmpty(entry.RelativePath)
+                            && name.Equals("dictionaries", StringComparison.OrdinalIgnoreCase);
+                        if (!name.StartsWith('.') && !name.EndsWith(".sdr", StringComparison.OrdinalIgnoreCase)
+                            && !name.Equals("system", StringComparison.OrdinalIgnoreCase)
+                            && !name.Equals("fonts", StringComparison.OrdinalIgnoreCase) && !isRootDictionaryFolder)
+                            folders.Push((child.GetFolder, relativePath));
+                        continue;
+                    }
+
+                    var extension = Path.GetExtension(name);
+                    if (!supportedExtensions.Contains(extension) || !device.Profile.IsBookPath(relativePath)) continue;
+                    books.Add(new KindleBook
+                    {
+                        RelativePath = relativePath,
+                        Format = extension.TrimStart('.').ToLowerInvariant(),
+                        Size = ReadInt64Property(child, "System.Size"),
+                        ModifiedAt = ReadDateTimeOffsetProperty(child, "System.DateModified"),
+                        Sha256 = string.Empty,
+                        IsManagedByLibzora = false
+                    });
+                }
+            }
+        }
+        catch (COMException exception)
+        {
+            throw new IOException("设备书库读取中断，请确认连接并解锁设备后重试。", exception);
+        }
+        finally
+        {
+            Release(shell);
+            FlushReleasedComObjects();
+        }
+        return books.OrderBy(book => book.RelativePath, StringComparer.CurrentCultureIgnoreCase).ToArray();
+    }
+
+    public static IReadOnlyList<KindleDeviceResource> ScanResources(
+        KindleDevice device,
+        KindleResourceKind kind,
+        CancellationToken cancellationToken)
+    {
+        var resources = new List<KindleDeviceResource>();
+        dynamic? shell = null;
+        dynamic? kindle = null;
+        dynamic? storage = null;
+        dynamic? resourceRoot = null;
+        Stack<(object Folder, string RelativePath)>? folders = null;
+        try
+        {
+            shell = CreateShell();
+            kindle = FindDevice(shell, device.RootPath);
+            storage = kindle is null ? null : FindFirstStorage(kindle);
+            var rootRelative = device.Profile.ResourceDirectory(kind);
+            resourceRoot = storage is null ? null : FindItemByRelativePath(storage, rootRelative);
+            if (resourceRoot is null || !(bool)resourceRoot.IsFolder) return resources;
+
+            folders = new Stack<(object Folder, string RelativePath)>();
+            folders.Push((resourceRoot.GetFolder, rootRelative));
+            while (folders.Count > 0)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var entry = folders.Pop();
+                dynamic? folder = entry.Folder;
+                dynamic? children = null;
+                try
+                {
+                    children = folder.Items();
+                    for (var index = 0; index < (int)children.Count; index++)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        dynamic? child = null;
+                        try
+                        {
+                            child = children.Item(index);
+                            var name = GetItemFileName(child);
+                            var relativePath = $"{entry.RelativePath}\\{name}";
+                            if ((bool)child.IsFolder)
+                            {
+                                folders.Push((child.GetFolder, relativePath));
+                                continue;
+                            }
+                            if (!device.Profile.SupportsResourceFile(kind, name)) continue;
+                            resources.Add(new KindleDeviceResource
+                            {
+                                Kind = kind,
+                                RelativePath = relativePath,
+                                Size = ReadInt64Property(child, "System.Size")
+                            });
+                        }
+                        finally
+                        {
+                            Release(child);
+                        }
+                    }
+                }
+                finally
+                {
+                    Release(children);
+                    Release(folder);
+                }
+            }
+        }
+        catch (COMException exception)
+        {
+            throw new IOException("无法读取 MTP 设备资源目录。", exception);
+        }
+        finally
+        {
+            if (folders is not null)
+            {
+                while (folders.Count > 0)
+                    Release(folders.Pop().Folder);
+            }
+            Release(resourceRoot);
+            Release(storage);
+            Release(kindle);
+            Release(shell);
+            FlushReleasedComObjects();
+        }
+        return resources.OrderBy(item => item.FileName, StringComparer.CurrentCultureIgnoreCase).ToArray();
+    }
+
+    public static void SendResource(
+        KindleDevice device,
+        KindleResourceKind kind,
+        string sourcePath,
+        IProgress<TransferProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        if (!File.Exists(sourcePath)) throw new FileNotFoundException("待发送的设备资源不存在。", sourcePath);
+        if (!device.Profile.SupportsResourceFile(kind, sourcePath)) throw new InvalidDataException("设备资源格式不受支持。");
+        var source = new FileInfo(sourcePath);
+        var rootRelative = device.Profile.ResourceDirectory(kind);
+        string? targetRelativePath = null;
+        var completed = false;
+        dynamic? shell = null;
+        try
+        {
+            shell = CreateShell();
+            dynamic? kindle = FindDevice(shell, device.RootPath) ?? throw new IOException("设备已断开连接。");
+            dynamic? storage = FindFirstStorage(kindle) ?? throw new IOException("无法读取设备内部存储。");
+            dynamic targetRoot = FindOrCreateFolderPath(storage, rootRelative, cancellationToken);
+            var finalName = GetUniqueFileName(targetRoot, source.Name);
+            targetRelativePath = $"{rootRelative}\\{finalName}";
+            cancellationToken.ThrowIfCancellationRequested();
+            progress?.Report(new TransferProgress(0, source.Length, $"正在发送 {source.Name}"));
+            WpdNativeTransfer.SendFile(
+                device.RootPath,
+                GetWpdObjectId(targetRoot),
+                sourcePath,
+                finalName,
+                progress,
+                cancellationToken);
+            WaitForStorageItem(device, targetRelativePath, source.Length, progress, source.Name, cancellationToken);
+            progress?.Report(new TransferProgress(source.Length, source.Length, $"已发送 {finalName}"));
+            completed = true;
+        }
+        catch (COMException exception)
+        {
+            throw new IOException("MTP 资源传输失败，请确认设备仍保持连接。", exception);
+        }
+        finally
+        {
+            Release(shell);
+            if (!completed && targetRelativePath is not null) TryRemoveStorageItem(device, targetRelativePath);
+        }
+    }
+
+    public static void CopyResourceToLocal(
+        KindleDevice device,
+        KindleDeviceResource resource,
+        string destinationPath,
+        CancellationToken cancellationToken)
+    {
+        if (!device.Profile.TryGetResourcePath(resource.Kind, resource.RelativePath, out _))
+            throw new InvalidOperationException("设备资源路径无效。");
+        dynamic? shell = null;
+        dynamic? kindle = null;
+        dynamic? storage = null;
+        dynamic? item = null;
+        try
+        {
+            shell = CreateShell();
+            kindle = FindDevice(shell, device.RootPath) ?? throw new IOException("设备已断开连接。");
+            storage = FindFirstStorage(kindle) ?? throw new IOException("无法读取设备内部存储。");
+            item = FindItemByRelativePath(storage, resource.RelativePath)
+                ?? throw new FileNotFoundException("设备资源不存在。", resource.RelativePath);
+            if ((bool)item.IsFolder) throw new InvalidOperationException("不能导出设备文件夹。");
+            WpdNativeTransfer.CopyFileToLocal(
+                device.RootPath,
+                GetWpdObjectId(item),
+                destinationPath,
+                resource.Size,
+                cancellationToken);
+        }
+        catch (COMException exception)
+        {
+            throw new IOException("无法从 MTP 设备导出资源。", exception);
+        }
+        finally
+        {
+            Release(item);
+            Release(storage);
+            Release(kindle);
+            Release(shell);
+            FlushReleasedComObjects();
+        }
+    }
+
+    public static void RemoveResource(
+        KindleDevice device,
+        KindleDeviceResource resource,
+        CancellationToken cancellationToken)
+    {
+        if (!device.Profile.TryGetResourcePath(resource.Kind, resource.RelativePath, out _))
+            throw new InvalidOperationException("设备资源路径无效。");
+        dynamic? shell = null;
+        dynamic? kindle = null;
+        dynamic? storage = null;
+        dynamic? item = null;
+        try
+        {
+            shell = CreateShell();
+            kindle = FindDevice(shell, device.RootPath) ?? throw new IOException("设备已断开连接。");
+            storage = FindFirstStorage(kindle) ?? throw new IOException("无法读取设备内部存储。");
+            item = FindItemByRelativePath(storage, resource.RelativePath)
+                ?? throw new FileNotFoundException("设备资源不存在。", resource.RelativePath);
+            if ((bool)item.IsFolder) throw new InvalidOperationException("不能删除设备文件夹。");
+            cancellationToken.ThrowIfCancellationRequested();
+            ShellFileOperation.DeletePermanently((object)item);
+            var startedAt = DateTime.UtcNow;
+            while (DateTime.UtcNow - startedAt < TimeSpan.FromSeconds(20))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!ReadStorageItemState(device, resource.RelativePath).Exists) return;
+                Thread.Sleep(250);
+            }
+            throw new TimeoutException("等待设备删除资源超时。");
+        }
+        catch (COMException exception)
+        {
+            throw new IOException("无法删除 MTP 设备资源。", exception);
+        }
+        finally
+        {
+            Release(item);
+            Release(storage);
+            Release(kindle);
+            Release(shell);
+            FlushReleasedComObjects();
+        }
+    }
+
+    public static string ReadClippingsText(KindleDevice device, CancellationToken cancellationToken)
+    {
+        var stagingDirectory = Path.Combine(Path.GetTempPath(), "Libzora", "clippings-read", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(stagingDirectory);
+        dynamic? shell = null;
+        dynamic? kindle = null;
+        dynamic? storage = null;
+        dynamic? item = null;
+        try
+        {
+            shell = CreateShell();
+            kindle = FindDevice(shell, device.RootPath) ?? throw new IOException("设备已断开连接。");
+            storage = FindFirstStorage(kindle) ?? throw new IOException("无法读取设备内部存储。");
+            item = FindItemByRelativePath(storage, @"documents\My Clippings.txt");
+            if (item is null) return string.Empty;
+            var size = ReadInt64Property(item, "System.Size");
+            var localPath = Path.Combine(stagingDirectory, "My Clippings.txt");
+            WpdNativeTransfer.CopyFileToLocal(
+                device.RootPath,
+                GetWpdObjectId(item),
+                localPath,
+                size,
+                cancellationToken);
+            using var reader = new StreamReader(localPath, System.Text.Encoding.UTF8, true);
+            return reader.ReadToEnd();
+        }
+        catch (COMException exception)
+        {
+            throw new IOException("无法读取 MTP Kindle 的 My Clippings.txt。", exception);
+        }
+        finally
+        {
+            Release(item);
+            Release(storage);
+            Release(kindle);
+            Release(shell);
+            FlushReleasedComObjects();
+            try { Directory.Delete(stagingDirectory, true); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
+    public static (
+        IReadOnlyList<string> Databases,
+        IReadOnlyList<string> SdrFolders) FindAnnotationMetadata(
+        KindleDevice device,
+        CancellationToken cancellationToken)
+    {
+        const string databaseName = "ksdk_annotation_v1.db";
+        var databases = new List<string>();
+        var sdrFolders = new List<string>();
+        dynamic? shell = null;
+        dynamic? kindle = null;
+        dynamic? storage = null;
+        dynamic? annotationRoot = null;
+        dynamic? documents = null;
+        try
+        {
+            shell = CreateShell();
+            kindle = FindDevice(shell, device.RootPath)
+                ?? throw new IOException("设备已断开连接。");
+            storage = FindFirstStorage(kindle)
+                ?? throw new IOException("无法读取设备内部存储。");
+            annotationRoot = FindItemByRelativePath(storage, @"system\ksdk\.annotations");
+            if (annotationRoot is not null && (bool)annotationRoot.IsFolder)
+            {
+                var folders = new Stack<(object Folder, string RelativePath, int Depth)>();
+                folders.Push((annotationRoot.GetFolder, "system\\ksdk\\.annotations", 0));
+                while (folders.Count > 0)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var entry = folders.Pop();
+                    dynamic? folder = null;
+                    dynamic? children = null;
+                    try
+                    {
+                        folder = entry.Folder;
+                        children = folder.Items();
+                        for (var index = 0; index < (int)children.Count; index++)
+                        {
+                            cancellationToken.ThrowIfCancellationRequested();
+                            dynamic? child = null;
+                            try
+                            {
+                                child = children.Item(index);
+                                var name = GetItemFileName(child);
+                                var relativePath = $"{entry.RelativePath}\\{name}";
+                                if ((bool)child.IsFolder)
+                                {
+                                    if (entry.Depth < 4)
+                                        folders.Push((child.GetFolder, relativePath, entry.Depth + 1));
+                                    continue;
+                                }
+                                if (name.Equals(databaseName, StringComparison.OrdinalIgnoreCase))
+                                    databases.Add(relativePath);
+                            }
+                            finally
+                            {
+                                Release(child);
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        Release(children);
+                        Release(folder);
+                    }
+                }
+            }
+
+            documents = FindItemByRelativePath(storage, device.Profile.BooksDirectory);
+            if (documents is not null && (bool)documents.IsFolder)
+            {
+                dynamic? children = null;
+                try
+                {
+                    children = documents.GetFolder.Items();
+                    for (var index = 0; index < (int)children.Count; index++)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        dynamic? child = null;
+                        try
+                        {
+                            child = children.Item(index);
+                            if (!(bool)child.IsFolder) continue;
+                            var name = GetItemFileName(child);
+                            if (name.EndsWith(".sdr", StringComparison.OrdinalIgnoreCase))
+                                sdrFolders.Add(name);
+                        }
+                        finally
+                        {
+                            Release(child);
+                        }
+                    }
+                }
+                finally
+                {
+                    Release(children);
+                }
+            }
+        }
+        catch (COMException exception)
+        {
+            throw new IOException("无法读取 Kindle 账户批注数据库。", exception);
+        }
+        finally
+        {
+            Release(documents);
+            Release(annotationRoot);
+            Release(storage);
+            Release(kindle);
+            Release(shell);
+            FlushReleasedComObjects();
+        }
+
+        var accountDatabases = databases
+            .Where(path => path.Split('\\', '/').Any(segment =>
+                segment.StartsWith("amzn1.account.", StringComparison.OrdinalIgnoreCase)))
+            .ToArray();
+        return (
+            accountDatabases.Length > 0 ? accountDatabases : databases.ToArray(),
+            sdrFolders);
+    }
+
+    private static readonly SemaphoreSlim AnnotationWriteGate = new(1, 1);
+
+    public static string ReplaceAnnotationDatabase(
+        KindleDevice device, string relativePath, string expectedOriginalSha256,
+        string candidatePath, string localBackupPath, CancellationToken cancellationToken,
+        IProgress<KindleAnnotationSyncProgress>? progress = null)
+    {
+        AnnotationWriteGate.Wait(cancellationToken);
+        try
+        {
+            return ReplaceAnnotationDatabaseCore(device, relativePath, expectedOriginalSha256,
+                candidatePath, localBackupPath, cancellationToken, progress);
+        }
+        finally { AnnotationWriteGate.Release(); }
+    }
+
+    private static string ReplaceAnnotationDatabaseCore(
+        KindleDevice device,
+        string relativePath,
+        string expectedOriginalSha256,
+        string candidatePath,
+        string localBackupPath,
+        CancellationToken cancellationToken,
+        IProgress<KindleAnnotationSyncProgress>? progress)
+    {
+        if (string.IsNullOrWhiteSpace(relativePath)
+            || !relativePath.Replace('/', '\\').StartsWith(
+                @"system\ksdk\.annotations\",
+                StringComparison.OrdinalIgnoreCase)
+            || relativePath.Split(['/', '\\']).Any(segment => segment is ".." or ".")
+            || !Path.GetFileName(relativePath.Replace('/', '\\')).Equals(
+                "ksdk_annotation_v1.db",
+                StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Kindle 批注数据库路径无效。");
+        if (!File.Exists(candidatePath))
+            throw new FileNotFoundException("Kindle 批注候选文件不存在。", candidatePath);
+
+        static string Hash(string path) =>
+            Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path)));
+
+        var timestamp = DateTime.Now.ToString("yyyyMMdd-HHmmssfff") + "-" + Guid.NewGuid().ToString("N")[..8];
+        var fileName = Path.GetFileName(relativePath.Replace('/', '\\'));
+        var stageName = fileName + ".libzora-sync-new-" + timestamp;
+        var backupName = fileName + ".libzora-backup-" + timestamp;
+        var readbackDirectory = Path.GetDirectoryName(Path.GetFullPath(localBackupPath))!;
+        var currentReadback = localBackupPath + ".current-readback-" + timestamp;
+        var candidateHash = Hash(candidatePath);
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(localBackupPath))!);
+
+        dynamic? shell = null;
+        dynamic? kindle = null;
+        dynamic? storage = null;
+        dynamic? parent = null;
+        var targetDeleteAttempted = false;
+        var installationVerified = false;
+        IProgress<TransferProgress>? Transfer(KindleAnnotationSyncStage stage) =>
+            progress is null ? null : new KindleAnnotationTransferProgress(progress, stage);
+        try
+        {
+            progress?.Report(new(KindleAnnotationSyncStage.BackingUp));
+            shell = CreateShell();
+            kindle = FindDevice(shell, device.RootPath)
+                ?? throw new IOException("设备已断开连接。");
+            storage = FindFirstStorage(kindle)
+                ?? throw new IOException("无法读取设备内部存储。");
+            var normalized = relativePath.Replace('/', '\\').Trim('\\');
+            var parentPath = normalized[..normalized.LastIndexOf('\\')];
+            parent = FindItemByRelativePath(storage, parentPath)
+                ?? throw new IOException("设备批注数据库目录不存在。");
+            if (!(bool)parent.IsFolder)
+                throw new IOException("设备批注数据库父路径不是文件夹。");
+
+            foreach (var suffix in new[] { "-wal", "-shm", "-journal" })
+            {
+                if (ChildExists(parent, fileName + suffix))
+                    throw new IOException("设备批注数据库仍带 SQLite 侧文件，暂不能安全替换。");
+            }
+            if (ChildExists(parent, stageName))
+                throw new IOException("设备上存在未清理的批注同步暂存文件，请先检查设备。");
+
+            dynamic current = FindChild(parent, fileName)
+                ?? throw new FileNotFoundException("设备批注数据库不存在。", relativePath);
+            var currentId = GetWpdObjectId(current);
+            try
+            {
+                WpdNativeTransfer.CopyFileToLocal(
+                    device.RootPath,
+                    currentId,
+                    currentReadback,
+                    ReadInt64Property(current, "System.Size"),
+                    cancellationToken);
+            }
+            finally
+            {
+                Release(current);
+            }
+            if (!Hash(currentReadback).Equals(
+                    expectedOriginalSha256,
+                    StringComparison.OrdinalIgnoreCase))
+                throw new IOException("设备批注数据库在同步准备期间已变化，请重新检测。");
+            if (!File.Exists(localBackupPath))
+                File.Copy(currentReadback, localBackupPath, overwrite: false);
+            if (!Hash(localBackupPath).Equals(expectedOriginalSha256, StringComparison.OrdinalIgnoreCase))
+                throw new IOException("本地 Kindle 批注原始备份哈希不一致。");
+
+            var parentId = GetWpdObjectId(parent);
+            WpdNativeTransfer.SendFile(
+                device.RootPath,
+                parentId,
+                candidatePath,
+                stageName,
+                Transfer(KindleAnnotationSyncStage.PreparingWrite),
+                cancellationToken);
+            WaitForAnnotationStorageItem(
+                device,
+                $"{parentPath}\\{stageName}",
+                new FileInfo(candidatePath).Length,
+                cancellationToken);
+            progress?.Report(new(KindleAnnotationSyncStage.Verifying));
+            CopyAnnotationStorageFileAndVerify(
+                device,
+                $"{parentPath}\\{stageName}",
+                readbackDirectory,
+                candidateHash,
+                cancellationToken);
+
+            WpdNativeTransfer.SendFile(
+                device.RootPath,
+                parentId,
+                localBackupPath,
+                backupName,
+                Transfer(KindleAnnotationSyncStage.BackingUp),
+                cancellationToken);
+            WaitForAnnotationStorageItem(
+                device,
+                $"{parentPath}\\{backupName}",
+                new FileInfo(localBackupPath).Length,
+                cancellationToken);
+            CopyAnnotationStorageFileAndVerify(
+                device,
+                $"{parentPath}\\{backupName}",
+                readbackDirectory,
+                expectedOriginalSha256,
+                cancellationToken);
+
+            dynamic beforeDelete = FindChild(parent, fileName)
+                ?? throw new IOException("设备原批注数据库已消失。");
+            var beforeDeleteId = GetWpdObjectId(beforeDelete);
+            try
+            {
+                File.Delete(currentReadback);
+                WpdNativeTransfer.CopyFileToLocal(
+                    device.RootPath,
+                    beforeDeleteId,
+                    currentReadback,
+                    ReadInt64Property(beforeDelete, "System.Size"),
+                    cancellationToken);
+            }
+            finally
+            {
+                Release(beforeDelete);
+            }
+            if (!Hash(currentReadback).Equals(
+                    expectedOriginalSha256,
+                    StringComparison.OrdinalIgnoreCase))
+                throw new IOException("设备批注数据库在同步期间发生变化，已取消安装。");
+            foreach (var suffix in new[] { "-wal", "-shm", "-journal" })
+                if (ChildExists(parent, fileName + suffix))
+                    throw new IOException("设备批注数据库在同步期间出现 SQLite 侧文件，已取消安装。");
+
+            targetDeleteAttempted = true;
+            progress?.Report(new(KindleAnnotationSyncStage.WritingToDevice));
+            WpdNativeTransfer.DeleteObject(device.RootPath, beforeDeleteId, cancellationToken);
+            for (var attempt = 0; attempt < 100 && ChildExists(parent, fileName); attempt++)
+                Thread.Sleep(100);
+            if (ChildExists(parent, fileName))
+                throw new IOException("设备未释放旧批注数据库，无法安装新快照。");
+
+            WpdNativeTransfer.SendFile(
+                device.RootPath,
+                parentId,
+                candidatePath,
+                fileName,
+                Transfer(KindleAnnotationSyncStage.WritingToDevice),
+                cancellationToken);
+            WaitForAnnotationStorageItem(
+                device,
+                normalized,
+                new FileInfo(candidatePath).Length,
+                cancellationToken);
+            progress?.Report(new(KindleAnnotationSyncStage.Verifying));
+            CopyAnnotationStorageFileAndVerify(
+                device,
+                normalized,
+                readbackDirectory,
+                candidateHash,
+                cancellationToken);
+
+            installationVerified = true;
+
+            dynamic? staged = FindChild(parent, stageName);
+            if (staged is not null)
+            {
+                try
+                {
+                    // Cleanup failure cannot roll back a verified installation.
+                    try { WpdNativeTransfer.DeleteObject(device.RootPath,
+                        GetWpdObjectId(staged), CancellationToken.None); }
+                    catch (Exception exception) when (exception is IOException or COMException) { }
+                }
+                finally
+                {
+                    Release(staged);
+                }
+            }
+            return $"{parentPath}\\{backupName}";
+        }
+        catch (Exception failure)
+        {
+            Exception? restoreFailure = null;
+            if (targetDeleteAttempted && !installationVerified
+                && File.Exists(localBackupPath)
+                && parent is not null
+                && Hash(localBackupPath).Equals(
+                    expectedOriginalSha256,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    RestoreOriginalAnnotationDatabase(
+                        device,
+                        parent,
+                        relativePath.Replace('/', '\\').Trim('\\'),
+                        localBackupPath,
+                        expectedOriginalSha256,
+                        candidateHash,
+                        CancellationToken.None);
+                }
+                catch (Exception exception)
+                {
+                    restoreFailure = exception;
+                }
+            }
+            if (restoreFailure is not null)
+            {
+                throw new AggregateException(
+                    $"Kindle 批注同步失败，且自动恢复失败。原始备份：{localBackupPath}",
+                    failure,
+                    restoreFailure);
+            }
+            if (failure is COMException com)
+                throw new IOException("Kindle 批注数据库替换失败，已尝试恢复原文件。", com);
+            throw;
+        }
+        finally
+        {
+            if (!targetDeleteAttempted && parent is not null)
+            {
+                // Only the unique staging file owned by this attempt is removed.
+                dynamic? staged = null;
+                try
+                {
+                    staged = FindChild(parent, stageName);
+                    if (staged is not null)
+                        WpdNativeTransfer.DeleteObject(device.RootPath, GetWpdObjectId(staged), CancellationToken.None);
+                }
+                catch (Exception exception) when (exception is IOException or COMException) { }
+                finally { Release(staged); }
+            }
+            try { File.Delete(currentReadback); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+            Release(parent);
+            Release(storage);
+            Release(kindle);
+            Release(shell);
+            FlushReleasedComObjects();
+        }
+    }
+
+    private static bool ChildExists(dynamic parent, string name)
+    {
+        dynamic? child = FindChild(parent, name);
+        try { return child is not null; }
+        finally { Release(child); }
+    }
+
+    private static void WaitForAnnotationStorageItem(
+        KindleDevice device,
+        string relativePath,
+        long expectedSize,
+        CancellationToken cancellationToken)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+        while (DateTime.UtcNow < deadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var state = ReadStorageItemState(device, relativePath);
+            if (state.Exists && state.Size == expectedSize) return;
+            Thread.Sleep(200);
+        }
+        throw new TimeoutException("等待设备批注数据库写入完成超时。");
+    }
+
+    private static void CopyAnnotationStorageFileAndVerify(
+        KindleDevice device,
+        string relativePath,
+        string destinationDirectory,
+        string expectedSha256,
+        CancellationToken cancellationToken)
+    {
+        using var session = new WpdSession(device);
+        var path = CopyStorageFileToLocal(
+            session,
+            device,
+            relativePath,
+            destinationDirectory,
+            cancellationToken);
+        try
+        {
+            var hash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path)));
+            if (!hash.Equals(expectedSha256, StringComparison.OrdinalIgnoreCase))
+                throw new IOException($"设备文件读回哈希不一致：{Path.GetFileName(relativePath)}");
+        }
+        finally
+        {
+            try { File.Delete(path); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
+    private static void RestoreOriginalAnnotationDatabase(
+        KindleDevice device,
+        dynamic parent,
+        string relativePath,
+        string localBackupPath,
+        string expectedSha256,
+        string candidateSha256,
+        CancellationToken cancellationToken)
+    {
+        var fileName = Path.GetFileName(relativePath.Replace('/', '\\'));
+        dynamic? current = FindChild(parent, fileName);
+        if (current is not null)
+        {
+            var currentId = GetWpdObjectId(current);
+            var observed = localBackupPath + ".recovery-current-" + Guid.NewGuid().ToString("N");
+            try
+            {
+                WpdNativeTransfer.CopyFileToLocal(device.RootPath, currentId, observed,
+                    ReadInt64Property(current, "System.Size"), cancellationToken);
+            }
+            finally { Release(current); }
+            var hash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(observed)));
+            if (hash.Equals(expectedSha256, StringComparison.OrdinalIgnoreCase)) return;
+            if (!hash.Equals(candidateSha256, StringComparison.OrdinalIgnoreCase))
+                throw new IOException($"设备批注在恢复前已变化，已保留当前内容，拒绝覆盖。当前副本：{observed}");
+            WpdNativeTransfer.DeleteObject(device.RootPath, currentId, cancellationToken);
+            for (var attempt = 0; attempt < 100 && ChildExists(parent, fileName); attempt++)
+                Thread.Sleep(100);
+            if (ChildExists(parent, fileName))
+                throw new IOException("无法清理未完成的设备批注数据库。");
+        }
+
+        WpdNativeTransfer.SendFile(
+            device.RootPath,
+            GetWpdObjectId(parent),
+            localBackupPath,
+            fileName,
+            null,
+            cancellationToken);
+        WaitForAnnotationStorageItem(
+            device,
+            relativePath,
+            new FileInfo(localBackupPath).Length,
+            cancellationToken);
+        CopyAnnotationStorageFileAndVerify(
+            device,
+            relativePath,
+            Path.GetDirectoryName(Path.GetFullPath(localBackupPath))!,
+            expectedSha256,
+            cancellationToken);
+    }
+
+    public static void ReplaceClippingsText(KindleDevice device, string text, CancellationToken cancellationToken)
+    {
+        var stagingDirectory = Path.Combine(Path.GetTempPath(), "Libzora", "clippings-write", Guid.NewGuid().ToString("N"));
+        var originalDirectory = Path.Combine(stagingDirectory, "original");
+        var updatedDirectory = Path.Combine(stagingDirectory, "updated");
+        Directory.CreateDirectory(originalDirectory);
+        Directory.CreateDirectory(updatedDirectory);
+        var originalPath = Path.Combine(originalDirectory, "My Clippings.txt");
+        var updatedPath = Path.Combine(updatedDirectory, "My Clippings.txt");
+        File.WriteAllText(updatedPath, text, new System.Text.UTF8Encoding(true));
+        dynamic? shell = null;
+        dynamic? documents = null;
+        dynamic? item = null;
+        var documentsObjectId = string.Empty;
+        var originalCopied = false;
+        var deleteAttempted = false;
+        var replacementVerified = false;
+        var preserveOriginalCopy = false;
+        try
+        {
+            shell = CreateShell();
+            dynamic? kindle = FindDevice(shell, device.RootPath) ?? throw new IOException("设备已断开连接。");
+            dynamic? storage = FindFirstStorage(kindle) ?? throw new IOException("无法读取设备内部存储。");
+            item = FindItemByRelativePath(storage, @"documents\My Clippings.txt")
+                ?? throw new FileNotFoundException("Kindle 上不存在 My Clippings.txt。");
+            documents = FindItemByRelativePath(storage, device.Profile.BooksDirectory) ?? throw new IOException("设备上不存在 documents 目录。");
+            documentsObjectId = GetWpdObjectId(documents);
+            var originalSize = ReadInt64Property(item, "System.Size");
+            WpdNativeTransfer.CopyFileToLocal(
+                device.RootPath,
+                GetWpdObjectId(item),
+                originalPath,
+                originalSize,
+                cancellationToken);
+            originalCopied = true;
+
+            cancellationToken.ThrowIfCancellationRequested();
+            deleteAttempted = true;
+            ShellFileOperation.DeletePermanently((object)item);
+            var deleteStarted = DateTime.UtcNow;
+            while (DateTime.UtcNow - deleteStarted < TimeSpan.FromSeconds(20))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!ReadStorageItemState(device, @"documents\My Clippings.txt").Exists) break;
+                Thread.Sleep(250);
+            }
+            if (ReadStorageItemState(device, @"documents\My Clippings.txt").Exists)
+                throw new TimeoutException("等待 Kindle 更新 My Clippings.txt 超时。");
+
+            WpdNativeTransfer.SendFile(
+                device.RootPath,
+                documentsObjectId,
+                updatedPath,
+                "My Clippings.txt",
+                null,
+                cancellationToken);
+            WaitForStorageItem(device, @"documents\My Clippings.txt", new FileInfo(updatedPath).Length, null, "My Clippings.txt", cancellationToken);
+            replacementVerified = true;
+        }
+        catch (Exception exception) when (exception is COMException or IOException or TimeoutException or OperationCanceledException)
+        {
+            if (originalCopied && deleteAttempted && !replacementVerified
+                && !string.IsNullOrWhiteSpace(documentsObjectId))
+            {
+                try
+                {
+                    var current = ReadStorageItemState(device, @"documents\My Clippings.txt");
+                    if (current.Exists)
+                    {
+                        TryRemoveStorageItem(device, @"documents\My Clippings.txt");
+                        var cleanupStarted = DateTime.UtcNow;
+                        while (DateTime.UtcNow - cleanupStarted < TimeSpan.FromSeconds(20)
+                            && ReadStorageItemState(device, @"documents\My Clippings.txt").Exists)
+                        {
+                            Thread.Sleep(250);
+                        }
+                        if (ReadStorageItemState(device, @"documents\My Clippings.txt").Exists)
+                            throw new TimeoutException("无法清理未完成的 My Clippings.txt，原始副本需要保留。");
+                    }
+
+                    WpdNativeTransfer.SendFile(
+                        device.RootPath,
+                        documentsObjectId,
+                        originalPath,
+                        "My Clippings.txt",
+                        null,
+                        CancellationToken.None);
+                    WaitForStorageItem(device, @"documents\My Clippings.txt", new FileInfo(originalPath).Length, null, "My Clippings.txt", CancellationToken.None);
+                }
+                catch
+                {
+                    preserveOriginalCopy = true;
+                }
+            }
+            if (preserveOriginalCopy)
+                throw new IOException(
+                    $"MTP 更新 My Clippings.txt 失败，原始副本已保留在：{originalPath}",
+                    exception);
+            if (exception is COMException com) throw new IOException("无法更新 MTP Kindle 的 My Clippings.txt。", com);
+            throw;
+        }
+        finally
+        {
+            Release(item);
+            Release(documents);
+            Release(shell);
+            FlushReleasedComObjects();
+            if (!preserveOriginalCopy)
+            {
+                try { Directory.Delete(stagingDirectory, true); }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+            }
+        }
+    }
+
+    public static string CopyBookToLocal(
+        KindleDevice device,
+        KindleBook book,
+        string destinationDirectory,
+        CancellationToken cancellationToken)
+    {
+        using var session = new WpdSession(device);
+        return CopyBookToLocal(session, device, book, destinationDirectory, cancellationToken);
+    }
+
+    public static string CopyBookToLocal(
+        WpdSession session,
+        KindleDevice device,
+        KindleBook book,
+        string destinationDirectory,
+        CancellationToken cancellationToken)
+    {
+        Directory.CreateDirectory(destinationDirectory);
+        dynamic? item = null;
+        try
+        {
+            item = session.FindItem(Path.Combine(device.Profile.BooksDirectory, book.RelativePath));
+            var destinationPath = GetUniqueLocalDestination(destinationDirectory, book.FileName);
+            try
+            {
+                WpdNativeTransfer.CopyFileToLocal(
+                    device.RootPath,
+                    GetWpdObjectId(item),
+                    destinationPath,
+                    book.Size,
+                    cancellationToken);
+            }
+            catch (COMException)
+            {
+                // Some Kindle firmware exposes the object through Shell but
+                // rejects WPD_RESOURCE_DEFAULT. IFileOperation uses the same
+                // Shell object and remains compatible with that firmware.
+                ShellFileOperation.CopyToLocal((object)item, destinationPath, book.Size, cancellationToken);
+            }
+            return destinationPath;
+        }
+        catch (COMException exception)
+        {
+            throw new IOException("无法从 MTP 设备读取书籍。", exception);
+        }
+        finally
+        {
+            WpdSession.ReleaseItem(item);
+        }
+    }
+
+    public static string CopyStorageFileToLocal(
+        KindleDevice device,
+        string relativePath,
+        string destinationDirectory,
+        CancellationToken cancellationToken)
+    {
+        using var session = new WpdSession(device);
+        return CopyStorageFileToLocal(session, device, relativePath, destinationDirectory, cancellationToken);
+    }
+
+    public static string CopyStorageFileToLocal(
+        WpdSession session,
+        KindleDevice device,
+        string relativePath,
+        string destinationDirectory,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(relativePath)
+            || relativePath.Split(['\\', '/'], StringSplitOptions.RemoveEmptyEntries).Any(segment => segment == ".."))
+            throw new InvalidOperationException("设备文件路径无效。");
+
+        Directory.CreateDirectory(destinationDirectory);
+        dynamic? item = null;
+        try
+        {
+            item = session.FindItem(relativePath);
+            if ((bool)item.IsFolder) throw new InvalidOperationException("设备目标不能是文件夹。");
+            var fileName = Path.GetFileName(relativePath);
+            var destinationPath = GetUniqueLocalDestination(destinationDirectory, fileName);
+            var expectedSize = ReadInt64Property(item, "System.Size");
+            try
+            {
+                WpdNativeTransfer.CopyFileToLocal(
+                    device.RootPath,
+                    GetWpdObjectId(item),
+                    destinationPath,
+                    expectedSize,
+                    cancellationToken);
+            }
+            catch (COMException)
+            {
+                ShellFileOperation.CopyToLocal((object)item, destinationPath, expectedSize, cancellationToken);
+            }
+            return destinationPath;
+        }
+        catch (COMException exception)
+        {
+            throw new IOException("无法从 MTP 设备读取书籍封面。", exception);
+        }
+        finally
+        {
+            WpdSession.ReleaseItem(item);
+        }
+    }
+
+    public static void RemoveBook(
+        KindleDevice device,
+        KindleBook book,
+        CancellationToken cancellationToken)
+    {
+        if (!device.Profile.IsBookPath(book.RelativePath))
+            throw new InvalidOperationException("设备书籍路径无效。");
+        if (string.IsNullOrWhiteSpace(book.RelativePath)
+            || book.RelativePath.Split(['\\', '/'], StringSplitOptions.RemoveEmptyEntries).Any(segment => segment == ".."))
+            throw new InvalidOperationException("设备文件路径无效。");
+
+        dynamic? shell = null;
+        try
+        {
+            shell = CreateShell();
+            dynamic? kindle = FindDevice(shell, device.RootPath)
+                ?? throw new IOException("设备已断开连接。");
+            dynamic? storage = FindFirstStorage(kindle)
+                ?? throw new IOException("无法读取设备内部存储。");
+            dynamic? documents = FindItemByRelativePath(storage, device.Profile.BooksDirectory)
+                ?? throw new IOException("设备上不存在 documents 目录。");
+            dynamic? item = FindItemByRelativePath(documents, book.RelativePath)
+                ?? throw new FileNotFoundException("设备书籍不存在。", book.RelativePath);
+            if ((bool)item.IsFolder) throw new InvalidOperationException("不能删除设备文件夹。");
+
+            cancellationToken.ThrowIfCancellationRequested();
+            dynamic? readingState = FindItemByRelativePath(documents, Path.ChangeExtension(book.RelativePath, ".sdr"));
+            try
+            {
+                if (readingState is not null && (bool)readingState.IsFolder)
+                    WpdNativeTransfer.DeleteObject(device.RootPath, GetWpdObjectId(readingState), cancellationToken);
+            }
+            finally { Release(readingState); }
+            ShellFileOperation.DeletePermanently((object)item);
+            var startedAt = DateTime.UtcNow;
+            while (DateTime.UtcNow - startedAt < TimeSpan.FromSeconds(20))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!DocumentItemExists(device, book.RelativePath)) return;
+                Thread.Sleep(250);
+            }
+            throw new TimeoutException("等待设备删除文件超时。");
+        }
+        catch (COMException exception)
+        {
+            throw new IOException("无法删除 MTP 设备上的书籍。", exception);
+        }
+        finally
+        {
+            Release(shell);
+        }
+    }
+
+    public static void SendBook(
+        KindleDevice device,
+        string sourcePath,
+        string finalName,
+        KindleThumbnail? thumbnail,
+        IProgress<TransferProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        if (!File.Exists(sourcePath)) throw new FileNotFoundException("书籍源文件不存在。", sourcePath);
+        var sourceInfo = new FileInfo(sourcePath);
+        var stagingDirectory = Path.Combine(Path.GetTempPath(), "Libzora", "transfer", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(stagingDirectory);
+        var extension = Path.GetExtension(finalName);
+        var transferName = $"libzora-transfer-{Guid.NewGuid():N}{extension}";
+        var backupName = $"libzora-backup-{Guid.NewGuid():N}{extension}";
+        var transferCompleted = false;
+        var previousBookRenamed = false;
+        var previousBookRenameStarted = false;
+        var preserveTransfer = false;
+        dynamic? shell = null;
+        try
+        {
+            shell = CreateShell();
+            dynamic? kindle = FindDevice(shell, device.RootPath)
+                ?? throw new IOException("设备已断开连接。");
+            dynamic? storage = FindFirstStorage(kindle)
+                ?? throw new IOException("无法读取设备内部存储。");
+            dynamic? documents = FindItemByRelativePath(storage, device.Profile.BooksDirectory)
+                ?? throw new IOException("设备上不存在 documents 目录。");
+
+            if (Path.GetFileName(finalName) != finalName
+                || string.IsNullOrWhiteSpace(finalName)
+                || !Path.GetExtension(finalName).Equals(sourceInfo.Extension, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("设备目标文件名无效。");
+
+            cancellationToken.ThrowIfCancellationRequested();
+
+            progress?.Report(new TransferProgress(0, sourceInfo.Length, $"正在发送 {sourceInfo.Name}"));
+            WpdNativeTransfer.SendFile(
+                device.RootPath,
+                GetWpdObjectId(documents),
+                sourcePath,
+                transferName,
+                progress,
+                cancellationToken);
+
+            var timeout = TimeSpan.FromMinutes(Math.Clamp(2 + sourceInfo.Length / (100d * 1024 * 1024), 2, 30));
+            WaitForItem(
+                device,
+                transferName,
+                sourceInfo.Length,
+                timeout,
+                progress,
+                sourceInfo.Name,
+                cancellationToken);
+            var finalSize = WaitForItem(
+                device,
+                transferName,
+                sourceInfo.Length,
+                TimeSpan.FromSeconds(15),
+                progress,
+                sourceInfo.Name,
+                cancellationToken);
+            if (finalSize != sourceInfo.Length)
+                throw new IOException("设备文件大小校验失败。");
+            if (thumbnail is not null)
+            {
+                progress?.Report(new TransferProgress(sourceInfo.Length, sourceInfo.Length, "正在同步设备书架封面"));
+                var stagedThumbnail = Path.Combine(stagingDirectory, thumbnail.FileName);
+                File.WriteAllBytes(stagedThumbnail, thumbnail.JpegBytes);
+                UploadBookThumbnail(
+                    device,
+                    storage,
+                    stagedThumbnail,
+                    thumbnail.FileName,
+                    thumbnail.JpegBytes.LongLength,
+                    cancellationToken);
+            }
+
+            var existing = FindChild(documents, finalName);
+            if (existing is null)
+            {
+                dynamic? orphanState = FindChild(documents, Path.ChangeExtension(finalName, ".sdr"));
+                try
+                {
+                    if (orphanState is not null && (bool)orphanState.IsFolder)
+                        WpdNativeTransfer.DeleteObject(device.RootPath, GetWpdObjectId(orphanState), cancellationToken);
+                }
+                finally { Release(orphanState); }
+            }
+            if (existing is not null)
+            {
+                try
+                {
+                    if ((bool)existing.IsFolder)
+                        throw new InvalidOperationException("设备上同名目标是文件夹，无法替换书籍。");
+                    previousBookRenameStarted = true;
+                    ShellFileOperation.RenamePermanently((object)existing, backupName);
+                    previousBookRenamed = true;
+                }
+                finally
+                {
+                    Release(existing);
+                }
+            }
+
+            RenameDocumentItem(documents, device, transferName, finalName);
+            transferCompleted = true;
+            WaitForStorageItem(
+                device,
+                Path.Combine(device.Profile.BooksDirectory, finalName),
+                sourceInfo.Length,
+                null,
+                finalName,
+                cancellationToken);
+
+            if (previousBookRenamed)
+            {
+                // The verified new copy is now in place. A cleanup failure
+                // may leave a backup on-device, but cannot remove the new book.
+                TryRemoveDocumentItem(device, backupName);
+                previousBookRenamed = false;
+            }
+            progress?.Report(new TransferProgress(sourceInfo.Length, sourceInfo.Length, $"已发送 {finalName}"));
+        }
+        catch (Exception exception)
+        {
+            if (!previousBookRenamed && previousBookRenameStarted)
+                previousBookRenamed = ReadStorageItemState(
+                    device,
+                    Path.Combine(device.Profile.BooksDirectory, backupName)).Exists;
+            if (previousBookRenamed)
+            {
+                try
+                {
+                    TryRemoveDocumentItem(device, finalName);
+                    RenameDocumentItem(null, device, backupName, finalName);
+                    previousBookRenamed = false;
+                }
+                catch
+                {
+                    // Keep both the old backup and the staged/new copy when
+                    // the device does not permit rollback after an interrupted
+                    // rename. The user can recover either complete file.
+                    preserveTransfer = true;
+                }
+            }
+            if (exception is COMException com)
+                throw new IOException("MTP 传输失败，请确认设备仍保持连接。", com);
+            throw;
+        }
+        finally
+        {
+            Release(shell);
+            if (!transferCompleted && !preserveTransfer)
+                TryRemoveDocumentItem(device, transferName);
+            try { Directory.Delete(stagingDirectory, recursive: true); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
+    private static void RenameDocumentItem(dynamic? documents, KindleDevice device, string sourceName, string targetName)
+    {
+        dynamic? shell = null;
+        dynamic? kindle = null;
+        dynamic? storage = null;
+        dynamic? folder = null;
+        dynamic? item = null;
+        try
+        {
+            if (documents is null)
+            {
+                shell = CreateShell();
+                kindle = FindDevice(shell, device.RootPath)
+                    ?? throw new IOException("设备已断开连接。");
+                storage = FindFirstStorage(kindle)
+                    ?? throw new IOException("无法读取设备内部存储。");
+                folder = FindItemByRelativePath(storage, device.Profile.BooksDirectory)
+                    ?? throw new IOException("设备上不存在 documents 目录。");
+            }
+            item = FindChild(documents ?? folder, sourceName)
+                ?? throw new FileNotFoundException("MTP 设备上找不到待重命名的书籍。", sourceName);
+            if ((bool)item.IsFolder)
+                throw new InvalidOperationException("不能重命名设备上的文件夹来替换书籍。");
+            ShellFileOperation.RenamePermanently((object)item, targetName);
+        }
+        finally
+        {
+            Release(item);
+            Release(folder);
+            Release(storage);
+            Release(kindle);
+            Release(shell);
+        }
+    }
+
+    private static void UploadBookThumbnail(
+        KindleDevice device,
+        dynamic storage,
+        string stagedThumbnail,
+        string thumbnailFileName,
+        long expectedSize,
+        CancellationToken cancellationToken)
+    {
+        if (thumbnailFileName.IndexOfAny(['\\', '/']) >= 0)
+            throw new InvalidOperationException("设备缩略图文件名无效。");
+
+        dynamic thumbnailFolder = FindOrCreateFolderPath(storage, @"system\thumbnails", cancellationToken);
+        dynamic? existing = FindChild(thumbnailFolder, thumbnailFileName);
+        if (existing is not null)
+        {
+            if ((bool)existing.IsFolder)
+                throw new InvalidOperationException("设备缩略图目标不能是文件夹。");
+            ShellFileOperation.DeletePermanently((object)existing);
+            var deleteStartedAt = DateTime.UtcNow;
+            var relativePath = $@"system\thumbnails\{thumbnailFileName}";
+            while (DateTime.UtcNow - deleteStartedAt < TimeSpan.FromSeconds(20))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!ReadStorageItemState(device, relativePath).Exists) break;
+                Thread.Sleep(250);
+            }
+            if (ReadStorageItemState(device, relativePath).Exists)
+                throw new TimeoutException("等待设备更新旧封面超时。");
+        }
+
+        WpdNativeTransfer.SendFile(
+            device.RootPath,
+            GetWpdObjectId(thumbnailFolder),
+            stagedThumbnail,
+            thumbnailFileName,
+            null,
+            cancellationToken);
+        WaitForStorageItem(
+            device,
+            $@"system\thumbnails\{thumbnailFileName}",
+            expectedSize,
+            null,
+            thumbnailFileName,
+            cancellationToken);
+    }
+
+    private static dynamic CreateShell()
+    {
+        var shellType = Type.GetTypeFromProgID("Shell.Application")
+            ?? throw new PlatformNotSupportedException("Windows Shell 不可用。");
+        return Activator.CreateInstance(shellType)
+            ?? throw new InvalidOperationException("无法启动 Windows Shell。");
+    }
+
+    private static dynamic? FindDevice(dynamic shell, string shellPath)
+    {
+        dynamic computer = shell.NameSpace(MyComputerShellFolder);
+        dynamic items = computer.Items();
+        for (var index = 0; index < (int)items.Count; index++)
+        {
+            dynamic item = items.Item(index);
+            if (string.Equals(Convert.ToString(item.Path), shellPath, StringComparison.OrdinalIgnoreCase))
+                return item;
+        }
+        return null;
+    }
+
+    private static dynamic? FindFirstStorage(dynamic device)
+    {
+        dynamic? children = null;
+        try
+        {
+            children = device.GetFolder.Items();
+            for (var index = 0; index < (int)children.Count; index++)
+            {
+                dynamic child = children.Item(index);
+                if ((bool)child.IsFolder) return child;
+            }
+            return null;
+        }
+        finally
+        {
+            Release(children);
+        }
+    }
+
+    private static dynamic? FindChild(dynamic parent, string name)
+    {
+        dynamic? children = null;
+        try
+        {
+            children = parent.GetFolder.Items();
+            for (var index = 0; index < (int)children.Count; index++)
+            {
+                dynamic child = children.Item(index);
+                if (string.Equals(GetItemFileName(child), name, StringComparison.OrdinalIgnoreCase))
+                    return child;
+            }
+            return null;
+        }
+        finally
+        {
+            Release(children);
+        }
+    }
+
+    private static string GetItemFileName(dynamic item)
+    {
+        // Shell Name is a display label and can omit known file extensions.
+        // Use the actual filename for format detection and relative-path lookup.
+        try
+        {
+            string? fileName = Convert.ToString(item.ExtendedProperty("System.FileName"));
+            if (!string.IsNullOrWhiteSpace(fileName)) return fileName;
+        }
+        catch (COMException) { }
+        return Convert.ToString(item.Name) ?? string.Empty;
+    }
+
+    private static string GetUniqueLocalDestination(string directory, string fileName)
+    {
+        var safeName = Path.GetFileName(fileName);
+        var destination = Path.Combine(directory, safeName);
+        if (!File.Exists(destination)) return destination;
+        var stem = Path.GetFileNameWithoutExtension(safeName);
+        var extension = Path.GetExtension(safeName);
+        for (var index = 2; ; index++)
+        {
+            destination = Path.Combine(directory, $"{stem} ({index}){extension}");
+            if (!File.Exists(destination)) return destination;
+        }
+    }
+
+    private static string GetWpdObjectId(dynamic shellItem)
+    {
+        var value = shellItem.ExtendedProperty($"{{{WpdObjectPropertySet}}} 2");
+        var objectId = Convert.ToString(value);
+        if (string.IsNullOrWhiteSpace(objectId))
+            throw new IOException("无法读取设备目标目录的 WPD 对象 ID。");
+        return objectId;
+    }
+
+    private static dynamic? FindItemByRelativePath(dynamic root, string relativePath)
+    {
+        dynamic? current = root;
+        foreach (var segment in relativePath.Split(['\\', '/'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            current = current is null ? null : FindChild(current, segment);
+            if (current is null) return null;
+        }
+        return current;
+    }
+
+    private static dynamic FindOrCreateFolderPath(dynamic storage, string relativePath, CancellationToken cancellationToken)
+    {
+        dynamic current = storage;
+        foreach (var segment in relativePath.Split(['\\', '/'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            dynamic? child = FindChild(current, segment);
+            if (child is null)
+            {
+                dynamic folder = current.GetFolder;
+                folder.NewFolder(segment);
+                var startedAt = DateTime.UtcNow;
+                while (DateTime.UtcNow - startedAt < TimeSpan.FromSeconds(10))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    child = FindChild(current, segment);
+                    if (child is not null) break;
+                    Thread.Sleep(200);
+                }
+            }
+            if (child is null || !(bool)child.IsFolder)
+                throw new IOException($"无法创建设备目录：{relativePath}");
+            current = child;
+        }
+        return current;
+    }
+
+    private static string GetUniqueFileName(dynamic folderItem, string fileName)
+    {
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        dynamic children = folderItem.GetFolder.Items();
+        for (var index = 0; index < (int)children.Count; index++)
+            names.Add(Convert.ToString(children.Item(index).Name) ?? string.Empty);
+
+        var stem = Path.GetFileNameWithoutExtension(fileName);
+        var extension = Path.GetExtension(fileName);
+        for (var index = 1; ; index++)
+        {
+            var candidate = index == 1 ? fileName : $"{stem} ({index}){extension}";
+            if (!names.Contains(candidate) && !names.Contains(candidate + ".libzora-part"))
+                return candidate;
+        }
+    }
+
+    private static long WaitForItem(
+        KindleDevice device,
+        string name,
+        long expectedSize,
+        TimeSpan timeout,
+        IProgress<TransferProgress>? progress,
+        string displayName,
+        CancellationToken cancellationToken)
+    {
+        var startedAt = DateTime.UtcNow;
+        while (DateTime.UtcNow - startedAt < timeout)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var state = ReadDocumentItemState(device, name);
+            if (state.Exists)
+            {
+                var size = state.Size;
+                progress?.Report(new TransferProgress(Math.Min(size, expectedSize), expectedSize, $"正在发送 {displayName}"));
+                if (size == expectedSize) return size;
+            }
+            Thread.Sleep(250);
+        }
+        throw new TimeoutException("等待设备完成文件写入超时。");
+    }
+
+    private static (bool Exists, long Size) ReadDocumentItemState(KindleDevice device, string relativePath)
+    {
+        dynamic? shell = null;
+        try
+        {
+            shell = CreateShell();
+            dynamic? kindle = FindDevice(shell, device.RootPath);
+            dynamic? storage = kindle is null ? null : FindFirstStorage(kindle);
+            dynamic? documents = storage is null ? null : FindItemByRelativePath(storage, device.Profile.BooksDirectory);
+            dynamic? item = documents is null ? null : FindItemByRelativePath(documents, relativePath);
+            if (item is null) return (false, 0);
+            long size = ReadInt64Property(item, "System.Size");
+            return (true, size);
+        }
+        catch (COMException)
+        {
+            return (false, 0);
+        }
+        finally
+        {
+            Release(shell);
+        }
+    }
+
+    private static bool DocumentItemExists(KindleDevice device, string relativePath) =>
+        ReadDocumentItemState(device, relativePath).Exists;
+
+    private static void WaitForStorageItem(
+        KindleDevice device,
+        string relativePath,
+        long expectedSize,
+        IProgress<TransferProgress>? progress,
+        string displayName,
+        CancellationToken cancellationToken)
+    {
+        var timeout = TimeSpan.FromMinutes(Math.Clamp(2 + expectedSize / (100d * 1024 * 1024), 2, 30));
+        var startedAt = DateTime.UtcNow;
+        while (DateTime.UtcNow - startedAt < timeout)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var state = ReadStorageItemState(device, relativePath);
+            if (state.Exists)
+            {
+                progress?.Report(new TransferProgress(Math.Min(state.Size, expectedSize), expectedSize, $"正在发送 {displayName}"));
+                if (state.Size == expectedSize) return;
+            }
+            Thread.Sleep(250);
+        }
+        throw new TimeoutException("等待设备完成资源写入超时。");
+    }
+
+    private static (bool Exists, long Size) ReadStorageItemState(KindleDevice device, string relativePath)
+    {
+        dynamic? shell = null;
+        dynamic? kindle = null;
+        dynamic? storage = null;
+        dynamic? item = null;
+        try
+        {
+            shell = CreateShell();
+            kindle = FindDevice(shell, device.RootPath);
+            storage = kindle is null ? null : FindFirstStorage(kindle);
+            item = storage is null ? null : FindItemByRelativePath(storage, relativePath);
+            return item is null ? (false, 0L) : (true, (long)ReadInt64Property(item, "System.Size"));
+        }
+        catch (COMException)
+        {
+            return (false, 0);
+        }
+        finally
+        {
+            Release(item);
+            Release(storage);
+            Release(kindle);
+            Release(shell);
+            FlushReleasedComObjects();
+        }
+    }
+
+    private static void TryRemoveStorageItem(KindleDevice device, string relativePath)
+    {
+        dynamic? shell = null;
+        try
+        {
+            shell = CreateShell();
+            dynamic? kindle = FindDevice(shell, device.RootPath);
+            dynamic? storage = kindle is null ? null : FindFirstStorage(kindle);
+            dynamic? item = storage is null ? null : FindItemByRelativePath(storage, relativePath);
+            if (item is not null && !(bool)item.IsFolder) ShellFileOperation.DeletePermanently((object)item);
+        }
+        catch (COMException) { }
+        finally { Release(shell); }
+    }
+
+    private static void TryRemoveDocumentItem(KindleDevice device, string name)
+    {
+        if (string.IsNullOrWhiteSpace(name) || name.IndexOfAny(['\\', '/']) >= 0) return;
+
+        dynamic? shell = null;
+        try
+        {
+            shell = CreateShell();
+            dynamic? kindle = FindDevice(shell, device.RootPath);
+            dynamic? storage = kindle is null ? null : FindFirstStorage(kindle);
+            dynamic? documents = storage is null ? null : FindItemByRelativePath(storage, device.Profile.BooksDirectory);
+            dynamic? item = documents is null ? null : FindChild(documents, name);
+            if (item is not null && !(bool)item.IsFolder)
+            {
+                ShellFileOperation.DeletePermanently((object)item);
+            }
+        }
+        catch (COMException) { }
+        finally
+        {
+            Release(shell);
+        }
+    }
+
+    private static long ReadInt64Property(dynamic item, string propertyName)
+    {
+        try { return ConvertToInt64(item.ExtendedProperty(propertyName)); }
+        catch (COMException) { return 0; }
+    }
+
+    private static DateTimeOffset? ReadDateTimeOffsetProperty(dynamic item, string propertyName)
+    {
+        try
+        {
+            var value = item.ExtendedProperty(propertyName);
+            if (value is DateTime dateTime) return new DateTimeOffset(dateTime.ToUniversalTime());
+            return DateTimeOffset.TryParse((string?)Convert.ToString(value), out DateTimeOffset parsed)
+                ? parsed.ToUniversalTime()
+                : null;
+        }
+        catch (COMException) { return null; }
+    }
+
+    private static long ConvertToInt64(object? value)
+    {
+        try { return Convert.ToInt64(value); }
+        catch (Exception exception) when (exception is FormatException or InvalidCastException or OverflowException)
+        {
+            return 0;
+        }
+    }
+
+    private static void Release(object? value)
+    {
+        if (value is not null && Marshal.IsComObject(value))
+            Marshal.FinalReleaseComObject(value);
+    }
+
+    private static void FlushReleasedComObjects()
+    {
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+    }
+
+}

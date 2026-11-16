@@ -1,0 +1,125 @@
+#!/usr/bin/env python3
+"""Install an isolated simulator copy, with local books and no connection settings."""
+
+import argparse
+import json
+import plistlib
+import shutil
+import sqlite3
+import subprocess
+import tempfile
+from pathlib import Path
+
+
+PREVIEW_ID = "com.kingstacker.libzora.nativepreview"
+
+
+def run(*command: str, check: bool = True) -> str:
+    result = subprocess.run(command, check=check, capture_output=True, text=True)
+    return result.stdout.strip()
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--app", type=Path, required=True, help="Built simulator .app")
+    parser.add_argument("--simulator", required=True, help="Booted simulator UUID")
+    parser.add_argument("--seed", type=Path, required=True, help="Local Libzora directory with data/libzora.db and EPUB/PDF files")
+    parser.add_argument("--preserve-data", action="store_true", help="Update only the isolated preview app, keeping its data and scene sessions for upgrade verification")
+    parser.add_argument("--upgrade-preview", action="store_true", help="Use a second isolated bundle for legacy-to-native upgrade tests")
+    args = parser.parse_args()
+    preview_id = "com.kingstacker.libzora.nativeupgradepreview" if args.upgrade_preview else PREVIEW_ID
+    source_app = args.app.resolve(strict=True)
+    source_data = (args.seed / "data").resolve(strict=True)
+    if not (source_data / "libzora.db").is_file():
+        parser.error("The seed must contain data/libzora.db.")
+
+    output = Path(tempfile.mkdtemp(prefix="libzora-native-preview-"))
+    preview_app = output / "NativePreview.app"
+    shutil.copytree(source_app, preview_app)
+    info_path = preview_app / "Info.plist"
+    with info_path.open("rb") as stream:
+        info = plistlib.load(stream)
+    info["CFBundleIdentifier"] = preview_id
+    info["CFBundleDisplayName"] = "Libzora Native Preview"
+    with info_path.open("wb") as stream:
+        plistlib.dump(info, stream, fmt=plistlib.FMT_BINARY)
+
+    # A nested widget extension keeps its own bundle identifier, and its
+    # prefix must match the isolated preview app. It shares the same App
+    # Group entitlement as the production extension.
+    widget_appex = preview_app / "PlugIns" / "LibzoraWidgets.appex"
+    if widget_appex.is_dir():
+        with (widget_appex / "Info.plist").open("rb") as stream:
+            widget_info = plistlib.load(stream)
+        widget_info["CFBundleIdentifier"] = preview_id + ".widgets"
+        with (widget_appex / "Info.plist").open("wb") as stream:
+            plistlib.dump(widget_info, stream, fmt=plistlib.FMT_BINARY)
+        # Sign the renamed extension before sealing the outer app. Signing the
+        # app with --deep alone can retain the extension's old signing
+        # identifier, leaving it out of step with the new Info.plist.
+        run("codesign", "--force", "--preserve-metadata=entitlements",
+            "--identifier", preview_id + ".widgets", "--sign", "-",
+            str(widget_appex))
+
+    seed_root = output / "Libzora"
+    seed_data = seed_root / "data"
+    seed_data.mkdir(parents=True)
+    # Whitelist only the database and the readable book assets. API keys,
+    # protected passwords, connection settings and mobile preferences are excluded.
+    for name in ("libzora.db", "libzora.db-wal", "libzora.db-shm"):
+        path = source_data / name
+        if path.is_file():
+            shutil.copy2(path, seed_data / name)
+    for name in ("library", "covers", "fonts"):
+        path = source_data / name
+        if path.is_dir():
+            shutil.copytree(path, seed_data / name)
+    with sqlite3.connect(seed_data / "libzora.db") as database:
+        fixture = {}
+        for extension, title in (("epub", "Native UI EPUB"), ("pdf", "Native UI PDF")):
+            row = database.execute(
+                "SELECT BookId FROM BookFiles WHERE lower(Format) = ? ORDER BY BookId LIMIT 1", (extension,)
+            ).fetchone()
+            if row is None:
+                parser.error(f"The seed needs at least one local {extension.upper()} book.")
+            database.execute("UPDATE Books SET Title = ? WHERE Id = ?", (title, row[0]))
+            fixture[extension] = row[0]
+        # The library filter test needs one book with several authors, a tag
+        # and a category; real libraries may not have any of those values.
+        database.execute(
+            "UPDATE Books SET Authors = ?, Tags = ?, Category = ? WHERE Id = ?",
+            ("筛选作者12, 筛选作者甲, 筛选作者乙", "测试标签", "测试分类", fixture["epub"]),
+        )
+
+    # Preserve the App Group entitlement while changing the app identity;
+    # without it the preview cannot read the widget snapshot container. The
+    # extension was already re-signed above, so do not use --deep here.
+    run("codesign", "--force", "--preserve-metadata=entitlements",
+        "--sign", "-", str(preview_app))
+    if args.upgrade_preview:
+        # Artificial local preferences make an unintended reset during upgrade
+        # observable. They contain no connection configuration or credentials.
+        (seed_root / "mobile-preferences.json").write_text(json.dumps({
+            "ThemeMode": 1, "ListView": False, "CollectionsView": False, "PdfZoom": 1,
+            "Sort": 0, "ReaderTheme": 1, "ReaderFontScale": 1.25, "ReaderLineHeight": 1.75,
+            "ReaderBodyPadding": 24, "ReaderParagraphIndent": True,
+            "ReaderVerticalWriting": False, "ReaderPageAnimation": 2,
+        }))
+    run("xcrun", "simctl", "terminate", args.simulator, preview_id, check=False)
+    run("xcrun", "simctl", "install", args.simulator, str(preview_app))
+    container = Path(run("xcrun", "simctl", "get_app_container", args.simulator, preview_id, "data"))
+    target = container / "Documents" / "Libzora"
+    if args.preserve_data:
+        if not (target / "data" / "libzora.db").is_file():
+            parser.error("--preserve-data needs an existing isolated preview library.")
+        print(f"Updated {preview_id}; preview data preserved; artifacts: {output}")
+        return
+    # The container comes from the dedicated preview bundle, never the user's app.
+    if target.exists():
+        shutil.rmtree(target)
+    shutil.copytree(seed_root, target)
+    print(f"Installed {preview_id}; isolated artifacts: {output}")
+
+
+if __name__ == "__main__":
+    main()

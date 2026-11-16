@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Libzora.AccountServer/Libzora.AccountServer.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Libzora.AccountServer.Tests/Libzora.AccountServer.Tests.csproj" />
+  </Folder>
+</Solution>

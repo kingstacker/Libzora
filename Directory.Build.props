@@ -7,6 +7,6 @@
     <!-- Allows macOS/Linux hosts to restore and build the Windows-targeted
          reference set (the MCP server multi-targets Windows). -->
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
-    <Version>1.1.5-dev.1</Version>
+    <Version>1.1.6-dev.1</Version>
   </PropertyGroup>
 </Project>

@@ -1,3 +1,9 @@
 # The assembled Kindle text oracle is compared byte-for-byte. Git must not
 # rewrite its line endings when checking out on Windows.
 tests/Fixtures/Azw3/* -text
+
+# The offline license manifest pins original documents by SHA-256. Preserve
+# their exact upstream bytes on every platform, including CRLF documents.
+src/Libzora.Infrastructure/ThirdParty/Notices/** -text whitespace=cr-at-eol
+# Rich-text EULAs are original document payloads, not mergeable source text.
+src/Libzora.Infrastructure/ThirdParty/Notices/**/*.rtf binary

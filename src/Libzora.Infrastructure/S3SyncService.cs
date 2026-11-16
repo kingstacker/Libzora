@@ -754,11 +754,11 @@ public sealed partial class S3SyncService : ISyncService
             .Select(tombstone => VersionKey(tombstone.EntityType, tombstone.Key))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var remoteVersions = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (key, version) in GetSnapshotEntityVersions(local))
+        foreach (var (key, version) in GetSnapshotOrderingVersions(local))
             remoteVersions[key] = version;
         foreach (var snapshot in remoteSnapshots)
         {
-            foreach (var (key, version) in GetSnapshotEntityVersions(snapshot))
+            foreach (var (key, version) in GetSnapshotOrderingVersions(snapshot))
                 if (!remoteVersions.TryGetValue(key, out var existing) || version > existing)
                     remoteVersions[key] = version;
         }
@@ -780,6 +780,33 @@ public sealed partial class S3SyncService : ISyncService
         }
     }
 
+    /// <summary>
+    /// Ordering versions used to compare live rows with deletion records. A
+    /// row's hybrid-clock version, not its semantic timestamp: captures stamp
+    /// rows with the clock's physical floor, so a stale row can carry an old
+    /// UpdatedAt while sharing the deletion instant's tick. Comparing only the
+    /// timestamp lets a local deletion look newer than a row it must suppress,
+    /// or older than a row that re-imported the deleted identity.
+    /// </summary>
+    private static Dictionary<string, DateTimeOffset> GetSnapshotOrderingVersions(S3SyncSnapshot snapshot)
+    {
+        var result = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entity in SyncEntities.Where(entity => entity.TrackDeletion))
+        {
+            foreach (var row in entity.Rows(snapshot))
+            {
+                var ticks = row.Value is ISyncVersionedRow versioned
+                    ? S3SyncVersion.PhysicalTicks(versioned.SyncVersion, row.Version)
+                    : row.Version.UtcTicks;
+                var key = VersionKey(entity.Type, row.Key);
+                if (!result.TryGetValue(key, out var existing) || ticks > existing.UtcTicks)
+                    result[key] = new DateTimeOffset(
+                        Math.Clamp(ticks, 0, DateTimeOffset.MaxValue.UtcTicks), TimeSpan.Zero);
+            }
+        }
+        return result;
+    }
+
     private static void LiftRemoteDeletionVersionsOverUnchangedLocalRows(
         S3SyncSnapshot local,
         S3SyncSnapshot? previousLocal,
@@ -797,11 +824,11 @@ public sealed partial class S3SyncService : ISyncService
         if (unchangedKeys.Count == 0) return;
 
         var remoteVersions = new Dictionary<string, DateTimeOffset>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (key, version) in GetSnapshotEntityVersions(local))
+        foreach (var (key, version) in GetSnapshotOrderingVersions(local))
             remoteVersions[key] = version;
         foreach (var snapshot in remoteSnapshots)
         {
-            foreach (var (key, version) in GetSnapshotEntityVersions(snapshot))
+            foreach (var (key, version) in GetSnapshotOrderingVersions(snapshot))
                 if (!remoteVersions.TryGetValue(key, out var existing) || version > existing)
                     remoteVersions[key] = version;
         }

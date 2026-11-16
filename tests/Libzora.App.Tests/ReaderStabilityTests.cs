@@ -22,8 +22,13 @@ public sealed class ReaderStabilityTests(SettingsUiSession session) : IDisposabl
     [InlineData(true)]
     public Task FontSwitchRetainsFallbackOnEveryPageAndLaterReclaimsIt(bool navigate) => Run(async () =>
     {
-        var face = SystemFontCatalog.CjkFonts.FirstOrDefault();
-        if (face is null) return;
+        // Exercise real system-font lifetime without probing every optional
+        // macOS family: headless macOS 15 can block in FontRegistry during
+        // exhaustive catalog discovery, before the reader test even starts.
+        var family = OperatingSystem.IsMacOS()
+            ? "PingFang SC"
+            : SystemFontCatalog.CjkFonts.FirstOrDefault()?.Family;
+        if (family is null) return;
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
         string? symbols = null;
         while (directory is not null)
@@ -45,7 +50,7 @@ public sealed class ReaderStabilityTests(SettingsUiSession session) : IDisposabl
         var body = string.Concat(Enumerable.Repeat("<p>☀</p>", 80)) + "<p>阅读测试</p>";
         var path = Path.Combine(_directory, "font-fallback.xhtml");
         await File.WriteAllTextAsync(path, "<html><body>" + body + "</body></html>");
-        var systemKey = TypesetFontLibrary.SystemFontKey(face.Family);
+        var systemKey = TypesetFontLibrary.SystemFontKey(family);
         await host.Configure(new ReaderLayoutSettings(FontFamily: systemKey), 0, null, false, false);
         var loaded = NextNavigation(host);
         host.Navigate(new Uri(path));

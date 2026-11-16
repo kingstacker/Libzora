@@ -2601,19 +2601,32 @@ public sealed class LibzoraLayoutEngineTests : IDisposable
         }
     }
 
+    private static IReadOnlyList<string> SystemTestFontFamilies()
+    {
+        // These tests exercise real platform-face registration and lifetime,
+        // not the font-picker's exhaustive catalog. On headless macOS 15,
+        // probing optional families can block in CoreText/FontRegistry before
+        // a TypesetFontLibrary or composition lease has even been created.
+        // Both PingFang faces ship with macOS; registration/shaping must succeed
+        // rather than silently returning early when they are unavailable.
+        return OperatingSystem.IsMacOS()
+            ? ["PingFang SC", "PingFang TC"]
+            : SystemFontCatalog.CjkFonts.Select(face => face.Family).ToArray();
+    }
+
     [Fact]
     public void SystemFontCanBeRegisteredWithoutAFile()
     {
-        var face = SystemFontCatalog.CjkFonts.FirstOrDefault();
-        if (face is null)
+        var family = SystemTestFontFamilies().FirstOrDefault();
+        if (family is null)
         {
             // Headless CI images may not install a CJK system face.
             return;
         }
 
         using var library = new TypesetFontLibrary(_fontPath);
-        Assert.True(library.TryEnsureSystemFont(face.Family, out var key));
-        Assert.Equal(TypesetFontLibrary.SystemFontKey(face.Family), key);
+        Assert.True(library.TryEnsureSystemFont(family, out var key));
+        Assert.Equal(TypesetFontLibrary.SystemFontKey(family), key);
         Assert.True(library.TrySetMainFont(key));
         Assert.Equal(key, library.MainFontPath);
         Assert.NotNull(library.GetTypeface(key));
@@ -2632,21 +2645,22 @@ public sealed class LibzoraLayoutEngineTests : IDisposable
     [Fact]
     public void SwitchingSystemFontReleasesThePreviousFace()
     {
-        var faces = SystemFontCatalog.CjkFonts.ToArray();
-        if (faces.Length == 0)
+        var families = SystemTestFontFamilies().ToArray();
+        if (families.Length == 0)
         {
             // Headless CI images may not install a CJK system face.
             return;
         }
 
         using var library = new TypesetFontLibrary(_fontPath);
-        Assert.True(library.TryEnsureSystemFont(faces[0].Family, out var first));
+        Assert.True(library.TryEnsureSystemFont(families[0], out var first));
         library.ReleaseSystemFontsExcept(first);
         Assert.Contains(first, library.LoadedSystemFontKeys);
 
-        if (faces.Length > 1)
+        if (families.Length > 1)
         {
-            Assert.True(library.TryEnsureSystemFont(faces[1].Family, out var second));
+            Assert.True(library.TryEnsureSystemFont(families[1], out var second));
+            Assert.NotEqual(library.GetTypeface(first).PostScriptName, library.GetTypeface(second).PostScriptName);
             Assert.True(library.TrySetMainFont(second));
             library.ReleaseSystemFontsExcept(second);
             Assert.DoesNotContain(first, library.LoadedSystemFontKeys);
@@ -2654,7 +2668,7 @@ public sealed class LibzoraLayoutEngineTests : IDisposable
             Assert.True(library.TrySetMainFont(second));
 
             // Switching back re-opens the released family on demand.
-            Assert.True(library.TryEnsureSystemFont(faces[0].Family, out var reopened));
+            Assert.True(library.TryEnsureSystemFont(families[0], out var reopened));
             Assert.Equal(first, reopened);
             Assert.True(library.TrySetMainFont(reopened));
         }
@@ -2673,14 +2687,14 @@ public sealed class LibzoraLayoutEngineTests : IDisposable
     [InlineData(true)]
     public void SwitchingToMissingGlyphFontKeepsLiveLayoutFallback(bool deferred)
     {
-        var face = SystemFontCatalog.CjkFonts.FirstOrDefault();
-        if (face is null) return;
+        var family = SystemTestFontFamilies().FirstOrDefault();
+        if (family is null) return;
 
         // This file-backed face deliberately has no Chinese body glyphs. The
         // previously selected platform face must supply the new layout's ink.
         var symbols = Path.Combine(Path.GetDirectoryName(_fontPath)!, "NotoSansSymbols2-Regular.ttf");
         using var library = new TypesetFontLibrary(symbols);
-        Assert.True(library.TryEnsureSystemFont(face.Family, out var systemKey));
+        Assert.True(library.TryEnsureSystemFont(family, out var systemKey));
         Assert.True(library.TrySetMainFont(systemKey));
         using var engine = new TypesetEngine(library, ownsFonts: false);
         var content = new XhtmlChapterLoader().Load(WriteChapter("<p>阅读测试</p>"));
@@ -2721,14 +2735,14 @@ public sealed class LibzoraLayoutEngineTests : IDisposable
     [Fact]
     public void DeferredSystemFontReleaseWaitsForComposition()
     {
-        var face = SystemFontCatalog.CjkFonts.FirstOrDefault();
-        if (face is null)
+        var family = SystemTestFontFamilies().FirstOrDefault();
+        if (family is null)
         {
             return;
         }
 
         using var library = new TypesetFontLibrary(_fontPath);
-        Assert.True(library.TryEnsureSystemFont(face.Family, out var key));
+        Assert.True(library.TryEnsureSystemFont(family, out var key));
         Assert.True(library.TrySetMainFont(_fontPath));
         using (library.BeginComposition())
         {

@@ -6221,13 +6221,14 @@
                                                 <Slider x:Name="ReaderBodyPaddingSlider" Minimum="24" Maximum="160" TickFrequency="8" IsSnapToTickEnabled="True" Value="68" ValueChanged="ReaderLayoutSettingChanged" />
                                             </StackPanel>
                                             <StackPanel Spacing="5">
-                                                <TextBlock Text="{DynamicResource Ui.Auto.F818CA93CE983E65}" FontSize="12" />
+                                                <TextBlock Text="{DynamicResource Ui.Auto.34F1A6958FDDDA3E}" FontSize="12" />
                                                 <ComboBox x:Name="ReaderFontFamilyBox"
                                                           Classes="readerSettingsFont"
-                                                          AutomationProperties.Name="{DynamicResource Ui.Auto.F818CA93CE983E65}"
+                                                          AutomationProperties.Name="{DynamicResource Ui.Auto.34F1A6958FDDDA3E}"
                                                           HorizontalAlignment="Stretch"
                                                           SelectionChanged="ReaderFontFamilyBox_SelectionChanged">
                                                     <ComboBoxItem Content="{DynamicResource Ui.Auto.97F24E62001955CC}" Tag="京华老宋体" />
+                                                    <ComboBoxItem Content="{DynamicResource Ui.Auto.04B77083689B0977}" Tag="{x:Static core:ReaderFontDefaults.SystemDefaultFamily}" />
                                                     <ComboBoxItem Content="{DynamicResource Ui.Auto.709E6BFBD8FBEF3E}" Tag="Microsoft YaHei UI" />
                                                     <ComboBoxItem Content="{DynamicResource Ui.Auto.67ABB8F1EFAC16D0}" Tag="SimSun" />
                                                     <ComboBoxItem Content="{DynamicResource Ui.Auto.FE154AC80068C997}" Tag="SimHei" />

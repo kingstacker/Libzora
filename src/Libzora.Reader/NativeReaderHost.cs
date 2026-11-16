@@ -1838,6 +1838,25 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
 
     private static void SelectReaderMainFont(TypesetEngine engine, string? family)
     {
+        if (!string.IsNullOrWhiteSpace(family)
+            && string.Equals(
+                family.Trim(),
+                ReaderFontDefaults.SystemDefaultFamily,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            // "System default" is resolved per platform so the same synced
+            // preference picks PingFang SC on Apple platforms, Microsoft
+            // YaHei UI on Windows and Noto CJK on Linux.
+            foreach (var defaultFamily in ReaderFontDefaults.GetSystemDefaultFamilies())
+            {
+                if (engine.Fonts.TryEnsureSystemFont(defaultFamily, out var defaultKey)
+                    && engine.Fonts.TrySetMainFont(defaultKey))
+                {
+                    return;
+                }
+            }
+        }
+
         if (!string.IsNullOrWhiteSpace(family) && TypesetFontLibrary.IsSystemFontKey(family))
         {
             var systemFamily = family[ReaderFontDefaults.SystemFamilyPrefix.Length..].Trim();

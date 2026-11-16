@@ -109,6 +109,29 @@ public static class ReaderFontDefaults
     public const string SystemFamilyPrefix = "system:";
     /// <summary>Prefix for a font installed from the downloadable reader catalog.</summary>
     public const string CatalogFamilyPrefix = "catalog:";
+    /// <summary>
+    /// Persisted marker for the platform's own default reading font. The
+    /// concrete family is resolved at render time so a synced preference uses
+    /// each device's system font instead of a family that only exists on the
+    /// machine that saved it.
+    /// </summary>
+    public const string SystemDefaultFamily = "system-default";
+
+    /// <summary>
+    /// Platform default reading families in preference order. PingFang SC is
+    /// Apple's default Simplified Chinese face; Microsoft YaHei UI is the
+    /// Windows default; Noto/Source Han fill that role on Linux and Android.
+    /// </summary>
+    public static IReadOnlyList<string> GetSystemDefaultFamilies()
+    {
+        if (OperatingSystem.IsMacOS() || OperatingSystem.IsIOS() || OperatingSystem.IsMacCatalyst())
+            return ["PingFang SC", "Heiti SC", "Songti SC"];
+        if (OperatingSystem.IsWindows())
+            return ["Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI"];
+        if (OperatingSystem.IsAndroid())
+            return ["Noto Sans CJK SC", "Noto Serif CJK SC", "Roboto"];
+        return ["Noto Sans CJK SC", "Source Han Sans SC", "Noto Serif CJK SC", "DejaVu Sans"];
+    }
 }
 
 public sealed record ReaderLayoutSettings(

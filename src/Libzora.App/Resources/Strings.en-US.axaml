@@ -655,7 +655,7 @@
     <x:String x:Key="Ui.Auto.C98E118E0A43F078">Model</x:String>
     <x:String x:Key="Ui.Auto.CB2F1709F983D2F4">Model name</x:String>
     <x:String x:Key="Ui.Auto.92424890EA6A8543">Checking device…</x:String>
-    <x:String x:Key="Ui.Auto.F818CA93CE983E65">Body font (CJK fallback)</x:String>
+    <x:String x:Key="Ui.Auto.34F1A6958FDDDA3E">Body font</x:String>
     <x:String x:Key="Ui.Auto.598EA039C0563336">Maximum text width</x:String>
     <x:String x:Key="Ui.Auto.F7044E3D685ABD03">Paragraph indent</x:String>
     <x:String x:Key="Ui.Auto.A37165A983502AE5">This document has no usable table of contents.</x:String>
@@ -703,6 +703,7 @@
     <x:String x:Key="Ui.Auto.27D8F6DDB26F435B">Manage dictionaries on device</x:String>
     <x:String x:Key="Ui.Auto.6426A1A2141ECAD5">Manage local data, reading preferences, and device settings.</x:String>
     <x:String x:Key="Ui.Auto.232527192F3462A3">Series</x:String>
+    <x:String x:Key="Ui.Auto.04B77083689B0977">System Default</x:String>
     <x:String x:Key="Ui.Auto.68EA5DD4D7AF20E6">System settings</x:String>
     <x:String x:Key="Ui.Auto.3CCEA88494F876E9">Total reading</x:String>
     <x:String x:Key="Ui.Auto.477A9BD5C415C9E7">Browse highlights, notes, and annotations from local books and device in one place</x:String>

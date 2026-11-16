@@ -611,7 +611,7 @@
     <x:String x:Key="Ui.Auto.C98E118E0A43F078">模型</x:String>
     <x:String x:Key="Ui.Auto.CB2F1709F983D2F4">模型名称</x:String>
     <x:String x:Key="Ui.Auto.92424890EA6A8543">正在检查设备…</x:String>
-    <x:String x:Key="Ui.Auto.F818CA93CE983E65">正文字体（CJK 覆盖）</x:String>
+    <x:String x:Key="Ui.Auto.34F1A6958FDDDA3E">正文字体</x:String>
     <x:String x:Key="Ui.Auto.598EA039C0563336">正文最大宽度</x:String>
     <x:String x:Key="Ui.Auto.F7044E3D685ABD03">段首缩进</x:String>
     <x:String x:Key="Ui.Auto.A37165A983502AE5">此文档没有可用目录。</x:String>
@@ -659,6 +659,7 @@
     <x:String x:Key="Ui.Auto.27D8F6DDB26F435B">管理设备上的字典</x:String>
     <x:String x:Key="Ui.Auto.6426A1A2141ECAD5">管理本地数据、阅读偏好与设备设置。</x:String>
     <x:String x:Key="Ui.Auto.232527192F3462A3">系列</x:String>
+    <x:String x:Key="Ui.Auto.04B77083689B0977">系统默认</x:String>
     <x:String x:Key="Ui.Auto.68EA5DD4D7AF20E6">系统设置</x:String>
     <x:String x:Key="Ui.Auto.3CCEA88494F876E9">累计阅读</x:String>
     <x:String x:Key="Ui.Auto.477A9BD5C415C9E7">统一浏览本地书籍与设备的划线、笔记和批注</x:String>

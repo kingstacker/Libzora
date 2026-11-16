@@ -103,10 +103,19 @@ jobs:
         with:
           ref: ${{ env.RELEASE_TAG }}
 
-      - name: Set up .NET 10
+      - name: Set up repository .NET SDK
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: 10.0.400
+          global-json-file: global.json
+          check-latest: false
+          skip-lts-prepass: true
+      - name: Cache NuGet packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.nuget/packages
+          key: nuget-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('global.json', '**/*.csproj', '**/*.props', '**/*.targets', '**/NuGet.Config', '**/nuget.config', '**/packages.lock.json') }}
+          restore-keys: |
+            nuget-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Resolve and validate version
         id: version
@@ -122,10 +131,21 @@ jobs:
         run: dotnet restore Libzora.sln -p:Platform=x64
 
       - name: Run quick release tests
-        run: dotnet test Libzora.sln -c Release -p:Platform=x64 --no-restore
+        timeout-minutes: 15
+        run: >-
+          dotnet test Libzora.sln -c Release -p:Platform=x64 --no-restore
+          --logger "console;verbosity=normal" --logger trx
+          --blame-hang --blame-hang-timeout 5m --blame-hang-dump-type mini
+          --results-directory artifacts/test-results/windows
 
-      - name: Build Avalonia Windows head
-        run: dotnet build src/Libzora.Desktop.Windows/Libzora.Desktop.Windows.csproj -c Release -p:Platform=x64 -r win-x64 --self-contained true
+      - name: Upload test diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-test-diagnostics-windows
+          path: artifacts/test-results
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Install release toolchain
         shell: pwsh
@@ -165,7 +185,16 @@ jobs:
           ref: ${{ env.RELEASE_TAG }}
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: 10.0.400
+          global-json-file: global.json
+          check-latest: false
+          skip-lts-prepass: true
+      - name: Cache NuGet packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.nuget/packages
+          key: nuget-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('global.json', '**/*.csproj', '**/*.props', '**/*.targets', '**/NuGet.Config', '**/nuget.config', '**/packages.lock.json') }}
+          restore-keys: |
+            nuget-v1-${{ runner.os }}-${{ runner.arch }}-
       - name: Resolve version
         id: version
         shell: bash
@@ -220,34 +249,84 @@ jobs:
       RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
       # Icon Composer assets require Xcode 26; the runner defaults to Xcode 16.
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
-      APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
-      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-      APPLE_KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
-      APPLE_NOTARY_KEY_BASE64: ${{ secrets.APPLE_NOTARY_KEY_BASE64 }}
-      APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
-      APPLE_NOTARY_ISSUER: ${{ secrets.APPLE_NOTARY_ISSUER }}
+      LIBZORA_DMG_STYLE: "0"
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ env.RELEASE_TAG }}
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: 10.0.400
+          global-json-file: global.json
+          check-latest: false
+          skip-lts-prepass: true
+      - name: Cache NuGet packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.nuget/packages
+          key: nuget-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('global.json', '**/*.csproj', '**/*.props', '**/*.targets', '**/NuGet.Config', '**/nuget.config', '**/packages.lock.json') }}
+          restore-keys: |
+            nuget-v1-${{ runner.os }}-${{ runner.arch }}-
       - name: Resolve version
         id: version
         shell: bash
         run: |
           [[ "$RELEASE_TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?)$ ]] || exit 1
           echo "version=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
-      - name: Run portable tests
+      - name: Check macOS toolchain
+        id: xcode
         shell: bash
         run: |
           set -euo pipefail
+          xcodebuild -version | tee "$RUNNER_TEMP/libzora-toolchain.txt"
+          xcrun --sdk macosx --show-sdk-version | tee -a "$RUNNER_TEMP/libzora-toolchain.txt"
+          clang --version | tee -a "$RUNNER_TEMP/libzora-toolchain.txt"
+          echo "cache-key=$(shasum -a 256 "$RUNNER_TEMP/libzora-toolchain.txt" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+      - name: Cache macOS MTP dependencies
+        uses: actions/cache@v6
+        with:
+          path: artifacts/macos-deps
+          key: macos-mtp-v1-${{ runner.arch }}-${{ matrix.rid }}-${{ steps.xcode.outputs.cache-key }}-${{ hashFiles('scripts/build-macos-mtp-deps.sh', 'docs/macos-mtp-corresponding-source.md') }}
+          restore-keys: |
+            macos-mtp-v1-${{ runner.arch }}-${{ matrix.rid }}-
+      - name: Run portable tests
+        timeout-minutes: 15
+        run: >-
           dotnet test tests/Libzora.Tests/Libzora.Tests.csproj -c Release
+          --logger "console;verbosity=normal" --logger trx
+          --blame-hang --blame-hang-timeout 5m --blame-hang-dump-type mini
+          --results-directory artifacts/test-results/portable
+      - name: Run platform-common tests
+        timeout-minutes: 15
+        run: >-
           dotnet test tests/Libzora.Platform.Common.Tests/Libzora.Platform.Common.Tests.csproj -c Release
+          --logger "console;verbosity=normal" --logger trx
+          --blame-hang --blame-hang-timeout 5m --blame-hang-dump-type mini
+          --results-directory artifacts/test-results/platform-common
+      - name: Run UI smoke tests
+        timeout-minutes: 15
+        run: >-
           dotnet test tests/Libzora.App.Tests/Libzora.App.Tests.csproj -c Release
+          --logger "console;verbosity=normal" --logger trx
+          --blame-hang --blame-hang-timeout 5m --blame-hang-dump-type mini
+          --results-directory artifacts/test-results/ui
+      - name: Upload test diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-test-diagnostics-${{ matrix.rid }}
+          path: artifacts/test-results
+          if-no-files-found: ignore
+          retention-days: 7
+      # Keep signing credentials out of test-process diagnostic dumps.
       - name: Configure Apple signing and notarization
+        env:
+          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
+          APPLE_NOTARY_KEY_BASE64: ${{ secrets.APPLE_NOTARY_KEY_BASE64 }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER: ${{ secrets.APPLE_NOTARY_ISSUER }}
         shell: bash
         run: |
           set -euo pipefail
@@ -326,7 +405,20 @@ jobs:
           trap - EXIT
           plutil -lint "$work/Libzora.app/Contents/Info.plist"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "$work/Libzora.app/Contents/Info.plist")" = Libzora
-          xcrun assetutil -Z "$work/Libzora.app/Contents/Resources/Assets.car"
+          test -s "$work/Libzora.app/Contents/Resources/Assets.car"
+          test -s "$work/Libzora.app/Contents/Resources/Libzora.icns"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$work/Libzora.app/Contents/Info.plist")" = Libzora
+          iconset="$work/Libzora-fallback.iconset"
+          iconutil --convert iconset --output "$iconset" "$work/Libzora.app/Contents/Resources/Libzora.icns"
+          test -s "$iconset/icon_512x512@2x.png"
+          # macOS 15's CoreUI validator cannot decode Xcode 26 Icon Composer
+          # renditions. Verify its fallback icon and signature on older hosts.
+          macos_major="$(sw_vers -productVersion | cut -d . -f 1)"
+          if (( macos_major >= 26 )); then
+            xcrun assetutil -Z "$work/Libzora.app/Contents/Resources/Assets.car"
+          else
+            printf 'Legacy CoreUI host: checked compiled assets and decoded ICNS fallback.\n'
+          fi
           codesign --verify --deep --strict "$work/Libzora.app"
           log="$RUNNER_TEMP/libzora-macos-smoke.log"
           "$work/Libzora.app/Contents/MacOS/Libzora" >"$log" 2>&1 &

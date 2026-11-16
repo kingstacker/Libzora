@@ -416,14 +416,27 @@ create_dmg() {
     cp "$background" "$staging/.background/background.png"
   fi
 
-  hdiutil create -quiet -volname "Libzora" -srcfolder "$staging" \
+  # CI has no Finder layout to preserve. Create the compressed image directly
+  # instead of mounting a writable image and depending on a GUI session.
+  if [[ "${LIBZORA_DMG_STYLE:-1}" == "0" ]]; then
+    printf 'Creating non-interactive disk image: %s\n' "$dmg_path"
+    hdiutil create -volname "Libzora" -srcfolder "$staging" \
+      -fs HFS+ -format UDZO -imagekey zlib-level=9 -ov "$dmg_path"
+    return
+  fi
+
+  printf 'Creating writable disk image for Finder layout: %s\n' "$rw_image"
+  hdiutil create -volname "Libzora" -srcfolder "$staging" \
     -fs HFS+ -format UDRW -ov "$rw_image"
   # Finder addresses the volume by its displayed (mount point) name. Mounting
   # at a custom directory makes Finder show that directory name instead of
   # the volume label, so let hdiutil pick /Volumes/Libzora and pass the actual
   # name to AppleScript. Finder also needs the volume to be browsable, so no
   # -nobrowse here.
-  attach_output="$(hdiutil attach -noautoopen "$rw_image")"
+  if ! attach_output="$(hdiutil attach -noautoopen "$rw_image" 2>&1)"; then
+    printf '%s\n' "$attach_output" >&2
+    return 1
+  fi
   mountpoint="$(printf '%s\n' "$attach_output" |
     awk -F '\t' '/\/Volumes\// { print $NF; exit }')"
   if [[ -z "$mountpoint" ]]; then

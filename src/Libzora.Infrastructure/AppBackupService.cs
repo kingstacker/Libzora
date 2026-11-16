@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO.Compression;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -430,10 +431,27 @@ public sealed partial class AppBackupService
         using var destination = new SqliteConnection(destinationConnectionString);
         await source.OpenAsync(cancellationToken);
         await destination.OpenAsync(cancellationToken);
-        cancellationToken.ThrowIfCancellationRequested();
         // SQLite's backup API reads a consistent committed view, including WAL
-        // contents, without copying live journal/shared-memory files.
-        source.BackupDatabase(destination);
+        // contents, without copying live journal/shared-memory files. Unlike
+        // commands, Microsoft.Data.Sqlite's backup API does not retry BUSY or
+        // LOCKED when another connection briefly holds a database lock.
+        var retryTimer = Stopwatch.StartNew();
+        var retryTimeout = TimeSpan.FromSeconds(source.DefaultTimeout);
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                source.BackupDatabase(destination);
+                break;
+            }
+            catch (SqliteException exception) when (exception.SqliteErrorCode is 5 or 6)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (retryTimer.Elapsed >= retryTimeout) throw;
+                await Task.Delay(100, cancellationToken);
+            }
+        }
         cancellationToken.ThrowIfCancellationRequested();
     }
 

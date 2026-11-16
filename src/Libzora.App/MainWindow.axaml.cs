@@ -176,6 +176,7 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _bookDetailsDelayTimer = new();
     private BookCardViewModel? _pendingBookDetailsCard;
     private BookCardViewModel? _pressedBookCard;
+    private Guid? _detailPaneBookId;
 
     public MainWindow()
         : this(DesktopApplicationBootstrap.Create())
@@ -621,6 +622,7 @@ public partial class MainWindow : Window
         UpdateS3SettingsActions();
         S3SyncDeviceText.Text = T("当前设备 ID：{0}", _s3SyncStoredSettings.DeviceId[..Math.Min(12, _s3SyncStoredSettings.DeviceId.Length)]);
         RefreshOnboardingLocalizedChoices();
+        UpdateSidebarWidth();
         if (_filterControlsReady)
         {
             RefreshLocalizedFilterItems();
@@ -1585,6 +1587,8 @@ public partial class MainWindow : Window
         }
 
         ShowLibraryDetailPane();
+        _detailPaneBookId = card.Book.Id;
+        SyncCardSelectionVisuals();
         _ = RefreshBookReflectionDetailsAsync(card.Book.Id);
     }
 
@@ -1666,10 +1670,18 @@ public partial class MainWindow : Window
         LibraryDetailPane.Opacity = 1;
     }
 
-    private void ClearSelectedBook()
+    private void ClearBookDetailsSelection()
     {
+        CancelPendingBookDetails();
         if (_selectedCard is not null) _selectedCard.PropertyChanged -= SelectedCard_PropertyChanged;
         _selectedCard = null;
+        _detailPaneBookId = null;
+        SyncCardSelectionVisuals();
+    }
+
+    private void ClearSelectedBook()
+    {
+        ClearBookDetailsSelection();
         var token = BeginDetailPaneAnimation();
         var version = ++_detailPaneAnimationVersion;
         if (!LibraryDetailPane.IsVisible)
@@ -2717,6 +2729,8 @@ public partial class MainWindow : Window
             var selected = _selectedBookIds.Contains(card.Book.Id);
             card.IsSelected = selected;
             card.IsSoleSelected = selected && !multi && !suppressReadAction;
+            card.IsReadActionVisible = card.IsSoleSelected
+                && LibraryDetailPane.IsVisible && _detailPaneBookId == card.Book.Id;
             card.IsMultiSelected = selected && multi;
         }
     }
@@ -5390,9 +5404,17 @@ public partial class MainWindow : Window
     {
         if (LibraryRoot.ColumnDefinitions.Count < 3) return;
         // All feature pages, including settings, share the main content column.
-        SetGridColumnWidth(LibraryRoot.ColumnDefinitions[0], new GridLength(200));
+        UpdateSidebarWidth();
         SetGridColumnWidth(LibraryRoot.ColumnDefinitions[1], new GridLength(1, GridUnitType.Star));
         SetGridColumnWidth(LibraryRoot.ColumnDefinitions[2], new GridLength(0));
+    }
+
+    private void UpdateSidebarWidth()
+    {
+        if (LibraryRoot.ColumnDefinitions.Count < 1) return;
+        // English navigation labels are wider than their Chinese counterparts;
+        // give them enough room instead of trimming every section name.
+        SetGridColumnWidth(LibraryRoot.ColumnDefinitions[0], new GridLength(UiText.IsEnglish ? 260 : 200));
     }
 
     // Cards keep their fixed slot. The virtualizing panel's width follows the

@@ -10,7 +10,9 @@ Icon Composer receives separate grey/white layers with transparent letter
 cutouts. Flat exports use opaque ink, while the tray keeps a black alpha
 stencil. No existing PNG is used as a template, so every export is reproducible.
 
-Requires Pillow. Run: python3 scripts/generate_app_icons.py
+Requires Pillow 11.3.0 for reproducible raster output.
+Install: python3 -m pip install Pillow==11.3.0
+Run: python3 scripts/generate_app_icons.py
 Check: python3 scripts/generate_app_icons.py --check
 Preview elsewhere: python3 scripts/generate_app_icons.py --output /tmp/icons
 """
@@ -20,6 +22,7 @@ import argparse
 from dataclasses import dataclass
 from functools import lru_cache
 from io import BytesIO
+import json
 import math
 from pathlib import Path
 
@@ -212,6 +215,7 @@ class IconTemplate:
 DESKTOP_ICON = "src/Libzora.App/Assets/Icons/libzora.png"
 WEBSITE_ICON = "website/assets/libzora.png"
 TOUCH_ICON = "website/assets/apple-touch-icon.png"
+COMPOSER_CONFIG = "scripts/macos/Libzora.icon/icon.json"
 TEMPLATES = (
     IconTemplate(DESKTOP_ICON, 256),
     IconTemplate("src/Libzora.App/Assets/Icons/libzora-dock.png", 1024, scale=0.865),
@@ -266,6 +270,23 @@ def encode_ico(image: Image.Image, sizes: tuple[int, ...]) -> bytes:
     return data.getvalue()
 
 
+def composer_config() -> dict:
+    """Keep Apple's native masks, but share the flat icon's colour and geometry."""
+    colour = ",".join(f"{value / 255:.6f}" for value in INK)
+    return {
+        "fill": {"solid": f"srgb:{colour},1.0"},
+        "groups": [{
+            "layers": [{
+                "image-name": f"{name}.png",
+                "name": name,
+                "position": {"scale": 1, "translation-in-points": [0, 0]},
+            } for name in ("Spine", "Page")],
+            "translucency": {"enabled": False, "value": 0.0},
+        }],
+        "supported-platforms": {"squares": "shared"},
+    }
+
+
 def generate(root: Path, check: bool = False) -> list[str]:
     images = {template.path: render_icon(template) for template in TEMPLATES}
     images[TOUCH_ICON] = images[WEBSITE_ICON].resize((180, 180), Image.Resampling.LANCZOS)
@@ -299,6 +320,19 @@ def generate(root: Path, check: bool = False) -> list[str]:
         else:
             target.write_bytes(data)
             print(f"Updated {path}")
+    target = root / COMPOSER_CONFIG
+    config = composer_config()
+    if check:
+        try:
+            current = json.loads(target.read_text(encoding="utf-8"))
+        except (FileNotFoundError, json.JSONDecodeError):
+            current = None
+        if current != config:
+            stale.append(COMPOSER_CONFIG)
+    else:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+        print(f"Updated {COMPOSER_CONFIG}")
     return stale
 
 

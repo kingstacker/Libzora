@@ -1017,6 +1017,10 @@ public partial class MainWindow
         _readerAiCancellation?.Dispose();
         _readerAiCancellation = null;
         ReleaseReaderHosts();
+        // Restore a clean shelf before revealing it. Selection may remain, but
+        // details and their cover reading scrim require a fresh single click.
+        ClearBookDetailsSelection();
+        CompleteClearSelectedBook();
         ReaderRoot.IsVisible = false;
         LibraryRoot.IsVisible = true;
         WindowBrandText.IsVisible = false;

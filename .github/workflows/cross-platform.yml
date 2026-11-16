@@ -30,7 +30,13 @@ jobs:
       - name: Run release tooling regressions
         run: |
           python3 -I scripts/test-third-party-notices.py
-          node --test scripts/test-release-workflow.mjs
+          node --test scripts/test-release-workflow.mjs scripts/test-website-downloads.mjs
+      - name: Check shared icons and screenshot optimization
+        run: |
+          python3 -m venv "$RUNNER_TEMP/libzora-icon-tools"
+          "$RUNNER_TEMP/libzora-icon-tools/bin/python" -I -m pip install --disable-pip-version-check Pillow==11.3.0
+          "$RUNNER_TEMP/libzora-icon-tools/bin/python" -I scripts/test_generate_app_icons.py
+          "$RUNNER_TEMP/libzora-icon-tools/bin/python" -I scripts/test_optimize_website_assets.py
       - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json

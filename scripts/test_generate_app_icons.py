@@ -174,6 +174,16 @@ class AppIconGenerationTests(unittest.TestCase):
                     self.assertGreater(bounds[0], 0)
                     self.assertLess(bounds[2], template.size)
 
+    def test_plate_and_book_pages_have_rounded_outer_corners(self):
+        desktop = API["render_icon"](API["IconTemplate"]("test", 1024))
+        for point in ((38, 38), (986, 38), (986, 986), (38, 986)):
+            self.assertEqual(desktop.getpixel(point)[3], 0)
+        self.assertEqual(desktop.getpixel((512, 50))[3], 255)
+        for kind, corners in (("page", API["FRONT_CORNERS"]), ("spine", API["BACK_CORNERS"])):
+            page = API["render_icon"](API["IconTemplate"]("test", 1024, kind))
+            for point in corners:
+                self.assertEqual(pixel_at(page, point)[3], 0, "A page corner must not become a square vertex.")
+
     def test_composer_layers_use_the_new_canvas_without_double_scaling(self):
         config = json.loads((ROOT / "scripts/macos/Libzora.icon/icon.json").read_text())
         layers = config["groups"][0]["layers"]
@@ -211,7 +221,19 @@ class AppIconGenerationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="libzora-icon-test-") as directory:
             missing = API["generate"](Path(directory), check=True)
             self.assertEqual(set(missing), {template.path for template in API["TEMPLATES"]}
-                             | {path for path, _, _ in API["ICO_VARIANTS"]})
+                             | {path for path, _, _ in API["ICO_VARIANTS"]} | {API["COMPOSER_CONFIG"]})
+
+    def test_checker_reports_composer_settings_drift(self):
+        with tempfile.TemporaryDirectory(prefix="libzora-icon-config-test-") as directory, contextlib.redirect_stdout(StringIO()):
+            root = Path(directory)
+            API["generate"](root)
+            path = root / API["COMPOSER_CONFIG"]
+            config = json.loads(path.read_text())
+            config["groups"][0]["layers"][0]["position"]["scale"] = 1.2
+            path.write_text(json.dumps(config))
+            self.assertEqual(API["generate"](root, check=True), [API["COMPOSER_CONFIG"]])
+            path.write_text("invalid json")
+            self.assertEqual(API["generate"](root, check=True), [API["COMPOSER_CONFIG"]])
 
     def test_all_checked_in_exports_match_the_generator(self):
         self.assertEqual(API["generate"](ROOT, check=True), [])

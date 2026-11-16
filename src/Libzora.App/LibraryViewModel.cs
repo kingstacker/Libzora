@@ -110,6 +110,7 @@ public sealed class BookCardViewModel : ObservableObject, IDisposable
     // exact 154-DIP card footprint instead.
     private bool _isSelected;
     private bool _isSoleSelected;
+    private bool _isReadActionVisible;
     private bool _isMultiSelected;
     private bool _isHovered;
     private bool _coverLoadAttempted;
@@ -136,12 +137,20 @@ public sealed class BookCardViewModel : ObservableObject, IDisposable
         set => SetProperty(ref _isMultiSelected, value);
     }
 
-    // The cover's reading action is only meaningful while exactly one book is
-    // selected; multi-selection is for batch actions instead.
+    // Multi-selection is for batch actions. A sole selection can also come
+    // from a marquee or context menu, so it does not imply open book details.
     public bool IsSoleSelected
     {
         get => _isSoleSelected;
         set => SetProperty(ref _isSoleSelected, value);
+    }
+
+    // The cover's reading button and scrim follow the open details pane, not
+    // selection alone. Closing details or returning from the reader hides them.
+    public bool IsReadActionVisible
+    {
+        get => _isReadActionVisible;
+        set => SetProperty(ref _isReadActionVisible, value);
     }
 
     // Hovering the whole card (cover or text) shows the same thin black

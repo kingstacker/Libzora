@@ -25,6 +25,7 @@ public sealed partial class SettingsTests
         // The details pane waits out the platform double-tap window so a
         // double-click can open the reader without flashing it first.
         Assert.False(scope.Get<Control>("LibraryDetailPane").IsVisible);
+        AssertNoLibraryCoverReadAction(scope);
         await Until(() => scope.Get<Control>("LibraryDetailPane").IsVisible);
         await Render();
         var coverRead = Assert.Single(grid.GetVisualDescendants().OfType<Button>(),
@@ -37,11 +38,127 @@ public sealed partial class SettingsTests
         await scope.Call<Task>("ReturnFromReaderAsync");
         Assert.True(scope.Get<Control>("LibraryRoot").IsVisible);
         Assert.False(scope.Get<Control>("ReaderRoot").IsVisible);
+        Assert.False(scope.Get<Control>("LibraryDetailPane").IsVisible);
         Assert.Single(scope.Window.ViewModel.Books, card => card.IsSelected);
+        AssertNoLibraryCoverReadAction(scope);
+        await scope.Call<Task>("RefreshLibraryAsync");
+        await Render();
+        Assert.False(scope.Get<Control>("LibraryDetailPane").IsVisible);
+        AssertNoLibraryCoverReadAction(scope);
         await scope.Call<Task>("OpenApplicationSettingsAsync");
         scope.Call("ShowLibraryPage");
         Assert.False(scope.Get<Control>("LibraryDetailPane").IsVisible);
     });
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public Task ReaderNavigationClosingDetailsHidesCoverReadActionUntilAnotherClick(bool useCloseButton) => Run(async () =>
+    {
+        await using var scope = await TestWindow.Create();
+        await SeedLayoutLibrary(scope);
+        var grid = scope.Get<ListBox>("BookGrid");
+        var detail = scope.Get<Control>("LibraryDetailPane");
+        ClickBook();
+        await Until(() => detail.IsVisible);
+        await Render();
+        Assert.Single(grid.GetVisualDescendants().OfType<Button>(),
+            button => button.Classes.Contains("bookCoverRead") && button.IsVisible);
+
+        if (useCloseButton)
+            scope.Get<Button>("LibraryDetailCloseButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        else
+            scope.Call("ClearSelectedBook");
+        AssertNoLibraryCoverReadAction(scope);
+        await Until(() => !detail.IsVisible);
+        await scope.Call<Task>("RefreshLibraryAsync");
+        await Render();
+        Assert.False(detail.IsVisible);
+        AssertNoLibraryCoverReadAction(scope);
+
+        ClickBook();
+        AssertNoLibraryCoverReadAction(scope);
+        await Until(() => detail.IsVisible);
+        await Render();
+        Assert.Single(grid.GetVisualDescendants().OfType<Button>(),
+            button => button.Classes.Contains("bookCoverRead") && button.IsEffectivelyVisible);
+
+        void ClickBook()
+        {
+            var item = grid.ContainerFromIndex(0)!;
+            var point = item.TranslatePoint(new Point(item.Bounds.Width / 2, 30), scope.Window)!.Value;
+            scope.Window.MouseDown(point, MouseButton.Left, RawInputModifiers.None);
+            scope.Window.MouseUp(point, MouseButton.Left, RawInputModifiers.None);
+        }
+    });
+
+    [Fact]
+    public Task ReaderNavigationClosingDetailsCancelsAnEarlierPendingClick() => Run(async () =>
+    {
+        await using var scope = await TestWindow.Create();
+        await SeedLayoutLibrary(scope);
+        var grid = scope.Get<ListBox>("BookGrid");
+        var detail = scope.Get<Control>("LibraryDetailPane");
+        grid.SelectedItem = scope.Window.ViewModel.Books[0];
+        await Until(() => detail.IsVisible);
+        await Render();
+
+        var item = grid.ContainerFromIndex(1)!;
+        var point = item.TranslatePoint(new Point(item.Bounds.Width / 2, 30), scope.Window)!.Value;
+        scope.Window.MouseDown(point, MouseButton.Left, RawInputModifiers.None);
+        scope.Window.MouseUp(point, MouseButton.Left, RawInputModifiers.None);
+        Assert.NotNull(scope.Field<object?>("_pendingBookDetailsCard"));
+        scope.Get<Button>("LibraryDetailCloseButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Assert.Null(scope.Field<object?>("_pendingBookDetailsCard"));
+        scope.Call("CompletePendingBookDetails");
+        await Until(() => !detail.IsVisible);
+        AssertNoLibraryCoverReadAction(scope);
+    });
+
+    [Fact]
+    public Task ReaderNavigationNewClickDuringDetailsClosingStillOpensDetails() => Run(async () =>
+    {
+        await using var scope = await TestWindow.Create();
+        await SeedLayoutLibrary(scope);
+        var grid = scope.Get<ListBox>("BookGrid");
+        var detail = scope.Get<Control>("LibraryDetailPane");
+        grid.SelectedItem = scope.Window.ViewModel.Books[0];
+        await Until(() => detail.IsVisible);
+        await Render();
+        scope.Get<Button>("LibraryDetailCloseButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+        var card = scope.Window.ViewModel.Books[1];
+        var item = grid.ContainerFromIndex(1)!;
+        var point = item.TranslatePoint(new Point(item.Bounds.Width / 2, 30), scope.Window)!.Value;
+        scope.Window.MouseDown(point, MouseButton.Left, RawInputModifiers.None);
+        scope.Window.MouseUp(point, MouseButton.Left, RawInputModifiers.None);
+        AssertNoLibraryCoverReadAction(scope);
+        await Until(() => card.IsReadActionVisible);
+        await Render();
+        Assert.True(detail.IsVisible);
+        var readButton = Assert.Single(grid.GetVisualDescendants().OfType<Button>(),
+            button => button.Classes.Contains("bookCoverRead") && button.IsEffectivelyVisible);
+        Assert.Same(card, readButton.DataContext);
+        Assert.Equal(card.Title, scope.Get<TextBox>("DetailTitleText").Text);
+    });
+
+    [Fact]
+    public Task ReaderNavigationContextSelectionDoesNotShowCoverReadAction() => Run(async () =>
+    {
+        await using var scope = await TestWindow.Create();
+        await SeedLayoutLibrary(scope);
+        var item = scope.Get<ListBox>("BookGrid").ContainerFromIndex(0)!;
+        var point = item.TranslatePoint(new Point(item.Bounds.Width / 2, 30), scope.Window)!.Value;
+        scope.Window.MouseDown(point, MouseButton.Right, RawInputModifiers.None);
+        scope.Window.MouseUp(point, MouseButton.Right, RawInputModifiers.None);
+        await Render();
+        Assert.False(scope.Get<Control>("LibraryDetailPane").IsVisible);
+        AssertNoLibraryCoverReadAction(scope);
+    });
+
+    private static void AssertNoLibraryCoverReadAction(TestWindow scope) => Assert.DoesNotContain(
+        scope.Get<ListBox>("BookGrid").GetVisualDescendants().OfType<Button>(),
+        button => button.Classes.Contains("bookCoverRead") && button.IsVisible);
 
     [Fact]
     public Task ReaderNavigationDoubleClickOpensWithoutShowingDetails() => Run(async () =>
@@ -57,6 +174,10 @@ public sealed partial class SettingsTests
         scope.Window.MouseUp(point, MouseButton.Left, RawInputModifiers.None);
         await Until(() => scope.Get<Control>("ReaderRoot").IsVisible);
         Assert.False(scope.Get<Control>("LibraryDetailPane").IsVisible);
+        AssertNoLibraryCoverReadAction(scope);
+        await scope.Call<Task>("ReturnFromReaderAsync");
+        Assert.False(scope.Get<Control>("LibraryDetailPane").IsVisible);
+        AssertNoLibraryCoverReadAction(scope);
     });
 
     [Fact]
@@ -84,10 +205,11 @@ public sealed partial class SettingsTests
 
         scope.Window.MouseUp(end, MouseButton.Left, RawInputModifiers.None);
         await Render();
-        // After the drag the single enclosed book is a normal sole selection,
-        // so its reading action is available again.
+        // A single enclosed book remains selected, but a marquee is not a
+        // details click and must not surface its reading action or scrim.
         Assert.True(books[0].IsSoleSelected);
-        Assert.Contains(coverRead, button => button.IsEffectivelyVisible);
+        Assert.False(scope.Get<Control>("LibraryDetailPane").IsVisible);
+        AssertNoLibraryCoverReadAction(scope);
     });
 
     [Fact]

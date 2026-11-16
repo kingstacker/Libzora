@@ -194,6 +194,147 @@ public sealed partial class SettingsTests
         Assert.Equal(hoverBounds, readButton.Bounds);
     });
 
+    [Fact]
+    public Task ReaderNavigationOpeningFromCoverShowsHeroTransition() => Run(async () =>
+    {
+        await using var scope = await TestWindow.Create();
+        await SeedLayoutLibrary(scope);
+        var grid = scope.Get<ListBox>("BookGrid");
+        var item = grid.ContainerFromIndex(0)!;
+        var point = item.TranslatePoint(new Point(item.Bounds.Width / 2, 30), scope.Window)!.Value;
+        scope.Window.MouseMove(point);
+        scope.Window.MouseDown(point, MouseButton.Left, RawInputModifiers.None);
+        scope.Window.MouseUp(point, MouseButton.Left, RawInputModifiers.None);
+        await Until(() => scope.Get<Control>("LibraryDetailPane").IsVisible);
+        await Render();
+        var readButton = Assert.Single(grid.GetVisualDescendants().OfType<Button>(),
+            button => button.Classes.Contains("bookCoverRead") && button.IsEffectivelyVisible);
+        var readPoint = readButton.TranslatePoint(
+            new Point(readButton.Bounds.Width / 2, readButton.Bounds.Height / 2),
+            scope.Window)!.Value;
+        scope.Window.MouseDown(readPoint, MouseButton.Left, RawInputModifiers.None);
+        scope.Window.MouseUp(readPoint, MouseButton.Left, RawInputModifiers.None);
+
+        // The frozen shelf remains behind the lifted cover even if loading
+        // the document hides LibraryRoot before its first page is ready.
+        var sourceCover = item.GetVisualDescendants().OfType<Border>()
+            .First(control => control.Classes.Contains("bookCover"));
+        var sourceSize = sourceCover.Bounds.Size;
+        var layer = scope.Get<Grid>("ReaderOpenTransitionLayer");
+        var liftedCover = scope.Get<Border>("ReaderOpenTransitionCover");
+        Assert.True(layer.IsVisible);
+        Assert.Equal(0, sourceCover.Opacity);
+        Assert.NotNull(scope.Get<Image>("ReaderOpenTransitionShelf").Source);
+        Assert.NotNull(scope.Get<Image>("ReaderOpenTransitionImage").Source);
+        Assert.NotNull(scope.Get<Image>("ReaderOpenTransitionImage").RenderTransform);
+        Assert.Equal(sourceSize.Width, liftedCover.Width);
+        Assert.Equal(sourceSize.Height, liftedCover.Height);
+        Assert.Equal(0, scope.Get<TextBlock>("ReaderOpenTransitionLoadingText").Opacity);
+        await Until(() => !layer.IsVisible);
+        Assert.True(scope.Get<Control>("ReaderRoot").IsVisible);
+        Assert.Equal(1, sourceCover.Opacity);
+        Assert.Null(scope.Get<Image>("ReaderOpenTransitionImage").Source);
+        Assert.Null(scope.Get<Image>("ReaderOpenTransitionShelf").Source);
+        Assert.Null(scope.Field<object?>("_readerOpenTransition"));
+    });
+
+    [Fact]
+    public Task ReaderOpeningTransitionResetRestoresCoverAndAllowsAnotherOpen() => Run(async () =>
+    {
+        await using var scope = await TestWindow.Create();
+        await SeedLayoutLibrary(scope);
+        var card = scope.Window.ViewModel.Books[0];
+        var sourceCover = scope.Get<ListBox>("BookGrid").ContainerFromIndex(0)!
+            .GetVisualDescendants().OfType<Border>()
+            .First(control => control.Classes.Contains("bookCover"));
+        sourceCover.Opacity = 0.8;
+
+        scope.Call("StartReaderOpenTransition", card, null);
+        scope.Window.UpdateLayout();
+        var layer = scope.Get<Grid>("ReaderOpenTransitionLayer");
+        var liftedCover = scope.Get<Border>("ReaderOpenTransitionCover");
+        var sourceOrigin = sourceCover.TranslatePoint(default, layer)!.Value;
+        Assert.True(layer.IsVisible);
+        Assert.True(layer.Bounds.Width > 100 && layer.Bounds.Height > 100);
+        Assert.Equal(sourceOrigin.X, Canvas.GetLeft(liftedCover), 8);
+        Assert.Equal(sourceOrigin.Y, Canvas.GetTop(liftedCover), 8);
+        Assert.Equal(0, sourceCover.Opacity);
+        // Failed opens and an early return must release the frozen shelf and
+        // restore the source, without waiting for the entrance to finish.
+        await scope.Call<Task>("CompleteReaderOpenTransitionAsync");
+        Assert.False(scope.Get<Grid>("ReaderOpenTransitionLayer").IsVisible);
+        Assert.Equal(0.8, sourceCover.Opacity);
+        Assert.Null(scope.Get<Image>("ReaderOpenTransitionShelf").Source);
+        Assert.Null(scope.Get<Image>("ReaderOpenTransitionImage").Source);
+
+        scope.Call("StartReaderOpenTransition", card, null);
+        Assert.True(scope.Get<Grid>("ReaderOpenTransitionLayer").IsVisible);
+        scope.Call("ResetReaderOpenTransition");
+        Assert.Equal(0.8, sourceCover.Opacity);
+        Assert.Null(scope.Field<object?>("_readerOpenTransition"));
+    });
+
+    [Fact]
+    public Task ReaderOpeningRemovesTheShelfBeforeTheBodyCrossfade() => Run(async () =>
+    {
+        await using var scope = await TestWindow.Create();
+        await SeedLayoutLibrary(scope);
+        scope.Call("StartReaderOpenTransition", scope.Window.ViewModel.Books[0], null);
+        var shelf = scope.Get<Image>("ReaderOpenTransitionShelf");
+        Assert.True(shelf.IsVisible);
+        await Until(() => scope.Get<Border>("ReaderOpenTransitionBackdrop").Opacity == 1);
+        Assert.True(scope.Get<Grid>("ReaderOpenTransitionLayer").IsVisible);
+        Assert.False(shelf.IsVisible);
+
+        scope.Get<Control>("ReaderRoot").IsVisible = true;
+        scope.Get<Control>("LibraryRoot").IsVisible = false;
+        var reveal = scope.Call<Task>("CompleteReaderOpenTransitionAsync");
+        Assert.False(shelf.IsVisible);
+        await reveal;
+        Assert.False(scope.Get<Grid>("ReaderOpenTransitionLayer").IsVisible);
+        Assert.Null(shelf.Source);
+        scope.Get<Control>("ReaderRoot").IsVisible = false;
+        scope.Get<Control>("LibraryRoot").IsVisible = true;
+    });
+
+    [Fact]
+    public Task ReaderOpeningOwnsItsCoverWhenTheShelfBitmapIsReleased() => Run(async () =>
+    {
+        await using var scope = await TestWindow.Create();
+        await SeedLayoutLibrary(scope);
+        var card = scope.Window.ViewModel.Books[0];
+        var sourceBitmap = card.CoverImage;
+        scope.Call("StartReaderOpenTransition", card, null);
+        var liftedImage = scope.Get<Image>("ReaderOpenTransitionImage");
+        var ownedBitmap = Assert.IsType<Avalonia.Media.Imaging.Bitmap>(liftedImage.Source);
+        Assert.NotSame(sourceBitmap, ownedBitmap);
+
+        card.UnloadCover();
+        await Render();
+        Assert.Null(card.CoverImage);
+        Assert.Same(ownedBitmap, liftedImage.Source);
+        Assert.True(scope.Get<Grid>("ReaderOpenTransitionLayer").IsVisible);
+        scope.Call("ResetReaderOpenTransition");
+        Assert.Null(liftedImage.Source);
+    });
+
+    [Fact]
+    public Task ReaderOpeningWithoutCoverSkipsTheHeroLayer() => Run(async () =>
+    {
+        await using var scope = await TestWindow.Create();
+        await SeedLayoutLibrary(scope);
+        var sourceCover = scope.Get<ListBox>("BookGrid").ContainerFromIndex(0)!
+            .GetVisualDescendants().OfType<Border>()
+            .First(control => control.Classes.Contains("bookCover"));
+        sourceCover.GetVisualDescendants().OfType<Image>().First().Source = null;
+
+        scope.Call("StartReaderOpenTransition", scope.Window.ViewModel.Books[0], null);
+        Assert.False(scope.Get<Grid>("ReaderOpenTransitionLayer").IsVisible);
+        Assert.Equal(1, sourceCover.Opacity);
+        Assert.Null(scope.Field<object?>("_readerOpenTransition"));
+        await scope.Call<Task>("CompleteReaderOpenTransitionAsync");
+    });
+
     [Theory]
     [InlineData("ReadingMaterialsPage", "ReaderNotesNavigationButton", "返回笔记")]
     [InlineData("ReadingDashboardPage", "ReadingDashboardButton", "返回阅读数据")]

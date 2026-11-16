@@ -2226,16 +2226,19 @@ public partial class MainWindow
         }
     }
 
-    private static void CreateKreaderValidationEpub(string path)
+    private static void CreateKreaderValidationEpub(string path, bool includeCover = false)
     {
         using var archive = ZipFile.Open(path, ZipArchiveMode.Create);
+        var coverItem = includeCover
+            ? """<item id="cover" href="cover.png" media-type="image/png" properties="cover-image" />"""
+            : string.Empty;
         AddValidationZipEntry(archive, "META-INF/container.xml", """
             <?xml version="1.0"?>
             <container xmlns="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0">
               <rootfiles><rootfile full-path="EPUB/package.opf" media-type="application/oebps-package+xml" /></rootfiles>
             </container>
             """);
-        AddValidationZipEntry(archive, "EPUB/package.opf", """
+        AddValidationZipEntry(archive, "EPUB/package.opf", $$"""
             <?xml version="1.0" encoding="utf-8"?>
             <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="book-id">
               <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
@@ -2246,6 +2249,7 @@ public partial class MainWindow
                 <dc:description>Linux Kreader validation fixture</dc:description>
               </metadata>
               <manifest>
+                {{coverItem}}
                 <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav" />
                 <item id="one" href="chapter1.xhtml" media-type="application/xhtml+xml" />
                 <item id="two" href="chapter2.xhtml" media-type="application/xhtml+xml" />
@@ -2263,6 +2267,7 @@ public partial class MainWindow
             """);
         AddValidationZipEntry(archive, "EPUB/chapter1.xhtml", BuildValidationChapter("Chapter One", "001", includeFootnote: true));
         AddValidationZipEntry(archive, "EPUB/chapter2.xhtml", BuildValidationChapter("Chapter Two", "201", includeFootnote: false));
+        if (includeCover) AddReaderOpenProbeCover(archive);
     }
 
     private static string BuildValidationChapter(string title, string start, bool includeFootnote)

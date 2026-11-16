@@ -870,6 +870,7 @@ public partial class MainWindow
         _readerToolbarLayoutTimer?.Stop();
         // The bookshelf close action must never leave a page snapshot or
         // in-flight reader transition animating over the switch.
+        ResetReaderOpenTransition();
         // Cancel the session before waiting on persistence so an active page
         // turn releases its gate immediately.
         _readerSession.Cancel();

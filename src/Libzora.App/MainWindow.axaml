@@ -7290,6 +7290,47 @@
             </Grid>
         </Popup>
 
+        <!-- A frozen shelf preserves continuity while the reader loads.
+             Only the cover lifts; its reading scrim dissolves first, then
+             the short paper-backed transition reveals the restored page. -->
+        <Grid x:Name="ReaderOpenTransitionLayer"
+              IsVisible="False"
+              IsHitTestVisible="False"
+              ClipToBounds="True"
+              ZIndex="900">
+            <Image x:Name="ReaderOpenTransitionShelf"
+                   Stretch="Fill"
+                   HorizontalAlignment="Stretch"
+                   VerticalAlignment="Stretch" />
+            <Border x:Name="ReaderOpenTransitionBackdrop"
+                    Background="{DynamicResource ReaderPageBrush}"
+                    Opacity="0" />
+            <Canvas>
+                <Border x:Name="ReaderOpenTransitionCover"
+                        RenderTransformOrigin="0%,0%"
+                        BoxShadow="0 10 24 0 #1C000000">
+                    <Border x:Name="ReaderOpenTransitionCoverFrame" ClipToBounds="True">
+                        <Grid>
+                            <Image x:Name="ReaderOpenTransitionImage" Stretch="UniformToFill" />
+                            <!-- Reuse the shelf action template so its first
+                                 frame exactly matches the clicked card. -->
+                            <Button x:Name="ReaderOpenTransitionReadAction"
+                                    Classes="coverReadAction"
+                                    Content="{DynamicResource Ui.Auto.CE9B12499C471759}"
+                                    Focusable="False" />
+                        </Grid>
+                    </Border>
+                </Border>
+                <TextBlock x:Name="ReaderOpenTransitionLoadingText"
+                           FontSize="12"
+                           Foreground="{DynamicResource ReaderMutedBrush}"
+                           TextAlignment="Center"
+                           TextTrimming="CharacterEllipsis"
+                           MaxLines="1"
+                           Opacity="0" />
+            </Canvas>
+        </Grid>
+
         <!-- Draw the frame as a sibling above the content. The native WebView
              is a separate child window and can cover WindowShadowHost's own
              right stroke; this overlay keeps all four sides on one geometry. -->

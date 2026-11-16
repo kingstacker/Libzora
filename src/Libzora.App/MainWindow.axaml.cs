@@ -1102,6 +1102,7 @@ public partial class MainWindow : Window
         _readerNavigationCancellation?.Cancel();
         _readerSession.Cancel();
         _embeddingModelDownloadCancellation?.Cancel();
+        ResetReaderOpenTransition();
         _lifetimeCancellation.Cancel();
         _widgetSnapshots?.Dispose();
         _widgetSnapshots = null;
@@ -2429,6 +2430,7 @@ public partial class MainWindow : Window
             return;
         }
         _bookOpenInProgress++;
+        StartReaderOpenTransition(card, requestedFile);
         try
         {
             await OpenBookCoreAsync(card, requestedFile, restoreProgress);
@@ -2438,7 +2440,11 @@ public partial class MainWindow : Window
                 ToggleReaderZenMode();
             }
         }
-        finally { _bookOpenInProgress--; }
+        finally
+        {
+            await CompleteReaderOpenTransitionAsync();
+            _bookOpenInProgress--;
+        }
     }
 
     private async Task OpenBookCoreAsync(
@@ -2451,6 +2457,7 @@ public partial class MainWindow : Window
             _appSettings.PreferredOpenFormat);
         if (file is null)
         {
+            ResetReaderOpenTransition();
             SetTaskStatus(T("这本书没有可打开的文件。"));
             await ShowMessageAsync(T("无法打开书籍"), T("所选格式文件不存在或已不再支持。"));
             return;
@@ -2469,6 +2476,7 @@ public partial class MainWindow : Window
             }
             catch (Exception exception)
             {
+                ResetReaderOpenTransition();
                 var error = UiText.Localize(exception.Message);
                 SetTaskStatus(T("下载书籍失败：{0}", error));
                 await ShowMessageAsync(T("无法打开书籍"), error);
@@ -2477,6 +2485,7 @@ public partial class MainWindow : Window
 
             if (!File.Exists(path))
             {
+                ResetReaderOpenTransition();
                 SetTaskStatus(T("找不到文件：{0}", file.RelativePath));
                 await ShowMessageAsync(T("无法打开书籍"), T("所选格式文件不存在或已被删除。"));
                 return;
@@ -2516,6 +2525,7 @@ public partial class MainWindow : Window
             }
             catch (Exception exception)
             {
+                ResetReaderOpenTransition();
                 SoftwareLog.ErrorWithoutMessage("reader.open", exception, ("format", file.Format));
                 SetTaskStatus(T("准备阅读缓存失败：{0}", UiText.Localize(exception.Message)));
                 await ShowMessageAsync(T("无法打开书籍"), UiText.Localize(exception.Message));

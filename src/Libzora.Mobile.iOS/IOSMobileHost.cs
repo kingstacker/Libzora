@@ -1,3 +1,4 @@
+using Foundation;
 using Libzora.ApplicationServices;
 using Libzora.Infrastructure;
 using Libzora.Mobile;
@@ -28,6 +29,7 @@ internal static class IOSMobileHost
             CreateTtsPlayer: () => new IOSTtsAudioPlayer(),
             TabBar: tabBar,
             BackgroundWork: new IOSBackgroundWork(),
-            FileShare: new IOSFileShare());
+            FileShare: new IOSFileShare(),
+            PreferredLanguages: () => NSLocale.PreferredLanguages);
     }
 }

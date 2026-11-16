@@ -49,7 +49,8 @@ struct NativeLibraryPage: View {
     }
     private func summary(_ books: [LibraryBook]) -> String {
         let reading = books.filter { NativeBookReadingStatus.value($0) == 1 }.count
-        return "\(books.count) 本" + (reading > 0 ? " · \(reading) 本在读" : "")
+        return (books.count == 1 ? L("1 本") : L("{0} 本", books.count))
+            + (reading > 0 ? L(" · {0} 本在读", reading) : "")
     }
 
     var body: some View {
@@ -116,12 +117,12 @@ struct NativeLibraryPage: View {
             if !floatingMasthead { NativeLibraryStatusBarGlass(scroll: scrollState) }
         }
         .sheet(isPresented: $creatingFolder) {
-            NativeNameSheet(store: store, title: "新建收藏夹", initial: "", button: "创建") { name in
+            NativeNameSheet(store: store, title: L("新建收藏夹"), initial: "", button: L("创建")) { name in
                 let _: CreatedFolder = try await store.request("collection.create", ["name": name]); try await store.refreshLibrary()
             }
         }
         .sheet(item: $renamingFolder) { folder in
-            NativeNameSheet(store: store, title: "重命名收藏夹", initial: folder.name, button: "保存") { name in
+            NativeNameSheet(store: store, title: L("重命名收藏夹"), initial: folder.name, button: L("保存")) { name in
                 try await store.command("collection.rename", ["collectionId": folder.id, "name": name]); try await store.refreshLibrary()
             }
         }
@@ -171,10 +172,10 @@ struct NativeLibraryPage: View {
     private func masthead(floating: Bool) -> some View {
         HStack(spacing: 0) {
             if searching {
-                NativeSearchField(text: $query, prompt: store.preferences.collectionsView ? "搜索收藏夹" : "搜索书名或作者",
+                NativeSearchField(text: $query, prompt: store.preferences.collectionsView ? L("搜索收藏夹") : L("搜索书名或作者"),
                                   focused: $searchFocused, identifier: "library.search") { searchFocused = false }
             } else {
-                Text(store.preferences.collectionsView ? "收藏夹" : "书库")
+                Text(store.preferences.collectionsView ? L("收藏夹") : L("书库"))
                     .font(NativeTheme.pageTitleFont)
                     .frame(minHeight: 44)
                     .accessibilityIdentifier("library.view.title")
@@ -186,7 +187,7 @@ struct NativeLibraryPage: View {
             } label: {
                 Image(systemName: searching ? "xmark" : "magnifyingglass").font(.system(size: 20, weight: .regular))
                     .frame(width: 44, height: 44)
-            }.buttonStyle(.plain).accessibilityLabel(searching ? "关闭搜索" : "搜索书库")
+            }.buttonStyle(.plain).accessibilityLabel(searching ? L("关闭搜索") : L("搜索书库"))
                 .accessibilityIdentifier("library.search.toggle")
             Button {
                 if store.preferences.collectionsView { creatingFolder = true }
@@ -198,7 +199,7 @@ struct NativeLibraryPage: View {
                 Group { if importing { ProgressView() } else { Image(systemName: "plus").font(.system(size: 21, weight: .regular)) } }
                     .frame(width: 44, height: 44)
             }.buttonStyle(.plain).disabled(importing || folderBusy)
-                .accessibilityLabel(store.preferences.collectionsView ? "新建收藏夹" : "导入书籍")
+                .accessibilityLabel(store.preferences.collectionsView ? L("新建收藏夹") : L("导入书籍"))
                 .accessibilityIdentifier("library.import")
         }.padding(.leading, 24).padding(.trailing, 12).padding(.top, 16).padding(.bottom, 4)
             .background {
@@ -211,11 +212,11 @@ struct NativeLibraryPage: View {
     }
     private var filters: some View {
         HStack(spacing: 0) {
-            Picker("筛选", selection: Binding(get: { filter }, set: { value in
+            Picker(L("筛选"), selection: Binding(get: { filter }, set: { value in
                 filter = value
                 if value == 1 || value == 3 { advancedFilter.readingStatus = nil }
             })) {
-                Text("全部").tag(0); Text("在读").tag(1); Text("收藏").tag(2); Text("读完").tag(3)
+                Text(L("全部")).tag(0); Text(L("在读")).tag(1); Text(L("收藏")).tag(2); Text(L("读完")).tag(3)
             }.pickerStyle(.segmented).accessibilityIdentifier("library.filter")
             Button { openFilters() } label: {
                 ZStack(alignment: .topTrailing) {
@@ -229,7 +230,7 @@ struct NativeLibraryPage: View {
                     }
                 }
             }.buttonStyle(.plain).foregroundStyle(mutedText).disabled(loadingFilterOptions)
-                .accessibilityLabel(advancedFilter.count == 0 ? "筛选书籍" : "筛选书籍，已选 \(advancedFilter.count) 项")
+                .accessibilityLabel(advancedFilter.count == 0 ? L("筛选书籍") : L("筛选书籍，已选 {0} 项", advancedFilter.count))
                 .accessibilityIdentifier("library.filters.open")
             NativeLibraryDisplayMenu(store: store)
         }
@@ -241,12 +242,12 @@ struct NativeLibraryPage: View {
             filters.padding(.horizontal, -12).padding(.bottom, 12)
             continueCard(books: books)
             if filterPending {
-                ProgressView("正在筛选书籍…").frame(maxWidth: .infinity).padding(.top, 96)
+                ProgressView(L("正在筛选书籍…")).frame(maxWidth: .infinity).padding(.top, 96)
             } else if let error = currentFilterResult?.error {
                 VStack(spacing: 10) {
-                    Text("筛选失败").font(NativeTheme.font(17, relativeTo: .headline))
+                    Text(L("筛选失败")).font(NativeTheme.font(17, relativeTo: .headline))
                     Text(error).font(NativeTheme.font(13)).foregroundStyle(secondaryText)
-                    Button("重试") { filterResult = nil; Task { await updateFilterResults(for: filterRequest) } }
+                    Button(L("重试")) { filterResult = nil; Task { await updateFilterResults(for: filterRequest) } }
                 }.frame(maxWidth: .infinity).padding(.top, 96)
             } else {
                 Text(summary(books)).font(NativeTheme.font(12, relativeTo: .caption))
@@ -262,13 +263,13 @@ struct NativeLibraryPage: View {
         VStack(spacing: 12) {
             Image(systemName: "exclamationmark.circle").font(.system(size: 32, weight: .ultraLight))
                 .foregroundStyle(mutedText)
-            Text("书库加载失败").font(NativeTheme.font(18, relativeTo: .headline))
+            Text(L("书库加载失败")).font(NativeTheme.font(18, relativeTo: .headline))
             Text(message).font(NativeTheme.font(13)).foregroundStyle(secondaryText)
                 .multilineTextAlignment(.center)
             Button { Task { await refresh() } } label: {
                 HStack(spacing: 8) {
                     if loading { ProgressView() }
-                    Text(loading ? "正在重试…" : "重新加载")
+                    Text(loading ? L("正在重试…") : L("重新加载"))
                 }
             }.buttonStyle(NativePrimaryButtonStyle()).disabled(loading)
                 .accessibilityIdentifier("library.retry")
@@ -278,12 +279,12 @@ struct NativeLibraryPage: View {
     }
     private var emptyView: some View {
         VStack(spacing: 6) {
-            if loading || store.preparingLibrary { ProgressView("正在加载书库…") }
+            if loading || store.preparingLibrary { ProgressView(L("正在加载书库…")) }
             else {
                 Image(systemName: "book").font(.system(size: 34, weight: .ultraLight)).foregroundStyle(mutedText)
-                Text(store.library.isEmpty ? "书库还是空的" : "没有找到相关书籍")
+                Text(store.library.isEmpty ? L("书库还是空的") : L("没有找到相关书籍"))
                     .font(NativeTheme.font(17, relativeTo: .headline)).padding(.top, 8)
-                Text(store.library.isEmpty ? "点右上角 + 导入 EPUB、PDF 或 TXT" : "换个关键词或筛选条件试试")
+                Text(store.library.isEmpty ? L("点右上角 + 导入 EPUB、PDF 或 TXT") : L("换个关键词或筛选条件试试"))
                     .font(NativeTheme.font(13, relativeTo: .subheadline)).foregroundStyle(mutedText)
                     .multilineTextAlignment(.center)
             }
@@ -295,7 +296,7 @@ struct NativeLibraryPage: View {
                 HStack(spacing: 14) {
                     BookCover(book: book, width: 48, height: 68)
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("继续阅读").font(NativeTheme.font(13)).foregroundStyle(mutedText)
+                        Text(L("继续阅读")).font(NativeTheme.font(13)).foregroundStyle(mutedText)
                         Text(book.title).font(NativeTheme.font(16)).lineLimit(1)
                         Spacer(minLength: 4)
                         HStack(spacing: 10) {
@@ -314,7 +315,7 @@ struct NativeLibraryPage: View {
         let folders = store.folders.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }
         return VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Text("\(folders.count) 个收藏夹").font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(mutedText)
+                Text(L("{0} 个收藏夹", folders.count)).font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(mutedText)
                 Spacer()
                 NativeLibraryDisplayMenu(store: store)
             }
@@ -325,14 +326,14 @@ struct NativeLibraryPage: View {
                     }.buttonStyle(.plain).accessibilityIdentifier("collection.\(folder.id)")
                         .contextMenu {
                             if !folder.automatic {
-                                Button("重命名") { renamingFolder = folder }
-                                Button("清空书籍") { folderAction("clear", folder: folder) }
-                                Menu("合并到") {
+                                Button(L("重命名")) { renamingFolder = folder }
+                                Button(L("清空书籍")) { folderAction("clear", folder: folder) }
+                                Menu(L("合并到")) {
                                     ForEach(store.folders.filter { !$0.automatic && $0.id != folder.id }) { target in
                                         Button(target.name) { folderAction("merge", folder: folder, target: target.id) }
                                     }
                                 }
-                                Button("解散收藏夹", role: .destructive) { folderAction("dissolve", folder: folder) }
+                                Button(L("解散收藏夹"), role: .destructive) { folderAction("dissolve", folder: folder) }
                             }
                         }
                 }
@@ -340,19 +341,19 @@ struct NativeLibraryPage: View {
                     VStack(spacing: 10) {
                         Image(systemName: "plus").font(.system(size: 20, weight: .regular))
                             .frame(width: 44, height: 44).background(NativeTheme.sunk, in: Circle())
-                        Text("新建收藏夹").font(NativeTheme.font(13)).foregroundStyle(mutedText)
+                        Text(L("新建收藏夹")).font(NativeTheme.font(13)).foregroundStyle(mutedText)
                     }.frame(maxWidth: .infinity).frame(height: cardWidth * 1.48)
                     .overlay(RoundedRectangle(cornerRadius: 18).stroke(NativeTheme.strong, style: StrokeStyle(lineWidth: 1.4, dash: [3, 3])))
                 }.buttonStyle(.plain).accessibilityIdentifier("collection.create")
             }
-            Text("长按收藏夹可重命名、清空、合并或解散。")
+            Text(L("长按收藏夹可重命名、清空、合并或解散。"))
                 .font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(mutedText)
         }.padding(.horizontal, 24).padding(.top, 14).padding(.bottom, 28).disabled(folderBusy)
     }
     private func bookActions(_ book: LibraryBook) -> [NativeBookMenuItem] {
         [
-            NativeBookMenuItem("阅读") { store.perform { try await store.openReader(book) } },
-            NativeBookMenuItem(book.favorite ? "取消收藏" : "收藏") {
+            NativeBookMenuItem(L("阅读")) { store.perform { try await store.openReader(book) } },
+            NativeBookMenuItem(book.favorite ? L("取消收藏") : L("收藏")) {
                 store.perform { try await store.command("book.favorite", ["bookId": book.id, "favorite": !book.favorite]); try await store.refreshLibrary() }
             }
         ]
@@ -588,10 +589,12 @@ enum NativeBookOrder {
 struct NativeBookMenuItem {
     let title: String
     let destructive: Bool
+    let identifier: String?
     let action: () -> Void
 
-    init(_ title: String, destructive: Bool = false, action: @escaping () -> Void) {
-        self.title = title; self.destructive = destructive; self.action = action
+    init(_ title: String, destructive: Bool = false, identifier: String? = nil, action: @escaping () -> Void) {
+        self.title = title; self.destructive = destructive
+        self.identifier = identifier; self.action = action
     }
 }
 
@@ -659,7 +662,7 @@ struct NativeBookShelf: View {
                                longPress: { frame in showPreview(book, sourceFrame: frame) })
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .accessibilityHint("轻点阅读，长按查看更多操作")
+            .accessibilityHint(L("轻点阅读，长按查看更多操作"))
             .accessibilityIdentifier("book.\(book.id)")
             .background {
                 if tracksVisibleCovers, store.preferences.colorfulMode, let path = book.coverPath {
@@ -687,7 +690,7 @@ struct NativeBookShelf: View {
             muted: mutedText,
             showRating: store.preferences.showBookRating,
             showSyncStatus: store.preferences.showBookSyncStatus,
-            actions: actions(book) + [NativeBookMenuItem("书籍详情") { detailBookID = book.id; showingDetail = true }]))
+            actions: actions(book) + [NativeBookMenuItem(L("书籍详情"), identifier: "book.action.details") { detailBookID = book.id; showingDetail = true }]))
     }
 }
 
@@ -755,8 +758,8 @@ struct NativeLibraryDisplayMenu: View {
     private var mutedText: Color { store.preferences.colorfulMode ? NativeTheme.mutedOnColorful : NativeTheme.muted }
     var body: some View {
         Menu {
-            Section("视图") {
-                Picker("视图", selection: Binding(get: {
+            Section(L("视图")) {
+                Picker(L("视图"), selection: Binding(get: {
                     store.preferences.collectionsView ? 2 : store.preferences.listView ? 1 : 0
                 }, set: { view in
                     var value = store.preferences
@@ -764,25 +767,25 @@ struct NativeLibraryDisplayMenu: View {
                     if view != 2 { value.listView = view == 1 }
                     store.setPreferences(value)
                 })) {
-                    Label("网格视图", systemImage: "square.grid.2x2").tag(0)
-                    Label("列表视图", systemImage: "list.bullet").tag(1)
-                    Label("收藏夹视图", systemImage: "folder").tag(2)
+                    Label(L("网格视图"), systemImage: "square.grid.2x2").tag(0)
+                    Label(L("列表视图"), systemImage: "list.bullet").tag(1)
+                    Label(L("收藏夹视图"), systemImage: "folder").tag(2)
                 }
             }
             if !store.preferences.collectionsView {
-                Section("排序") {
-                    Picker("排序", selection: Binding(get: { store.preferences.sort }, set: { sort in
+                Section(L("排序")) {
+                    Picker(L("排序"), selection: Binding(get: { store.preferences.sort }, set: { sort in
                         var value = store.preferences; value.sort = sort
                         store.setPreferences(value)
                     })) {
-                        Text("最近更新").tag(0); Text("书名").tag(1); Text("作者").tag(2); Text("添加时间").tag(3)
+                        Text(L("最近更新")).tag(0); Text(L("书名")).tag(1); Text(L("作者")).tag(2); Text(L("添加时间")).tag(3)
                     }
                 }
             }
         } label: {
             Image(systemName: "ellipsis").font(.system(size: 18, weight: .medium)).frame(width: 38, height: 44)
         }.buttonStyle(.plain).foregroundStyle(mutedText)
-            .accessibilityLabel("显示选项").accessibilityIdentifier("library.display")
+            .accessibilityLabel(L("显示选项")).accessibilityIdentifier("library.display")
     }
 }
 
@@ -791,15 +794,15 @@ struct NativeBookSortMenu: View {
     private var mutedText: Color { store.preferences.colorfulMode ? NativeTheme.mutedOnColorful : NativeTheme.muted }
     var body: some View {
         Menu {
-            Picker("排序", selection: Binding(get: { store.preferences.sort }, set: { sort in
+            Picker(L("排序"), selection: Binding(get: { store.preferences.sort }, set: { sort in
                 var value = store.preferences; value.sort = sort
                 store.setPreferences(value)
             })) {
-                Text("最近更新").tag(0); Text("书名").tag(1); Text("作者").tag(2); Text("添加时间").tag(3)
+                Text(L("最近更新")).tag(0); Text(L("书名")).tag(1); Text(L("作者")).tag(2); Text(L("添加时间")).tag(3)
             }
         } label: {
             Image(systemName: "line.3.horizontal.decrease").font(.system(size: 18, weight: .regular)).frame(width: 38, height: 44)
-        }.buttonStyle(.plain).foregroundStyle(mutedText).accessibilityLabel("书籍排序")
+        }.buttonStyle(.plain).foregroundStyle(mutedText).accessibilityLabel(L("书籍排序"))
     }
 }
 
@@ -815,12 +818,13 @@ struct NativeBookLayoutButton: View {
             Image(systemName: store.preferences.listView ? "square.grid.2x2" : "list.bullet")
                 .font(.system(size: 18, weight: .regular)).frame(width: 38, height: 44)
         }.buttonStyle(.plain).foregroundStyle(mutedText)
-            .accessibilityLabel(store.preferences.listView ? "网格视图" : "列表视图")
+            .accessibilityLabel(store.preferences.listView ? L("网格视图") : L("列表视图"))
             .accessibilityIdentifier(identifier)
     }
 }
 
 struct NativeBookTile: View {
+    @Environment(\.locale) private var uiLocale
     let book: LibraryBook
     let width: CGFloat
     var muted = NativeTheme.muted
@@ -829,6 +833,8 @@ struct NativeBookTile: View {
     var showSyncStatus = false
     var previewing = false
     var body: some View {
+        let _ = uiLocale
+
         VStack(alignment: .leading, spacing: 0) {
             BookCover(book: book, width: width)
                 .overlay(alignment: .topLeading) {
@@ -850,7 +856,7 @@ struct NativeBookTile: View {
         }.frame(maxWidth: .infinity, alignment: .topLeading).contentShape(Rectangle())
             .accessibilityElement(children: previewing ? .contain : .ignore)
             .accessibilityLabel(book.title
-                + (showRating ? book.onlineRating.map { "，评分 \(NativeBookRatingBadge.text($0))" } ?? "" : "")
+                + (showRating ? book.onlineRating.map { L("，评分 {0}", NativeBookRatingBadge.text($0)) } ?? "" : "")
                 + (showSyncStatus && NativeBookSyncBadge.isPending(book.syncStatus) ? NativeBookSyncBadge.description(book.syncStatus).map { "，\($0)" } ?? "" : ""))
     }
 
@@ -862,10 +868,13 @@ struct NativeBookTile: View {
 }
 
 struct NativeFolderCard: View {
+    @Environment(\.locale) private var uiLocale
     let folder: LibraryFolder
     let books: [LibraryBook]
     let width: CGFloat
     var body: some View {
+        let _ = uiLocale
+
         VStack(alignment: .leading, spacing: 0) {
             ZStack {
                 let covers = Array(books.sorted { $0.updatedAt > $1.updatedAt }.prefix(3))
@@ -885,7 +894,7 @@ struct NativeFolderCard: View {
             }.frame(maxWidth: .infinity).frame(height: width * 1.06)
             VStack(alignment: .leading, spacing: 3) {
                 Text(folder.name).font(NativeTheme.font(15)).lineLimit(1)
-                Text("\(folder.count) 本").font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.muted)
+                Text(L("{0} 本", folder.count)).font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.muted)
             }.padding(.horizontal, 16).padding(.bottom, 15)
         }.frame(maxWidth: .infinity).frame(height: width * 1.48, alignment: .top)
             .background(NativeTheme.sunk, in: RoundedRectangle(cornerRadius: 18))
@@ -893,22 +902,26 @@ struct NativeFolderCard: View {
 }
 
 private struct NativeBookRatingBadge: View {
+    @Environment(\.locale) private var uiLocale
     let rating: Double
 
     static func text(_ rating: Double) -> String { String(format: "%.1f", rating) }
 
     var body: some View {
+        let _ = uiLocale
+
         HStack(spacing: 2) {
             Image(systemName: "star.fill").font(.system(size: 8.5, weight: .semibold))
             Text(Self.text(rating)).font(NativeTheme.font(10, relativeTo: .caption2)).monospacedDigit()
         }.foregroundStyle(NativeTheme.ink)
             .padding(.horizontal, 5).padding(.vertical, 3)
             .background(.regularMaterial, in: Capsule())
-            .accessibilityLabel("评分 \(Self.text(rating))")
+            .accessibilityLabel(L("评分 {0}", Self.text(rating)))
     }
 }
 
 private struct NativeBookSyncBadge: View {
+    @Environment(\.locale) private var uiLocale
     let status: Int
 
     /// Settled books stay quiet: only unsynced or cloud-only books need a badge.
@@ -916,19 +929,21 @@ private struct NativeBookSyncBadge: View {
 
     static func description(_ status: Int?) -> String? {
         switch status {
-        case 0: return "未同步"
-        case 1, 3: return "已同步"
-        case 2: return "已同步到云端，尚未下载"
+        case 0: return L("未同步")
+        case 1, 3: return L("已同步")
+        case 2: return L("已同步到云端，尚未下载")
         default: return nil
         }
     }
 
     var body: some View {
+        let _ = uiLocale
+
         let symbol = status == 0 ? "icloud.and.arrow.up" : status == 2 ? "icloud.and.arrow.down" : "checkmark.icloud"
         Image(systemName: symbol).font(.system(size: 11, weight: .medium))
             .foregroundStyle(NativeTheme.ink).padding(5)
             .background(.regularMaterial, in: Circle())
-            .accessibilityLabel(Self.description(status) ?? "同步状态未知")
+            .accessibilityLabel(Self.description(status) ?? L("同步状态未知"))
     }
 }
 

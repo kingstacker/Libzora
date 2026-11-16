@@ -6,6 +6,29 @@ the Chinese changelog when the language is English.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 1.1.5 (2026-11-16)
+
+The 1.1.4 release build did not complete. This release also ships its branding, desktop, and Kindle updates.
+
+### Added
+
+- Add Simplified Chinese, English, and automatic system-language selection across the native iOS UI and shared mobile service messages, with persistent manual preferences.
+- Include the Libzora rebranding, Apple Silicon / Intel macOS DMGs, native menu bar and tray, libmtp Kindle support, reader transitions and footnotes, and experimental Kindle highlight and note synchronization.
+
+### Improved
+
+- Switching UI language preserves reader navigation and body layout; book titles, content, notes, and actual font names remain unchanged.
+- Cache NuGet and macOS MTP dependencies in GitHub Actions, remove redundant builds, and retain per-suite progress logs, TRX results, and timeout diagnostics.
+- Generate macOS CI DMGs without Finder or mounting an intermediate writable image. Development builds can target a single platform; stable releases still require validation of every desktop platform.
+
+### Fixed
+
+- Keep every system fallback font referenced by installed reader pages alive through font switches and footnote navigation, preventing missing glyphs and unregistered-font errors.
+- Retry transient SQLite backup locks with bounded, cancellation-aware waits, preserving the previous backup if an export is cancelled.
+- Handle macOS 15's incompatibility with Xcode 26 layered-icon validation while still checking a decodable ICNS fallback and the complete app signature.
+- Prevent deleted books from reappearing when deletion and re-import share the same synchronization timestamp.
+- Close downloaded offline speech-pack streams before renaming them on Windows.
+
 ## 1.1.4 (2026-11-16)
 
 ### Added

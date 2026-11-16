@@ -34,45 +34,45 @@ struct NativeAccountPage: View {
                                          signingOut: busy, accountStatus: status)
             } else {
                 Section {
-                    Picker("账号操作", selection: $register) { Text("登录").tag(false); Text("注册").tag(true) }
+                    Picker(L("账号操作"), selection: $register) { Text(L("登录")).tag(false); Text(L("注册")).tag(true) }
                         .pickerStyle(.segmented).accessibilityIdentifier("account.mode")
                         .disabled(resetMode)
-                    Text(resetMode ? "输入发送到注册邮箱的验证码，然后设置新密码。"
-                        : register ? (registrationAvailable ? "注册后可在多台设备同步书籍和阅读进度。"
-                            : "注册暂未上线。当前版本无需注册即可免费使用全部功能。")
-                        : "使用用户名或邮箱登录同一账号。")
+                    Text(resetMode ? L("输入发送到注册邮箱的验证码，然后设置新密码。")
+                        : register ? (registrationAvailable ? L("注册后可在多台设备同步书籍和阅读进度。")
+                            : L("注册暂未上线。当前版本无需注册即可免费使用全部功能。"))
+                        : L("使用用户名或邮箱登录同一账号。"))
                         .font(NativeTheme.font(12, relativeTo: .caption))
                         .foregroundStyle(register && !registrationAvailable ? NativeTheme.warning : NativeTheme.secondary)
                         .accessibilityIdentifier("account.registrationUnavailable")
                 }
-                Section(resetMode ? "重置密码" : register ? "注册信息" : "登录信息") {
+                Section(resetMode ? L("重置密码") : register ? L("注册信息") : L("登录信息")) {
                     if register {
-                        NativeTextField(title: "邮箱", text: $email).textContentType(.emailAddress).keyboardType(.emailAddress)
+                        NativeTextField(title: L("邮箱"), text: $email).textContentType(.emailAddress).keyboardType(.emailAddress)
                             .accessibilityIdentifier("account.emailField")
-                        Text("注册邮箱不可修改。").font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary)
+                        Text(L("注册邮箱不可修改。")).font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary)
                     }
-                    NativeTextField(title: register ? "用户名" : "用户名或邮箱", text: $username).textContentType(.username)
+                    NativeTextField(title: register ? L("用户名") : L("用户名或邮箱"), text: $username).textContentType(.username)
                         .accessibilityIdentifier("account.usernameField")
                     if register {
-                        Text("3–32 位字母、数字、点、下划线或连字符").font(NativeTheme.font(12, relativeTo: .caption))
+                        Text(L("3–32 位字母、数字、点、下划线或连字符")).font(NativeTheme.font(12, relativeTo: .caption))
                             .foregroundStyle(NativeTheme.secondary)
                     }
                     if resetMode {
-                        NativeTextField(title: "邮箱验证码（8 位）", text: $resetCode)
+                        NativeTextField(title: L("邮箱验证码（8 位）"), text: $resetCode)
                             .textContentType(.oneTimeCode).accessibilityIdentifier("account.reset.code")
-                        Text("验证码 15 分钟内有效。").font(NativeTheme.font(12, relativeTo: .caption))
+                        Text(L("验证码 15 分钟内有效。")).font(NativeTheme.font(12, relativeTo: .caption))
                             .foregroundStyle(NativeTheme.secondary)
-                        NativeTextField(title: "新密码（8–128 位）", text: $resetPassword, secure: true)
+                        NativeTextField(title: L("新密码（8–128 位）"), text: $resetPassword, secure: true)
                             .textContentType(.newPassword).accessibilityIdentifier("account.reset.password")
-                        NativeTextField(title: "确认新密码", text: $resetConfirmation, secure: true)
+                        NativeTextField(title: L("确认新密码"), text: $resetConfirmation, secure: true)
                             .textContentType(.newPassword).accessibilityIdentifier("account.reset.confirmation")
                     } else if register {
-                        NativeTextField(title: "登录密码（8–128 位）", text: $password, secure: true)
+                        NativeTextField(title: L("登录密码（8–128 位）"), text: $password, secure: true)
                             .textContentType(.newPassword).accessibilityIdentifier("account.password")
-                        NativeTextField(title: "确认登录密码", text: $confirmation, secure: true)
+                        NativeTextField(title: L("确认登录密码"), text: $confirmation, secure: true)
                             .textContentType(.newPassword).accessibilityIdentifier("account.confirmation")
                     } else {
-                        NativeTextField(title: "登录密码（8–128 位）", text: $password, secure: true)
+                        NativeTextField(title: L("登录密码（8–128 位）"), text: $password, secure: true)
                             .textContentType(.password).accessibilityIdentifier("account.password")
                     }
                 }
@@ -81,7 +81,7 @@ struct NativeAccountPage: View {
             }
         }.textInputAutocapitalization(.never).disableAutocorrection(true).disabled(loading || busy)
             .id(store.account?.isLoggedIn == true ? "account.signed-in" : "account.signed-out")
-            .navigationTitle("用户账号").navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
+            .navigationTitle(L("用户账号")).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
             .nativeBackButton()
             .modifier(NativeKeyboardDone())
             .modifier(NativeHideTabBar())
@@ -94,7 +94,7 @@ struct NativeAccountPage: View {
     /// restart warning must also stay visible on the signed-in page.
     @ViewBuilder private var restartNotice: some View {
         if store.account?.requiresDataRestart == true {
-            Text("区域已切换，请重新打开应用后使用该区域的独立书库和同步。")
+            Text(L("区域已切换，请重新打开应用后使用该区域的独立书库和同步。"))
                 .font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.warning)
                 .accessibilityIdentifier("account.restart")
         }
@@ -103,14 +103,14 @@ struct NativeAccountPage: View {
     /// Region belongs to the signed-out form only, right before the sign-in
     /// action; a signed-in page keeps the region chosen at login.
     @ViewBuilder private var regionSection: some View {
-        Section("服务器区域") {
-            Picker("服务器区域", selection: Binding(get: { store.account?.region ?? 0 }, set: { selectRegion($0) })) {
-                Text("中国区").tag(0); Text("国际区").tag(1)
+        Section(L("服务器区域")) {
+            Picker(L("服务器区域"), selection: Binding(get: { store.account?.region ?? 0 }, set: { selectRegion($0) })) {
+                Text(L("中国区")).tag(0); Text(L("国际区")).tag(1)
             }.pickerStyle(.segmented).accessibilityIdentifier("account.region")
-            Text("两区账号和同步数据独立，不互通。")
+            Text(L("两区账号和同步数据独立，不互通。"))
                 .font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary)
             if store.account?.requiresDataRestart == true {
-                Text("区域已切换，请重新打开应用后使用该区域的独立书库和同步。")
+                Text(L("区域已切换，请重新打开应用后使用该区域的独立书库和同步。"))
                     .font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary)
                     .accessibilityIdentifier("account.restart")
             }
@@ -128,17 +128,17 @@ struct NativeAccountPage: View {
                 }
                 if loading || busy { ProgressView() }
                 if resetMode {
-                    Button("重置密码") { submitReset() }.buttonStyle(NativePrimaryButtonStyle())
+                    Button(L("重置密码")) { submitReset() }.buttonStyle(NativePrimaryButtonStyle())
                         .accessibilityIdentifier("account.reset.submit")
-                    Button("返回登录") { cancelReset() }.buttonStyle(.plain)
+                    Button(L("返回登录")) { cancelReset() }.buttonStyle(.plain)
                         .accessibilityIdentifier("account.reset.cancel")
                 } else {
-                    Button(register ? (registrationAvailable ? "注册并登录" : "注册暂未上线") : "登录") { signIn() }
+                    Button(register ? (registrationAvailable ? L("注册并登录") : L("注册暂未上线")) : L("登录")) { signIn() }
                         .buttonStyle(NativePrimaryButtonStyle())
                         .disabled(register && !registrationAvailable)
                         .accessibilityIdentifier("account.submit")
                     if !register {
-                        Button("忘记密码？") { beginReset() }.buttonStyle(.plain)
+                        Button(L("忘记密码？")) { beginReset() }.buttonStyle(.plain)
                             .accessibilityIdentifier("account.forgot")
                     }
                 }
@@ -149,26 +149,26 @@ struct NativeAccountPage: View {
     /// The registered email can only be verified while signed in; recovery and
     /// verification share the same 8-digit, 15-minute code.
     @ViewBuilder private var emailVerificationSection: some View {
-        Section("邮箱验证") {
+        Section(L("邮箱验证")) {
             if let user = store.account?.user {
                 if user.emailVerified == true {
-                    Text("注册邮箱已验证。").font(NativeTheme.font(13)).foregroundStyle(NativeTheme.secondary)
+                    Text(L("注册邮箱已验证。")).font(NativeTheme.font(13)).foregroundStyle(NativeTheme.secondary)
                         .accessibilityIdentifier("account.email.verified")
                 } else if user.email == nil {
-                    Text("此账号未设置注册邮箱，无法验证或找回密码。")
+                    Text(L("此账号未设置注册邮箱，无法验证或找回密码。"))
                         .font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary)
                         .accessibilityIdentifier("account.email.missing")
                 } else if emailCodeSent {
-                    Text("验证码已发送至注册邮箱（15 分钟内有效）。")
+                    Text(L("验证码已发送至注册邮箱（15 分钟内有效）。"))
                         .font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary)
-                    NativeTextField(title: "邮箱验证码（8 位）", text: $emailCode)
+                    NativeTextField(title: L("邮箱验证码（8 位）"), text: $emailCode)
                         .textContentType(.oneTimeCode).accessibilityIdentifier("account.email.code")
-                    Button("确认验证") { verifyEmail() }.buttonStyle(.plain)
+                    Button(L("确认验证")) { verifyEmail() }.buttonStyle(.plain)
                         .accessibilityIdentifier("account.email.verify")
                 } else {
-                    Text("注册邮箱尚未验证。验证后可找回密码。")
+                    Text(L("注册邮箱尚未验证。验证后可找回密码。"))
                         .font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary)
-                    Button("发送验证码") { sendEmailCode() }.buttonStyle(.plain)
+                    Button(L("发送验证码")) { sendEmailCode() }.buttonStyle(.plain)
                         .accessibilityIdentifier("account.email.send")
                 }
             }
@@ -178,8 +178,8 @@ struct NativeAccountPage: View {
     private func beginReset() {
         guard !busy, !register else { return }
         let identifier = username.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !identifier.isEmpty else { status = "请输入有效的用户名或邮箱。"; return }
-        busy = true; status = "正在发送验证码…"
+        guard !identifier.isEmpty else { status = L("请输入有效的用户名或邮箱。"); return }
+        busy = true; status = L("正在发送验证码…")
         actionTask = Task {
             defer { busy = false }
             do {
@@ -194,8 +194,8 @@ struct NativeAccountPage: View {
 
     private func submitReset() {
         guard !busy else { return }
-        if resetPassword != resetConfirmation { status = "两次输入的密码不一致。"; return }
-        busy = true; status = "正在重置密码…"
+        if resetPassword != resetConfirmation { status = L("两次输入的密码不一致。"); return }
+        busy = true; status = L("正在重置密码…")
         actionTask = Task {
             defer { busy = false }
             do {
@@ -211,12 +211,12 @@ struct NativeAccountPage: View {
 
     private func cancelReset() {
         resetMode = false; resetCode = ""; resetPassword = ""; resetConfirmation = ""
-        status = "已返回登录。"
+        status = L("已返回登录。")
     }
 
     private func sendEmailCode() {
         guard !busy else { return }
-        busy = true; status = "正在发送邮箱验证码…"
+        busy = true; status = L("正在发送邮箱验证码…")
         actionTask = Task {
             defer { busy = false }
             do {
@@ -229,13 +229,13 @@ struct NativeAccountPage: View {
 
     private func verifyEmail() {
         guard !busy else { return }
-        busy = true; status = "正在验证邮箱…"
+        busy = true; status = L("正在验证邮箱…")
         actionTask = Task {
             defer { busy = false }
             do {
                 let account: AccountStatus = try await store.request("settings.account.email.verify", ["code": emailCode])
                 guard !Task.isCancelled else { return }
-                store.account = account; emailCodeSent = false; emailCode = ""; status = "邮箱验证成功。"
+                store.account = account; emailCodeSent = false; emailCode = ""; status = L("邮箱验证成功。")
             } catch { if !Task.isCancelled { status = error.localizedDescription } }
         }
     }
@@ -257,9 +257,9 @@ struct NativeAccountPage: View {
 
     private func signIn() {
         guard !busy else { return }
-        if register && !registrationAvailable { status = "注册暂未上线。当前版本无需注册即可免费使用全部功能。"; return }
-        if register && password != confirmation { status = "两次输入的密码不一致。"; return }
-        busy = true; status = register ? "正在注册…" : "正在登录…"
+        if register && !registrationAvailable { status = L("注册暂未上线。当前版本无需注册即可免费使用全部功能。"); return }
+        if register && password != confirmation { status = L("两次输入的密码不一致。"); return }
+        busy = true; status = register ? L("正在注册…") : L("正在登录…")
         var args: [String: Any] = ["serverUrl": serverUrl, "username": username, "password": password,
                                    "region": store.account?.region ?? 0]
         if register { args["email"] = email; args["confirmPassword"] = confirmation }
@@ -292,7 +292,7 @@ struct NativeAccountPage: View {
 
     private func signOut() {
         guard !busy else { return }
-        busy = true; status = "正在退出…"
+        busy = true; status = L("正在退出…")
         actionTask = Task {
             defer { busy = false }
             do {

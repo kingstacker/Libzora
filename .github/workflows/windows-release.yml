@@ -23,18 +23,12 @@ jobs:
     env:
       RELEASE_TAG: ${{ inputs.tag }}
       RELEASE_DIR: ${{ github.workspace }}\artifacts\github-release
-      GH_TOKEN: ${{ github.token }}
 
     steps:
       - name: Check out selected revision
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
-
-      - name: Set up .NET 10
-        uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: 10.0.400
 
       - name: Resolve version and release tag
         id: version
@@ -63,14 +57,40 @@ jobs:
             "tag_exists=false" >> $env:GITHUB_OUTPUT
           }
 
+      # Resolve/check out the tag first so the SDK and cache match its sources.
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+          check-latest: false
+          skip-lts-prepass: true
+      - name: Cache NuGet packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.nuget/packages
+          key: nuget-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('global.json', '**/*.csproj', '**/*.props', '**/*.targets', '**/NuGet.Config', '**/nuget.config', '**/packages.lock.json') }}
+          restore-keys: |
+            nuget-v1-${{ runner.os }}-${{ runner.arch }}-
+
       - name: Restore dependencies
         run: dotnet restore Libzora.sln -p:Platform=x64
 
       - name: Run quick release tests
-        run: dotnet test Libzora.sln -c Release -p:Platform=x64 --no-restore
+        timeout-minutes: 15
+        run: >-
+          dotnet test Libzora.sln -c Release -p:Platform=x64 --no-restore
+          --logger "console;verbosity=normal" --logger trx
+          --blame-hang --blame-hang-timeout 5m --blame-hang-dump-type mini
+          --results-directory artifacts/test-results/windows
 
-      - name: Build Avalonia Windows head
-        run: dotnet build src/Libzora.Desktop.Windows/Libzora.Desktop.Windows.csproj -c Release -p:Platform=x64 --no-restore
+      - name: Upload test diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-release-test-diagnostics
+          path: artifacts/test-results
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Install release toolchain
         shell: pwsh
@@ -138,6 +158,8 @@ jobs:
           git push origin "refs/tags/$env:RELEASE_TAG"
 
       - name: Create or update Windows GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
           $version = '${{ steps.version.outputs.version }}'

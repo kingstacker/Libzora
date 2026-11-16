@@ -24,6 +24,8 @@ public partial class ReaderPage
     private readonly Dictionary<string, EpubFootnoteDetail?> _footnoteCache = new(StringComparer.Ordinal);
     private readonly List<FootnoteReturnPoint> _footnoteReturn = [];
     private NativeReaderFootnote? _activeFootnote;
+    private string? _activeFootnoteMarker;
+    private Func<string>? _activeFootnoteErrorText;
     private string? _activeFootnoteBacklink;
     private string? _footnoteJumpBacklink;
     private long _footnotePreviewId;
@@ -46,6 +48,7 @@ public partial class ReaderPage
         var href = ReadFootnoteString(root, "href") ?? string.Empty;
         var inlineText = ReadFootnoteString(root, "footnoteText");
         var marker = ReadFootnoteString(root, "marker");
+        _activeFootnoteMarker = marker;
         var anchor = ReadFootnoteAnchor(root);
         var id = ++_footnotePreviewId;
         _footnotePreviewCancellation?.Cancel();
@@ -72,7 +75,8 @@ public partial class ReaderPage
         if (!jumpable)
         {
             PublishFootnote(new NativeReaderFootnote(
-                id, true, title, href, null, false, false, anchor, "未找到注释内容"));
+                id, true, title, href, null, false, false, anchor, UiText.Get("未找到注释内容")),
+                () => UiText.Get("未找到注释内容"));
             return;
         }
 
@@ -106,7 +110,8 @@ public partial class ReaderPage
             _footnoteCache[key] = null;
             PublishFootnote(new NativeReaderFootnote(
                 id, true, title, target.AbsoluteUri, null, false, true, anchor,
-                "无法读取注释：" + UiText.Localize(exception.Message)));
+                UiText.Get("无法读取注释：{0}", UiText.Localize(exception.Message))),
+                () => UiText.Get("无法读取注释：{0}", UiText.Localize(exception.Message)));
         }
     }
 
@@ -124,14 +129,30 @@ public partial class ReaderPage
         // keep "定位原注" reachable even when the whole note fits in the card.
         PublishFootnote(new NativeReaderFootnote(
             id, true, title, target.AbsoluteUri, text, false, true, anchor,
-            resolved ? null : "未找到注释内容"));
+            resolved ? null : UiText.Get("未找到注释内容")),
+            resolved ? null : () => UiText.Get("未找到注释内容"));
         _activeFootnoteBacklink = detail?.Backlink;
     }
 
-    private void PublishFootnote(NativeReaderFootnote footnote)
+    private void PublishFootnote(NativeReaderFootnote footnote, Func<string>? errorText = null)
     {
+        // A language change may occur while an asynchronous note resolves.
+        if (footnote.Visible) footnote = footnote with { Title = FootnoteTitle(_activeFootnoteMarker) };
         _activeFootnote = footnote.Visible ? footnote : null;
+        _activeFootnoteErrorText = footnote.Visible ? errorText : null;
         NativeFootnoteRequested?.Invoke(footnote);
+    }
+
+    private void RefreshFootnoteUiText()
+    {
+        if (_activeFootnote is not { } footnote) return;
+        var updated = footnote with
+        {
+            Title = FootnoteTitle(_activeFootnoteMarker),
+            Error = _activeFootnoteErrorText?.Invoke()
+        };
+        _activeFootnote = updated;
+        NativeFootnoteRequested?.Invoke(updated);
     }
 
     public void NativeDismissFootnote()
@@ -142,6 +163,8 @@ public partial class ReaderPage
         _footnotePreviewCancellation = null;
         if (_activeFootnote is null) return;
         _activeFootnote = null;
+        _activeFootnoteMarker = null;
+        _activeFootnoteErrorText = null;
         _activeFootnoteBacklink = null;
         NativeFootnoteRequested?.Invoke(new NativeReaderFootnote(
             _footnotePreviewId, false, string.Empty, string.Empty, null, false, false,
@@ -189,7 +212,7 @@ public partial class ReaderPage
                 _footnoteReturn.RemoveAt(_footnoteReturn.Count - 1);
                 _footnoteProgressSuppressed = _footnoteReturn.Count > 0;
                 _footnoteJumpBacklink = returnPoint.Backlink;
-                _shell.ShowToast("无法定位注释");
+                _shell.ShowToast(UiText.Get("无法定位注释"));
                 NotifyNativeState();
                 return;
             }
@@ -357,11 +380,11 @@ public partial class ReaderPage
     private static string FootnoteTitle(string? marker)
     {
         var value = (marker ?? string.Empty).Trim();
-        if (value.Length == 0 || value == "注") return "注释";
+        if (value.Length == 0 || value == "注") return UiText.Get("注释");
         var trimmed = value.Trim('[', ']', '【', '】', '(', ')', '（', '）').Trim();
-        if (trimmed.Length == 0) return "注释";
+        if (trimmed.Length == 0) return UiText.Get("注释");
         if (trimmed.Length > 12) trimmed = trimmed[..12];
-        return "注 " + trimmed;
+        return UiText.Get("注 {0}", trimmed);
     }
 
     /// <summary>

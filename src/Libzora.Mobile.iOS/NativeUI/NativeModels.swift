@@ -62,7 +62,7 @@ struct AccountUser: Decodable { let id: String; let username: String; let email:
 struct AccountStatus: Decodable {
     let serverUrl: String; let user: AccountUser?; let expiresAt: String?; let isLoggedIn: Bool
     let region: Int; let requiresDataRestart: Bool
-    var regionName: String { region == 1 ? "国际区" : "中国区" }
+    var regionName: String { region == 1 ? L("国际区") : L("中国区") }
 }
 
 struct AccountDevice: Decodable, Identifiable {
@@ -94,15 +94,15 @@ struct AccountMembership: Decodable {
         if (tier == "trial" || tier == "pro"), let expiry = featureExpiresAtDate, expiry > Date() { return "trial" }
         return "free"
     }
-    var planName: String { plan == "trial" ? "试用订阅" : plan == "lifetime" ? "买断订阅" : "Free" }
+    var planName: String { plan == "trial" ? L("试用订阅") : plan == "lifetime" ? L("买断订阅") : "Free" }
     var isTrialExpired: Bool { plan != "lifetime" && (featureExpiresAtDate.map { $0 <= Date() } ?? false) }
     var trialRenewalMessage: String? {
         guard plan == "trial", let expiry = featureExpiresAtDate else { return nil }
         let remaining = expiry.timeIntervalSinceNow
         guard remaining > 0 && remaining <= 30 * 86_400 else { return nil }
         let days = max(1, Int(ceil(remaining / 86_400)))
-        let duration = days <= 1 ? "不足 1 天" : "剩余 \(days) 天"
-        return "试用订阅将于 \(Self.day(expiry)) 到期（\(duration)）。到期后 S3 / WebDAV 多端同步将停用，本地书库及自备存储中的数据不会删除。购买买断订阅可永久使用。"
+        let duration = days <= 1 ? L("不足 1 天") : L("剩余 {0} 天", days)
+        return L("试用订阅将于 {0} 到期（{1}）。到期后 S3 / WebDAV 多端同步将停用，本地书库及自备存储中的数据不会删除。购买买断订阅可永久使用。", Self.day(expiry), duration)
     }
     var isTrialExpiringSoon: Bool { trialRenewalMessage != nil }
     var trialExpiresAtDate: Date? { Self.date(trialExpiresAt) }
@@ -110,17 +110,17 @@ struct AccountMembership: Decodable {
     var canClaimTrial: Bool { trialAvailable == true && trialClaimed != true && plan == "free" }
     var trialStatusMessage: String {
         guard isTrialActive, let end = trialExpiresAtDate else {
-            return "每账号主动领取一次，连续 7 天。到期只停用同步，不删除本地或自备存储数据。"
+            return L("每账号主动领取一次，连续 7 天。到期只停用同步，不删除本地或自备存储数据。")
         }
-        return "试用期至 \(Self.day(end))，到期只停用同步，不删除本地或自备存储数据。可购买买断订阅继续使用。"
+        return L("试用期至 {0}，到期只停用同步，不删除本地或自备存储数据。可购买买断订阅继续使用。", Self.day(end))
     }
     var planExpiryText: String {
-        if plan == "trial", let expiry = featureExpiresAtDate { return "有效至 " + Self.day(expiry) }
-        return plan == "lifetime" ? "永久有效" : isTrialExpired ? "试用订阅已到期" : "永久免费"
+        if plan == "trial", let expiry = featureExpiresAtDate { return L("有效至 ") + Self.day(expiry) }
+        return plan == "lifetime" ? L("永久有效") : isTrialExpired ? L("试用订阅已到期") : L("永久免费")
     }
     var trialExpiryMessage: String? {
         guard isTrialExpired, let expiry = featureExpiresAtDate else { return nil }
-        return "试用订阅已于 \(Self.day(expiry)) 到期，S3 / WebDAV 多端同步已停用。本地书库及自备存储中的数据不会删除；购买买断订阅可永久恢复同步功能。"
+        return L("试用订阅已于 {0} 到期，S3 / WebDAV 多端同步已停用。本地书库及自备存储中的数据不会删除；购买买断订阅可永久恢复同步功能。", Self.day(expiry))
     }
     private static func date(_ text: String?) -> Date? {
         guard let text else { return nil }
@@ -195,7 +195,7 @@ struct MaterialRecord: Decodable, Identifiable {
     let locationText: String
     let updatedAt: String
     let location: JSONValue
-    var kindLabel: String { kind == "note" ? "笔记" : kind == "bookmark" ? "书签" : "划线" }
+    var kindLabel: String { kind == "note" ? L("笔记") : kind == "bookmark" ? L("书签") : L("划线") }
 }
 
 struct DashboardBook: Decodable, Identifiable {
@@ -276,5 +276,5 @@ func memberPercent(_ ratio: Double) -> String {
 }
 
 func readingDuration(_ seconds: Int64) -> String {
-    seconds < 3600 ? String(format: "%.0f 分钟", Double(seconds) / 60) : String(format: "%.1f 小时", Double(seconds) / 3600)
+    seconds < 3600 ? String(format: L("%.0f 分钟"), Double(seconds) / 60) : String(format: L("%.1f 小时"), Double(seconds) / 3600)
 }

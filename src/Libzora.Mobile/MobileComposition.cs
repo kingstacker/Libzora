@@ -16,9 +16,9 @@ public static class MobileComposition
         services.Paths.EnsureDirectories();
         SoftwareLog.Configure(services.Paths,
             ApplicationVersion.GetDisplayVersion(typeof(MobileApp).Assembly));
-        // The mobile views are written in Chinese only; shared text (medals, sync
-        // messages) must not switch to English with the system language.
-        UiText.SetLanguage("zh-CN");
+        // Legacy Avalonia-only hosts remain Chinese. The iOS shell configures
+        // its shared UI catalog before constructing any presentation views.
+        if (services.PreferredLanguages is null) UiText.SetLanguage("zh-CN");
         var dataPaths = AccountRegionPaths.ForRegion(services.Paths, AccountRegionPaths.ReadActiveRegion(services.Paths));
         var settings = new AppSettingsStore(dataPaths).LoadSynchronously();
         return new ApplicationModules(new ApplicationModuleOptions

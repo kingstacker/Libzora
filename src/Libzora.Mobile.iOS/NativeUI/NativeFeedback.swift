@@ -8,17 +8,17 @@ struct NativeFeedbackPage: View {
     var body: some View {
         NativeForm {
             Section {
-                Text("账号服务不接收反馈、截图或日志，请使用 GitHub Issues。")
+                Text(L("账号服务不接收反馈、截图或日志，请使用 GitHub Issues。"))
                     .font(NativeTheme.font(13))
                     .foregroundStyle(NativeTheme.secondary)
                     .accessibilityIdentifier("feedback.serviceBoundary")
-                Text("GitHub Issues 是外部公开渠道，发布的内容可能被缓存或索引。分享前请检查并移除账号、邮箱、密钥、书籍内容、文件路径等敏感信息；应用不会自动附加或上传任何内容。")
+                Text(L("GitHub Issues 是外部公开渠道，发布的内容可能被缓存或索引。分享前请检查并移除账号、邮箱、密钥、书籍内容、文件路径等敏感信息；应用不会自动附加或上传任何内容。"))
                     .font(NativeTheme.font(12, relativeTo: .caption))
                     .foregroundStyle(NativeTheme.muted)
             }
-            Section("反馈渠道") {
+            Section(L("反馈渠道")) {
                 Link(destination: URL(string: "https://github.com/kingstacker/Libzora/issues")!) {
-                    NativeSettingsRow(title: "打开 GitHub Issues", chevron: false)
+                    NativeSettingsRow(title: L("打开 GitHub Issues"), chevron: false)
                 }
                 .accessibilityIdentifier("feedback.issues")
                 Text(verbatim: "https://github.com/kingstacker/Libzora/issues")
@@ -27,7 +27,7 @@ struct NativeFeedbackPage: View {
                     .textSelection(.enabled)
             }
         }
-        .navigationTitle("问题反馈")
+        .navigationTitle(L("问题反馈"))
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarHidden(false)
         .nativeBackButton()

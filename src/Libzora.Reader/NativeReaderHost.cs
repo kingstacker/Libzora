@@ -1519,6 +1519,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         _ = Dispatcher.UIThread.InvokeAsync(async () =>
         {
             TypesetEngine? navigationEngine = null;
+            IDisposable? fontUse = null;
             try
             {
                 var composed = await Task.Run(() =>
@@ -1528,7 +1529,9 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
                         string.IsNullOrWhiteSpace(fragment) ? null : NormalizeFragment(fragment));
                     var content = loader.Load(chapterPath, navigationToken);
                     var options = BuildOptions(settings, width, height, _showVerticalDebugBoxes);
-                    navigationEngine = new TypesetEngine(FontLibrary, ownsFonts: false);
+                    var fonts = FontLibrary;
+                    fontUse = fonts.BeginComposition();
+                    navigationEngine = new TypesetEngine(fonts, ownsFonts: false);
                     SelectReaderMainFont(navigationEngine, settings.FontFamily);
                     var layout = navigationEngine.Compose(content, options, navigationToken,
                         anchorPageStart ? readingAnchor?.TextOffset : null);
@@ -1557,9 +1560,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
                 _loadedFootnoteFragment = string.IsNullOrWhiteSpace(fragment) ? null : NormalizeFragment(fragment);
                 _options = composed.options;
                 _layout = composed.layout;
-                // The old layout is gone, so a platform face left over from a
-                // previous font choice no longer has a page to paint.
-                FontLibrary.ReleaseSystemFontsExcept(FontLibrary.MainFontPath);
+                RetainInstalledLayoutFonts();
                 InvalidateSpeechTextSnapshot();
                 _loadedParagraphIndent = settings.ParagraphIndent;
                 _composePending = false;
@@ -1596,6 +1597,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
             finally
             {
                 navigationEngine?.Dispose();
+                fontUse?.Dispose();
                 completion.TrySetResult(false);
             }
         });
@@ -2259,6 +2261,18 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         _relayoutTimer.Start();
     }
 
+    private void RetainInstalledLayoutFonts()
+    {
+        // Keep every face used by every page, not just the selected main face
+        // or the visible page. Old system choices can become glyph fallbacks.
+        // The worker's composition scope spans shaping through installation,
+        // so deferred cleanup cannot unload its unpublished layout either.
+        var fonts = FontLibrary;
+        fonts.SetRetainedFontPaths(_layout!.Pages.SelectMany(page => page.Runs)
+            .Select(run => run.FontPath));
+        fonts.ReleaseSystemFontsExcept(fonts.MainFontPath);
+    }
+
     private async Task RecomposeAsync(ViewportReadingAnchor? readingAnchor = null, bool anchorPageStart = false)
     {
         if (_disposed || _content is null)
@@ -2286,12 +2300,15 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         _relayoutCts = request;
         var token = request.Token;
         TypesetEngine? workerEngine = null;
+        IDisposable? fontUse = null;
         try
         {
             var result = await Task.Run(() =>
             {
                 token.ThrowIfCancellationRequested();
-                workerEngine = new TypesetEngine(FontLibrary, ownsFonts: false);
+                var fonts = FontLibrary;
+                fontUse = fonts.BeginComposition();
+                workerEngine = new TypesetEngine(fonts, ownsFonts: false);
                 SelectReaderMainFont(workerEngine, settings.FontFamily);
                 return workerEngine.Compose(content, options, token,
                     anchorPageStart ? viewportAnchor?.TextOffset : null);
@@ -2308,15 +2325,14 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
                 _options = options;
                 _layout = result;
                 previous?.Dispose();
-                // Switching fonts installs a new layout over the old one; the
-                // face it replaced is now safe to unload.
-                FontLibrary.ReleaseSystemFontsExcept(FontLibrary.MainFontPath);
+                RetainInstalledLayoutFonts();
             }
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { return; }
         finally
         {
             workerEngine?.Dispose();
+            fontUse?.Dispose();
             if (ReferenceEquals(_relayoutCts, request)) _relayoutCts = null;
         }
         InvalidateSpeechTextSnapshot();

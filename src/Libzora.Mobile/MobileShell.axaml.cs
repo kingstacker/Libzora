@@ -13,6 +13,7 @@ using Libzora.Infrastructure;
 using Libzora.Mobile.Views;
 using Libzora.Mobile.Views.Sheets;
 using Libzora.Mobile.Controls;
+using Libzora.Mobile.Localization;
 
 namespace Libzora.Mobile;
 
@@ -73,6 +74,8 @@ public partial class MobileShell : UserControl
         _modules = modules;
         _services = services with { Paths = modules.Paths };
         Preferences = preferences;
+        if (services.PreferredLanguages is { } preferredLanguages)
+            UiLanguage = new MobileUiLanguageService(preferences, preferredLanguages);
         Covers = new CoverCache(modules.Paths);
         Sync = new MobileSync(modules);
         InitializeComponent();
@@ -106,6 +109,8 @@ public partial class MobileShell : UserControl
     }
 
     public MobilePreferencesStore Preferences { get; }
+
+    public MobileUiLanguageService? UiLanguage { get; }
 
     public MobileServices Services => _services;
 
@@ -383,6 +388,7 @@ public partial class MobileShell : UserControl
 
     public void OnAppResumed()
     {
+        UiLanguage?.Refresh();
         if (_backupBlocked) return;
         (CurrentPage as ReaderPage)?.Resume();
         RequestAutoSync(AutoSyncGap.OnResume);
@@ -509,7 +515,7 @@ public partial class MobileShell : UserControl
     public Task<bool> ConfirmAsync(string title, string message, string confirmText)
     {
         if (NativeConfirmation is { } native)
-            return native(title, message, confirmText);
+            return native(UiText.Localize(title), UiText.Localize(message), UiText.Localize(confirmText));
         var decision = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         ShowSheet(title, new PromptSheet(message, confirmText, _ =>
         {
@@ -688,7 +694,7 @@ public partial class MobileShell : UserControl
     {
         if (NativeToast is { } native)
         {
-            native(message);
+            native(UiText.Localize(message));
             return;
         }
         var version = ++_toastVersion;

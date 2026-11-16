@@ -42,7 +42,7 @@ internal sealed partial class IOSNativeFrontend
                 return await PickCoverAsync(token);
             case "book.delete":
                 var deleteBook = await GetBookAsync(args, token);
-                if (await ConfirmAsync("删除这本书", $"《{deleteBook.Title}》将移到回收站。", "移到回收站"))
+                if (await ConfirmAsync(UiText.Get("删除这本书"), UiText.Get("《{0}》将移到回收站。", deleteBook.Title), UiText.Get("移到回收站")))
                     await library.DeleteAsync(deleteBook.Id, token);
                 break;
             case "book.kindle":
@@ -58,15 +58,15 @@ internal sealed partial class IOSNativeFrontend
                 else await library.RemoveBookFromCollectionAsync(Id(args, "bookId"), Id(args, "collectionId"), token);
                 break;
             case "collection.clear":
-                if (await ConfirmAsync("清空收藏夹", "收藏夹本身会保留，书籍仍在书库中。", "清空"))
+                if (await ConfirmAsync(UiText.Get("清空收藏夹"), UiText.Get("收藏夹本身会保留，书籍仍在书库中。"), UiText.Get("清空")))
                     await library.ClearCollectionAsync(Id(args, "collectionId"), token);
                 break;
             case "collection.dissolve":
-                if (await ConfirmAsync("解散收藏夹", "书籍会保留在书库中。", "解散"))
+                if (await ConfirmAsync(UiText.Get("解散收藏夹"), UiText.Get("书籍会保留在书库中。"), UiText.Get("解散")))
                     await library.DissolveCollectionAsync(Id(args, "collectionId"), token);
                 break;
             case "collection.merge":
-                if (await ConfirmAsync("合并收藏夹", "书籍将加入目标收藏夹，当前收藏夹将被解散。", "合并"))
+                if (await ConfirmAsync(UiText.Get("合并收藏夹"), UiText.Get("书籍将加入目标收藏夹，当前收藏夹将被解散。"), UiText.Get("合并")))
                     await library.MergeCollectionsAsync(Id(args, "collectionId"), Id(args, "targetId"), token);
                 break;
             case "materials.get":
@@ -76,7 +76,7 @@ internal sealed partial class IOSNativeFrontend
                 break;
             case "dashboard.get":
                 var period = (ReadingPeriod)Number(args, "period");
-                if (!Enum.IsDefined(period)) throw new InvalidOperationException("无效的阅读周期。");
+                if (!Enum.IsDefined(period)) throw new InvalidOperationException(UiText.Get("无效的阅读周期。"));
                 var today = DateOnly.FromDateTime(DateTime.UtcNow);
                 var range = ReadingPeriodRange.Create(period, today);
                 var dashboard = await _shell.Modules.Reader.Data.GetReadingDashboardAsync(100, token, 366, today);
@@ -86,23 +86,23 @@ internal sealed partial class IOSNativeFrontend
                     ("buckets", range.BuildBuckets(dashboard.DailyReading, today).ToArray()));
             case "trash.get":
                 return (await library.GetTrashItemsAsync(token)).Select(item => Data(
-                    ("id", item.Id), ("title", item.DisplayTitle), ("detail", item.KindLabel + " · " + item.SizeLabel),
+                    ("id", item.Id), ("title", item.DisplayTitle), ("detail", UiText.Localize(item.KindLabel) + " · " + UiText.Localize(item.SizeLabel)),
                     ("deletedAt", item.DeletedAt))).ToArray();
             case "trash.restore":
                 await library.RestoreTrashItemAsync(Id(args, "id"), token);
                 break;
             case "trash.purge":
-                if (await ConfirmAsync("永久删除", "永久删除后无法从回收站恢复。", "永久删除"))
+                if (await ConfirmAsync(UiText.Get("永久删除"), UiText.Get("永久删除后无法从回收站恢复。"), UiText.Get("永久删除")))
                     await library.PurgeTrashItemAsync(Id(args, "id"), token);
                 break;
-            default: throw new InvalidOperationException("未知书库操作：" + command);
+            default: throw new InvalidOperationException(UiText.Get("未知书库操作：{0}", command));
         }
         return Data();
     }
 
     private async Task<Book> GetBookAsync(JsonElement args, CancellationToken token) =>
         await _shell.Modules.Library.Books.GetBookAsync(Id(args, "bookId"), token)
-        ?? throw new InvalidOperationException("书籍已不存在。");
+        ?? throw new InvalidOperationException(UiText.Get("书籍已不存在。"));
 
     private async Task SaveBookAsync(JsonElement args, CancellationToken token)
     {
@@ -111,9 +111,9 @@ internal sealed partial class IOSNativeFrontend
         var book = await GetBookAsync(args, token);
         var fields = args.GetProperty("fields");
         var title = Text(fields, "title").Trim();
-        if (title.Length == 0) throw new InvalidOperationException("书名不能为空。");
+        if (title.Length == 0) throw new InvalidOperationException(UiText.Get("书名不能为空。"));
         if (!BookDetailEditing.TryParseRating(Text(fields, "onlineRating"), out var rating))
-            throw new InvalidOperationException("请输入 0 到 10 之间的评分，或留空清除评分。");
+            throw new InvalidOperationException(UiText.Get("请输入 0 到 10 之间的评分，或留空清除评分。"));
         string? Optional(string key) => Text(fields, key).Trim() is { Length: > 0 } text ? text : null;
         book.Title = title;
         book.Authors = Optional("authors") ?? "未知作者";
@@ -156,14 +156,14 @@ internal sealed partial class IOSNativeFrontend
     private async Task SendToKindleAsync(Book book, CancellationToken token)
     {
         var settings = await _shell.Modules.Integrations.KindleEmailSettings.LoadAsync(token);
-        if (!settings.IsConfigured) throw new InvalidOperationException("请先在“我的”中设置发送邮箱。");
+        if (!settings.IsConfigured) throw new InvalidOperationException(UiText.Get("请先在“我的”中设置发送邮箱。"));
         var file = book.Files.FirstOrDefault(item => item.Format.Equals("epub", StringComparison.OrdinalIgnoreCase))
             ?? book.Files.FirstOrDefault(item => item.Format.Equals("pdf", StringComparison.OrdinalIgnoreCase))
-            ?? throw new InvalidOperationException("Kindle 邮箱只接收 EPUB 或 PDF。");
+            ?? throw new InvalidOperationException(UiText.Get("Kindle 邮箱只接收 EPUB 或 PDF。"));
         var path = _shell.Modules.Library.Books.GetAbsoluteFilePath(file);
-        if (!File.Exists(path)) throw new InvalidOperationException("书籍文件不在本机，请先打开一次以下载。");
+        if (!File.Exists(path)) throw new InvalidOperationException(UiText.Get("书籍文件不在本机，请先打开一次以下载。"));
         await _shell.Modules.Integrations.KindleEmail.SendAsync(settings, path, book.Title, cancellationToken: token);
-        _shell.ShowToast($"已发送到 {settings.KindleEmailAddress}");
+        _shell.ShowToast(UiText.Get("已发送到 {0}", settings.KindleEmailAddress));
     }
 
     private async Task<object> GetMaterialsAsync(CancellationToken token)
@@ -182,7 +182,7 @@ internal sealed partial class IOSNativeFrontend
             {
                 var chapter = note.ChapterPath.StartsWith("pdf:page:", StringComparison.Ordinal)
                     && int.TryParse(note.ChapterPath[9..], out var page) ? page - 1 : -1;
-                var location = chapter >= 0 ? $"第 {chapter + 1} 页" : note.ChapterPath;
+                var location = chapter >= 0 ? UiText.Get("第 {0} 页", chapter + 1) : note.ChapterPath;
                 // An EPUB chapter path is a file name inside the package. Like the
                 // legacy page, the list shows the date and exports keep the path.
                 entries.Add(new NativeMaterial(note.Id.ToString(), book.Id, book.Title,
@@ -203,15 +203,15 @@ internal sealed partial class IOSNativeFrontend
         var entries = args.GetProperty("ids").EnumerateArray()
             .Select(id => _materials.GetValueOrDefault(id.GetString() ?? string.Empty)).OfType<NativeMaterial>().ToArray();
         var records = entries.Select(entry => new ReadingMaterialRecord(ReadingMaterialSource.Local, entry.BookTitle,
-            entry.Kind switch { "note" => "笔记", "bookmark" => "书签", _ => "划线" }, entry.ExportLocation,
+            entry.Kind switch { "note" => UiText.Get("笔记"), "bookmark" => UiText.Get("书签"), _ => UiText.Get("划线") }, entry.ExportLocation,
             entry.Quote, entry.Note, entry.UpdatedAt)).ToArray();
         var markdown = Flag(args, "markdown", true);
         await using var output = new MemoryStream();
         if (markdown) await ReadingMaterialsExport.WriteMarkdownAsync(output, records, token);
         else await ReadingMaterialsExport.WritePlainTextAsync(output, records, token);
-        var share = _shell.Services.FileShare ?? throw new InvalidOperationException("此设备不支持分享文件。");
-        if (await share.ShareAsync($"Libzora-阅读资料-{DateTime.Now:yyyyMMdd-HHmmss}.{(markdown ? "md" : "txt")}", output.ToArray()))
-            _shell.ShowToast($"已分享 {entries.Length} 条阅读资料");
+        var share = _shell.Services.FileShare ?? throw new InvalidOperationException(UiText.Get("此设备不支持分享文件。"));
+        if (await share.ShareAsync(UiText.Get("Libzora-阅读资料-{0:yyyyMMdd-HHmmss}.{1}", DateTime.Now, markdown ? "md" : "txt"), output.ToArray()))
+            _shell.ShowToast(UiText.Get("已分享 {0} 条阅读资料", entries.Length));
     }
 
     private async Task BackupAsync(bool restore, CancellationToken token)
@@ -225,21 +225,21 @@ internal sealed partial class IOSNativeFrontend
             {
                 files = await _shell.Services.ImportSource.PickFilesAsync(token);
                 if (files.Count == 0) return;
-                if (files.Count != 1) throw new InvalidOperationException("请选择一个 .libzora 备份文件。");
-                if (!await ConfirmAsync("恢复 Libzora 备份", "恢复将覆盖当前整个书库，包括书籍、封面和阅读记录。建议先导出备份。恢复成功后需要完全关闭并重新打开应用。", "覆盖并恢复")) return;
-                Publish(Data(("type", "dataBusy"), ("busy", true), ("message", "正在恢复备份…")));
+                if (files.Count != 1) throw new InvalidOperationException(UiText.Get("请选择一个 .libzora 备份文件。"));
+                if (!await ConfirmAsync(UiText.Get("恢复 Libzora 备份"), UiText.Get("恢复将覆盖当前整个书库，包括书籍、封面和阅读记录。建议先导出备份。恢复成功后需要完全关闭并重新打开应用。"), UiText.Get("覆盖并恢复"))) return;
+                Publish(Data(("type", "dataBusy"), ("busy", true), ("message", UiText.Get("正在恢复备份…"))));
                 await _shell.RestoreBackupAsync(files[0], token);
             }
             else
             {
-                Publish(Data(("type", "dataBusy"), ("busy", true), ("message", "正在导出备份…")));
+                Publish(Data(("type", "dataBusy"), ("busy", true), ("message", UiText.Get("正在导出备份…"))));
                 directory = Path.Combine(Path.GetTempPath(), "libzora-native-backup-" + Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(directory);
-                var path = Path.Combine(directory, $"Libzora-备份-{DateTime.Now:yyyyMMdd-HHmmss}{AppBackupService.FileExtension}");
+                var path = Path.Combine(directory, UiText.Get("Libzora-备份-{0:yyyyMMdd-HHmmss}{1}", DateTime.Now, AppBackupService.FileExtension));
                 await _shell.ExportBackupAsync(path, token);
                 Publish(Data(("type", "dataBusy"), ("busy", false)));
                 if (_shell.Services.FileShare is { } share && await share.ShareFileAsync(path))
-                    _shell.ShowToast("备份已分享。");
+                    _shell.ShowToast(UiText.Get("备份已分享。"));
             }
         }
         finally

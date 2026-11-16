@@ -32,23 +32,24 @@ struct NativeMaterials: View {
         return ScrollView {
             VStack(spacing: 0) {
                 HStack {
-                    Text("阅读资料").font(NativeTheme.pageTitleFont).accessibilityIdentifier("page.materials")
+                    Text(L("阅读资料")).font(NativeTheme.pageTitleFont).accessibilityIdentifier("page.materials")
                     Spacer()
-                    Text("\(count) 条").font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(mutedText)
+                    Text(count == 1 ? L("1 条") : L("{0} 条", count))
+                        .font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(mutedText)
                     Menu {
-                        Button("导出 Markdown") { export(true) }; Button("导出纯文本") { export(false) }
-                    } label: { Text("导出").font(NativeTheme.font(14)).frame(minHeight: 44) }
-                        .disabled(exporting || count == 0).accessibilityLabel("导出阅读资料")
+                        Button(L("导出 Markdown")) { export(true) }; Button(L("导出纯文本")) { export(false) }
+                    } label: { Text(L("导出")).font(NativeTheme.font(14)).frame(minHeight: 44) }
+                        .disabled(exporting || count == 0).accessibilityLabel(L("导出阅读资料"))
                 }.padding(.horizontal, 24).padding(.top, 20).padding(.bottom, 10)
-                Picker("资料筛选", selection: $filter) { Text("全部").tag("all"); Text("划线").tag("highlight"); Text("笔记").tag("note"); Text("书签").tag("bookmark") }
+                Picker(L("资料筛选"), selection: $filter) { Text(L("全部")).tag("all"); Text(L("划线")).tag("highlight"); Text(L("笔记")).tag("note"); Text(L("书签")).tag("bookmark") }
                     .pickerStyle(.segmented).padding(.horizontal, 12).padding(.bottom, 8)
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    if loading { ProgressView("正在读取阅读资料…").frame(maxWidth: .infinity).padding(.top, 96) }
+                    if loading { ProgressView(L("正在读取阅读资料…")).frame(maxWidth: .infinity).padding(.top, 96) }
                     if !loading && count == 0 {
                         VStack(spacing: 6) {
                             Image(systemName: "note.text").font(.system(size: 34, weight: .ultraLight)).foregroundStyle(mutedText)
-                            Text("还没有阅读资料").font(NativeTheme.font(17)).padding(.top, 8)
-                            Text("书签、划线和笔记会汇集在这里").font(NativeTheme.font(13)).foregroundStyle(mutedText)
+                            Text(L("还没有阅读资料")).font(NativeTheme.font(17)).padding(.top, 8)
+                            Text(L("书签、划线和笔记会汇集在这里")).font(NativeTheme.font(13)).foregroundStyle(mutedText)
                         }.frame(maxWidth: .infinity).padding(.top, 96)
                     }
                     ForEach(groups) { group in
@@ -61,8 +62,9 @@ struct NativeMaterials: View {
                                 if let book = books[id] { BookCover(book: book, width: 48, height: 68) }
                                 else { Image(systemName: "book").font(.system(size: 28, weight: .ultraLight)).frame(width: 48, height: 68).foregroundStyle(mutedText) }
                                 VStack(alignment: .leading, spacing: 6) {
-                                    Text(records.first?.bookTitle ?? "未知书名").font(NativeTheme.font(15)).lineLimit(2)
-                                    Text("\(records.count) 条资料").font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(mutedText)
+                                    Text(records.first?.bookTitle ?? L("未知书名")).font(NativeTheme.font(15)).lineLimit(2)
+                                    Text(records.count == 1 ? L("1 条资料") : L("{0} 条资料", records.count))
+                                        .font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(mutedText)
                                 }.frame(maxWidth: .infinity, alignment: .leading)
                                 Image(systemName: expanded.contains(id) ? "chevron.down" : "chevron.right")
                                     .font(.system(size: 14, weight: .regular)).foregroundStyle(mutedText)
@@ -78,13 +80,13 @@ struct NativeMaterials: View {
         }.refreshable { await load() }
             .background(NativeAmbientBackground()).navigationBarHidden(true)
             .overlay(alignment: .top) { NativeStatusBarGlass() }
-            .task { await load() }
+            .task(id: store.uiLanguage) { await load() }
     }
     private func materialEntry(_ item: MaterialRecord) -> some View {
         Button {
             if let book = store.library.first(where: { $0.id == item.bookId }) {
                 store.perform { try await store.openReader(book, location: item.location.foundationValue as? [String: Any]) }
-            } else { store.showToast("这本书已不在书库中") }
+            } else { store.showToast(L("这本书已不在书库中")) }
         } label: {
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: item.kind == "bookmark" ? "bookmark" : "note.text")
@@ -122,27 +124,27 @@ struct NativeReadingDashboard: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                Text("阅读数据").font(NativeTheme.pageTitleFont).frame(maxWidth: .infinity, alignment: .leading)
+                Text(L("阅读数据")).font(NativeTheme.pageTitleFont).frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 24).padding(.top, 20).padding(.bottom, 10).accessibilityIdentifier("page.dashboard")
             VStack(alignment: .leading, spacing: 28) {
                 if let value {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("累计阅读").font(NativeTheme.font(13)).foregroundStyle(mutedText)
+                        Text(L("累计阅读")).font(NativeTheme.font(13)).foregroundStyle(mutedText)
                         HStack(alignment: .firstTextBaseline, spacing: 6) {
                             Text(durationValue(value.dashboard.totalSeconds)).font(NativeTheme.font(48, relativeTo: .largeTitle))
-                            Text(value.dashboard.totalSeconds < 3600 ? "分钟" : "小时").font(NativeTheme.font(16)).foregroundStyle(secondaryText)
+                            Text(value.dashboard.totalSeconds < 3600 ? L("分钟") : L("小时")).font(NativeTheme.font(16)).foregroundStyle(secondaryText)
                         }
-                        Text("连续阅读 \(value.streak) 天").font(NativeTheme.font(13)).foregroundStyle(mutedText)
+                        Text(L("连续阅读 {0} 天", value.streak)).font(NativeTheme.font(13)).foregroundStyle(mutedText)
                     }
                     LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
-                        statistic("已开始", "\(value.dashboard.booksStarted) 本", detail: String(format: "平均进度 %.1f%%", value.dashboard.averageProgress))
-                        statistic("已读完", "\(value.dashboard.booksFinished) 本", detail: "共 \(value.dashboard.books.count) 本书")
-                        statistic("书签", "\(value.dashboard.bookmarkCount)")
-                        statistic("划线与笔记", "\(value.dashboard.annotationCount)")
+                        statistic(L("已开始"), L("{0} 本", value.dashboard.booksStarted), detail: String(format: L("平均进度 %.1f%%"), value.dashboard.averageProgress))
+                        statistic(L("已读完"), L("{0} 本", value.dashboard.booksFinished), detail: L("共 {0} 本书", value.dashboard.books.count))
+                        statistic(L("书签"), "\(value.dashboard.bookmarkCount)")
+                        statistic(L("划线与笔记"), "\(value.dashboard.annotationCount)")
                     }
                     dailyChart(value)
-                    Text("最近在读").font(NativeTheme.font(16, relativeTo: .headline))
-                    if value.dashboard.recentBooks.isEmpty { Text("还没有阅读记录").foregroundStyle(secondaryText) }
+                    Text(L("最近在读")).font(NativeTheme.font(16, relativeTo: .headline))
+                    if value.dashboard.recentBooks.isEmpty { Text(L("还没有阅读记录")).foregroundStyle(secondaryText) }
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(alignment: .top, spacing: 14) {
                             ForEach(value.dashboard.recentBooks.prefix(10)) { item in
@@ -161,13 +163,13 @@ struct NativeReadingDashboard: View {
                             }
                         }.padding(.vertical, 4)
                     }
-                    Text("读得最久").font(NativeTheme.font(16, relativeTo: .headline))
+                    Text(L("读得最久")).font(NativeTheme.font(16, relativeTo: .headline))
                     VStack(spacing: 16) {
                         ForEach(value.dashboard.mostReadBooks.filter { $0.cumulativeSeconds > 0 }.prefix(5)) { item in dashboardBook(item, detail: readingDuration(item.cumulativeSeconds)) }
                     }
                     progressDistribution(value.dashboard.books)
-                    HStack { Text("阅读勋章").font(NativeTheme.font(17, relativeTo: .headline)); Spacer(); Button(allMedals ? "已解锁" : "全部") { allMedals.toggle() }.font(NativeTheme.font(12, relativeTo: .caption)) }
-                    Text("已解锁 \(value.medals.filter(\.isUnlocked).count) / \(value.medals.count)").font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(secondaryText)
+                    HStack { Text(L("阅读勋章")).font(NativeTheme.font(17, relativeTo: .headline)); Spacer(); Button(allMedals ? L("已解锁") : L("全部")) { allMedals.toggle() }.font(NativeTheme.font(12, relativeTo: .caption)) }
+                    Text(L("已解锁 {0} / {1}", value.medals.filter(\.isUnlocked).count, value.medals.count)).font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(secondaryText)
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 100))], spacing: 18) {
                         ForEach(value.medals.filter { allMedals || $0.isUnlocked }) { medal in
                             Button { store.showToast(medal.rule + (medal.isUnlocked ? "" : String(format: "（%.0f%%）", medal.fraction * 100))) } label: {
@@ -179,13 +181,13 @@ struct NativeReadingDashboard: View {
                             }.buttonStyle(.plain).accessibilityIdentifier("dashboard.medal.\(medal.name)")
                         }
                     }
-                } else { ProgressView("正在读取阅读数据…").frame(maxWidth: .infinity).padding(.top, 70) }
+                } else { ProgressView(L("正在读取阅读数据…")).frame(maxWidth: .infinity).padding(.top, 70) }
             }.padding(.horizontal, 24).padding(.top, 16).padding(.bottom, 36)
             }
         }.refreshable { await load() }
             .background(NativeAmbientBackground()).navigationBarHidden(true)
             .overlay(alignment: .top) { NativeStatusBarGlass() }
-            .task(id: period) { await load() }
+            .task(id: "\(period):\(store.uiLanguage)") { await load() }
     }
     private func durationValue(_ seconds: Int64) -> String {
         String(format: "%.1f", Double(seconds) / (seconds < 3600 ? 60 : 3600))
@@ -202,14 +204,16 @@ struct NativeReadingDashboard: View {
         let values = snapshot.buckets
         let maximum = max(1, values.map(\.activeSeconds).max() ?? 1)
         let selected = values.first { $0.id == picked } ?? values.first { $0.contains(snapshot.today) }
-        let title = snapshot.period == 0 ? "本周阅读时长" : snapshot.period == 1 ? "本月阅读时长" : "今年阅读时长"
-        let detail = (selected?.startDate ?? "") > snapshot.today ? "尚未到来" : readingDuration(selected?.activeSeconds ?? 0)
+        let title = snapshot.period == 0 ? L("本周阅读时长") : snapshot.period == 1 ? L("本月阅读时长") : L("今年阅读时长")
+        let detail = (selected?.startDate ?? "") > snapshot.today ? L("尚未到来") : readingDuration(selected?.activeSeconds ?? 0)
         return VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 10) {
                 Text(title).font(NativeTheme.font(16, relativeTo: .headline))
                 Spacer(minLength: 0)
-                Picker("阅读周期", selection: $period) { Text("周").tag(0); Text("月").tag(1); Text("年").tag(2) }
-                    .pickerStyle(.segmented).frame(width: 120).accessibilityIdentifier("dashboard.period")
+                Picker(L("阅读周期"), selection: $period) { Text(L("周")).tag(0); Text(L("月")).tag(1); Text(L("年")).tag(2) }
+                    .pickerStyle(.segmented)
+                    .frame(width: store.uiLanguage == "en-US" ? 160 : 120)
+                    .accessibilityIdentifier("dashboard.period")
             }
             Text("\(bucketLabel(selected, yearly: snapshot.period == 2)) · \(detail)")
                 .font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary)
@@ -243,16 +247,16 @@ struct NativeReadingDashboard: View {
                     }
                 }
             }.buttonStyle(.plain)
-        } else { VStack(alignment: .leading, spacing: 8) { Text(item.title + "（已移出书库）"); Text(detail).font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(secondaryText) } }
+        } else { VStack(alignment: .leading, spacing: 8) { Text(item.title + L("（已移出书库）")); Text(detail).font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(secondaryText) } }
     }
     private func progressDistribution(_ books: [DashboardBook]) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("进度分布").font(NativeTheme.font(16, relativeTo: .headline))
-            Text("平均 \(dashboard?.averageProgress ?? 0, specifier: "%.0f")% · 共 \(books.count) 本").font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary)
+            Text(L("进度分布")).font(NativeTheme.font(16, relativeTo: .headline))
+            Text(L("平均 {0}% · 共 {1} 本", String(format: "%.0f", locale: NativeLocalization.locale, dashboard?.averageProgress ?? 0), books.count)).font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary)
             ForEach(0..<5) { index in
                 let count = books.filter { ($0.progressPercent >= 99.5 ? 4 : min(3, Int($0.progressPercent / 25))) == index }.count
-                HStack { Text(index == 4 ? "已读完" : "\(index * 25)–\(index * 25 + 24)%").frame(width: 70, alignment: .leading)
-                    NativeThinProgress(value: Double(count), total: Double(max(1, books.count)), height: 4); Text("\(count) 本").frame(width: 40, alignment: .trailing) }.font(NativeTheme.font(12, relativeTo: .caption))
+                HStack { Text(index == 4 ? L("已读完") : "\(index * 25)–\(index * 25 + 24)%").frame(width: 70, alignment: .leading)
+                    NativeThinProgress(value: Double(count), total: Double(max(1, books.count)), height: 4); Text(L("{0} 本", count)).frame(width: 40, alignment: .trailing) }.font(NativeTheme.font(12, relativeTo: .caption))
             }
         }.padding(16).background(NativeTheme.sunk, in: RoundedRectangle(cornerRadius: 18))
     }

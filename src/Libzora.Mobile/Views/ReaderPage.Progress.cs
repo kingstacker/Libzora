@@ -41,15 +41,15 @@ public partial class ReaderPage
         if (_isPdf)
         {
             return _hasPdfOutline && selected >= 0
-                ? $"第 {selected + 1} / {_tocEntries.Count} 章" : pages;
+                ? UiText.Get("第 {0} / {1} 章", selected + 1, _tocEntries.Count) : pages;
         }
         // Count the entries the table of contents actually shows. Navigation
         // can merge or split spine files, so spine indices would disagree
         // with the chapters listed in the TOC sheet.
         if (_tocEntries.Count > 0 && selected >= 0)
-            return $"第 {selected + 1} / {_tocEntries.Count} 章";
+            return UiText.Get("第 {0} / {1} 章", selected + 1, _tocEntries.Count);
         return _epubDocument is { } document
-            ? $"第 {_chapterIndex + 1} / {document.Chapters.Count} 章" : pages;
+            ? UiText.Get("第 {0} / {1} 章", _chapterIndex + 1, document.Chapters.Count) : pages;
     }
 
     /// <summary>
@@ -64,12 +64,12 @@ public partial class ReaderPage
         if (_readingStats is not { CumulativeSeconds: >= PaceLearningSeconds } stats
             || !double.IsFinite(stats.ProgressPercent)
             || stats.ProgressPercent < PaceLearningProgress)
-            return "阅读速度估计中";
+            return UiText.Get("阅读速度估计中");
 
         var measured = Math.Clamp(stats.ProgressPercent, PaceLearningProgress, 100);
         var secondsPerPercent = stats.CumulativeSeconds / measured;
         var seconds = secondsPerPercent * Math.Max(0, 100 - progress);
-        return $"剩余约 {ReaderReadingTimeEstimate.FormatDuration(seconds)}";
+        return UiText.Get("剩余约 {0}", ReaderReadingTimeEstimate.FormatDuration(seconds));
     }
 
     private void EnsureReadingStatsLoaded(bool force = false)

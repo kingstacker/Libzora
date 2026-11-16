@@ -88,10 +88,17 @@ multiple Xcode versions are installed.
 Each macOS build produces a single `Libzora-{version}-{rid}.dmg` used both for
 manual installation and by the in-app updater. The DMG contains
 `Libzora.app` and an `Applications` symlink, so the standard drag-to-Applications
-install works. Its Finder window uses the generated
+install works. Locally styled images use the generated
 `scripts/macos/dmg-background.png`; the Finder layout pass is best effort with a
-timeout, and builds without Finder automation permission still produce a
-functional DMG. Set `LIBZORA_DMG_STYLE=0` to skip the layout pass entirely.
+timeout. Set `LIBZORA_DMG_STYLE=0` to create the compressed DMG directly, without
+mounting an intermediate writable image or automating Finder. Both macOS CI
+workflows use this non-interactive path; local builds keep the styled default.
+
+Bundle verification checks both compiled `Assets.car` and a decodable 1024-pixel
+ICNS fallback, plus the bundle signature. macOS 26 and newer also run
+`assetutil -Z`. macOS 15's system CoreUI validator cannot decode Xcode 26 Icon
+Composer renditions, so it must not reject the new layered assets as invalid;
+older hosts still verify the fallback icon and the sealed bundle resources.
 
 `build-macos-release.sh` builds libmtp and libusb for the package's architecture
 into `artifacts/macos-deps/<arch>/`. When the target differs from the build
@@ -149,9 +156,30 @@ EPUB typography preferences.
 
 The `Development Build` GitHub Actions workflow runs only when manually
 dispatched. It chooses the next development version based on the latest stable
-release (or a manually supplied base version), builds Windows, Linux and macOS
-packages, and publishes a GitHub pre-release tagged with the development
-version. The workflow also keeps the per-platform artifacts for seven days.
+release (or a manually supplied base version). Its `platform` input defaults to
+`all`, building Windows, Linux and macOS packages. A complete build on `dev`,
+`develop` or a `dev/` branch publishes a GitHub pre-release tagged with the
+development version. Selecting `windows`, `linux` or `macos` builds only that
+platform and keeps its artifacts for seven days without publishing an incomplete
+Release. The stable `Release` workflow still builds and verifies every platform
+before publishing.
+
+All desktop workflows select the exact SDK from the checked-out revision's
+`global.json`, reuse an already installed matching SDK, and cache NuGet packages
+separately by runner OS and architecture. macOS also caches MTP dependencies by
+host/target architecture, Xcode toolchain and source-build inputs; the dependency
+builder still verifies its stamp, binaries and corresponding source before reuse.
+A cache miss is normal and the first successful run populates it. Package publish
+already builds the platform head, so CI does not run an extra standalone head
+build immediately beforehand.
+
+Quick test coverage is unchanged. Portable test projects run in separate steps
+and result directories; Windows keeps its solution-wide test run. Both have
+console progress, TRX results and a five-minute hang diagnostic (`--blame-hang`).
+Each test step has a 15-minute limit. Failed jobs upload test
+results and any diagnostic dumps as non-release artifacts retained for seven
+days. Linux validation cancels superseded runs for the same PR/ref; stable
+release jobs are never automatically cancelled by a newer release.
 
 Calibre is not bundled in any Windows, Linux or macOS archive. It is optional and is
 discovered from the application directory, standard install locations or

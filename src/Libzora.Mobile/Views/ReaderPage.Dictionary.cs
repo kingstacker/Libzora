@@ -1,4 +1,5 @@
 using Avalonia.Interactivity;
+using Libzora.Core;
 using Libzora.Mobile.Views.Sheets;
 
 namespace Libzora.Mobile.Views;
@@ -10,6 +11,6 @@ public partial class ReaderPage
         if (_selection is not { } selection || string.IsNullOrWhiteSpace(selection.Text)) return;
         var term = selection.Text.Trim();
         ClearSelection();
-        _shell.ShowSheet("本地词典", new DictionarySheet(_shell.Services, term), ThemeScope.RequestedThemeVariant);
+        _shell.ShowSheet(UiText.Get("本地词典"), new DictionarySheet(_shell.Services, term), ThemeScope.RequestedThemeVariant);
     }
 }

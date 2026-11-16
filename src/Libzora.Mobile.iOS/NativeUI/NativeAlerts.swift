@@ -25,7 +25,7 @@ enum NativeAlerts {
     }
     static func error(_ text: String, dismissed: @escaping () -> Void) {
         errorId -= 1
-        queue.append(Pending(id: errorId, title: "操作失败", message: text, confirm: "好", cancellable: false, completion: { _ in dismissed() }))
+        queue.append(Pending(id: errorId, title: L("操作失败"), message: text, confirm: L("好"), cancellable: false, completion: { _ in dismissed() }))
         presentNext()
     }
     static func dismissPrompt(_ id: Int64) {
@@ -43,7 +43,7 @@ enum NativeAlerts {
         let value = queue.removeFirst(); active = value
         let alert = UIAlertController(title: value.title, message: value.message, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: value.confirm, style: .default) { _ in finish(value, accepted: true) })
-        if value.cancellable { alert.addAction(UIAlertAction(title: "取消", style: .cancel) { _ in finish(value, accepted: false) }) }
+        if value.cancellable { alert.addAction(UIAlertAction(title: L("取消"), style: .cancel) { _ in finish(value, accepted: false) }) }
         controller = alert
         presenter.present(alert, animated: true)
     }

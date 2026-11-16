@@ -6,22 +6,25 @@ import ImageIO
 /// width; this view shows the original image or a wide table snapshot and
 /// leaves pinch/double-tap zoom to the system scroll view.
 struct NativeReaderMediaViewer: View {
+    @Environment(\.locale) private var uiLocale
     let media: ReaderMedia
     let close: () -> Void
     @State private var failed = false
     @State private var hintVisible = true
     @StateObject private var orientation = ReaderMediaOrientation()
 
-    private var label: String { media.kind == "table" ? "表格" : "图片" }
+    private var label: String { media.kind == "table" ? L("表格") : L("图片") }
 
     var body: some View {
+        let _ = uiLocale
+
         ZStack(alignment: .top) {
             Color.black.ignoresSafeArea()
             if failed {
                 VStack(spacing: 12) {
                     Image(systemName: media.kind == "table" ? "tablecells" : "photo")
                         .font(.system(size: 34, weight: .light))
-                    Text("无法显示\(label)")
+                    Text(L("无法显示{0}", label))
                 }.foregroundStyle(.white.opacity(0.82))
             } else {
                 ZoomableReaderImage(
@@ -48,7 +51,7 @@ struct NativeReaderMediaViewer: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.white)
-                .accessibilityLabel("关闭")
+                .accessibilityLabel(L("关闭"))
                 .accessibilityIdentifier("reader.media.close")
             }
             .padding(.horizontal, 16).padding(.top, 8)
@@ -56,7 +59,7 @@ struct NativeReaderMediaViewer: View {
             if hintVisible && !failed {
                 VStack {
                     Spacer()
-                    Text("双指缩放 · 双击放大")
+                    Text(L("双指缩放 · 双击放大"))
                         .font(.system(size: 12))
                         .foregroundStyle(.white.opacity(0.5))
                         .padding(.bottom, 24)

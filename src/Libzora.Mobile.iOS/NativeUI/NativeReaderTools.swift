@@ -18,7 +18,7 @@ struct NativeDictionary: View {
         NativeForm {
             Section {
                 HStack {
-                    TextField("查询词语", text: $term)
+                    TextField(L("查询词语"), text: $term)
                         .onSubmit { lookup() }
                         .accessibilityIdentifier("reader.dictionary.query")
                     if !term.isEmpty {
@@ -27,12 +27,12 @@ struct NativeDictionary: View {
                                 .foregroundStyle(NativeTheme.muted)
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("清空查询")
+                        .accessibilityLabel(L("清空查询"))
                         .accessibilityIdentifier("reader.dictionary.clear")
                     }
-                    Button("查询") { lookup() }.buttonStyle(.borderless)
+                    Button(L("查询")) { lookup() }.buttonStyle(.borderless)
                 }
-                if localBusy { ProgressView("正在查本地词典…") }
+                if localBusy { ProgressView(L("正在查本地词典…")) }
                 if !localStatus.isEmpty { Text(localStatus).font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary) }
             }
             ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
@@ -40,16 +40,16 @@ struct NativeDictionary: View {
             }
             Section {
                 if wikipediaBusy {
-                    ProgressView("正在查询维基百科…")
+                    ProgressView(L("正在查询维基百科…"))
                 } else if let wikipedia {
                     VStack(alignment: .leading, spacing: 10) {
                         Text(wikipedia.title).font(NativeTheme.font(17, relativeTo: .headline)).foregroundStyle(NativeTheme.ink)
                         Text(wikipedia.extract).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                         Link(destination: wikipedia.url) {
-                            Label("在维基百科中打开", systemImage: "arrow.up.right.square")
+                            Label(L("在维基百科中打开"), systemImage: "arrow.up.right.square")
                         }
                         .accessibilityIdentifier("reader.dictionary.wikipedia.open")
-                        Text("来源：维基百科 · CC BY-SA 4.0")
+                        Text(L("来源：维基百科 · CC BY-SA 4.0"))
                             .font(NativeTheme.font(11, relativeTo: .caption2))
                             .foregroundStyle(NativeTheme.muted)
                     }
@@ -58,21 +58,21 @@ struct NativeDictionary: View {
                     Text(wikipediaStatus).font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary)
                 }
             } header: {
-                Label("维基百科", systemImage: "globe")
+                Label(L("维基百科"), systemImage: "globe")
                     .accessibilityIdentifier("reader.dictionary.wikipedia")
             }
-            Section("词典管理") {
+            Section(L("词典管理")) {
                 ForEach(dictionaries) { dictionary in
                     VStack(alignment: .leading, spacing: 8) {
-                        Toggle(dictionary.name + " · \(dictionary.entryCount) 条", isOn: Binding(get: { dictionary.enabled }, set: { enabled in action("toggle", ["id": dictionary.id, "enabled": enabled]) })).tint(NativeTheme.systemSwitchTint)
-                        Button("移除", role: .destructive) { action("remove", ["id": dictionary.id]) }.buttonStyle(.borderless)
+                        Toggle(dictionary.name + L(" · {0} 条", dictionary.entryCount), isOn: Binding(get: { dictionary.enabled }, set: { enabled in action("toggle", ["id": dictionary.id, "enabled": enabled]) })).tint(NativeTheme.systemSwitchTint)
+                        Button(L("移除"), role: .destructive) { action("remove", ["id": dictionary.id]) }.buttonStyle(.borderless)
                     }
                 }
-                if dictionaries.isEmpty { Text("尚未导入词典").foregroundStyle(NativeTheme.secondary) }
-                Button("导入词典") { action("import") }
+                if dictionaries.isEmpty { Text(L("尚未导入词典")).foregroundStyle(NativeTheme.secondary) }
+                Button(L("导入词典")) { action("import") }
             }
             .disabled(managementBusy)
-        }.navigationTitle("词典与维基百科").navigationBarTitleDisplayMode(.inline).navigationBarHidden(false).modifier(NativeKeyboardDone()).modifier(NativeHideTabBar())
+        }.navigationTitle(L("词典与维基百科")).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false).modifier(NativeKeyboardDone()).modifier(NativeHideTabBar())
             .task {
                 do { dictionaries = try await store.request("dictionary.get") }
                 catch { if !Task.isCancelled { localStatus = error.localizedDescription } }
@@ -88,17 +88,17 @@ struct NativeDictionary: View {
         wikipedia = nil
         localBusy = true
         wikipediaBusy = true
-        localStatus = "正在查本地词典…"
-        wikipediaStatus = "正在查询维基百科…"
+        localStatus = L("正在查本地词典…")
+        wikipediaStatus = L("正在查询维基百科…")
         Task { @MainActor in
             do {
                 let value: [DictionaryEntry] = try await store.request("dictionary.lookup", ["term": query])
                 guard revision == lookupRevision else { return }
                 entries = value
-                localStatus = value.isEmpty ? "没有找到本地释义。请先在词典管理中导入词典。" : ""
+                localStatus = value.isEmpty ? L("没有找到本地释义。请先在词典管理中导入词典。") : ""
             } catch {
                 guard !Task.isCancelled, revision == lookupRevision else { return }
-                localStatus = "本地词典查询失败：\(error.localizedDescription)"
+                localStatus = L("本地词典查询失败：{0}", error.localizedDescription)
             }
             if revision == lookupRevision { localBusy = false }
         }
@@ -107,10 +107,10 @@ struct NativeDictionary: View {
                 let value: [WikipediaArticle] = try await store.request("dictionary.wikipedia", ["term": query])
                 guard revision == lookupRevision else { return }
                 wikipedia = value.first
-                wikipediaStatus = value.isEmpty ? "没有找到同名维基百科条目。普通词义请查本地词典。" : ""
+                wikipediaStatus = value.isEmpty ? L("没有找到同名维基百科条目。普通词义请查本地词典。") : ""
             } catch {
                 guard !Task.isCancelled, revision == lookupRevision else { return }
-                wikipediaStatus = "维基百科查询失败：\(error.localizedDescription)"
+                wikipediaStatus = L("维基百科查询失败：{0}", error.localizedDescription)
             }
             if revision == lookupRevision { wikipediaBusy = false }
         }
@@ -191,8 +191,7 @@ struct NativeAssistant: View {
         let isUser = turn.role == "user"
         let streaming = busy && index == history.count - 1 && !isUser
         let content = streaming ? session.aiStreams[sessionId] ?? turn.content : turn.content
-        let thinking = streaming && (content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                                     || content == "正在思考…")
+        let thinking = streaming && content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         HStack(alignment: .bottom, spacing: 0) {
             if isUser { Spacer(minLength: 16) }
             Group {
@@ -208,7 +207,7 @@ struct NativeAssistant: View {
             .contextMenu {
                 if !isUser && !thinking {
                     Button { UIPasteboard.general.string = content } label: {
-                        Label("复制回答", systemImage: "doc.on.doc")
+                        Label(L("复制回答"), systemImage: "doc.on.doc")
                     }
                 }
             }
@@ -223,8 +222,8 @@ struct NativeAssistant: View {
             Image(systemName: "sparkles")
                 .font(.system(size: 24, weight: .regular))
                 .foregroundStyle(NativeTheme.muted)
-            Text("阅读助手").font(NativeTheme.font(20, relativeTo: .title3)).foregroundStyle(NativeTheme.ink)
-            Text("可以概括当前页、解释所选文字，或结合全书关键词检索回答问题。")
+            Text(L("阅读助手")).font(NativeTheme.font(20, relativeTo: .title3)).foregroundStyle(NativeTheme.ink)
+            Text(L("可以概括当前页、解释所选文字，或结合全书关键词检索回答问题。"))
                 .font(NativeTheme.font(14)).foregroundStyle(NativeTheme.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -244,19 +243,19 @@ struct NativeAssistant: View {
         VStack(spacing: 10) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
-                    promptChip("概括本页", symbol: "doc.text.magnifyingglass") {
-                        ask("用几句话概括这一页的要点。", pageOnly: true)
+                    promptChip(L("概括本页"), symbol: "doc.text.magnifyingglass") {
+                        ask(L("用几句话概括这一页的要点。"), pageOnly: true)
                     }
                     if !selection.isEmpty {
-                        promptChip("解释原文", symbol: "text.quote") {
-                            ask("解释这段话：「\(selection)」", pageOnly: true)
+                        promptChip(L("解释原文"), symbol: "text.quote") {
+                            ask(L("解释这段话：「{0}」", selection), pageOnly: true)
                         }
                     }
                 }
                 .padding(.horizontal, 16)
             }
             HStack(alignment: .bottom, spacing: 10) {
-                TextField("输入问题", text: $question)
+                TextField(L("输入问题"), text: $question)
                     .font(NativeTheme.font(16))
                     .submitLabel(.send)
                     .onSubmit(send)
@@ -271,7 +270,7 @@ struct NativeAssistant: View {
                             .foregroundStyle(NativeTheme.ink)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("停止")
+                    .accessibilityLabel(L("停止"))
                 } else {
                     Button(action: send) {
                         Image(systemName: "arrow.up.circle.fill")
@@ -280,7 +279,7 @@ struct NativeAssistant: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(!canSend)
-                    .accessibilityLabel("发送")
+                    .accessibilityLabel(L("发送"))
                     .accessibilityIdentifier("reader.assistant.send")
                 }
             }
@@ -320,11 +319,12 @@ struct NativeAssistant: View {
     private func ask(_ question: String, pageOnly: Bool) {
         guard !busy else { return }
         busy = true
-        status = pageOnly ? "本次使用当前页。" : "正在进行全书关键词检索…"
+        status = pageOnly ? L("本次使用当前页。") : L("正在进行全书关键词检索…")
         let previous = history
         history.append(ConversationTurn(role: "user", content: question))
-        history.append(ConversationTurn(role: "assistant", content: "正在思考…"))
-        session.aiStreams[sessionId] = "正在思考…"
+        // Empty streaming content is a state, not a translated-text sentinel.
+        history.append(ConversationTurn(role: "assistant", content: ""))
+        session.aiStreams[sessionId] = ""
         requestTask = Task {
             defer { busy = false }
             do {
@@ -334,7 +334,11 @@ struct NativeAssistant: View {
             } catch {
                 status = ""
                 if !Task.isCancelled { history[history.count - 1].content = error.localizedDescription }
-                else { history[history.count - 1].content = session.aiStreams[sessionId] ?? "已停止" }
+                else {
+                    let partial = session.aiStreams[sessionId] ?? ""
+                    history[history.count - 1].content = partial.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        ? L("已停止") : partial
+                }
             }
         }
     }
@@ -343,7 +347,10 @@ struct NativeAssistant: View {
 /// Three pulsing dots keep the first assistant bubble alive while the request
 /// is still resolving and no markdown has streamed in yet.
 private struct NativeTypingIndicator: View {
+    @Environment(\.locale) private var uiLocale
     var body: some View {
+        let _ = uiLocale
+
         TimelineView(.periodic(from: .now, by: 0.35)) { context in
             let step = Int(context.date.timeIntervalSinceReferenceDate / 0.35) % 3
             HStack(spacing: 5) {
@@ -354,7 +361,7 @@ private struct NativeTypingIndicator: View {
             }
             .frame(height: 20)
         }
-        .accessibilityLabel("正在思考")
+        .accessibilityLabel(L("正在思考"))
     }
 }
 
@@ -405,22 +412,22 @@ struct NativeTxtReview: View {
         NavigationView {
             NativeForm {
                 Section { Text(review.name).font(NativeTheme.font(17, relativeTo: .headline))
-                    Picker("编码", selection: $rules.encoding) { Text("自动识别").tag(0); Text("UTF-8").tag(1); Text("UTF-16 LE").tag(2); Text("UTF-16 BE").tag(3); Text("GB18030").tag(4) }
-                    Picker("章节规则", selection: $rules.headingPreset) { Text("自动识别").tag(0); Text("中文章节").tag(1); Text("英文章节").tag(2); Text("序言和尾声").tag(3); Text("不识别章节").tag(4); Text("自定义正则").tag(5) }
-                    if rules.headingPreset == 5 { TextField("章节正则", text: $rules.customHeadingPattern).textInputAutocapitalization(.never).disableAutocorrection(true) }
-                    Toggle("识别分卷", isOn: $rules.recognizeVolumes).tint(NativeTheme.systemSwitchTint)
+                    Picker(L("编码"), selection: $rules.encoding) { Text(L("自动识别")).tag(0); Text("UTF-8").tag(1); Text("UTF-16 LE").tag(2); Text("UTF-16 BE").tag(3); Text("GB18030").tag(4) }
+                    Picker(L("章节规则"), selection: $rules.headingPreset) { Text(L("自动识别")).tag(0); Text(L("中文章节")).tag(1); Text(L("英文章节")).tag(2); Text(L("序言和尾声")).tag(3); Text(L("不识别章节")).tag(4); Text(L("自定义正则")).tag(5) }
+                    if rules.headingPreset == 5 { TextField(L("章节正则"), text: $rules.customHeadingPattern).textInputAutocapitalization(.never).disableAutocorrection(true) }
+                    Toggle(L("识别分卷"), isOn: $rules.recognizeVolumes).tint(NativeTheme.systemSwitchTint)
                 }
-                Section("目录预览") {
+                Section(L("目录预览")) {
                     if let preview {
-                        Text("\(preview.chapterCount) 个目录项 · \(preview.detectedEncoding)").font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary)
-                        ForEach(preview.chapters) { chapter in Text((chapter.isVolume ? "卷 · " : "") + chapter.title) }
-                        HStack { Button("上一页") { page -= 1 }.disabled(!preview.hasPreviousPage); Spacer(); Button("下一页") { page += 1 }.disabled(!preview.hasNextPage) }.buttonStyle(.borderless)
-                    } else if let error { Text(error).foregroundStyle(NativeTheme.secondary) } else { ProgressView("正在识别章节…") }
+                        Text(L("{0} 个目录项 · {1}", preview.chapterCount, preview.detectedEncoding)).font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary)
+                        ForEach(preview.chapters) { chapter in Text((chapter.isVolume ? L("卷 · ") : "") + chapter.title) }
+                        HStack { Button(L("上一页")) { page -= 1 }.disabled(!preview.hasPreviousPage); Spacer(); Button(L("下一页")) { page += 1 }.disabled(!preview.hasNextPage) }.buttonStyle(.borderless)
+                    } else if let error { Text(error).foregroundStyle(NativeTheme.secondary) } else { ProgressView(L("正在识别章节…")) }
                 }
-            }.navigationTitle("TXT 导入").navigationBarTitleDisplayMode(.inline).navigationBarHidden(false).disabled(busy)
+            }.navigationTitle(L("TXT 导入")).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false).disabled(busy)
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() }.disabled(busy) }
-                    ToolbarItem(placement: .confirmationAction) { Button("导入") {
+                    ToolbarItem(placement: .cancellationAction) { Button(L("取消")) { dismiss() }.disabled(busy) }
+                    ToolbarItem(placement: .confirmationAction) { Button(L("导入")) {
                         busy = true
                         store.perform { defer { busy = false }; try await store.command("txt.complete", ["id": review.id, "rules": try requestObject(rules)]); finished = true; store.txtReview = nil; dismiss() }
                     }.disabled(busy || preview == nil) }

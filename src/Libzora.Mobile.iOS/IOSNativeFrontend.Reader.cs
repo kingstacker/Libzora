@@ -22,7 +22,7 @@ internal sealed partial class IOSNativeFrontend
             await _readerGate.WaitAsync(token);
             try
             {
-                var current = _reader ?? throw new InvalidOperationException("请先打开一本书。");
+                var current = _reader ?? throw new InvalidOperationException(UiText.Get("请先打开一本书。"));
                 pageText = current.NativePageText();
                 session = CancellationTokenSource.CreateLinkedTokenSource(token,
                     _readerCancellation?.Token ?? CancellationToken.None);
@@ -35,10 +35,10 @@ internal sealed partial class IOSNativeFrontend
                 var text = Text(args, "text");
                 var chinese = text.Count(character => character is >= '一' and <= '鿿');
                 var ai = await _shell.Modules.Ai.Settings.LoadAsync(session.Token);
-                if (!ai.IsConfigured) throw new InvalidOperationException("请先配置模型服务地址和模型；远程服务还需要 API Key。");
-                if (!ai.IsLocalEndpoint && !await ConfirmAsync("发送文本进行翻译",
-                    $"所选正文将发送至 {ai.Destination} 进行翻译，可能产生服务费用。请勿发送无权提供的个人信息或保密内容。", "同意并翻译"))
-                    return Data(("text", "已取消翻译"));
+                if (!ai.IsConfigured) throw new InvalidOperationException(UiText.Get("请先配置模型服务地址和模型；远程服务还需要 API Key。"));
+                if (!ai.IsLocalEndpoint && !await ConfirmAsync(UiText.Get("发送文本进行翻译"),
+                    UiText.Get("所选正文将发送至 {0} 进行翻译，可能产生服务费用。请勿发送无权提供的个人信息或保密内容。", ai.Destination), UiText.Get("同意并翻译")))
+                    return Data(("text", UiText.Get("已取消翻译")));
                 session.Token.ThrowIfCancellationRequested();
                 var translated = await _shell.Modules.Ai.Translation.TranslateAsync(text,
                     ReaderTranslationProvider.Ai,
@@ -49,7 +49,7 @@ internal sealed partial class IOSNativeFrontend
         await _readerGate.WaitAsync(token);
         try
         {
-            var reader = _reader ?? throw new InvalidOperationException("请先打开一本书。");
+            var reader = _reader ?? throw new InvalidOperationException(UiText.Get("请先打开一本书。"));
             using var session = CancellationTokenSource.CreateLinkedTokenSource(token,
                 _readerCancellation?.Token ?? CancellationToken.None);
             switch (command)
@@ -75,7 +75,7 @@ internal sealed partial class IOSNativeFrontend
                 case "reader.annotate": await reader.NativeAnnotateAsync(Text(args, "note")); break;
                 case "reader.annotationEdit": await reader.NativeEditAnnotationAsync(Id(args, "id"), Text(args, "note")); break;
                 case "reader.annotationDelete": await reader.NativeDeleteAnnotationAsync(Id(args, "id")); break;
-                default: throw new InvalidOperationException("未知阅读操作：" + command);
+                default: throw new InvalidOperationException(UiText.Get("未知阅读操作：{0}", command));
             }
             return Data();
         }
@@ -87,9 +87,9 @@ internal sealed partial class IOSNativeFrontend
         using var operation = BeginOperation();
         var modules = _shell.Modules;
         var settings = await modules.Ai.Settings.LoadAsync(token);
-        if (!settings.IsConfigured) throw new InvalidOperationException("请先在“我的”中设置 AI 接口。");
+        if (!settings.IsConfigured) throw new InvalidOperationException(UiText.Get("请先在“我的”中设置 AI 接口。"));
         var book = await modules.Library.Books.GetBookAsync(Id(args, "bookId"), token)
-            ?? throw new InvalidOperationException("书籍已不存在。");
+            ?? throw new InvalidOperationException(UiText.Get("书籍已不存在。"));
         var question = Text(args, "question");
         var sessionId = Text(args, "sessionId");
         var history = args.TryGetProperty("history", out var turns)
@@ -116,7 +116,7 @@ internal sealed partial class IOSNativeFrontend
             answer.Append(chunk.Text);
             Publish(Data(("type", "aiText"), ("sessionId", sessionId), ("text", answer.ToString())));
         }
-        return Data(("text", answer.Length == 0 ? "AI 没有返回内容。" : answer.ToString()));
+        return Data(("text", answer.Length == 0 ? UiText.Get("AI 没有返回内容。") : answer.ToString()));
     }
 }
 #endif

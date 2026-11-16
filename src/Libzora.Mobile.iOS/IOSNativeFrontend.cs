@@ -11,6 +11,7 @@ using Libzora.Core;
 using Libzora.Infrastructure;
 using Libzora.Mobile;
 using Libzora.Mobile.Views;
+using Libzora.Mobile.Localization;
 using UIKit;
 using static Libzora.iOSHead.IOSNativeJson;
 
@@ -55,7 +56,17 @@ internal sealed partial class IOSNativeFrontend
         shell.NativeLibraryChanged = () => Publish(Data(("type", "libraryChanged")));
         shell.Modules.Accounts.Service.DeviceInvalidated += (_, _) => Publish(Data(("type", "accountInvalidated")));
         shell.DeveloperModeChanged += (_, _) => Publish(Data(("type", "developer"), ("enabled", shell.IsDeveloperMode)));
-        _observers.Add(UIApplication.Notifications.ObserveDidBecomeActive((_, _) => { _reader?.Resume(); _ = shell.CheckDevicesIfDueAsync(); }));
+        UiText.LanguageChanged += (_, _) =>
+        {
+            Publish(Data(("type", "language"), ("language", UiText.CurrentLanguage)));
+            _reader?.NativeRefreshUiText();
+        };
+        _observers.Add(UIApplication.Notifications.ObserveDidBecomeActive((_, _) =>
+        {
+            shell.UiLanguage?.Refresh();
+            _reader?.Resume();
+            _ = shell.CheckDevicesIfDueAsync();
+        }));
         _observers.Add(UIApplication.Notifications.ObserveWillResignActive((_, _) =>
         {
             if (_reader is not { } reader)
@@ -177,11 +188,13 @@ internal sealed partial class IOSNativeFrontend
         NativeLibrary.SetDllImportResolver(typeof(IOSNativeFrontend).Assembly, (library, _, _) =>
             library == "__Internal" ? NativeLibrary.GetMainProgramHandle() : IntPtr.Zero);
         _current = frontend;
+        // Set the effective locale before SwiftUI constructs its first frame.
+        SetUiLanguage(UiText.CurrentLanguage);
         var pointer = CreateShell(Marshal.GetFunctionPointerForDelegate(Callback), readerController.Handle);
         if (pointer == IntPtr.Zero)
-            throw new InvalidOperationException("无法创建 SwiftUI 界面。");
+            throw new InvalidOperationException(UiText.Get("无法创建 SwiftUI 界面。"));
         var controller = ObjCRuntime.Runtime.GetNSObject<UIViewController>(pointer)
-            ?? throw new InvalidOperationException("无法绑定 SwiftUI 界面。");
+            ?? throw new InvalidOperationException(UiText.Get("无法绑定 SwiftUI 界面。"));
         window.RootViewController = controller;
         window.BackgroundColor = UIColor.SystemBackground;
         // The managed preferences are already loaded. Publish them before the
@@ -258,7 +271,7 @@ internal sealed partial class IOSNativeFrontend
             return Data();
         }
         if (MobileDataCoordinator.IsRestartRequired)
-            throw new InvalidOperationException("请完全关闭并重新打开应用后继续使用。");
+            throw new InvalidOperationException(UiText.Get("请完全关闭并重新打开应用后继续使用。"));
         switch (command)
         {
             case "library.get":
@@ -279,14 +292,20 @@ internal sealed partial class IOSNativeFrontend
             case "reader.fontDownload":
                 return await InstallReaderFontAsync(Text(args, "id"), token);
             case "preferences.save":
-                var preferences = Read(args.GetProperty("preferences"), new MobilePreferences(), IOSNativeJsonContext.Default.MobilePreferences);
+                var preferences = Read(args.GetProperty("preferences"), _shell.Preferences.Current, IOSNativeJsonContext.Default.MobilePreferences);
                 await _readerGate.WaitAsync(token);
                 try
                 {
+                    var previous = _shell.Preferences.Current;
                     _shell.Preferences.Update(_ => NormalizePreferences(preferences));
+                    _shell.UiLanguage?.Refresh();
                     _shell.ApplyThemeMode();
                     _widgetSnapshots.Schedule();
-                    if (_reader is { } currentReader) await currentReader.NativeApplySettingsAsync();
+                    // Language-only changes refresh chrome through the event;
+                    // they must not reflow or reopen the current book.
+                    if (_reader is { } currentReader
+                        && (previous with { UiLanguage = _shell.Preferences.Current.UiLanguage }) != _shell.Preferences.Current)
+                        await currentReader.NativeApplySettingsAsync();
                 }
                 finally { _readerGate.Release(); }
                 return _shell.Preferences.Current;
@@ -297,7 +316,7 @@ internal sealed partial class IOSNativeFrontend
                 {
                     await CloseReaderAsync();
                     var book = await _shell.Modules.Library.Books.GetBookAsync(Id(args, "bookId"), token)
-                        ?? throw new InvalidOperationException("书籍已不存在。");
+                        ?? throw new InvalidOperationException(UiText.Get("书籍已不存在。"));
                     var jump = args.TryGetProperty("location", out var location)
                         ? location.Deserialize(IOSNativeJsonContext.Default.ReaderProgressRow) : null;
                     _readerCancellation = new CancellationTokenSource();
@@ -354,7 +373,7 @@ internal sealed partial class IOSNativeFrontend
                 if (command.StartsWith("settings.", StringComparison.Ordinal)
                     || command.StartsWith("dictionary.", StringComparison.Ordinal))
                     return await DispatchSettingsAsync(command, args, token);
-                throw new InvalidOperationException("未知操作：" + command);
+                throw new InvalidOperationException(UiText.Get("未知操作：{0}", command));
         }
     }
 
@@ -448,7 +467,7 @@ internal sealed partial class IOSNativeFrontend
             var supported = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                 { ".epub", ".pdf", ".mobi", ".azw3", ".txt" };
             if (files.Any(path => !supported.Contains(Path.GetExtension(path))))
-                throw new InvalidOperationException("请选择 EPUB、PDF、MOBI、AZW3 或 TXT 文件。");
+                throw new InvalidOperationException(UiText.Get("请选择 EPUB、PDF、MOBI、AZW3 或 TXT 文件。"));
             var rules = new Dictionary<string, TxtImportRules>(StringComparer.OrdinalIgnoreCase);
             foreach (var file in files.Where(path => Path.GetExtension(path).Equals(".txt", StringComparison.OrdinalIgnoreCase)))
             {
@@ -461,8 +480,8 @@ internal sealed partial class IOSNativeFrontend
             var result = await Task.Run(() => _shell.Modules.Library.Books.ImportAsync(files,
                 cancellationToken: token, txtImportRules: rules), token);
             _shell.ShowToast(result.FailureCount > 0
-                ? $"已导入 {result.AddedCount} 本，{result.FailureCount} 个文件失败"
-                : result.AddedCount == 0 ? "所选书籍已在书库中" : $"已导入 {result.AddedCount} 本");
+                ? UiText.Get("已导入 {0} 本，{1} 个文件失败", result.AddedCount, result.FailureCount)
+                : result.AddedCount == 0 ? UiText.Get("所选书籍已在书库中") : UiText.Get("已导入 {0} 本", result.AddedCount));
             if (result.Items.FirstOrDefault(item => !item.Succeeded) is { } failed)
                 throw new InvalidOperationException(failed.Message);
         }
@@ -474,7 +493,8 @@ internal sealed partial class IOSNativeFrontend
         var id = ++_promptId;
         var decision = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         _prompts.Add(id, decision);
-        Publish(Data(("type", "confirm"), ("prompt", Data(("id", id), ("title", title), ("message", message), ("confirm", confirm)))));
+        Publish(Data(("type", "confirm"), ("prompt", Data(("id", id),
+            ("title", UiText.Localize(title)), ("message", UiText.Localize(message)), ("confirm", UiText.Localize(confirm))))));
         try { return await decision.Task.WaitAsync(_requestToken.Value); }
         finally
         {
@@ -484,7 +504,7 @@ internal sealed partial class IOSNativeFrontend
     }
 
     private static MobileDataCoordinator.OperationLease BeginOperation() =>
-        MobileDataCoordinator.TryBeginOperation() ?? throw new InvalidOperationException("正在备份或恢复数据，请稍后重试。");
+        MobileDataCoordinator.TryBeginOperation() ?? throw new InvalidOperationException(UiText.Get("正在备份或恢复数据，请稍后重试。"));
 
     private static Guid Id(JsonElement args, string name) => args.GetProperty(name).GetGuid();
     private static string Text(JsonElement args, string name, string fallback = "") =>
@@ -495,6 +515,7 @@ internal sealed partial class IOSNativeFrontend
         args.TryGetProperty(name, out var value) && value.TryGetInt32(out var number) ? number : fallback;
     private static MobilePreferences NormalizePreferences(MobilePreferences value) => value with
     {
+        UiLanguage = MobileUiLanguageService.NormalizePreference(value.UiLanguage),
         ThemeMode = Enum.IsDefined(value.ThemeMode) ? value.ThemeMode : MobileThemeMode.System,
         Sort = Enum.IsDefined(value.Sort) ? value.Sort : MobileBookSort.Recent,
         ReaderTheme = Enum.IsDefined(value.ReaderTheme) ? value.ReaderTheme : ReaderTheme.Classic,
@@ -551,6 +572,8 @@ internal sealed partial class IOSNativeFrontend
         else Dispatcher.UIThread.Post(() => PublishEvent(json));
     }
 
+    [DllImport("__Internal", EntryPoint = "lz_ios_set_ui_language")]
+    private static extern void SetUiLanguage([MarshalAs(UnmanagedType.LPUTF8Str)] string language);
     [DllImport("__Internal", EntryPoint = "lz_ios_create_shell")]
     private static extern IntPtr CreateShell(IntPtr handler, IntPtr readerController);
     [DllImport("__Internal", EntryPoint = "lz_ios_release_shell")]

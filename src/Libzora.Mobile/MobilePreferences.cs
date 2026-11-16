@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Libzora.Core;
 using Libzora.Infrastructure;
+using Libzora.Mobile.Localization;
 
 namespace Libzora.Mobile;
 
@@ -37,6 +38,8 @@ public enum MobileReaderProgressDisplay
 /// <summary>Phone-only interface choices; shared library data stays in the database.</summary>
 public sealed record MobilePreferences
 {
+    /// <summary>auto follows OS preferences; manual choices are zh-CN or en-US.</summary>
+    public string UiLanguage { get; init; } = MobileUiLanguageService.System;
     public MobileThemeMode ThemeMode { get; init; }
     public bool ListView { get; init; }
     /// <summary>Grid gallery: show covers only, hiding title, author and progress.</summary>
@@ -114,6 +117,7 @@ public sealed class MobilePreferencesStore(AppPaths paths)
                     current = current with { ReaderThemeFollowsAppearance = false };
                 Current = current with
                 {
+                    UiLanguage = MobileUiLanguageService.NormalizePreference(current.UiLanguage),
                     ReaderProgressDisplay = MobilePreferences.NormalizeProgressDisplay(
                         current.ReaderProgressDisplay)
                 };
@@ -128,7 +132,8 @@ public sealed class MobilePreferencesStore(AppPaths paths)
 
     public void Update(Func<MobilePreferences, MobilePreferences> change)
     {
-        Current = change(Current);
+        var changed = change(Current);
+        Current = changed with { UiLanguage = MobileUiLanguageService.NormalizePreference(changed.UiLanguage) };
         try
         {
             var temporary = _path + ".tmp";

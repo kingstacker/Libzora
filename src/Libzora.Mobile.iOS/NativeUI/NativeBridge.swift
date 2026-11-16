@@ -18,6 +18,7 @@ private struct Reply<Value: Decodable>: Decodable {
 struct Done: Decodable {}
 
 struct MobilePreferences: Codable, Equatable {
+    var uiLanguage = "auto"
     var themeMode = 0
     var listView = false
     var galleryMode = false
@@ -146,6 +147,7 @@ private struct NativeEvent: Decodable {
     let reader: ReaderSnapshot?
     let prompt: NativePrompt?
     let preferences: MobilePreferences?
+    let language: String?
     let id: Int64?
     let dialog: ReaderDialog?
     let media: ReaderMedia?
@@ -192,7 +194,10 @@ final class NativeStore: ObservableObject {
     var ambientColors: [NativeAmbientColor] {
         visibleAmbientColors.isEmpty ? fallbackAmbientColors : visibleAmbientColors
     }
-    @Published var preferences = MobilePreferences()
+    @Published var preferences = MobilePreferences() {
+        didSet { applyUiLanguage(NativeLocalization.resolvedLanguage(preferences.uiLanguage)) }
+    }
+    @Published private(set) var uiLanguage = NativeLocalization.language
     @Published var continueBookId: String?
     @Published var readerBook: LibraryBook?
     @Published var openingReader = false
@@ -223,6 +228,10 @@ final class NativeStore: ObservableObject {
     private var toastTask: Task<Void, Never>?
     private var preferenceRevision = 0
     private var preferenceWrites = 0
+    private var preferenceSaveTask: Task<Void, Never>?
+    private static let localizedCommands: Set<String> = [
+        "settings.profile", "dashboard.get", "materials.get", "reader.toc", "reader.fonts"
+    ]
     private var libraryRefreshRevision = 0
     private var launchStarted = false
     private var libraryChangedDuringLaunch = false
@@ -239,6 +248,15 @@ final class NativeStore: ObservableObject {
 
     func request<Value: Decodable>(_ command: String, _ args: [String: Any] = [:],
                                    timeoutNanoseconds: UInt64? = nil) async throws -> Value {
+        // SwiftUI starts locale-dependent tasks as soon as the optimistic
+        // selection changes. Wait until managed preferences have caught up.
+        // The save command itself and its library refresh must never wait here.
+        if Self.localizedCommands.contains(command) {
+            while let saving = preferenceSaveTask {
+                await saving.value
+                try Task.checkCancellation()
+            }
+        }
         nextId += 1
         let id = nextId
         let data = try JSONSerialization.data(withJSONObject: ["command": command, "args": args])
@@ -251,7 +269,7 @@ final class NativeStore: ObservableObject {
                     do {
                         let reply = try JSONDecoder().decode(Reply<Value>.self, from: data)
                         if reply.ok, let value = reply.result { continuation.resume(returning: value) }
-                        else { continuation.resume(throwing: NativeFailure(message: reply.error ?? "操作失败")) }
+                        else { continuation.resume(throwing: NativeFailure(message: reply.error ?? L("操作失败"))) }
                     } catch { continuation.resume(throwing: error) }
                 }
                 if Task.isCancelled { cancel(id); return }
@@ -271,7 +289,7 @@ final class NativeStore: ObservableObject {
 
     private func cancel(_ id: Int64, timedOut: Bool = false) {
         guard let completion = pending.removeValue(forKey: id) else { return }
-        let message = timedOut ? "书库加载超时，请重试。" : "操作已取消"
+        let message = timedOut ? L("书库加载超时，请重试。") : L("操作已取消")
         let data = Data("{\"ok\":false,\"error\":\"\(message)\"}".utf8)
         completion(data)
         "{\"command\":\"cancel\"}".withCString { handler(id, $0) }
@@ -286,6 +304,10 @@ final class NativeStore: ObservableObject {
         switch event.type {
         case "reader": if let reader = event.reader, reader != session.state { session.state = reader }
         case "preferences": if let value = event.preferences, value != preferences { preferences = value }
+        case "language":
+            // An older save may still be returning while the user makes a
+            // newer choice. Its locale must not undo the optimistic selection.
+            if preferenceWrites == 0, let language = event.language { applyUiLanguage(language) }
         case "developer": developerMode = event.enabled ?? false
         case "libraryChanged":
             // Keep a single owner for the first snapshot. A sync notification
@@ -336,7 +358,7 @@ final class NativeStore: ObservableObject {
             try Task.checkCancellation()
         } catch {
             if !libraryLoaded {
-                libraryLoadError = Task.isCancelled ? "书库加载已中断，请重试。" : error.localizedDescription
+                libraryLoadError = Task.isCancelled ? L("书库加载已中断，请重试。") : error.localizedDescription
             }
         }
         try? await launchAnimation
@@ -448,6 +470,12 @@ final class NativeStore: ObservableObject {
         if readerBook == nil && !openingReader { restoringReader = false }
     }
 
+    private func applyUiLanguage(_ language: String) {
+        NativeLocalization.setLanguage(language)
+        let effective = NativeLocalization.language
+        if uiLanguage != effective { uiLanguage = effective }
+    }
+
     /// A Binding setter updates the native control immediately. Persistence and
     /// reader reflow complete asynchronously; older replies cannot undo a tap.
     func setPreferences(_ value: MobilePreferences) {
@@ -457,8 +485,17 @@ final class NativeStore: ObservableObject {
         let revision = preferenceRevision
         preferences = value
         preferenceWrites += 1
-        perform {
-            defer { self.preferenceWrites -= 1 }
+        let precedingSave = preferenceSaveTask
+        preferenceSaveTask = Task { [weak self] in
+            await precedingSave?.value
+            guard let self else { return }
+            defer {
+                self.preferenceWrites -= 1
+                if self.preferenceWrites == 0 { self.preferenceSaveTask = nil }
+            }
+            // Preserve write order and skip taps superseded before their save
+            // starts, so an older request cannot become the persisted choice.
+            guard self.preferenceRevision == revision else { return }
             do {
                 let object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(value))
                 let saved: MobilePreferences = try await self.request("preferences.save", ["preferences": object])
@@ -472,7 +509,7 @@ final class NativeStore: ObservableObject {
                 }
             } catch {
                 if self.preferenceRevision == revision { self.preferences = previous }
-                throw error
+                if !Task.isCancelled { self.failure = error.localizedDescription }
             }
         }
     }
@@ -557,6 +594,12 @@ final class NativeStore: ObservableObject {
 @MainActor
 private enum NativeRuntime {
     static var store: NativeStore?
+}
+
+@_cdecl("lz_ios_set_ui_language")
+public func setNativeUiLanguage(_ pointer: UnsafePointer<CChar>?) {
+    guard let pointer else { return }
+    NativeLocalization.setLanguage(String(cString: pointer))
 }
 
 @_cdecl("lz_ios_create_shell")

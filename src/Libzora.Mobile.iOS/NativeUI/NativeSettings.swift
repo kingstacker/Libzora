@@ -6,7 +6,7 @@ struct NativeKeyboardDone: ViewModifier {
         content.toolbar {
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
-                Button("完成") { UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil) }
+                Button(L("完成")) { UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil) }
             }
         }
     }
@@ -24,64 +24,66 @@ struct NativeProfilePage: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                Text("我的").font(NativeTheme.pageTitleFont).accessibilityIdentifier("page.profile")
+                Text(L("我的")).font(NativeTheme.pageTitleFont).accessibilityIdentifier("page.profile")
                     .padding(.bottom, 18)
 
                 accountSection
 
-                groupLabel("阅读与外观")
+                groupLabel(L("阅读与外观"))
                 profileGroup {
                     themeRow
+                    languageRow
                     NavigationLink { NativeLibrarySettings(store: store) } label: {
-                        profileRow(title: "书库设置")
+                        profileRow(title: L("书库设置"))
                     }.accessibilityIdentifier("profile.librarySettings")
                     NavigationLink { NativeDictionary(store: store, initialTerm: "").nativeBackButton() } label: {
-                        profileRow(title: "本地词典")
+                        profileRow(title: L("本地词典"))
                     }.accessibilityIdentifier("profile.dictionary")
                 }
 
-                groupLabel("服务与扩展")
+                groupLabel(L("服务与扩展"))
                 profileGroup {
                     NavigationLink { NativeAiSettings(store: store) } label: {
-                        profileRow(title: "AI 助手", value: summary?.ai ?? "")
+                        profileRow(title: L("AI 助手"), value: summary?.ai ?? "")
                     }.accessibilityIdentifier("profile.ai")
                     NavigationLink { NativeEmailSettings(store: store) } label: {
-                        profileRow(title: "发送到 Kindle", value: summary?.kindle ?? "")
+                        profileRow(title: L("发送到 Kindle"), value: summary?.kindle ?? "")
                     }.accessibilityIdentifier("profile.kindle")
                 }
 
-                groupLabel("数据与存储")
+                groupLabel(L("数据与存储"))
                 profileGroup {
-                    profileRow(title: "书籍占用", value: summary?.storage ?? "—", chevron: false)
+                    profileRow(title: L("书籍占用"), value: summary?.storage ?? "—", chevron: false)
                     NavigationLink { NativeBackupPage(store: store) } label: {
-                        profileRow(title: "备份与恢复")
+                        profileRow(title: L("备份与恢复"))
                     }.accessibilityIdentifier("profile.backup")
                     NavigationLink { NativeTrash(store: store) } label: {
-                        profileRow(title: "回收站")
+                        profileRow(title: L("回收站"))
                     }.accessibilityIdentifier("profile.trash")
                 }
 
-                groupLabel("支持与关于")
+                groupLabel(L("支持与关于"))
                 profileGroup {
                     NavigationLink { NativeFeedbackPage(store: store) } label: {
-                        profileRow(title: "问题反馈")
+                        profileRow(title: L("问题反馈"))
                     }.accessibilityIdentifier("profile.feedback")
                     Button {
                         UIPasteboard.general.string = "1109898894"
-                        store.showToast("群号已复制到剪贴板")
+                        store.showToast(L("群号已复制到剪贴板"))
                     } label: {
-                        profileRow(title: "QQ 交流群", value: "1109898894", chevron: false)
+                        profileRow(title: L("QQ 交流群"), value: "1109898894", chevron: false)
                     }
                     NavigationLink { NativeAboutPage(store: store, version: summary?.version ?? "") } label: {
-                        profileRow(title: "关于 Libzora", value: summary?.version ?? "")
+                        profileRow(title: L("关于 Libzora"), value: summary?.version ?? "")
                     }.accessibilityIdentifier("profile.about")
                 }
             }.padding(.horizontal, 24).padding(.top, 20).padding(.bottom, 120).buttonStyle(.plain)
         }.background(NativeAmbientBackground()).navigationBarHidden(true)
             .overlay(alignment: .top) { NativeStatusBarGlass() }
-            .task {
+            .task(id: store.uiLanguage) {
                 do {
                     let result: ProfileSummary = try await store.request("settings.profile")
+                    guard !Task.isCancelled else { return }
                     summary = result; store.account = result.account
                 }
                 catch { if !Task.isCancelled { store.failure = error.localizedDescription } }
@@ -93,7 +95,7 @@ struct NativeProfilePage: View {
     /// avatar and text hierarchy distinguish the account from the settings.
     @ViewBuilder private var accountSection: some View {
         let signedIn = account?.isLoggedIn == true
-        let name = signedIn ? (account?.user?.username ?? "已登录") : "登录 / 注册"
+        let name = signedIn ? (account?.user?.username ?? L("已登录")) : L("登录 / 注册")
         VStack(spacing: 0) {
             NavigationLink { NativeAccountPage(store: store) } label: {
                 HStack(spacing: 14) {
@@ -119,25 +121,47 @@ struct NativeProfilePage: View {
                 }.padding(.vertical, 16).contentShape(Rectangle())
             }.accessibilityIdentifier("profile.account")
             NavigationLink { NativeSyncSettings(store: store) } label: {
-                profileRow(title: "云同步", value: summary?.sync ?? "")
+                profileRow(title: L("云同步"), value: summary?.sync ?? "")
             }.accessibilityIdentifier("profile.sync")
         }
     }
 
     @ViewBuilder private var themeRow: some View {
         HStack(spacing: 10) {
-            Text("外观").font(NativeTheme.font())
+            Text(L("外观")).font(NativeTheme.font())
             Spacer(minLength: 8)
-            Picker("主题", selection: Binding(get: { store.preferences.themeMode }, set: { mode in
+            Picker(L("主题"), selection: Binding(get: { store.preferences.themeMode }, set: { mode in
                 var value = store.preferences; value.themeMode = mode
                 store.setPreferences(value)
             })) {
-                Text("跟随系统").tag(0); Text("浅色").tag(1); Text("深色").tag(2)
+                Text(store.uiLanguage == "en-US" ? L("系统") : L("跟随系统")).tag(0)
+                Text(L("浅色")).tag(1); Text(L("深色")).tag(2)
             }
             .pickerStyle(.segmented)
             .controlSize(.small)
             .frame(width: 200)
             .accessibilityIdentifier("profile.theme")
+        }.padding(.vertical, 12)
+    }
+
+    private var languageRow: some View {
+        HStack(spacing: 10) {
+            Text(L("语言")).font(NativeTheme.font())
+            Spacer(minLength: 8)
+            Picker(L("界面语言"), selection: Binding(get: { store.preferences.uiLanguage }, set: { language in
+                var value = store.preferences; value.uiLanguage = language
+                store.setPreferences(value)
+            })) {
+                Text(L("跟随系统")).tag("auto")
+                Text("简体中文").tag("zh-CN")
+                Text("English").tag("en-US")
+            }
+            .pickerStyle(.menu)
+            .labelsHidden()
+            .accessibilityLabel(L("界面语言"))
+            .accessibilityValue(store.preferences.uiLanguage == "en-US" ? "English"
+                : store.preferences.uiLanguage == "zh-CN" ? "简体中文" : L("跟随系统"))
+            .accessibilityIdentifier("profile.language")
         }.padding(.vertical, 12)
     }
 
@@ -169,12 +193,12 @@ struct NativeProfilePage: View {
 
     private var accountSubtitle: String? {
         guard account?.isLoggedIn == true else { return nil }
-        let region = account?.regionName ?? "中国区"
+        let region = account?.regionName ?? L("中国区")
         guard let membership else { return region }
         switch membership.plan {
-        case "trial": return region + " · 试用订阅 · " + membership.planExpiryText
-        case "lifetime": return region + " · 买断订阅 · 永久有效"
-        default: return membership.isTrialExpired ? region + " · 试用订阅已到期" : region + " · 免费账户"
+        case "trial": return region + L(" · 试用订阅 · ") + membership.planExpiryText
+        case "lifetime": return region + L(" · 买断订阅 · 永久有效")
+        default: return membership.isTrialExpired ? region + L(" · 试用订阅已到期") : region + L(" · 免费账户")
         }
     }
 
@@ -194,18 +218,18 @@ struct NativeBackupPage: View {
     var body: some View {
         NativeForm {
             Section {
-                Button("导出备份") { run(false) }
+                Button(L("导出备份")) { run(false) }
                     .disabled(busy).accessibilityIdentifier("profile.backup.export")
-                Button("恢复备份") { run(true) }
+                Button(L("恢复备份")) { run(true) }
                     .disabled(busy).accessibilityIdentifier("profile.backup.restore")
-                if busy { HStack(spacing: 10) { ProgressView().controlSize(.small); Text("正在处理…").foregroundStyle(NativeTheme.secondary) } }
+                if busy { HStack(spacing: 10) { ProgressView().controlSize(.small); Text(L("正在处理…")).foregroundStyle(NativeTheme.secondary) } }
             }
             Section {
-                Text("备份包含书库、阅读进度、书签与批注。导出与恢复都需要同步密钥；密钥不会写入备份。")
+                Text(L("备份包含书库、阅读进度、书签与批注。导出与恢复都需要同步密钥；密钥不会写入备份。"))
                     .font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary)
             }
         }
-        .navigationTitle("备份与恢复").navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
+        .navigationTitle(L("备份与恢复")).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
         .nativeBackButton()
         .modifier(NativeHideTabBar())
     }
@@ -228,22 +252,22 @@ struct NativeAboutPage: View {
             Section {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Libzora").font(NativeTheme.font(22, relativeTo: .title2).weight(.semibold))
-                    Text("本地优先的电子书阅读器").font(NativeTheme.font(12, relativeTo: .caption))
+                    Text(L("本地优先的电子书阅读器")).font(NativeTheme.font(12, relativeTo: .caption))
                         .foregroundStyle(NativeTheme.secondary)
                 }
             }
             Section {
                 Button { tapVersion() } label: {
-                    NativeSettingsRow(title: "版本", value: version, chevron: false)
+                    NativeSettingsRow(title: L("版本"), value: version, chevron: false)
                 }.buttonStyle(.plain).accessibilityIdentifier("profile.about.version")
-                NativeSettingsRow(title: "开发者", value: "kingstacker", chevron: false)
+                NativeSettingsRow(title: L("开发者"), value: "kingstacker", chevron: false)
             }
         }
-        .navigationTitle("关于").navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
+        .navigationTitle(L("关于")).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
         .nativeBackButton()
         .modifier(NativeHideTabBar())
         .sheet(isPresented: $developer) {
-            NativeNameSheet(store: store, title: "开发者模式", initial: "", button: "进入", isSecure: true) { password in
+            NativeNameSheet(store: store, title: L("开发者模式"), initial: "", button: L("进入"), isSecure: true) { password in
                 try await store.command("settings.developer.toggle", ["password": password])
             }
         }
@@ -264,24 +288,24 @@ struct NativeLibrarySettings: View {
 
     var body: some View {
         NativeForm {
-            settingToggle("画廊视图", identifier: "library.settings.gallery", isOn: Binding(get: { store.preferences.galleryMode }, set: { enabled in
+            settingToggle(L("画廊视图"), identifier: "library.settings.gallery", isOn: Binding(get: { store.preferences.galleryMode }, set: { enabled in
                 var value = store.preferences; value.galleryMode = enabled
                 store.setPreferences(value)
             }))
-            settingToggle("炫彩模式", identifier: "library.settings.colorful", isOn: Binding(get: { store.preferences.colorfulMode }, set: { enabled in
+            settingToggle(L("炫彩模式"), identifier: "library.settings.colorful", isOn: Binding(get: { store.preferences.colorfulMode }, set: { enabled in
                 var value = store.preferences; value.colorfulMode = enabled
                 store.setPreferences(value)
             }))
-            settingToggle("显示书籍评分", identifier: "library.settings.rating", isOn: Binding(get: { store.preferences.showBookRating }, set: { enabled in
+            settingToggle(L("显示书籍评分"), identifier: "library.settings.rating", isOn: Binding(get: { store.preferences.showBookRating }, set: { enabled in
                 var value = store.preferences; value.showBookRating = enabled
                 store.setPreferences(value)
             }))
-            settingToggle("显示书籍同步状态", identifier: "library.settings.syncStatus", isOn: Binding(get: { store.preferences.showBookSyncStatus }, set: { enabled in
+            settingToggle(L("显示书籍同步状态"), identifier: "library.settings.syncStatus", isOn: Binding(get: { store.preferences.showBookSyncStatus }, set: { enabled in
                 var value = store.preferences; value.showBookSyncStatus = enabled
                 store.setPreferences(value)
             }))
         }
-        .navigationTitle("书库设置").navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
+        .navigationTitle(L("书库设置")).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
         .nativeBackButton()
         .modifier(NativeHideTabBar())
     }
@@ -312,11 +336,11 @@ struct NativeSyncSettings: View {
     var body: some View {
         NativeForm {
             Section {
-                Picker("同步方式", selection: $form.provider) { Text("S3").tag(0); Text("WebDAV").tag(1) }
+                Picker(L("同步方式"), selection: $form.provider) { Text("S3").tag(0); Text("WebDAV").tag(1) }
                     .pickerStyle(.segmented).accessibilityIdentifier("sync.provider")
-                Toggle("启用同步", isOn: $form.enabled).tint(NativeTheme.systemSwitchTint)
-                Toggle("自动同步", isOn: $form.automaticSyncEnabled).tint(NativeTheme.systemSwitchTint)
-                caption("仅支持自备 S3 / WebDAV，不提供官方云同步。试用与买断同步功能相同。")
+                Toggle(L("启用同步"), isOn: $form.enabled).tint(NativeTheme.systemSwitchTint)
+                Toggle(L("自动同步"), isOn: $form.automaticSyncEnabled).tint(NativeTheme.systemSwitchTint)
+                caption(L("仅支持自备 S3 / WebDAV，不提供官方云同步。试用与买断同步功能相同。"))
             }
             customStorageSections
             Section {
@@ -327,70 +351,70 @@ struct NativeSyncSettings: View {
                     }
                     if busy { ProgressView() }
                     HStack(spacing: 12) {
-                        Button("测试连接") { run("test") }
-                        Button("保存") { run("save") }.accessibilityIdentifier("sync.save")
+                        Button(L("测试连接")) { run("test") }
+                        Button(L("保存")) { run("save") }.accessibilityIdentifier("sync.save")
                     }.buttonStyle(NativePrimaryButtonStyle()).disabled(busy || loading)
                 }
             }
         }.disabled(busy || loading)
-            .navigationTitle("同步").navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
+            .navigationTitle(L("同步")).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
             .nativeBackButton()
             .modifier(NativeKeyboardDone())
             .modifier(NativeHideTabBar())
             .task { await load() }
             .onChange(of: store.syncStatus) { status = $0 }
             .onDisappear { actionTask?.cancel() }
-            .alert(Text(form.encryptionKey.isEmpty ? "清除同步密钥" : "确认同步密钥"),
+            .alert(Text(form.encryptionKey.isEmpty ? L("清除同步密钥") : L("确认同步密钥")),
                    isPresented: $showEncryptionKeyConfirmation) {
-                Button("取消", role: .cancel) { }
-                Button(form.encryptionKey.isEmpty ? "清除密钥" : "使用此密钥") { perform("save") }
+                Button(L("取消"), role: .cancel) { }
+                Button(form.encryptionKey.isEmpty ? L("清除密钥") : L("使用此密钥")) { perform("save") }
             } message: {
                 Text(form.encryptionKey.isEmpty
-                     ? "清除本机保存的同步密钥后，将无法再解密已有加密备份或云端同步数据。确定清除吗？"
-                     : "同步密钥用于加密备份和自备存储中的同步数据。请确认两次输入一致，并已妥善保存。密钥遗忘后无法找回，已有加密数据也无法恢复。")
+                     ? L("清除本机保存的同步密钥后，将无法再解密已有加密备份或云端同步数据。确定清除吗？")
+                     : L("同步密钥用于加密备份和自备存储中的同步数据。请确认两次输入一致，并已妥善保存。密钥遗忘后无法找回，已有加密数据也无法恢复。"))
             }
     }
 
     @ViewBuilder private var customStorageSections: some View {
-        Section("连接信息") {
+        Section(L("连接信息")) {
             if form.provider == 1 {
-                field("服务地址", text: $form.webDavEndpoint)
-                field("用户名", text: $form.webDavUsername)
-                secret("密码", text: $form.webDavPassword)
+                field(L("服务地址"), text: $form.webDavEndpoint)
+                field(L("用户名"), text: $form.webDavUsername)
+                secret(L("密码"), text: $form.webDavPassword)
             } else {
-                field("Endpoint（AWS 可留空）", text: $form.endpoint)
+                field(L("Endpoint（AWS 可留空）"), text: $form.endpoint)
                 field("Bucket", text: $form.bucket)
                 field("Region", text: $form.region)
                 field("Access Key", text: $form.accessKey)
                 secret("Secret Key", text: $form.secretKey)
             }
-            field("目录前缀", text: $form.prefix)
+            field(L("目录前缀"), text: $form.prefix)
         }
         Section {
-            DisclosureGroup("高级选项", isExpanded: $advanced) {
+            DisclosureGroup(L("高级选项"), isExpanded: $advanced) {
                 if form.provider == 0 { Toggle("Path Style", isOn: $form.pathStyle).tint(NativeTheme.systemSwitchTint) }
-                Toggle("同步时下载书籍文件", isOn: $form.downloadBookFilesOnSync).tint(NativeTheme.systemSwitchTint)
-                Toggle("跳过 TLS 验证", isOn: $form.skipTlsVerify).tint(NativeTheme.systemSwitchTint)
+                Toggle(L("同步时下载书籍文件"), isOn: $form.downloadBookFilesOnSync).tint(NativeTheme.systemSwitchTint)
+                Toggle(L("跳过 TLS 验证"), isOn: $form.skipTlsVerify).tint(NativeTheme.systemSwitchTint)
             }
             syncKey
-            Button("导入连接参数") { run("import") }
-            Button("导出连接参数") { run("export") }
+            Button(L("导入连接参数")) { run("import") }
+            Button(L("导出连接参数")) { run("export") }
         }
         Section {
             caption(summary)
-            Button("立即同步") { run("run") }.accessibilityIdentifier("sync.run")
+            Button(L("立即同步")) { run("run") }.accessibilityIdentifier("sync.run")
         }
     }
 
     @ViewBuilder private var syncKey: some View {
         // This user-owned key must not be offered to password AutoFill.
-        NativeTextField(title: "同步密钥（备份必填，同步建议加密）", text: $form.encryptionKey, secure: true,
+        NativeTextField(title: L("同步密钥（备份必填，同步建议加密）"), text: $form.encryptionKey, secure: true,
                         identifier: "sync.encryptionKey")
             .textContentType(.oneTimeCode).textInputAutocapitalization(.never).disableAutocorrection(true)
-        NativeTextField(title: "再次输入同步密钥", text: $confirmEncryptionKey, secure: true,
+        NativeTextField(title: L("再次输入同步密钥"), text: $confirmEncryptionKey, secure: true,
                         identifier: "sync.encryptionKeyConfirm")
             .textContentType(.oneTimeCode).textInputAutocapitalization(.never).disableAutocorrection(true)
-        caption("设置或更改密钥时需要输入两次，并在弹窗中确认。密钥由你自行牢记，不会上传或写入备份。遗忘后无法解密已有数据，设置新密钥也无法恢复旧数据。")
+        caption(L("设置或更改密钥时需要输入两次，并在弹窗中确认。密钥由你自行牢记，不会上传或写入备份。遗忘后无法解密已有数据，设置新密钥也无法恢复旧数据。"))
     }
 
     private func caption(_ text: String, color: Color = NativeTheme.secondary) -> some View {
@@ -420,7 +444,7 @@ struct NativeSyncSettings: View {
     private func run(_ operation: String) {
         if operation == "save" && form.encryptionKey != savedEncryptionKey {
             if !form.encryptionKey.isEmpty && form.encryptionKey != confirmEncryptionKey {
-                status = "两次输入的同步密钥不一致，请重新输入。"
+                status = L("两次输入的同步密钥不一致，请重新输入。")
                 return
             }
             showEncryptionKeyConfirmation = true
@@ -429,14 +453,14 @@ struct NativeSyncSettings: View {
         perform(operation)
     }
     private func perform(_ operation: String) {
-        busy = true; status = operation == "run" ? "正在同步…" : operation == "test" ? "正在测试连接…" : ""
+        busy = true; status = operation == "run" ? L("正在同步…") : operation == "test" ? L("正在测试连接…") : ""
         actionTask = Task {
             defer { busy = false }
             do {
                 let args = ["settings": try requestObject(form)]
                 if operation == "import" {
                     let imported: SyncForm = try await store.request("settings.sync.import", args)
-                    form = imported; status = "参数已导入，请检查后点击保存。同步加密密钥保持本机原值。"
+                    form = imported; status = L("参数已导入，请检查后点击保存。同步加密密钥保持本机原值。")
                 } else if operation == "test" || operation == "run" {
                     let result: MessageResult = try await store.request("settings.sync.\(operation)", args)
                     status = result.message + (result.warning.map { " " + $0 } ?? "")
@@ -446,7 +470,7 @@ struct NativeSyncSettings: View {
                     if operation == "save" {
                         savedEncryptionKey = form.encryptionKey
                         confirmEncryptionKey = ""
-                        status = "已保存"; _ = try? await loadSnapshot()
+                        status = L("已保存"); _ = try? await loadSnapshot()
                         if store.preferences.showBookSyncStatus { try await store.refreshLibrary() }
                     }
                 }
@@ -466,21 +490,21 @@ struct NativeAiSettings: View {
     var body: some View {
         NativeForm {
             Section {
-                Picker("服务", selection: $form.provider) { Text("DeepSeek").tag("deepseek"); Text("OpenAI").tag("openai"); Text("自定义").tag("custom") }
+                Picker(L("服务"), selection: $form.provider) { Text("DeepSeek").tag("deepseek"); Text("OpenAI").tag("openai"); Text(L("自定义")).tag("custom") }
                     .pickerStyle(.segmented)
-                NativeTextField(title: "接口地址", text: $form.baseUrl).textInputAutocapitalization(.never).disableAutocorrection(true)
-                NativeTextField(title: "模型", text: $form.model).textInputAutocapitalization(.never).disableAutocorrection(true)
+                NativeTextField(title: L("接口地址"), text: $form.baseUrl).textInputAutocapitalization(.never).disableAutocorrection(true)
+                NativeTextField(title: L("模型"), text: $form.model).textInputAutocapitalization(.never).disableAutocorrection(true)
                 NativeTextField(title: "API Key", text: $form.apiKey, secure: true).textInputAutocapitalization(.never).disableAutocorrection(true)
             }
             Section {
-                Button("测试连接") { run(test: true) }
+                Button(L("测试连接")) { run(test: true) }
                 if busy { ProgressView() }
                 if !status.isEmpty { Text(status).foregroundStyle(NativeTheme.secondary).textSelection(.enabled) }
             }
         }.disabled(loading || busy)
-            .navigationTitle("AI 接口").navigationBarTitleDisplayMode(.inline).navigationBarHidden(false).modifier(NativeKeyboardDone()).modifier(NativeHideTabBar())
+            .navigationTitle(L("AI 接口")).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false).modifier(NativeKeyboardDone()).modifier(NativeHideTabBar())
             .nativeBackButton()
-            .toolbar { Button("保存") { run(test: false) }.disabled(busy || loading) }
+            .toolbar { Button(L("保存")) { run(test: false) }.disabled(busy || loading) }
             .task {
                 defer { loading = false }
                 do { form = try await store.request("settings.ai.get") }
@@ -500,12 +524,12 @@ struct NativeAiSettings: View {
             .onDisappear { providerTask?.cancel() }
     }
     private func run(test: Bool) {
-        busy = true; status = test ? "正在测试连接…" : ""
+        busy = true; status = test ? L("正在测试连接…") : ""
         store.perform {
             defer { busy = false }
             let args = ["settings": try requestObject(form)]
             if test { let value: MessageResult = try await store.request("settings.ai.test", args); status = value.message }
-            else { try await store.command("settings.ai.save", args); status = "已保存" }
+            else { try await store.command("settings.ai.save", args); status = L("已保存") }
         }
     }
 }
@@ -518,22 +542,22 @@ struct NativeEmailSettings: View {
     @State private var status = ""
     var body: some View {
         NativeForm {
-            Section("收件人") { NativeTextField(title: "Kindle 邮箱", text: $form.kindleEmailAddress).keyboardType(.emailAddress) }
-            Section("发件邮箱") {
-                NativeTextField(title: "发件人邮箱", text: $form.senderEmailAddress).keyboardType(.emailAddress)
-                NativeTextField(title: "SMTP 服务器", text: $form.smtpHost)
-                HStack { Text("端口"); TextField("587", value: $form.smtpPort, formatter: NumberFormatter()).keyboardType(.numberPad).multilineTextAlignment(.trailing) }
-                NativeTextField(title: "SMTP 用户名", text: $form.smtpUsername)
-                NativeTextField(title: "密码或应用专用密码", text: $form.smtpPassword, secure: true)
-                Toggle("使用 SSL / TLS", isOn: $form.enableSsl).tint(NativeTheme.systemSwitchTint)
+            Section(L("收件人")) { NativeTextField(title: L("Kindle 邮箱"), text: $form.kindleEmailAddress).keyboardType(.emailAddress) }
+            Section(L("发件邮箱")) {
+                NativeTextField(title: L("发件人邮箱"), text: $form.senderEmailAddress).keyboardType(.emailAddress)
+                NativeTextField(title: L("SMTP 服务器"), text: $form.smtpHost)
+                HStack { Text(L("端口")); TextField("587", value: $form.smtpPort, formatter: NumberFormatter()).keyboardType(.numberPad).multilineTextAlignment(.trailing) }
+                NativeTextField(title: L("SMTP 用户名"), text: $form.smtpUsername)
+                NativeTextField(title: L("密码或应用专用密码"), text: $form.smtpPassword, secure: true)
+                Toggle(L("使用 SSL / TLS"), isOn: $form.enableSsl).tint(NativeTheme.systemSwitchTint)
             }
             if !status.isEmpty { Section { Text(status).foregroundStyle(NativeTheme.secondary) } }
         }.textInputAutocapitalization(.never).disableAutocorrection(true).disabled(loading || busy)
-            .navigationTitle("发送到 Kindle").navigationBarTitleDisplayMode(.inline).navigationBarHidden(false).modifier(NativeKeyboardDone()).modifier(NativeHideTabBar())
+            .navigationTitle(L("发送到 Kindle")).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false).modifier(NativeKeyboardDone()).modifier(NativeHideTabBar())
             .nativeBackButton()
-            .toolbar { Button("保存") {
+            .toolbar { Button(L("保存")) {
                 busy = true
-                store.perform { defer { busy = false }; try await store.command("settings.kindle.save", ["settings": try requestObject(form)]); status = "已保存" }
+                store.perform { defer { busy = false }; try await store.command("settings.kindle.save", ["settings": try requestObject(form)]); status = L("已保存") }
             }.disabled(loading || busy) }
             .task {
                 defer { loading = false }
@@ -550,19 +574,19 @@ struct NativeTrash: View {
     var body: some View {
         List {
             Group {
-                if items.isEmpty { Text("回收站是空的").foregroundStyle(NativeTheme.secondary) }
+                if items.isEmpty { Text(L("回收站是空的")).foregroundStyle(NativeTheme.secondary) }
                 ForEach(items) { item in
                     VStack(alignment: .leading, spacing: 10) {
                         Text(item.title).font(NativeTheme.font(17, relativeTo: .headline))
                         Text(item.detail).font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary)
                         HStack {
-                            Button("恢复") { action("restore", id: item.id) }.buttonStyle(.bordered)
-                            Button("永久删除", role: .destructive) { action("purge", id: item.id) }.buttonStyle(.bordered)
+                            Button(L("恢复")) { action("restore", id: item.id) }.buttonStyle(.bordered)
+                            Button(L("永久删除"), role: .destructive) { action("purge", id: item.id) }.buttonStyle(.bordered)
                         }
                     }.padding(.vertical, 8)
                 }
             }.listRowBackground(store.preferences.colorfulMode ? Color.clear : NativeTheme.page)
-        }.modifier(NativeListBackground()).disabled(busy).navigationTitle("回收站").navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
+        }.modifier(NativeListBackground()).disabled(busy).navigationTitle(L("回收站")).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
             .nativeBackButton()
             .task { do { items = try await store.request("trash.get") } catch { if !Task.isCancelled { store.failure = error.localizedDescription } } }
     }

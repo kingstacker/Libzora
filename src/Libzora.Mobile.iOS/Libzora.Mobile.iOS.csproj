@@ -105,6 +105,12 @@
   <ItemGroup Condition="'$(UseSwiftUIFrontend)' == 'true'">
     <PartialAppManifest Include="NativeUI/SceneManifest.plist" />
     <SwiftFrontendSource Include="NativeUI/*.swift" />
+    <!-- SwiftUI and C# resolve the same Chinese source keys and mobile overrides. -->
+    <BundleResource Include="../Libzora.App/Resources/Strings.zh-CN.axaml" LogicalName="Localization/Shared.zh-CN.axaml" />
+    <BundleResource Include="../Libzora.App/Resources/Strings.en-US.axaml" LogicalName="Localization/Shared.en-US.axaml" />
+    <BundleResource Include="../Libzora.Mobile/Localization/*.en-US.json" LogicalName="Localization/%(Filename)%(Extension)" />
+    <BundleResource Include="Localization/en.lproj/InfoPlist.strings" LogicalName="en.lproj/InfoPlist.strings" />
+    <BundleResource Include="Localization/zh-Hans.lproj/InfoPlist.strings" LogicalName="zh-Hans.lproj/InfoPlist.strings" />
     <NativeReference Include="$(NativeSwiftOutput)/libLibzoraNativeUI.a"
                      Kind="Static" ForceLoad="true" SmartLink="false"
                      Frameworks="SwiftUI UIKit Foundation WidgetKit"

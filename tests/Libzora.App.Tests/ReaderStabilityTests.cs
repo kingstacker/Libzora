@@ -17,6 +17,72 @@ public sealed class ReaderStabilityTests(SettingsUiSession session) : IDisposabl
 {
     private readonly string _directory = Path.Combine(Path.GetTempPath(), "libzora-reader-stability", Guid.NewGuid().ToString("N"));
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task FontSwitchRetainsFallbackOnEveryPageAndLaterReclaimsIt(bool navigate) => Run(async () =>
+    {
+        var face = SystemFontCatalog.CjkFonts.FirstOrDefault();
+        if (face is null) return;
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        string? symbols = null;
+        while (directory is not null)
+        {
+            var candidate = Path.Combine(directory.FullName, "src", "Libzora.App", "Assets", "Fonts", "NotoSansSymbols2-Regular.ttf");
+            if (File.Exists(candidate)) { symbols = candidate; break; }
+            directory = directory.Parent;
+        }
+        Assert.NotNull(symbols);
+        var fontFamily = ReaderFontDefaults.CatalogFamilyPrefix + "lifetime-test-" + Guid.NewGuid().ToString("N");
+        ReaderFontRegistry.Set(fontFamily, symbols);
+        var fonts = new TypesetFontLibrary(symbols);
+        Assert.False(new GlyphShaper(fonts).Shape("☀", 0, 1, symbols, 16).ContainsNotdef);
+        using var host = new NativeReaderHost();
+        typeof(NativeReaderHost).GetField("_fontLibrary", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(host, fonts);
+        host.Measure(new Size(720, 540));
+        host.Arrange(new Rect(0, 0, 720, 540));
+        Directory.CreateDirectory(_directory);
+        var body = string.Concat(Enumerable.Repeat("<p>☀</p>", 80)) + "<p>阅读测试</p>";
+        var path = Path.Combine(_directory, "font-fallback.xhtml");
+        await File.WriteAllTextAsync(path, "<html><body>" + body + "</body></html>");
+        var systemKey = TypesetFontLibrary.SystemFontKey(face.Family);
+        await host.Configure(new ReaderLayoutSettings(FontFamily: systemKey), 0, null, false, false);
+        var loaded = NextNavigation(host);
+        host.Navigate(new Uri(path));
+        Assert.True(await loaded.WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.Contains(Layout(host).Pages.SelectMany(page => page.Runs), run => run.FontPath == systemKey);
+
+        var settings = new ReaderLayoutSettings(FontFamily: fontFamily);
+        if (navigate)
+        {
+            var next = Path.Combine(_directory, "font-fallback-next.xhtml");
+            await File.WriteAllTextAsync(next, "<html><body>" + body + "</body></html>");
+            loaded = NextNavigation(host);
+            host.Navigate(new Uri(next), settings, false);
+            Assert.True(await loaded.WaitAsync(TimeSpan.FromSeconds(10)));
+        }
+        else await host.Configure(settings, 0, null, false, false);
+
+        var layout = Layout(host);
+        Assert.True(layout.Pages.Count > 1);
+        Assert.DoesNotContain(layout.Pages[0].Runs, run => run.FontPath == systemKey);
+        Assert.Contains(layout.Pages.Skip(1).SelectMany(page => page.Runs), run => run.FontPath == systemKey);
+        Assert.Contains(systemKey, fonts.LoadedSystemFontKeys);
+        using var surface = SKSurface.Create(new SKImageInfo(720, 540));
+        var painter = new TypesetPainter(fonts);
+        foreach (var page in layout.Pages) painter.Paint(surface.Canvas, page);
+
+        // Cached navigation/selection metadata and already painted blobs must
+        // not turn a formerly used platform face into a permanent fallback.
+        var clean = Path.Combine(_directory, "font-no-fallback.xhtml");
+        await File.WriteAllTextAsync(clean, "<html><body><p>☀</p></body></html>");
+        loaded = NextNavigation(host);
+        host.Navigate(new Uri(clean));
+        Assert.True(await loaded.WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.Empty(fonts.LoadedSystemFontKeys);
+        painter.Paint(surface.Canvas, Layout(host).Pages[0]);
+    });
+
     [Fact]
     public Task LongChapterSettingsRemainResponsiveAndLatestRequestWins() => Run(async () =>
     {

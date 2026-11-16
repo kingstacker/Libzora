@@ -68,7 +68,7 @@ public partial class ReaderPage
         var sheet = new SearchSheet(SearchBookAsync, hit => _ = JumpToSearchHitAsync(hit), query,
             searchImmediately: !string.IsNullOrWhiteSpace(query));
         SearchButton.Focus();
-        _shell.ShowSheet("搜索", sheet, ThemeScope.RequestedThemeVariant, () =>
+        _shell.ShowSheet(UiText.Get("搜索"), sheet, ThemeScope.RequestedThemeVariant, () =>
         {
             _lastSearch = sheet.Query;
             ReaderSearchBox.Text = _lastSearch;
@@ -85,17 +85,17 @@ public partial class ReaderPage
         {
             if (_pdfText is null)
             {
-                progress.Report("正在读取 PDF 文字…");
+                progress.Report(UiText.Get("正在读取 PDF 文字…"));
                 _pdfText = await new PdfTextService().ExtractAsync(
                     _modules.Library.Books.GetAbsoluteFilePath(_bookFile), token);
             }
             return PdfTextService.Search(_pdfText, query, MaxSearchResults, token)
-                .Select(result => new SearchHit($"第 {result.PageNumber} 页", result.Excerpt, query, result))
+                .Select(result => new SearchHit(UiText.Get("第 {0} 页", result.PageNumber), result.Excerpt, query, result))
                 .ToList();
         }
 
         if (_epubDocument is not { } document) return [];
-        progress.Report("正在搜索全书，第一次需要建立索引…");
+        progress.Report(UiText.Get("正在搜索全书，第一次需要建立索引…"));
         await _modules.Reader.Content.EnsureIndexedAsync(_book, _bookFile, document, token);
         var chunks = await _modules.Reader.Data.SearchBookAsync(
             _book.Id, query, MaxSearchResults, token, exactPhraseOnly: true, bookFileId: _bookFile.Id);
@@ -103,7 +103,7 @@ public partial class ReaderPage
             .OrderBy(chunk => chunk.ChapterIndex)
             .ThenBy(chunk => chunk.StartOffset)
             .Select(chunk => new SearchHit(
-                string.IsNullOrWhiteSpace(chunk.ChapterTitle) ? $"第 {chunk.ChapterIndex + 1} 章" : chunk.ChapterTitle,
+                string.IsNullOrWhiteSpace(chunk.ChapterTitle) ? UiText.Get("第 {0} 章", chunk.ChapterIndex + 1) : chunk.ChapterTitle,
                 Excerpt(chunk.Content, query),
                 query,
                 chunk))
@@ -184,7 +184,7 @@ public partial class ReaderPage
         }
         if (_shell.Services is not { CreateTtsEngine: { } createEngine, CreateTtsPlayer: { } createPlayer })
         {
-            _shell.ShowToast("这台设备不支持朗读");
+            _shell.ShowToast(UiText.Get("这台设备不支持朗读"));
             return;
         }
 
@@ -197,7 +197,7 @@ public partial class ReaderPage
             SpeechBar.IsVisible = !_usesNativeFrontend;
             SpeechDock.IsVisible = false;
             if (!_usesNativeFrontend) ScheduleSpeechDock();
-            SpeechStatusText.Text = "正在准备朗读…";
+            SpeechStatusText.Text = UiText.Get("正在准备朗读…");
             var settings = await _modules.Reader.TtsSettings.LoadAsync(_lifetime.Token);
             settings.AudioFormat = "wav";
             await _tts.StartAsync(settings, _lifetime.Token);
@@ -211,7 +211,7 @@ public partial class ReaderPage
             _speechExpanded = false;
             SpeechBar.IsVisible = false;
             SpeechDock.IsVisible = false;
-            _shell.ShowToast("朗读失败：" + UiText.Localize(exception.Message));
+            _shell.ShowToast(UiText.Get("朗读失败：{0}", UiText.Localize(exception.Message)));
         }
     }
 
@@ -307,24 +307,30 @@ public partial class ReaderPage
         }
         SpeechBar.IsVisible = !_usesNativeFrontend && active && _speechExpanded;
         SpeechDock.IsVisible = !_usesNativeFrontend && active && !_speechExpanded;
-        ListenLabel.Text = active ? "停止" : "听书";
+        RefreshSpeechUiText(e.State, e.SegmentIndex, e.SegmentCount);
         if (this.TryFindResource(e.State == TtsPlaybackState.Paused ? "IconPlay" : "IconPause", out var icon)
             && icon is Avalonia.Media.Geometry geometry)
         {
             SpeechPauseIcon.Data = geometry;
         }
-        SpeechStatusText.Text = e.State switch
+        if (e.State == TtsPlaybackState.Error && !string.IsNullOrWhiteSpace(e.Message))
+            _shell.ShowToast(UiText.Get("朗读失败：{0}", UiText.Localize(e.Message)));
+        NotifyNativeState();
+    }
+
+    private void RefreshSpeechUiText(TtsPlaybackState state, int segmentIndex, int segmentCount)
+    {
+        var active = state is not (TtsPlaybackState.Stopped or TtsPlaybackState.Error);
+        ListenLabel.Text = active ? UiText.Get("停止") : UiText.Get("听书");
+        SpeechStatusText.Text = state switch
         {
-            TtsPlaybackState.Generating or TtsPlaybackState.Playing => e.SegmentCount > 0
-                ? $"朗读中 {e.SegmentIndex}/{e.SegmentCount}"
-                : "正在准备朗读…",
-            TtsPlaybackState.Paused => "已暂停",
-            TtsPlaybackState.AdvancingChapter => _isPdf ? "翻到下一页…" : "翻到下一章…",
+            TtsPlaybackState.Generating or TtsPlaybackState.Playing => segmentCount > 0
+                ? UiText.Get("朗读中 {0}/{1}", segmentIndex, segmentCount)
+                : UiText.Get("正在准备朗读…"),
+            TtsPlaybackState.Paused => UiText.Get("已暂停"),
+            TtsPlaybackState.AdvancingChapter => _isPdf ? UiText.Get("翻到下一页…") : UiText.Get("翻到下一章…"),
             _ => string.Empty
         };
-        if (e.State == TtsPlaybackState.Error && !string.IsNullOrWhiteSpace(e.Message))
-            _shell.ShowToast("朗读失败：" + UiText.Localize(e.Message));
-        NotifyNativeState();
     }
 
     private void OnSpeechDockClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
@@ -359,17 +365,17 @@ public partial class ReaderPage
             using var engine = createEngine();
             var voices = await engine.GetVoicesAsync(_lifetime.Token);
             if (_disposed) return;
-            _shell.ShowSheet("朗读设置", new SpeechSettingsSheet(
+            _shell.ShowSheet(UiText.Get("朗读设置"), new SpeechSettingsSheet(
                 _modules.Reader.TtsSettings, settings, voices,
-                () => { _shell.HideSheet(); _shell.ShowToast("朗读设置已保存"); },
-                message => _shell.ShowToast(message)), ThemeScope.RequestedThemeVariant);
+                () => { _shell.HideSheet(); _shell.ShowToast(UiText.Get("朗读设置已保存")); },
+                message => _shell.ShowToast(UiText.Localize(message))), ThemeScope.RequestedThemeVariant);
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
         {
         }
         catch (Exception exception)
         {
-            _shell.ShowToast("无法获取系统语音：" + UiText.Localize(exception.Message));
+            _shell.ShowToast(UiText.Get("无法获取系统语音：{0}", UiText.Localize(exception.Message)));
         }
     }
 
@@ -388,7 +394,7 @@ public partial class ReaderPage
     private void ShowAssistant(string? selection)
     {
         HideSelectionBar();
-        _shell.ShowSheet("AI 助手", new AiSheet(_modules, _shell, _book, CurrentPageText, selection),
+        _shell.ShowSheet(UiText.Get("AI 助手"), new AiSheet(_modules, _shell, _book, CurrentPageText, selection),
             ThemeScope.RequestedThemeVariant);
     }
 
@@ -408,18 +414,18 @@ public partial class ReaderPage
     private async Task TranslateAsync(string text)
     {
         HideSelectionBar();
-        var sheet = new InfoSheet("正在翻译…", text);
-        _shell.ShowSheet("翻译", sheet, ThemeScope.RequestedThemeVariant);
+        var sheet = new InfoSheet(UiText.Get("正在翻译…"), text);
+        _shell.ShowSheet(UiText.Get("翻译"), sheet, ThemeScope.RequestedThemeVariant);
         try
         {
             var chinese = text.Count(character => character is >= '一' and <= '鿿');
             var target = chinese * 3 > text.Length ? "en" : "zh-CN";
             var ai = await _modules.Ai.Settings.LoadAsync(_lifetime.Token);
-            if (!ai.IsConfigured) throw new InvalidOperationException("请先配置模型服务地址和模型；远程服务还需要 API Key。");
-            if (!ai.IsLocalEndpoint && !await _shell.ConfirmAsync("发送文本进行翻译",
-                $"所选正文将发送至 {ai.Destination} 进行翻译，可能产生服务费用。请勿发送无权提供的个人信息或保密内容。", "同意并翻译")) return;
+            if (!ai.IsConfigured) throw new InvalidOperationException(UiText.Get("请先配置模型服务地址和模型；远程服务还需要 API Key。"));
+            if (!ai.IsLocalEndpoint && !await _shell.ConfirmAsync(UiText.Get("发送文本进行翻译"),
+                UiText.Get("所选正文将发送至 {0} 进行翻译，可能产生服务费用。请勿发送无权提供的个人信息或保密内容。", ai.Destination), UiText.Get("同意并翻译"))) return;
             _lifetime.Token.ThrowIfCancellationRequested();
-            _shell.ShowSheet("翻译", sheet, ThemeScope.RequestedThemeVariant);
+            _shell.ShowSheet(UiText.Get("翻译"), sheet, ThemeScope.RequestedThemeVariant);
             var provider = ReaderTranslationProvider.Ai;
             var translated = await _modules.Ai.Translation.TranslateAsync(text, provider, target, ai, _lifetime.Token);
             sheet.Present(translated, text);
@@ -429,7 +435,7 @@ public partial class ReaderPage
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
-            sheet.Present("翻译失败：" + UiText.Localize(exception.Message), text);
+            sheet.Present(UiText.Get("翻译失败：{0}", UiText.Localize(exception.Message)), text);
         }
     }
 

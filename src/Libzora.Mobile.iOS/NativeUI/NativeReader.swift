@@ -7,9 +7,9 @@ private enum ReaderPanel: String, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .toc: return "目录"; case .typography: return "阅读设置"
-        case .speech: return "朗读设置"; case .dictionary: return "本地词典"; case .assistant: return "AI 助手"
-        case .translation: return "翻译"; case .info: return "注释"
+        case .toc: return L("目录"); case .typography: return L("阅读设置")
+        case .speech: return L("朗读设置"); case .dictionary: return L("本地词典"); case .assistant: return L("AI 助手")
+        case .translation: return L("翻译"); case .info: return L("注释")
         }
     }
 }
@@ -102,7 +102,7 @@ struct NativeReaderPage: View {
             readerContent.allowsHitTesting(!showingSearchResults).accessibilityHidden(showingSearchResults)
             if showingSearchResults {
                 Button(action: dismissSearchResults) { Color.black.opacity(0.08).ignoresSafeArea() }
-                    .buttonStyle(.plain).accessibilityLabel("收起搜索结果")
+                    .buttonStyle(.plain).accessibilityLabel(L("收起搜索结果"))
                     .accessibilityIdentifier("reader.search.dismiss")
             }
             VStack(spacing: 8) {
@@ -112,7 +112,7 @@ struct NativeReaderPage: View {
                         HStack(spacing: 6) {
                             Image(systemName: "arrow.uturn.backward")
                                 .font(.system(size: 12, weight: .semibold))
-                            Text("返回原文").font(NativeTheme.font(13))
+                            Text(L("返回原文")).font(NativeTheme.font(13))
                         }
                         .padding(.horizontal, 14)
                         .frame(height: 34)
@@ -145,7 +145,7 @@ struct NativeReaderPage: View {
                     NavigationView {
                         panelContent(panel)
                             .navigationTitle(panel == .toc ? book.title : panel.title).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
-                            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("完成") { self.panel = nil } } }
+                            .toolbar { ToolbarItem(placement: .cancellationAction) { Button(L("完成")) { self.panel = nil } } }
                     }.navigationViewStyle(.stack)
                         .modifier(NativeReaderTocSheetBackground(
                             enabled: panel == .toc, paper: paper,
@@ -162,7 +162,7 @@ struct NativeReaderPage: View {
             NavigationView {
                 panelContent(panel)
                     .navigationTitle(panel.title).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
-                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("完成") { self.panel = nil } } }
+                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button(L("完成")) { self.panel = nil } } }
             }
             .navigationViewStyle(.stack)
             .background(NativeTheme.page.ignoresSafeArea())
@@ -252,7 +252,7 @@ struct NativeReaderPage: View {
                 VStack(spacing: 16) {
                     Text(book.title).font(NativeTheme.font(21, relativeTo: .title2)).multilineTextAlignment(.center)
                     if let error = reader.error { Text(error).foregroundStyle(NativeTheme.secondary).multilineTextAlignment(.center) }
-                    else { ProgressView("正在打开书籍…") }
+                    else { ProgressView(L("正在打开书籍…")) }
                 }.padding(32).frame(maxWidth: .infinity, maxHeight: .infinity).background(paper)
             }
             VStack(spacing: 0) {
@@ -324,7 +324,7 @@ struct NativeReaderPage: View {
                             Color.black.opacity(0.03).ignoresSafeArea()
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("关闭注释")
+                        .accessibilityLabel(L("关闭注释"))
                         NativeReaderFootnoteCard(
                             footnote: footnote,
                             cardWidth: NativeFootnoteCardLayout.width(in: geometry.size),
@@ -396,10 +396,10 @@ struct NativeReaderPage: View {
                 closing = true
                 Task { await store.closeReader(); closing = false }
             } label: { Group { if closing { ProgressView() } else { Image(systemName: "chevron.left") } }.frame(width: 44, height: 44) }
-                .disabled(closing).accessibilityLabel("退出阅读").accessibilityIdentifier("reader.close")
+                .disabled(closing).accessibilityLabel(L("退出阅读")).accessibilityIdentifier("reader.close")
             ZStack(alignment: .trailing) {
                 if searching {
-                    NativeSearchField(text: $searchQuery, prompt: "搜索全书", focused: $searchFocused,
+                    NativeSearchField(text: $searchQuery, prompt: L("搜索全书"), focused: $searchFocused,
                                       identifier: "reader.search.query", submit: submitSearch)
                         .transition(.move(edge: .trailing).combined(with: .opacity))
                 } else {
@@ -408,17 +408,17 @@ struct NativeReaderPage: View {
             }.frame(maxWidth: .infinity, minHeight: 44).padding(.horizontal, 2).clipped()
             if searching {
                 Button(action: closeSearch) { Image(systemName: "xmark").font(.system(size: 15)).frame(width: 44, height: 44) }
-                    .accessibilityLabel("关闭搜索").accessibilityIdentifier("reader.search.close")
+                    .accessibilityLabel(L("关闭搜索")).accessibilityIdentifier("reader.search.close")
             } else {
                 Button {
                     withAnimation(.easeOut(duration: 0.2)) { searching = true }
                     searchFocused = true
                 } label: {
                     Image(systemName: "magnifyingglass").frame(width: 44, height: 44)
-                }.disabled(!reader.ready).accessibilityLabel("搜索全书").accessibilityIdentifier("reader.search")
+                }.disabled(!reader.ready).accessibilityLabel(L("搜索全书")).accessibilityIdentifier("reader.search")
             }
             Button { run("bookmark") } label: { Image(systemName: reader.bookmark ? "bookmark.fill" : "bookmark").frame(width: 44, height: 44) }
-                .disabled(!reader.ready).accessibilityLabel("书签").accessibilityIdentifier("reader.bookmark")
+                .disabled(!reader.ready).accessibilityLabel(L("书签")).accessibilityIdentifier("reader.bookmark")
         }.font(.system(size: 19, weight: .regular)).buttonStyle(.plain).padding(4)
             .modifier(NativeFloatingSurface())
             .accessibilityElement(children: .contain).accessibilityIdentifier("reader.topToolbar")
@@ -429,18 +429,19 @@ struct NativeReaderPage: View {
             HStack { Text(reader.chapter).lineLimit(1); Spacer(); Text("\(seekProgress, specifier: "%.0f")%") }
                 .font(NativeTheme.font(13)).foregroundStyle(NativeTheme.secondary)
             HStack(spacing: 0) {
-                Button { run("chapter", ["direction": -1]) } label: { Image(systemName: "backward.end").frame(width: 36, height: 44) }.accessibilityLabel("上一章或上一页")
+                Button { run("chapter", ["direction": -1]) } label: { Image(systemName: "backward.end").frame(width: 36, height: 44) }.accessibilityLabel(L("上一章或上一页"))
                 Slider(value: $seekProgress, in: 0...100, onEditingChanged: { editing in
                     dragging = editing
                     if !editing { run("seek", ["progress": seekProgress]) }
-                }).accessibilityLabel("阅读进度").accessibilityIdentifier("reader.progress")
-                Button { run("chapter", ["direction": 1]) } label: { Image(systemName: "forward.end").frame(width: 36, height: 44) }.accessibilityLabel("下一章或下一页")
+                }).accessibilityLabel(L("阅读进度")).accessibilityIdentifier("reader.progress")
+                Button { run("chapter", ["direction": 1]) } label: { Image(systemName: "forward.end").frame(width: 36, height: 44) }.accessibilityLabel(L("下一章或下一页"))
             }.font(.system(size: 17, weight: .regular)).buttonStyle(.plain).padding(.horizontal, -10).padding(.top, 2)
             HStack(spacing: 0) {
-                tool("目录", "list.bullet") { panel = .toc }
-                tool(reader.speechState == 0 || reader.speechState == 4 ? "听书" : "停止", "headphones") { run("speech") }
-                tool("AI", "sparkles") { selectedText = ""; panel = .assistant }
-                tool(reader.isPdf ? "显示" : "排版", "Aa") { panel = .typography }
+                tool(L("目录"), "list.bullet", identifier: "reader.目录") { panel = .toc }
+                tool(reader.speechState == 0 || reader.speechState == 4 ? L("听书") : L("停止"), "headphones",
+                     identifier: reader.speechState == 0 || reader.speechState == 4 ? "reader.听书" : "reader.停止") { run("speech") }
+                tool("AI", "sparkles", identifier: "reader.AI") { selectedText = ""; panel = .assistant }
+                tool(reader.isPdf ? L("显示") : L("排版"), "Aa", identifier: reader.isPdf ? "reader.显示" : "reader.排版") { panel = .typography }
             }
         }.padding(.horizontal, 18).padding(.top, 14).padding(.bottom, 6)
             .modifier(NativeFloatingSurface())
@@ -451,22 +452,22 @@ struct NativeReaderPage: View {
         GeometryReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 0) {
-                    selectionAction("复制", "doc.on.doc") {
-                        UIPasteboard.general.string = text; run("clearSelection"); store.showToast("已复制")
+                    selectionAction(L("复制"), "doc.on.doc", identifier: "reader.复制") {
+                        UIPasteboard.general.string = text; run("clearSelection"); store.showToast(L("已复制"))
                     }
-                    selectionAction("划线", "underline") { run("annotate") }
-                    selectionAction("笔记", "square.and.pencil") { beginNote(text) }
-                    selectionAction("搜索", "magnifyingglass") {
+                    selectionAction(L("划线"), "underline", identifier: "reader.划线") { run("annotate") }
+                    selectionAction(L("笔记"), "square.and.pencil", identifier: "reader.笔记") { beginNote(text) }
+                    selectionAction(L("搜索"), "magnifyingglass", identifier: "reader.搜索") {
                         store.perform {
                             try await store.command("reader.clearSelection")
                             try await store.command("reader.showChrome")
                             searching = true; searchQuery = text; submitSearch()
                         }
                     }
-                    selectionAction("词典", "book.closed") { selectedText = text; panel = .dictionary }
-                    selectionAction("AI", "sparkles") { selectedText = text; panel = .assistant }
-                    selectionAction("翻译", "character.bubble") { selectedText = text; panel = .translation }
-                    selectionAction("朗读", "speaker.wave.2") { run("selectionSpeech") }
+                    selectionAction(L("词典"), "book.closed", identifier: "reader.词典") { selectedText = text; panel = .dictionary }
+                    selectionAction("AI", "sparkles", identifier: "reader.AI") { selectedText = text; panel = .assistant }
+                    selectionAction(L("翻译"), "character.bubble", identifier: "reader.翻译") { selectedText = text; panel = .translation }
+                    selectionAction(L("朗读"), "speaker.wave.2", identifier: "reader.朗读") { run("selectionSpeech") }
                 }
                 .padding(4)
                 // Keep the icon row centred when the capsule is wider than
@@ -479,13 +480,13 @@ struct NativeReaderPage: View {
         .shadow(color: .black.opacity(0.12), radius: 12, y: 5)
         .accessibilityElement(children: .contain).accessibilityIdentifier("reader.selection.toolbar")
     }
-    private func selectionAction(_ title: String, _ symbol: String, action: @escaping () -> Void) -> some View {
+    private func selectionAction(_ title: String, _ symbol: String, identifier: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol).font(.system(size: 19, weight: .regular))
                 .frame(width: 44, height: 44, alignment: .center).contentShape(Rectangle())
-        }.buttonStyle(.plain).accessibilityLabel(title).accessibilityIdentifier("reader.\(title)")
+        }.buttonStyle(.plain).accessibilityLabel(title).accessibilityIdentifier(identifier)
     }
-    private func tool(_ title: String, _ image: String, action: @escaping () -> Void) -> some View {
+    private func tool(_ title: String, _ image: String, identifier: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(spacing: 2) {
                 if image == "Aa" { Text("Aa").font(NativeTheme.font(16)).frame(height: 21) }
@@ -493,7 +494,7 @@ struct NativeReaderPage: View {
                 Text(title).font(NativeTheme.font(11, relativeTo: .caption2))
             }.frame(maxWidth: .infinity).frame(minHeight: 52).contentShape(Rectangle())
         }
-            .buttonStyle(.plain).accessibilityIdentifier("reader.\(title)")
+            .buttonStyle(.plain).accessibilityIdentifier(identifier)
     }
     @ViewBuilder private func panelContent(_ panel: ReaderPanel) -> some View {
         switch panel {
@@ -531,7 +532,7 @@ struct NativeTypography: View {
         let key = store.preferences.readerFontFamily
         if let option = fontOptions.first(where: { $0.key == key }) { return option.name }
         if key.hasPrefix("system:") { return String(key.dropFirst("system:".count)) }
-        if key.hasPrefix("catalog:") { return "已下载字体" }
+        if key.hasPrefix("catalog:") { return L("已下载字体") }
         return "京华老宋体"
     }
     private func preference<Value>(_ key: WritableKeyPath<MobilePreferences, Value>) -> Binding<Value> {
@@ -551,26 +552,26 @@ struct NativeTypography: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 4) {
-                row("纸张") {
-                    Picker("纸张", selection: paperSelection) {
-                        Text("跟随").tag(-1); Text("白").tag(0); Text("米").tag(1); Text("黑").tag(5)
+                row(L("纸张")) {
+                    Picker(L("纸张"), selection: paperSelection) {
+                        Text(L("跟随")).tag(-1); Text(L("白")).tag(0); Text(L("米")).tag(1); Text(L("黑")).tag(5)
                     }.pickerStyle(.segmented).accessibilityIdentifier("typography.paper")
                 }
-                row("翻页动画") {
-                    Picker("翻页动画", selection: preference(\.readerPageAnimation)) { Text("无").tag(0); Text("淡入").tag(1); Text("滑动").tag(2); Text("墨水").tag(3) }.pickerStyle(.segmented)
+                row(L("翻页动画")) {
+                    Picker(L("翻页动画"), selection: preference(\.readerPageAnimation)) { Text(L("无")).tag(0); Text(L("淡入")).tag(1); Text(L("滑动")).tag(2); Text(L("墨水")).tag(3) }.pickerStyle(.segmented)
                 }
-                row("底部进度") {
-                    Picker("底部进度", selection: preference(\.readerProgressDisplay)) {
-                        Text("页码").tag(0); Text("章节").tag(1)
-                        Text("剩余时间").tag(3)
+                row(L("底部进度")) {
+                    Picker(L("底部进度"), selection: preference(\.readerProgressDisplay)) {
+                        Text(L("页码")).tag(0); Text(L("章节")).tag(1)
+                        Text(L("剩余时间")).tag(3)
                     }.pickerStyle(.segmented).accessibilityIdentifier("typography.progressDisplay")
                 }
                 if isPdf {
-                    row("缩放") {
-                        Picker("缩放", selection: preference(\.pdfZoom)) { Text("整页").tag(1.0); Text("1.5 倍").tag(1.5); Text("2 倍").tag(2.0) }.pickerStyle(.segmented)
+                    row(L("缩放")) {
+                        Picker(L("缩放"), selection: preference(\.pdfZoom)) { Text(L("整页")).tag(1.0); Text(L("1.5 倍")).tag(1.5); Text(L("2 倍")).tag(2.0) }.pickerStyle(.segmented)
                     }
                 } else {
-                    row("正文字体") {
+                    row(L("正文字体")) {
                         Button { fontPicker = true } label: {
                             HStack(spacing: 8) {
                                 Text(currentFontName).lineLimit(1)
@@ -585,34 +586,34 @@ struct NativeTypography: View {
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("typography.fontFamily")
                     }
-                    row("字号") {
+                    row(L("字号")) {
                         HStack(spacing: 0) {
                             Button { changeFont(-0.1) } label: { Text("A−").frame(width: 44, height: 44) }
-                                .disabled(store.preferences.readerFontScale <= 0.8).accessibilityLabel("减小字号")
+                                .disabled(store.preferences.readerFontScale <= 0.8).accessibilityLabel(L("减小字号"))
                             Text("\(store.preferences.readerFontScale * 100, specifier: "%.0f")%")
                                 .monospacedDigit().frame(maxWidth: .infinity).accessibilityIdentifier("typography.fontScale")
                             Button { changeFont(0.1) } label: { Text("A+").frame(width: 44, height: 44) }
-                                .disabled(store.preferences.readerFontScale >= 1.8).accessibilityLabel("增大字号")
+                                .disabled(store.preferences.readerFontScale >= 1.8).accessibilityLabel(L("增大字号"))
                         }.buttonStyle(.plain).background(NativeTheme.sunk, in: Capsule())
                     }
-                    row("行距") {
-                        Picker("行距", selection: preference(\.readerLineHeight)) { Text("紧凑").tag(1.5); Text("标准").tag(1.75); Text("宽松").tag(2.1) }
+                    row(L("行距")) {
+                        Picker(L("行距"), selection: preference(\.readerLineHeight)) { Text(L("紧凑")).tag(1.5); Text(L("标准")).tag(1.75); Text(L("宽松")).tag(2.1) }
                             .pickerStyle(.segmented).accessibilityIdentifier("typography.lineHeight")
                     }
-                    row("段间距") {
-                        Picker("段间距", selection: preference(\.readerParagraphSpacing)) { Text("紧凑").tag(0.0); Text("标准").tag(0.5); Text("宽松").tag(1.0) }
+                    row(L("段间距")) {
+                        Picker(L("段间距"), selection: preference(\.readerParagraphSpacing)) { Text(L("紧凑")).tag(0.0); Text(L("标准")).tag(0.5); Text(L("宽松")).tag(1.0) }
                             .pickerStyle(.segmented).accessibilityIdentifier("typography.paragraphSpacing")
                     }
-                    row("页边距") {
-                        Picker("页边距", selection: preference(\.readerBodyPadding)) { Text("窄").tag(16.0); Text("标准").tag(24.0); Text("宽").tag(36.0) }.pickerStyle(.segmented)
+                    row(L("页边距")) {
+                        Picker(L("页边距"), selection: preference(\.readerBodyPadding)) { Text(L("窄")).tag(16.0); Text(L("标准")).tag(24.0); Text(L("宽")).tag(36.0) }.pickerStyle(.segmented)
                     }
-                    row("首行缩进") {
-                        Picker("首行缩进", selection: preference(\.readerParagraphIndent)) {
-                            Text("关").tag(false); Text("开").tag(true)
+                    row(L("首行缩进")) {
+                        Picker(L("首行缩进"), selection: preference(\.readerParagraphIndent)) {
+                            Text(L("关")).tag(false); Text(L("开")).tag(true)
                         }.pickerStyle(.segmented).accessibilityIdentifier("typography.indent")
                     }
-                    row("排版方向") {
-                        Picker("排版方向", selection: preference(\.readerVerticalWriting)) { Text("横排").tag(false); Text("竖排").tag(true) }
+                    row(L("排版方向")) {
+                        Picker(L("排版方向"), selection: preference(\.readerVerticalWriting)) { Text(L("横排")).tag(false); Text(L("竖排")).tag(true) }
                             .pickerStyle(.segmented).accessibilityIdentifier("typography.direction")
                     }
                 }
@@ -658,16 +659,16 @@ private struct NativeReaderFontPicker: View {
                 if loading {
                     HStack(spacing: 10) {
                         ProgressView()
-                        Text("正在读取字体…").font(NativeTheme.font(13)).foregroundStyle(NativeTheme.muted)
+                        Text(L("正在读取字体…")).font(NativeTheme.font(13)).foregroundStyle(NativeTheme.muted)
                     }
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
                 } else {
-                    if !builtinOptions.isEmpty { section("内置字体", builtinOptions) }
-                    if !systemOptions.isEmpty { section("系统字体", systemOptions) }
-                    if !downloadOptions.isEmpty { section("可下载字体", downloadOptions) }
+                    if !builtinOptions.isEmpty { section(L("内置字体"), builtinOptions) }
+                    if !systemOptions.isEmpty { section(L("系统字体"), systemOptions) }
+                    if !downloadOptions.isEmpty { section(L("可下载字体"), downloadOptions) }
                     Section {
-                        Text("可下载字体均以 SIL OFL 1.1 授权，可免费商用。字体只保存在本机，许可文本随应用附带。")
+                        Text(L("可下载字体均以 SIL OFL 1.1 授权，可免费商用。字体只保存在本机，许可文本随应用附带。"))
                             .font(NativeTheme.font(11, relativeTo: .caption2))
                             .foregroundStyle(NativeTheme.muted)
                             .listRowBackground(Color.clear)
@@ -682,17 +683,17 @@ private struct NativeReaderFontPicker: View {
             }
             .listStyle(.plain)
             .accessibilityIdentifier("fontPicker.list")
-            .navigationTitle("正文字体")
+            .navigationTitle(L("正文字体"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("完成", action: close).accessibilityIdentifier("fontPicker.done")
+                    Button(L("完成"), action: close).accessibilityIdentifier("fontPicker.done")
                 }
             }
         }
         .navigationViewStyle(.stack)
         .font(NativeTheme.font()).foregroundStyle(NativeTheme.ink).tint(NativeTheme.ink)
-        .task { await load() }
+        .task(id: store.uiLanguage) { await load() }
     }
 
     @ViewBuilder private func section(_ title: String, _ items: [ReaderFontOption]) -> some View {
@@ -732,6 +733,7 @@ private struct NativeReaderFontPicker: View {
         .buttonStyle(.plain)
         .disabled(busyKey != nil)
         .accessibilityIdentifier("fontPicker.option.\(option.key)")
+        .accessibilityAddTraits(option.installed && option.key == store.preferences.readerFontFamily ? .isSelected : [])
     }
 
     private func previewFont(_ option: ReaderFontOption, size: CGFloat) -> Font {
@@ -776,7 +778,7 @@ private struct NativeReaderFontPicker: View {
                 CTFontManagerRegisterFontsForURL(URL(fileURLWithPath: install.path) as CFURL, .process, nil)
                 await load()
                 apply(install.key)
-                store.showToast("已下载并应用 \(option.name)")
+                store.showToast(L("已下载并应用 {0}", option.name))
                 close()
             } catch {
                 self.error = error.localizedDescription
@@ -799,9 +801,9 @@ private struct NativeTypographyPanel: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text(isPdf ? "显示设置" : "阅读设置").font(NativeTheme.font(17, relativeTo: .headline))
+                Text(isPdf ? L("显示设置") : L("阅读设置")).font(NativeTheme.font(17, relativeTo: .headline))
                 Spacer()
-                Button("完成", action: close).font(NativeTheme.font(14)).frame(minWidth: 44, minHeight: 44)
+                Button(L("完成"), action: close).font(NativeTheme.font(14)).frame(minWidth: 44, minHeight: 44)
                     .accessibilityIdentifier("typography.done")
             }.buttonStyle(.plain).padding(.horizontal, 24).padding(.top, 8)
             NativeTypography(store: store, isPdf: isPdf)
@@ -884,7 +886,7 @@ struct NativeReaderTocView: View {
                                 Image(systemName: collapsed.contains(item.id) ? "chevron.right" : "chevron.down")
                                     .font(.system(size: 12, weight: .medium)).frame(width: 32, height: 44)
                             }
-                            .accessibilityLabel("\(collapsed.contains(item.id) ? "展开" : "收起")\(item.title)的子章节")
+                            .accessibilityLabel(L("{0}{1}的子章节", collapsed.contains(item.id) ? L("展开") : L("收起"), item.title))
                             .accessibilityIdentifier("reader.toc.toggle.\(item.id)")
                         } else if !parentIDs.isEmpty {
                             Color.clear.frame(width: 32, height: 1)
@@ -930,12 +932,12 @@ struct NativeReaderTocView: View {
                     } label: {
                         Image(systemName: allCollapsed ? "chevron.down" : "chevron.up")
                     }
-                    .accessibilityLabel(allCollapsed ? "展开全部子目录" : "收起全部子目录")
+                    .accessibilityLabel(allCollapsed ? L("展开全部子目录") : L("收起全部子目录"))
                     .accessibilityIdentifier("reader.toc.toggleAll")
                 }
             }
         }
-        .task { do { items = try await store.request("reader.toc") } catch { if !Task.isCancelled { store.failure = error.localizedDescription } } }
+        .task(id: store.uiLanguage) { do { items = try await store.request("reader.toc") } catch { if !Task.isCancelled { store.failure = error.localizedDescription } } }
     }
 }
 
@@ -982,6 +984,7 @@ private struct NativeReaderTocSheetBackground: ViewModifier {
 }
 
 struct NativeReaderSearchResults: View {
+    @Environment(\.locale) private var uiLocale
     @Environment(\.colorScheme) private var colorScheme
     let hits: [ReaderSearchHit]
     let query: String
@@ -991,11 +994,13 @@ struct NativeReaderSearchResults: View {
     let pick: (ReaderSearchHit) -> Void
     let close: () -> Void
     var body: some View {
+        let _ = uiLocale
+
         VStack(alignment: .leading, spacing: 0) {
             Group {
-                if busy { ProgressView("正在搜索全书…") }
+                if busy { ProgressView(L("正在搜索全书…")) }
                 else if let error { Text(error) }
-                else { Text(hits.isEmpty ? "没有找到相关文字" : "找到 \(hits.count) 处结果") }
+                else { Text(hits.isEmpty ? L("没有找到相关文字") : L("找到 {0} 处结果", hits.count)) }
             }.font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.muted)
                 .padding(.horizontal, 20).padding(.top, 14).padding(.bottom, 6).accessibilityIdentifier("reader.search.status")
             ScrollView {
@@ -1047,16 +1052,16 @@ struct NativeSpeechSettings: View {
     @State private var busy = false
     var body: some View {
         NativeForm {
-            Section("系统语音") {
-                Picker("语音", selection: $voice) {
-                    Text("系统默认（中文）").tag("zh-CN-XiaoxiaoNeural")
+            Section(L("系统语音")) {
+                Picker(L("语音"), selection: $voice) {
+                    Text(L("系统默认（中文）")).tag("zh-CN-XiaoxiaoNeural")
                     ForEach(voices) { item in Text(item.name + (item.culture.map { " · " + $0 } ?? "")).tag(item.id) }
                 }
-                Text("语音由设备提供，可以在系统设置中下载更多语音。").font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary)
+                Text(L("语音由设备提供，可以在系统设置中下载更多语音。")).font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary)
             }
-            Section("语速") { Text("\(speed, specifier: "%.1f")×"); Slider(value: $speed, in: 0.5...2, step: 0.1).accessibilityLabel("朗读语速") }
-            Section { Toggle("自动翻到下一章或下一页", isOn: $autoAdvance).tint(NativeTheme.systemSwitchTint); Text("设置在下次开始朗读时生效。").font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary) }
-            Button("保存") {
+            Section(L("语速")) { Text("\(speed, specifier: "%.1f")×"); Slider(value: $speed, in: 0.5...2, step: 0.1).accessibilityLabel(L("朗读语速")) }
+            Section { Toggle(L("自动翻到下一章或下一页"), isOn: $autoAdvance).tint(NativeTheme.systemSwitchTint); Text(L("设置在下次开始朗读时生效。")).font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary) }
+            Button(L("保存")) {
                 busy = true
                 store.perform { defer { busy = false }; try await store.command("settings.speech.save", ["voice": voice, "speed": speed, "autoAdvance": autoAdvance]); close() }
             }
@@ -1087,7 +1092,7 @@ private struct NativeFloatingNoteEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text("批注")
+                Text(L("批注"))
                     .font(NativeTheme.font(17, relativeTo: .headline))
                 Spacer(minLength: 0)
                 Button(action: close) {
@@ -1098,7 +1103,7 @@ private struct NativeFloatingNoteEditor: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("关闭")
+                .accessibilityLabel(L("关闭"))
                 .accessibilityIdentifier("reader.note.close")
             }
             Text(request.quote)
@@ -1117,17 +1122,17 @@ private struct NativeFloatingNoteEditor: View {
                 .accessibilityIdentifier("reader.note.text")
             HStack(spacing: 16) {
                 if isEditing {
-                    Button("删除", role: .destructive, action: delete)
+                    Button(L("删除"), role: .destructive, action: delete)
                         .disabled(busy)
                         .accessibilityIdentifier("reader.note.delete")
                 }
                 Spacer(minLength: 0)
-                Button("取消", action: close)
+                Button(L("取消"), action: close)
                     .buttonStyle(.plain)
                     .foregroundStyle(NativeTheme.secondary)
                     .accessibilityIdentifier("reader.note.cancel")
                 Button(action: save) {
-                    Text("保存")
+                    Text(L("保存"))
                         .font(NativeTheme.font(15, relativeTo: .body))
                         .foregroundStyle(NativeTheme.page)
                         .padding(.horizontal, 18)
@@ -1185,7 +1190,7 @@ struct NativeTranslation: View {
             VStack(alignment: .leading, spacing: 22) {
                 Text(text).foregroundStyle(NativeTheme.secondary).textSelection(.enabled)
                 Divider()
-                if let translated { Text(translated).textSelection(.enabled) } else { ProgressView("正在翻译…") }
+                if let translated { Text(translated).textSelection(.enabled) } else { ProgressView(L("正在翻译…")) }
             }.frame(maxWidth: .infinity, alignment: .leading).padding(24)
         }.task { do { let value: TextResult = try await store.request("reader.translate", ["text": text]); translated = value.text } catch { if !Task.isCancelled { translated = error.localizedDescription } } }
     }

@@ -4,6 +4,7 @@ import UIKit
 /// Keep playback reachable without leaving a full toolbar over the page.
 /// Only interactions restart the delay; speech progress can update freely.
 struct NativeReaderSpeechControls: View {
+    @Environment(\.locale) private var uiLocale
     let state: Int
     let status: String
     let suspended: Bool
@@ -29,6 +30,8 @@ struct NativeReaderSpeechControls: View {
     }
 
     var body: some View {
+        let _ = uiLocale
+
         ZStack(alignment: .trailing) {
             if expanded {
                 toolbar
@@ -79,10 +82,10 @@ struct NativeReaderSpeechControls: View {
                 interaction += 1
                 settings()
             } label: {
-                Text("设置").font(NativeTheme.font(12, relativeTo: .caption))
+                Text(L("设置")).font(NativeTheme.font(12, relativeTo: .caption))
                     .frame(width: 44, height: 44)
             }
-            .accessibilityLabel("朗读设置")
+            .accessibilityLabel(L("朗读设置"))
             .accessibilityIdentifier("reader.speech.settings")
             Button {
                 interaction += 1
@@ -91,7 +94,7 @@ struct NativeReaderSpeechControls: View {
                 Image(systemName: state == 3 ? "play.fill" : "pause.fill")
                     .frame(width: 44, height: 44)
             }
-            .accessibilityLabel(state == 3 ? "继续朗读" : "暂停朗读")
+            .accessibilityLabel(state == 3 ? L("继续朗读") : L("暂停朗读"))
             .accessibilityIdentifier("reader.speech.pause")
             Button {
                 interaction += 1
@@ -99,7 +102,7 @@ struct NativeReaderSpeechControls: View {
             } label: {
                 Image(systemName: "xmark").frame(width: 44, height: 44)
             }
-            .accessibilityLabel("停止朗读")
+            .accessibilityLabel(L("停止朗读"))
             .accessibilityIdentifier("reader.speech.stop")
         }
         .font(.system(size: 17, weight: .regular))
@@ -126,7 +129,7 @@ struct NativeReaderSpeechControls: View {
         .background(NativeSpeechDockShape().fill(NativeTheme.surface.opacity(0.97)))
         .overlay(NativeSpeechDockShape().stroke(NativeTheme.divider, lineWidth: 0.5))
         .shadow(color: .black.opacity(scheme == .dark ? 0.25 : 0.10), radius: 10, y: 4)
-        .accessibilityLabel("展开朗读控制")
+        .accessibilityLabel(L("展开朗读控制"))
         .accessibilityValue(status)
         .accessibilityIdentifier("reader.speech.dock")
     }

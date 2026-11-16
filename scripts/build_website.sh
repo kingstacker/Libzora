@@ -7,7 +7,6 @@ cd "$root"
 
 output="${1:-artifacts/website}"
 
-python3 scripts/generate_website_manual.py
 python3 scripts/refresh_website_release.py --allow-stale
 python3 scripts/generate_website_changelog.py --in-place
 # Stamp sitemap <lastmod> before the copy so the artifact carries fresh dates.

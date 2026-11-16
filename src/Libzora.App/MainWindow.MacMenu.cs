@@ -155,9 +155,6 @@ public partial class MainWindow
             T("键盘快捷键"),
             () => { _ = ShowKeyboardShortcutsAsync(); },
             new KeyGesture(Key.F1)));
-        items.Items.Add(MacMenuItem(
-            T("用户手册"),
-            () => OpenUserManualButton_Click(this, new RoutedEventArgs())));
         return new NativeMenuItem(T("帮助")) { Menu = items };
     }
 

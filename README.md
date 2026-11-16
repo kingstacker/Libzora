@@ -2,13 +2,15 @@
 
 [![Release](https://github.com/kingstacker/Libzora/actions/workflows/release.yml/badge.svg)](https://github.com/kingstacker/Libzora/actions/workflows/release.yml) [![Latest release](https://img.shields.io/github/v/release/kingstacker/Libzora)](https://github.com/kingstacker/Libzora/releases/latest)
 
-[Official website](https://libzora.stacker.beauty) · [Chinese user manual](https://libzora.stacker.beauty/manual/)
+[Official website](https://libzora.stacker.beauty)
 
 [简体中文](README.zh-CN.md) · **English**
 
 Libzora is a quiet, cross-platform ebook and Kindle manager built with Avalonia. It combines a local library, reading, annotations, AI assistance, format conversion, and Kindle transfer in one desktop app.
 
-![Libzora library](docs/images/主界面.png?v=20261004)
+![Libzora library on macOS with six public-domain books](website/assets/library-en.webp?v=20261116-public-domain)
+
+The desktop previews are captured from the macOS app and the mobile preview from the iOS app. The README library previews show the same six public-domain books from the local public-domain collection; English pages use the English app UI.
 
 ## Platform status
 
@@ -22,10 +24,10 @@ Libzora is a quiet, cross-platform ebook and Kindle manager built with Avalonia.
 
 ## Platform previews
 
-| macOS | iOS | Android |
-| :---: | :---: | :---: |
-| <img src="website/assets/macos-library.webp?v=20261106" alt="Libzora library on macOS" width="460"> | <img src="website/assets/ios-library.webp?v=20261106" alt="Libzora library on iOS" width="190"> | <img src="website/assets/android-library.webp?v=20261106" alt="Libzora library on Android" width="190"> |
-| Library | Library | Library |
+| macOS | iOS |
+| :---: | :---: |
+| <img src="website/assets/macos-library-en.webp?v=20261116-public-domain" alt="Libzora library on macOS" width="460"> | <img src="website/assets/ios-library-en.webp?v=20261116-public-domain" alt="Libzora library on iOS" width="190"> |
+| Library | Library |
 
 ## Features
 
@@ -110,7 +112,7 @@ bash scripts/build-macos-release.sh 1.1.3 artifacts/macos osx-x64
 bash scripts/build-macos-release.sh 1.1.3 artifacts/macos osx-universal
 ```
 
-Every command works on either architecture: the bundled libmtp and libusb are built from source for the target (cross-compiled with the macOS SDK when it differs from the host), so an Intel Mac can produce the arm64 package and vice versa. CI still uses native `macos-15` and `macos-15-intel` runners to keep builds fast.
+Every command works on either architecture: the bundled libmtp and libusb are built from source for the target (cross-compiled with the macOS SDK when it differs from the host), so an Intel Mac can produce the arm64 package and vice versa. CI uses `macos-26` for Apple Silicon and `macos-15-intel` for Intel, both pinned to Xcode 26.3; the ARM64 host image also matches the Icon Composer toolchain requirements.
 
 `osx-universal` produces a single `Libzora.app` that starts natively on both Intel and Apple Silicon. A self-contained .NET publish contains architecture-specific native and ReadyToRun assemblies that cannot be combined into one file set, so the bundle carries both complete payloads under `Contents/MacOS/x86_64` and `Contents/MacOS/arm64` and a universal launcher execs the matching one. Expect roughly twice the download size of a single-architecture package.
 

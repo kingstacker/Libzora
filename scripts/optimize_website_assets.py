@@ -3,11 +3,11 @@
 Produces:
   * lossless PNG re-encodes and full-size WebP versions of every screenshot
   * 640w / 1024w WebP variants for responsive ``srcset`` delivery
-  * a cropped library-grid screenshot used by the first feature block
+  * a separately captured library-grid screenshot for the first feature block
   * a 1200x630 social sharing card
-  * a 180x180 Apple touch icon
 
-Requires Pillow: ``python3 -m pip install pillow``.
+Shared app / Apple touch icons are managed by generate_app_icons.py, not here.
+Requires Pillow 11.3.0: ``python3 -m pip install Pillow==11.3.0``.
 """
 
 from __future__ import annotations
@@ -20,12 +20,19 @@ ROOT = Path(__file__).resolve().parents[1] / "website" / "assets"
 
 SCREENSHOTS = [
     "ai",
+    "ai-en",
     "kindle",
+    "kindle-en",
     "library",
+    "library-en",
+    "library-grid",
+    "library-grid-en",
     "reader",
+    "reader-en",
     "macos-library",
+    "macos-library-en",
     "ios-library",
-    "android-library",
+    "ios-library-en",
 ]
 RESPONSIVE_WIDTHS = (640, 1024)
 WEBP_QUALITY = 82
@@ -73,15 +80,9 @@ def main() -> None:
         assert list(Image.open(png).convert("RGB").getdata()) == list(original.getdata()), name
         print(f"{name}: png {before:.2f} -> {mb(png):.2f} MB | webp {mb(webp):.2f} MB")
 
-    # A distinct crop for the "local library" feature, so the page does not
-    # show the same full screenshot twice and the alt text ("grid view") matches.
-    # The 1294px-wide screenshot has a 236px sidebar; crop it away.
+    # library-grid.png is its own source capture. Do not overwrite it with an
+    # OS- and window-size-dependent crop of the hero screenshot.
     library = Image.open(ROOT / "library.png").convert("RGB")
-    grid = library.crop((237, 0, library.width, library.height))
-    grid.save(ROOT / "library-grid.png", "PNG", optimize=True, compress_level=9)
-    save_webp(grid, ROOT / "library-grid.webp")
-    build_responsive("library-grid", grid)
-    print(f"library-grid: {grid.width}x{grid.height} | webp {mb(ROOT / 'library-grid.webp'):.2f} MB")
 
     # Social sharing card (1200x630) derived from the library screenshot.
     card_width, card_height = 1200, 630
@@ -91,12 +92,6 @@ def main() -> None:
     card = card.crop((0, top, card_width, top + card_height))
     card.save(ROOT / "social-card.jpg", "JPEG", quality=82, optimize=True, progressive=True)
     print(f"social-card: {card.width}x{card.height} | {mb(ROOT / 'social-card.jpg'):.2f} MB")
-
-    icon = Image.open(ROOT / "libzora.png").convert("RGBA")
-    icon.resize((180, 180), Image.Resampling.LANCZOS).save(
-        ROOT / "apple-touch-icon.png", "PNG", optimize=True
-    )
-    print("apple-touch-icon: 180x180")
 
 
 if __name__ == "__main__":

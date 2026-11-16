@@ -276,6 +276,13 @@ a {
   background: var(--surface);
 }
 
+.shot-caption {
+  padding: 10px 14px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: var(--fs-meta);
+}
+
 /* 4 · Header ============================================================= */
 
 .site-header {
@@ -377,7 +384,7 @@ a {
 }
 
 .hero-copy {
-  max-width: 900px;
+  max-width: 1080px;
 }
 
 .hero h1 {
@@ -395,15 +402,18 @@ a {
 .hero-platforms {
   display: flex;
   flex-wrap: wrap;
+  align-items: flex-start;
   gap: 8px;
   margin-top: 30px;
 }
 
 .hero-platform {
   display: inline-flex;
-  align-items: baseline;
+  align-items: center;
+  min-height: 42px;
   gap: 9px;
   padding: 11px 16px;
+  border-radius: 6px;
   border: 1px solid var(--line-2);
   color: var(--ink-2);
   font-size: 14px;
@@ -448,6 +458,52 @@ a.hero-platform:focus-visible .hero-platform-arrow {
 
 .hero-platform.is-coming strong {
   font-weight: 400;
+}
+
+/* Package menus float below their trigger without changing the button row. */
+.hero-platforms { position: relative; scroll-margin-top: 100px; }
+.platform-download { position: relative; flex: 0 0 auto; }
+.platform-download > summary { cursor: pointer; list-style: none; white-space: nowrap; }
+.platform-download > summary::-webkit-details-marker { display: none; }
+.platform-download > summary:hover,
+.platform-download[open] > summary { border-color: var(--ink); background: #fff; }
+.platform-download > summary:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+.platform-download[open] > summary .hero-platform-arrow { transform: rotate(180deg); color: var(--ink); }
+.download-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 10px);
+  left: 0;
+  width: min(380px, calc(100vw - 48px));
+  padding: 20px;
+  border: 1px solid var(--line-2);
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 8px 16px rgb(0 0 0 / 4%), 0 24px 48px rgb(0 0 0 / 8%);
+}
+.download-menu .platform-note { margin: 0 0 16px; min-height: 0; font-size: 12px; line-height: 1.65; }
+.download-menu .asset-list { margin: 0 -8px -8px; }
+.download-menu .asset { padding: 14px 8px; border-color: var(--line); border-radius: 4px; }
+.download-menu .asset:last-child { border-bottom: 0; }
+.download-menu .asset:hover,
+.download-menu .asset:focus-visible { background: var(--bg-sunken); }
+.download-menu .asset-name { font-weight: 500; }
+.download-menu .asset-meta { margin-top: 5px; font-size: 10px; }
+.download-menu .release-bar { margin: 0; padding: 0 0 16px; border-top: 0; gap: 14px; }
+.download-menu #latest-version { font-size: 24px; }
+.download-menu .downloads-foot { margin-top: 16px; gap: 16px; }
+.download-menu .release-files { gap: 14px 20px; }
+.download-menu .release-status { font-size: 11px; line-height: 1.65; }
+@media (max-width: 700px) {
+  .hero-platforms { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .platform-download { position: static; min-width: 0; }
+  .hero-platforms .hero-platform {
+    position: relative; display: flex; flex-direction: column; align-items: flex-start;
+    justify-content: center; gap: 6px; width: 100%; height: 66px; padding: 12px;
+  }
+  .hero-platforms .hero-platform-note { font-size: 10px; }
+  .hero-platforms .hero-platform-arrow { position: absolute; top: 15px; right: 12px; }
+  .download-menu { top: calc(100% + 10px); left: 0; width: min(380px, 100%); }
 }
 
 .hero-facts {
@@ -1104,6 +1160,19 @@ a.hero-platform:focus-visible .hero-platform-arrow {
   justify-content: space-between;
   gap: 12px 24px;
   margin-top: clamp(28px, 3vw, 40px);
+}
+
+.release-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  font-size: var(--fs-meta);
+}
+
+.downloads-mobile {
+  margin-top: 28px;
+  color: var(--muted);
+  font-size: var(--fs-meta);
 }
 
 .release-status {

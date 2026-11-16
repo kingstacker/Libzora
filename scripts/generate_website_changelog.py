@@ -288,6 +288,10 @@ def generate_site(output_dir: Path) -> None:
     if output_dir == source_dir or source_dir in output_dir.parents:
         raise ValueError("Output directory must not be inside the source website directory")
 
+    # Remove retired user-manual files from reused output directories.
+    if (output_dir / "manual").is_dir():
+        shutil.rmtree(output_dir / "manual")
+
     shutil.copytree(
         source_dir,
         output_dir,

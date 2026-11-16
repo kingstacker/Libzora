@@ -11,17 +11,18 @@ const translations = {
     navFeatures: "功能",
     navMembership: "会员",
     navDownload: "下载",
-    navManual: "使用手册",
     navChangelog: "更新日志",
     navAbout: "关于",
     headerGitHub: "GitHub",
-    heroKicker: "KINDLE, WITHOUT THE FRICTION.",
-    heroTitle: "把书库、阅读与 Kindle 连接起来。",
+    heroKicker: "WHERE READING FINDS FREEDOM.",
+    heroTitle: "让阅读，自由生长。",
     heroLead: "Libzora 是一款安静、跨平台的电子书书库与 Kindle 工作台。整理你的书，专注地读，然后把它们带到真正的阅读设备上。",
     heroDownload: "下载 Libzora",
     heroSource: "查看源码",
     heroPlatformsLabel: "按平台下载",
-    heroPlatformWindowsNote: "安装版",
+    heroPlatformLinuxNote: ".deb / tar.gz",
+    releaseDetails: "版本与源码",
+    heroPlatformWindowsNote: "安装版 / 便携版",
     heroPlatformMacNote: "Apple Silicon / Intel",
     comingSoon: "即将推出",
     heroFactPlatforms: "平台",
@@ -128,7 +129,7 @@ const translations = {
     qqGroupButtonLabel: "复制 QQ 用户群号 1109898894",
     downloadKicker: "DOWNLOAD Libzora",
     downloadTitle: "选一个平台，开始建立你的书库。",
-    downloadLead: "下载区会自动选择最新稳定版，安装包优先通过本站镜像下载；也可通过百度网盘下载。",
+    downloadLead: "提供最新稳定版，以下文件直接从 GitHub Releases 下载。请按系统和处理器架构选择。",
     baiduKicker: "备用下载",
     baiduNote: "GitHub 下载不便时，可从百度网盘获取安装包。",
     baiduLink: "百度网盘下载",
@@ -140,30 +141,32 @@ const translations = {
     recommended: "推荐",
     windowsTitle: "Windows",
     windowsNote: "Windows 11 / x64，自带运行时。",
-    windowsInstaller: "安装版",
-    windowsPortable: "便携版",
+    windowsInstaller: "安装版 · x64",
+    windowsPortable: "便携版 · x64",
     linuxTitle: "Linux",
-    linuxNote: "Debian / Ubuntu，或其它 x64 / arm64 发行版。",
-    linuxDebX64: ".deb · x64",
-    linuxDebArm64: ".deb · arm64",
-    linuxTarX64: "tar.gz · x64",
-    linuxTarArm64: "tar.gz · arm64",
+    linuxNote: "Debian / Ubuntu 选 .deb；其它发行版可选 tar.gz。amd64 即 Intel / AMD 的 x64，arm64 用于 ARM 设备。",
+    linuxDebX64: ".deb · Intel / AMD（x64）",
+    linuxDebArm64: ".deb · ARM64",
+    linuxTarX64: "tar.gz · Intel / AMD（x64）",
+    linuxTarArm64: "tar.gz · ARM64",
     macTitle: "macOS",
     macNote: "macOS 12+，提供 Intel 与 Apple Silicon 包。",
-    macArm64: "Apple Silicon",
-    macX64: "Intel",
-    androidNote: "The Android build is in preparation. Installers and download links will be published later.",
-    iosNote: "The iOS build is in preparation. Installers and download links will be published later.",
-    androidAssetNote: "No download link yet",
-    iosAssetNote: "No download link yet",
+    macArm64: "DMG · Apple Silicon（ARM64）",
+    macX64: "DMG · Intel（x64）",
     androidNote: "Android 版正在准备中，安装包和下载链接稍后公布。",
     iosNote: "iOS 版正在准备中，安装包和下载链接稍后公布。",
     androidAssetNote: "暂时没有下载链接",
     iosAssetNote: "暂时没有下载链接",
+    mobileDownloadsNote: "Android 与 iOS 尚未发布安装包，下载链接将在发布后提供。",
     loadingAsset: "正在读取文件…",
     checksum: "SHA-256 校验值",
+    updateManifest: "更新清单（JSON）",
+    sourceZip: "源代码（ZIP）",
+    sourceTar: "源代码（tar.gz）",
+    releaseFilesLabel: "其它发布文件",
     releaseLoading: "正在获取最新版本…",
-    releaseLoaded: "下载地址来自本站镜像（同步自 GitHub Releases）。",
+    releaseLoaded: "所有下载链接均指向对应的 GitHub 发布文件。",
+    releaseCached: "当前显示网站缓存版本；最新版本以 GitHub Release 为准。",
     releaseFallback: "暂时无法读取版本信息，请打开 Release 页面选择下载文件。",
     unavailable: "当前版本未提供",
     changelogKicker: "CHANGELOG",
@@ -194,12 +197,12 @@ const translations = {
     footerGitHub: "GitHub",
     footerChangelog: "更新日志",
     footerLicense: "GPL-3.0 License",
-    footerNote: "官网与镜像下载由 libzora.stacker.beauty 提供。",
-    libraryAlt: "Libzora 电脑书库界面",
-    libraryGridAlt: "Libzora 书库网格视图",
-    readerAlt: "Kreader 阅读器界面",
-    kindleAlt: "Kindle 设备书库管理界面",
-    aiAlt: "Libzora AI 阅读助手"
+    footerNote: "源代码与安装包托管于 GitHub，更新与下载信息以最新 Release 为准。",
+    libraryAlt: "Libzora macOS 书库界面，展示六本公版书",
+    libraryGridAlt: "Libzora macOS 书库画廊视图，展示六本公版书",
+    readerAlt: "Libzora macOS 上的 Kreader 阅读器界面",
+    kindleAlt: "Libzora macOS 上的 Kindle 设备书库界面",
+    aiAlt: "Libzora macOS 上的 AI 阅读助手"
   },
   en: {
     skipToContent: "Skip to content",
@@ -208,17 +211,18 @@ const translations = {
     navFeatures: "Features",
     navMembership: "Membership",
     navDownload: "Download",
-    navManual: "Chinese manual",
     navChangelog: "Changelog",
     navAbout: "About",
     headerGitHub: "GitHub",
     heroKicker: "KINDLE, WITHOUT THE FRICTION.",
-    heroTitle: "Bring your library, reading, and Kindle together.",
+    heroTitle: "Where Reading Finds Freedom.",
     heroLead: "Libzora is a quiet, cross-platform ebook library and Kindle workspace. Organize your books, read with focus, and move them to the device you actually read on.",
     heroDownload: "Download Libzora",
     heroSource: "View source",
     heroPlatformsLabel: "Download by platform",
-    heroPlatformWindowsNote: "Installer",
+    heroPlatformLinuxNote: ".deb / tar.gz",
+    releaseDetails: "Release & source",
+    heroPlatformWindowsNote: "Installer / Portable",
     heroPlatformMacNote: "Apple Silicon / Intel",
     comingSoon: "Coming soon",
     heroFactPlatforms: "platforms",
@@ -325,7 +329,7 @@ const translations = {
     qqGroupButtonLabel: "Copy QQ user group number 1109898894",
     downloadKicker: "DOWNLOAD Libzora",
     downloadTitle: "Choose a platform. Start your library.",
-    downloadLead: "The download area selects the latest stable version automatically, with installers served primarily from this site's mirror. You can also download via Baidu Netdisk.",
+    downloadLead: "Get the latest stable version directly from GitHub Releases. Choose the package for your system and processor architecture.",
     baiduKicker: "Alternative download",
     baiduNote: "If GitHub downloads are inconvenient, get the installer from Baidu Netdisk.",
     baiduLink: "Download from Baidu Netdisk",
@@ -337,30 +341,32 @@ const translations = {
     recommended: "Recommended",
     windowsTitle: "Windows",
     windowsNote: "Windows 11 / x64, runtime included.",
-    windowsInstaller: "Installer",
-    windowsPortable: "Portable",
+    windowsInstaller: "Installer · x64",
+    windowsPortable: "Portable · x64",
     linuxTitle: "Linux",
-    linuxNote: "Debian / Ubuntu, or other x64 / arm64 distributions.",
-    linuxDebX64: ".deb · x64",
-    linuxDebArm64: ".deb · arm64",
-    linuxTarX64: "tar.gz · x64",
-    linuxTarArm64: "tar.gz · arm64",
+    linuxNote: "Choose .deb for Debian / Ubuntu, or tar.gz for other distributions. amd64 means Intel / AMD x64; arm64 is for ARM devices.",
+    linuxDebX64: ".deb · Intel / AMD (x64)",
+    linuxDebArm64: ".deb · ARM64",
+    linuxTarX64: "tar.gz · Intel / AMD (x64)",
+    linuxTarArm64: "tar.gz · ARM64",
     macTitle: "macOS",
     macNote: "macOS 12+, with Intel and Apple Silicon packages.",
-    macArm64: "Apple Silicon",
-    macX64: "Intel",
+    macArm64: "DMG · Apple Silicon (ARM64)",
+    macX64: "DMG · Intel (x64)",
     androidNote: "The Android build is in preparation. Installers and download links will be published later.",
     iosNote: "The iOS build is in preparation. Installers and download links will be published later.",
     androidAssetNote: "No download link yet",
     iosAssetNote: "No download link yet",
-    androidNote: "Android 版正在准备中，安装包和下载链接稍后公布。",
-    iosNote: "iOS 版正在准备中，安装包和下载链接稍后公布。",
-    androidAssetNote: "暂时没有下载链接",
-    iosAssetNote: "暂时没有下载链接",
+    mobileDownloadsNote: "Android and iOS installers have not been released yet. Links will be added after release.",
     loadingAsset: "Reading asset…",
     checksum: "SHA-256 checksums",
+    updateManifest: "Update manifest (JSON)",
+    sourceZip: "Source code (ZIP)",
+    sourceTar: "Source code (tar.gz)",
+    releaseFilesLabel: "Other release files",
     releaseLoading: "Fetching the latest version…",
-    releaseLoaded: "Download links are served from this site's mirror, synced from GitHub Releases.",
+    releaseLoaded: "All download links point directly to the corresponding GitHub release files.",
+    releaseCached: "Showing the site's cached version. Check GitHub Releases for the latest version.",
     releaseFallback: "Release data is temporarily unavailable. Open the Release page to choose a file.",
     unavailable: "Not provided in this release",
     changelogKicker: "CHANGELOG",
@@ -391,12 +397,12 @@ const translations = {
     footerGitHub: "GitHub",
     footerChangelog: "Changelog",
     footerLicense: "GPL-3.0 License",
-    footerNote: "The official site and mirror downloads are provided by libzora.stacker.beauty.",
-    libraryAlt: "Libzora desktop library",
-    libraryGridAlt: "Libzora library grid view",
-    readerAlt: "Kreader reading view",
-    kindleAlt: "Kindle library management view",
-    aiAlt: "Libzora AI reading assistant"
+    footerNote: "Source code and installers are hosted on GitHub. See the latest Release for updates and downloads.",
+    libraryAlt: "Libzora library on macOS with six public-domain books",
+    libraryGridAlt: "Libzora library gallery on macOS with six public-domain books",
+    readerAlt: "Kreader reading view on macOS",
+    kindleAlt: "Kindle device library in Libzora on macOS",
+    aiAlt: "Libzora AI reading assistant on macOS"
   }
 };
 
@@ -407,10 +413,10 @@ const assetMatchers = {
   "linux-deb-arm64": /_arm64\.deb$/i,
   "linux-tar-x64": /-linux-x64\.tar\.gz$/i,
   "linux-tar-arm64": /-linux-arm64\.tar\.gz$/i,
-  "mac-arm64": /-osx-arm64\.tar\.gz$/i,
-  "mac-x64": /-osx-x64\.tar\.gz$/i,
-  "mac-auto": /-osx-(?:arm64|x64)\.tar\.gz$/i,
-  checksums: /^SHA256SUMS\.txt$/i
+  "mac-arm64": /-osx-arm64\.dmg$/i,
+  "mac-x64": /-osx-x64\.dmg$/i,
+  checksums: /^SHA256SUMS\.txt$/i,
+  "update-manifest": /^update-manifest\.json$/i
 };
 
 let currentLanguage = "zh";
@@ -447,6 +453,18 @@ function applyChangelogLanguage() {
   });
 }
 
+function applyLocalizedImages() {
+  const languageSuffix = currentLanguage === "en" ? "En" : "Zh";
+  document.querySelectorAll("[data-src-zh], [data-src-en]").forEach((element) => {
+    const localizedSource = element.dataset[`src${languageSuffix}`];
+    if (localizedSource) element.src = localizedSource;
+  });
+  document.querySelectorAll("[data-srcset-zh], [data-srcset-en]").forEach((element) => {
+    const localizedSourceSet = element.dataset[`srcset${languageSuffix}`];
+    if (localizedSourceSet) element.srcset = localizedSourceSet;
+  });
+}
+
 function applyLanguage(language) {
   currentLanguage = language === "en" ? "en" : "zh";
   const copy = translations[currentLanguage];
@@ -468,6 +486,7 @@ function applyLanguage(language) {
     const key = element.dataset.i18nLabel;
     if (copy[key]) element.setAttribute("aria-label", copy[key]);
   });
+  applyLocalizedImages();
   applyChangelogLanguage();
 
   const languageToggle = document.querySelector("#language-toggle");
@@ -579,15 +598,18 @@ function markRecommendedPlatform() {
 }
 
 function findReleaseAsset(key, assets) {
-  if (key === "mac-auto") {
-    const architecture = navigator.userAgentData?.architecture || "";
-    const preferX64 = /x86/i.test(architecture);
-    const preferred = assets.find((item) =>
-      (preferX64 ? /-osx-x64\.tar\.gz$/i : /-osx-arm64\.tar\.gz$/i).test(item.name || ""));
-    if (preferred) return preferred;
-  }
   const matcher = assetMatchers[key];
   return matcher ? assets.find((item) => matcher.test(item.name || "")) : undefined;
+}
+
+function findReleaseDownload(key, release) {
+  const extension = { "source-zip": "zip", "source-tar": "tar.gz" }[key];
+  if (extension) {
+    const tag = release.tag_name;
+    if (typeof tag !== "string" || !/^v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(tag)) return undefined;
+    return { browser_download_url: `https://github.com/${REPOSITORY}/archive/refs/tags/${encodeURIComponent(tag)}.${extension}` };
+  }
+  return findReleaseAsset(key, Array.isArray(release.assets) ? release.assets : []);
 }
 
 function renderRelease(release) {
@@ -598,34 +620,36 @@ function renderRelease(release) {
   const version = release.tag_name || release.name || "";
 
   if (versionElement) versionElement.textContent = version;
-  if (publishedElement) publishedElement.textContent = formatReleaseDate(release.published_at);
+  if (publishedElement) {
+    publishedElement.textContent = formatReleaseDate(release.published_at);
+    if (release.published_at) publishedElement.setAttribute("datetime", release.published_at);
+    else publishedElement.removeAttribute("datetime");
+  }
   document.querySelectorAll("[data-release-link]").forEach((link) => {
     link.href = release.html_url || RELEASE_PAGE;
   });
 
-  const assets = Array.isArray(release.assets) ? release.assets : [];
-  Object.entries(assetMatchers).forEach(([key]) => {
-    const asset = findReleaseAsset(key, assets);
-    document.querySelectorAll(`[data-download-key="${key}"]`).forEach((link) => {
-      const meta = document.querySelector(`[data-file-meta="${key}"]`);
-      if (asset?.browser_download_url) {
-        link.href = asset.browser_download_url;
-        link.classList.remove("disabled");
-        link.removeAttribute("aria-disabled");
-        if (meta) {
-          meta.removeAttribute("data-i18n");
-          meta.textContent = [formatBytes(asset.size), asset.name].filter(Boolean).join(" · ");
-        }
-      } else {
-        link.href = release.html_url || RELEASE_PAGE;
-        link.classList.add("disabled");
-        link.setAttribute("aria-disabled", "true");
-        if (meta) {
-          meta.removeAttribute("data-i18n");
-          meta.textContent = translations[currentLanguage].unavailable;
-        }
+  document.querySelectorAll("[data-download-key]").forEach((link) => {
+    const key = link.dataset.downloadKey;
+    const asset = findReleaseDownload(key, release);
+    const meta = document.querySelector(`[data-file-meta="${key}"]`);
+    if (asset?.browser_download_url) {
+      link.href = asset.browser_download_url;
+      link.classList.remove("disabled");
+      link.removeAttribute("aria-disabled");
+      if (meta) {
+        meta.removeAttribute("data-i18n");
+        meta.textContent = [formatBytes(asset.size), asset.name].filter(Boolean).join(" · ");
       }
-    });
+    } else {
+      link.removeAttribute("href");
+      link.classList.add("disabled");
+      link.setAttribute("aria-disabled", "true");
+      if (meta) {
+        meta.removeAttribute("data-i18n");
+        meta.textContent = translations[currentLanguage].unavailable;
+      }
+    }
   });
   applyChangelogLanguage();
 
@@ -644,19 +668,28 @@ async function fetchRelease(url, options = {}) {
 }
 
 async function loadLatestRelease() {
+  let hasRelease = Boolean(latestRelease);
   try {
     renderRelease(await fetchRelease(SITE_RELEASE_JSON));
-    return;
+    hasRelease = true;
   } catch {
-    // Fall back to the GitHub API when the bundled snapshot is missing.
+    // A missing snapshot must not prevent fetching the latest GitHub release.
   }
 
   try {
-    renderRelease(await fetchRelease(RELEASE_API, {
+    const release = await fetchRelease(RELEASE_API, {
       headers: { Accept: "application/vnd.github+json" }
-    }));
+    });
+    const cachedDate = Date.parse(latestRelease?.published_at);
+    const fetchedDate = Date.parse(release.published_at);
+    if (!hasRelease || !Number.isFinite(cachedDate) || !Number.isFinite(fetchedDate) || fetchedDate >= cachedDate) {
+      renderRelease(release);
+    } else {
+      setStatus("releaseCached");
+    }
   } catch {
-    setFallbackLinks();
+    if (hasRelease) setStatus("releaseCached");
+    else setFallbackLinks();
   }
 }
 
@@ -705,6 +738,31 @@ function setupQQGroupCopy() {
   });
 }
 
+function setupPlatformDownloads() {
+  const menus = [...document.querySelectorAll(".platform-download")];
+  const positionMenu = menu => {
+    const panel = menu.querySelector(".download-menu");
+    panel.style.transform = "";
+    const bounds = panel.getBoundingClientRect();
+    const shift = Math.max(20 - bounds.left, Math.min(0, window.innerWidth - 20 - bounds.right));
+    panel.style.transform = `translateX(${shift}px)`;
+  };
+  menus.forEach(menu => menu.addEventListener("toggle", () => {
+    if (!menu.open) return;
+    menus.forEach(other => { if (other !== menu) other.open = false; });
+    positionMenu(menu);
+  }));
+  window.addEventListener("resize", () => menus.filter(menu => menu.open).forEach(positionMenu));
+  document.addEventListener("click", event => {
+    menus.forEach(menu => { if (!menu.contains(event.target)) menu.open = false; });
+  });
+  document.addEventListener("keydown", event => {
+    if (event.key !== "Escape") return;
+    const menu = menus.find(item => item.open);
+    if (menu) { menu.open = false; menu.querySelector("summary").focus(); }
+  });
+}
+
 function setupMembershipRegions() {
   const tabs = Array.from(document.querySelectorAll("[data-region-tab]"));
   if (tabs.length === 0) return;
@@ -742,6 +800,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupNavigation();
   setupQQGroupCopy();
   setupMembershipRegions();
+  setupPlatformDownloads();
 
   document.querySelector("#language-toggle")?.addEventListener("click", () => {
     applyLanguage(currentLanguage === "en" ? "zh" : "en");

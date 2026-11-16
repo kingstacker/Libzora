@@ -3411,7 +3411,6 @@
                                         <StackPanel Spacing="18">
                                             <TextBlock Text="{DynamicResource Ui.Auto.52D25A9E30BA94F1}" Classes="settingsSectionTitle" TextWrapping="Wrap" />
                                             <Button x:Name="FeedbackButton" Content="{DynamicResource Ui.Feedback.Entry}" Classes="quiet" FontSize="12" MinWidth="0" MinHeight="0" Padding="0" BorderThickness="0" HorizontalAlignment="Left" Click="OpenFeedbackButton_Click" />
-                                            <Button x:Name="AboutUserManualButton" Content="{DynamicResource Ui.About.UserManual}" Classes="quiet" FontSize="12" MinWidth="0" MinHeight="0" Padding="0" BorderThickness="0" HorizontalAlignment="Left" Click="OpenUserManualButton_Click" />
                                             <Button x:Name="AboutUserGroupButton" Content="{DynamicResource Ui.About.UserGroup}" Classes="quiet" FontSize="12" Foreground="{DynamicResource MutedInkBrush}" HorizontalAlignment="Left" MinWidth="0" MinHeight="0" Padding="0" BorderThickness="0" Cursor="Hand" ToolTip.Tip="{DynamicResource Ui.About.CopyUserGroup}" Click="AboutUserGroupButton_Click" />
                                             <TextBlock x:Name="AboutVersionText" Text="{DynamicResource Ui.Auto.DC730979055D9FEF}" FontSize="12" Foreground="{DynamicResource MutedInkBrush}" TextWrapping="Wrap" />
                                         </StackPanel>

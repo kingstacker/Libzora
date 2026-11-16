@@ -41,7 +41,7 @@
     <link rel="icon" type="image/png" href="assets/libzora.png?v=20261113" />
     <link rel="apple-touch-icon" href="assets/apple-touch-icon.png?v=20261113" />
     <meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1" />
-    <link rel="stylesheet" href="styles.css?v=20261115-plans2" />
+    <link rel="stylesheet" href="styles.css?v=20261116-download-menu2" />
     <title>Libzora — 个人电子书与 Kindle 工作台</title>
     <script type="application/ld+json">
       {
@@ -93,7 +93,6 @@
           <a href="#features" data-i18n="navFeatures">功能</a>
           <a href="#membership" data-i18n="navMembership">会员</a>
           <a href="#downloads" data-i18n="navDownload">下载</a>
-          <a href="manual/index.html" data-i18n="navManual">使用手册</a>
           <a href="#changelog" data-i18n="navChangelog">更新日志</a>
           <a href="#about" data-i18n="navAbout">关于</a>
         </nav>
@@ -129,27 +128,65 @@
       <section class="hero" id="product">
         <div class="wrap">
           <div class="hero-copy">
-            <p class="label" data-i18n="heroKicker">KINDLE, WITHOUT THE FRICTION.</p>
-            <h1 data-i18n="heroTitle">把书库、阅读与 Kindle 连接起来。</h1>
+            <p class="label" data-i18n="heroKicker">WHERE READING FINDS FREEDOM.</p>
+            <h1 data-i18n="heroTitle">让阅读，自由生长。</h1>
             <p class="lead" data-i18n="heroLead">
               Libzora 是一款安静、跨平台的电子书书库与 Kindle 工作台。整理你的书，专注地读，然后把它们带到真正的阅读设备上。
             </p>
             <div class="hero-platforms" id="downloads" aria-label="按平台下载" data-i18n-label="heroPlatformsLabel">
-              <a class="hero-platform" data-download-key="windows-installer" href="https://github.com/kingstacker/Libzora/releases/latest">
-                <strong>Windows</strong>
-                <span class="hero-platform-note" data-i18n="heroPlatformWindowsNote">安装版</span>
-                <span class="hero-platform-arrow" aria-hidden="true">↓</span>
-              </a>
-              <a class="hero-platform" data-download-key="mac-auto" href="https://github.com/kingstacker/Libzora/releases/latest">
-                <strong>macOS</strong>
-                <span class="hero-platform-note" data-i18n="heroPlatformMacNote">Apple Silicon / Intel</span>
-                <span class="hero-platform-arrow" aria-hidden="true">↓</span>
-              </a>
-              <a class="hero-platform" data-download-key="linux-tar-x64" href="https://github.com/kingstacker/Libzora/releases/latest">
-                <strong>Linux</strong>
-                <span class="hero-platform-note">.tar.gz · x64</span>
-                <span class="hero-platform-arrow" aria-hidden="true">↓</span>
-              </a>
+              <details class="platform-download" data-platform="windows" id="download-windows">
+                <summary class="hero-platform"><strong>Windows</strong><span class="hero-platform-note" data-i18n="heroPlatformWindowsNote">安装版 / 便携版</span><span class="hero-platform-arrow" aria-hidden="true">↓</span></summary>
+                <div class="download-menu"><p class="platform-note" data-i18n="windowsNote">Windows 11 / x64，自带运行时。</p>
+              <div class="asset-list">
+                <a class="asset" data-download-key="windows-installer" href="https://github.com/kingstacker/Libzora/releases/download/v1.1.6/Libzora-1.1.6-win-x64-setup.exe">
+                  <span><span class="asset-name" data-i18n="windowsInstaller">安装版 · x64</span><span class="asset-meta" data-file-meta="windows-installer">Libzora-1.1.6-win-x64-setup.exe</span></span>
+                  <span class="asset-arrow" aria-hidden="true">↓</span>
+                </a>
+                <a class="asset" data-download-key="windows-portable" href="https://github.com/kingstacker/Libzora/releases/download/v1.1.6/Libzora-1.1.6-win-x64-portable.zip">
+                  <span><span class="asset-name" data-i18n="windowsPortable">便携版 · x64</span><span class="asset-meta" data-file-meta="windows-portable">Libzora-1.1.6-win-x64-portable.zip</span></span>
+                  <span class="asset-arrow" aria-hidden="true">↓</span>
+                </a>
+              </div>
+            </div>
+              </details>
+              <details class="platform-download" data-platform="macos" id="download-macos">
+                <summary class="hero-platform"><strong>macOS</strong><span class="hero-platform-note" data-i18n="heroPlatformMacNote">Apple Silicon / Intel</span><span class="hero-platform-arrow" aria-hidden="true">↓</span></summary>
+                <div class="download-menu"><p class="platform-note" data-i18n="macNote">macOS 12+，提供 Intel 与 Apple Silicon 包。</p>
+              <div class="asset-list">
+                <a class="asset" data-download-key="mac-arm64" href="https://github.com/kingstacker/Libzora/releases/download/v1.1.6/Libzora-1.1.6-osx-arm64.dmg">
+                  <span><span class="asset-name" data-i18n="macArm64">DMG · Apple Silicon（ARM64）</span><span class="asset-meta" data-file-meta="mac-arm64">Libzora-1.1.6-osx-arm64.dmg</span></span>
+                  <span class="asset-arrow" aria-hidden="true">↓</span>
+                </a>
+                <a class="asset" data-download-key="mac-x64" href="https://github.com/kingstacker/Libzora/releases/download/v1.1.6/Libzora-1.1.6-osx-x64.dmg">
+                  <span><span class="asset-name" data-i18n="macX64">DMG · Intel（x64）</span><span class="asset-meta" data-file-meta="mac-x64">Libzora-1.1.6-osx-x64.dmg</span></span>
+                  <span class="asset-arrow" aria-hidden="true">↓</span>
+                </a>
+              </div>
+            </div>
+              </details>
+              <details class="platform-download" data-platform="linux" id="download-linux">
+                <summary class="hero-platform"><strong>Linux</strong><span class="hero-platform-note" data-i18n="heroPlatformLinuxNote">.deb / tar.gz</span><span class="hero-platform-arrow" aria-hidden="true">↓</span></summary>
+                <div class="download-menu"><p class="platform-note" data-i18n="linuxNote">Debian / Ubuntu 选 .deb；其它发行版可选 tar.gz。amd64 即 Intel / AMD 的 x64，arm64 用于 ARM 设备。</p>
+              <div class="asset-list">
+                <a class="asset" data-download-key="linux-deb-x64" href="https://github.com/kingstacker/Libzora/releases/download/v1.1.6/libzora_1.1.6_amd64.deb">
+                  <span><span class="asset-name" data-i18n="linuxDebX64">.deb · Intel / AMD（x64）</span><span class="asset-meta" data-file-meta="linux-deb-x64">libzora_1.1.6_amd64.deb</span></span>
+                  <span class="asset-arrow" aria-hidden="true">↓</span>
+                </a>
+                <a class="asset" data-download-key="linux-deb-arm64" href="https://github.com/kingstacker/Libzora/releases/download/v1.1.6/libzora_1.1.6_arm64.deb">
+                  <span><span class="asset-name" data-i18n="linuxDebArm64">.deb · ARM64</span><span class="asset-meta" data-file-meta="linux-deb-arm64">libzora_1.1.6_arm64.deb</span></span>
+                  <span class="asset-arrow" aria-hidden="true">↓</span>
+                </a>
+                <a class="asset" data-download-key="linux-tar-x64" href="https://github.com/kingstacker/Libzora/releases/download/v1.1.6/Libzora-1.1.6-linux-x64.tar.gz">
+                  <span><span class="asset-name" data-i18n="linuxTarX64">tar.gz · Intel / AMD（x64）</span><span class="asset-meta" data-file-meta="linux-tar-x64">Libzora-1.1.6-linux-x64.tar.gz</span></span>
+                  <span class="asset-arrow" aria-hidden="true">↓</span>
+                </a>
+                <a class="asset" data-download-key="linux-tar-arm64" href="https://github.com/kingstacker/Libzora/releases/download/v1.1.6/Libzora-1.1.6-linux-arm64.tar.gz">
+                  <span><span class="asset-name" data-i18n="linuxTarArm64">tar.gz · ARM64</span><span class="asset-meta" data-file-meta="linux-tar-arm64">Libzora-1.1.6-linux-arm64.tar.gz</span></span>
+                  <span class="asset-arrow" aria-hidden="true">↓</span>
+                </a>
+              </div>
+            </div>
+              </details>
               <span class="hero-platform is-coming" aria-disabled="true">
                 <strong>Android</strong>
                 <span class="hero-platform-note" data-i18n="comingSoon">即将推出</span>
@@ -158,6 +195,27 @@
                 <strong>iOS</strong>
                 <span class="hero-platform-note" data-i18n="comingSoon">即将推出</span>
               </span>
+              <details class="platform-download release-download">
+                <summary class="hero-platform"><span data-i18n="releaseDetails">版本与源码</span><span class="hero-platform-arrow" aria-hidden="true">↓</span></summary>
+                <div class="download-menu"><div class="release-bar">
+            <div>
+              <p class="label" data-i18n="stableLabel">最新稳定版本</p>
+              <div class="release-version">
+                <strong id="latest-version">v1.1.6</strong>
+                <time id="release-published" datetime="2026-11-16">2026 年 11 月 16 日</time>
+              </div>
+            </div>
+            <a class="link-arrow" data-release-link href="https://github.com/kingstacker/Libzora/releases/tag/v1.1.6" target="_blank" rel="noreferrer" data-i18n="releasePage">查看完整 Release ↗</a>
+          </div><div class="downloads-foot">
+            <div class="release-files" aria-label="其它发布文件" data-i18n-label="releaseFilesLabel">
+              <a class="link-arrow" data-download-key="checksums" href="https://github.com/kingstacker/Libzora/releases/download/v1.1.6/SHA256SUMS.txt" data-i18n="checksum">SHA-256 校验值</a>
+              <a class="link-arrow" data-download-key="update-manifest" href="https://github.com/kingstacker/Libzora/releases/download/v1.1.6/update-manifest.json" data-i18n="updateManifest">更新清单（JSON）</a>
+              <a class="link-arrow" data-download-key="source-zip" href="https://github.com/kingstacker/Libzora/archive/refs/tags/v1.1.6.zip" data-i18n="sourceZip">源代码（ZIP）</a>
+              <a class="link-arrow" data-download-key="source-tar" href="https://github.com/kingstacker/Libzora/archive/refs/tags/v1.1.6.tar.gz" data-i18n="sourceTar">源代码（tar.gz）</a>
+            </div>
+            <p class="release-status" id="release-status" role="status" aria-live="polite" data-i18n="releaseLoading">正在获取最新版本…</p>
+          </div></div>
+              </details>
             </div>
             <ul class="hero-facts inline-list">
               <li>
@@ -177,10 +235,16 @@
 
           <figure class="hero-shot shot">
             <picture>
-              <source srcset="assets/library.webp?v=20261004" type="image/webp" />
+              <source
+                srcset="assets/library.webp?v=20261116-platform1"
+                data-srcset-zh="assets/library.webp?v=20261116-platform1"
+                data-srcset-en="assets/library-en.webp?v=20261116-platform1"
+                type="image/webp" />
               <img
-                src="assets/library.png?v=20261004"
-                alt="Libzora 电脑书库界面"
+                src="assets/library.png?v=20261116-platform1"
+                data-src-zh="assets/library.png?v=20261116-platform1"
+                data-src-en="assets/library-en.png?v=20261116-platform1"
+                alt="Libzora macOS 书库界面，展示六本公版书"
                 data-i18n-alt="libraryAlt"
                 width="1294"
                 height="800"
@@ -215,10 +279,16 @@
             <article class="feature">
               <figure class="feature-shot shot">
                 <picture>
-                  <source srcset="assets/library.webp?v=20261004" type="image/webp" />
+                  <source
+                    srcset="assets/library-grid.webp?v=20261116-platform1"
+                    data-srcset-zh="assets/library-grid.webp?v=20261116-platform1"
+                    data-srcset-en="assets/library-grid-en.webp?v=20261116-platform1"
+                    type="image/webp" />
                   <img
-                    src="assets/library.png?v=20261004"
-                    alt="Libzora 书库网格视图"
+                    src="assets/library-grid.png?v=20261116-platform1"
+                    data-src-zh="assets/library-grid.png?v=20261116-platform1"
+                    data-src-en="assets/library-grid-en.png?v=20261116-platform1"
+                    alt="Libzora macOS 书库画廊视图，展示六本公版书"
                     data-i18n-alt="libraryGridAlt"
                     width="1294"
                     height="800"
@@ -247,13 +317,19 @@
             <article class="feature feature-reverse">
               <figure class="feature-shot shot">
                 <picture>
-                  <source srcset="assets/reader.webp?v=1.0.6" type="image/webp" />
+                  <source
+                    srcset="assets/reader.webp?v=20261116-platform1"
+                    data-srcset-zh="assets/reader.webp?v=20261116-platform1"
+                    data-srcset-en="assets/reader-en.webp?v=20261116-platform1"
+                    type="image/webp" />
                   <img
-                    src="assets/reader.png?v=1.0.6"
-                    alt="Kreader 阅读器界面"
+                    src="assets/reader.png?v=20261116-platform1"
+                    data-src-zh="assets/reader.png?v=20261116-platform1"
+                    data-src-en="assets/reader-en.png?v=20261116-platform1"
+                    alt="Libzora macOS 上的 Kreader 阅读器界面"
                     data-i18n-alt="readerAlt"
                     width="1294"
-                    height="804"
+                    height="800"
                     loading="lazy"
                     decoding="async"
                   />
@@ -279,13 +355,19 @@
             <article class="feature">
               <figure class="feature-shot shot">
                 <picture>
-                  <source srcset="assets/kindle.webp?v=20261004" type="image/webp" />
+                  <source
+                    srcset="assets/kindle.webp?v=20261116-platform1"
+                    data-srcset-zh="assets/kindle.webp?v=20261116-platform1"
+                    data-srcset-en="assets/kindle-en.webp?v=20261116-platform1"
+                    type="image/webp" />
                   <img
-                    src="assets/kindle.png?v=20261004"
-                    alt="Kindle 设备书库管理界面"
+                    src="assets/kindle.png?v=20261116-platform1"
+                    data-src-zh="assets/kindle.png?v=20261116-platform1"
+                    data-src-en="assets/kindle-en.png?v=20261116-platform1"
+                    alt="Libzora macOS 上的 Kindle 设备书库界面"
                     data-i18n-alt="kindleAlt"
                     width="1294"
-                    height="804"
+                    height="800"
                     loading="lazy"
                     decoding="async"
                   />
@@ -311,13 +393,19 @@
             <article class="feature feature-reverse">
               <figure class="feature-shot shot">
                 <picture>
-                  <source srcset="assets/ai.webp?v=1.0.6" type="image/webp" />
+                  <source
+                    srcset="assets/ai.webp?v=20261116-platform1"
+                    data-srcset-zh="assets/ai.webp?v=20261116-platform1"
+                    data-srcset-en="assets/ai-en.webp?v=20261116-platform1"
+                    type="image/webp" />
                   <img
-                    src="assets/ai.png?v=1.0.6"
-                    alt="Libzora AI 阅读助手"
+                    src="assets/ai.png?v=20261116-platform1"
+                    data-src-zh="assets/ai.png?v=20261116-platform1"
+                    data-src-en="assets/ai-en.png?v=20261116-platform1"
+                    alt="Libzora macOS 上的 AI 阅读助手"
                     data-i18n-alt="aiAlt"
                     width="1294"
-                    height="804"
+                    height="800"
                     loading="lazy"
                     decoding="async"
                   />
@@ -549,46 +637,46 @@
 <article class="changelog-entry is-latest">
   <div class="changelog-entry-head">
     <p class="label">
-      <span class="label-num">v1.1.3</span><time datetime="2026-10-29" data-changelog-date="2026-10-29">2026 年 10 月 29 日</time>
+      <span class="label-num">v1.1.6</span><time datetime="2026-11-16" data-changelog-date="2026-11-16">2026 年 11 月 16 日</time>
     </p>
     <span class="changelog-badge" data-i18n="changelogLatest">最新</span>
   </div>
   <ul class="changelog-points">
     <li data-changelog-item>
       <span class="changelog-type" data-i18n="changelogAdded">新增</span>
-      <span class="changelog-copy" data-changelog-lang="zh" lang="zh-CN">书库搜索支持标题、作者和拼音检索，并完善中文书名与作者的检索索引。</span><span class="changelog-copy" data-changelog-lang="en" lang="en" hidden>Search the library by title, author, or pinyin, with improved indexing for Chinese book titles and authors.</span>
+      <span class="changelog-copy" data-changelog-lang="zh" lang="zh-CN">iOS 原生界面与移动端服务提示支持简体中文、英文和跟随系统语言，并持久保存手动选择。</span><span class="changelog-copy" data-changelog-lang="en" lang="en" hidden>Support Simplified Chinese, English, and automatic system-language selection across the native iOS UI and shared mobile messages, with persistent manual preferences.</span>
     </li>
     <li data-changelog-item>
       <span class="changelog-type" data-i18n="changelogAdded">新增</span>
-      <span class="changelog-copy" data-changelog-lang="zh" lang="zh-CN">阅读进度与阅读时长增加异常恢复能力，备份导入支持失败回滚和启动恢复。</span><span class="changelog-copy" data-changelog-lang="en" lang="en" hidden>Recover reading progress and reading time after interruptions, and roll back or recover interrupted backup imports.</span>
-    </li>
-    <li data-changelog-item>
-      <span class="changelog-type" data-i18n="changelogAdded">新增</span>
-      <span class="changelog-copy" data-changelog-lang="zh" lang="zh-CN">Kindle 设备书库增加扫描状态、书籍重复检测，以及部分发送失败后的重试流程。</span><span class="changelog-copy" data-changelog-lang="en" lang="en" hidden>Show clearer Kindle device-library scan states, detect duplicate books, and retry individual transfer failures.</span>
+      <span class="changelog-copy" data-changelog-lang="zh" lang="zh-CN">包含 Libzora 品牌迁移、Apple Silicon / Intel 双架构 macOS DMG、原生菜单栏与托盘、libmtp Kindle 支持，以及阅读器过渡、脚注和 Kindle 划线笔记同步（实验性）更新。</span><span class="changelog-copy" data-changelog-lang="en" lang="en" hidden>Include the Libzora rebranding, Apple Silicon / Intel macOS DMGs, native menu bar and tray, libmtp Kindle support, reader transitions and footnotes, and experimental Kindle highlight and note synchronization.</span>
     </li>
     <li data-changelog-item>
       <span class="changelog-type" data-i18n="changelogImproved">优化</span>
-      <span class="changelog-copy" data-changelog-lang="zh" lang="zh-CN">设置页和阅读设置统一为直角黑白界面，开关改为极简线条与圆点，重置默认值图标及缩放动画与主界面保持一致。</span><span class="changelog-copy" data-changelog-lang="en" lang="en" hidden>Unify Settings and Reading Settings with a square black-and-white interface, minimal line-and-dot switches, and a clearer reset icon with matching scale animation.</span>
+      <span class="changelog-copy" data-changelog-lang="zh" lang="zh-CN">切换界面语言不重建阅读导航或重新排版正文；书名、正文、笔记与实际字体名称保持原样。</span><span class="changelog-copy" data-changelog-lang="en" lang="en" hidden>Switching UI language preserves navigation and body layout; book titles, content, notes, and actual font names remain unchanged.</span>
     </li>
     <li data-changelog-item>
       <span class="changelog-type" data-i18n="changelogImproved">优化</span>
-      <span class="changelog-copy" data-changelog-lang="zh" lang="zh-CN">完善 PDF 选文、表格与图表复制、跨页导航，以及批注卡片跟随缩放和滚动时的定位。</span><span class="changelog-copy" data-changelog-lang="en" lang="en" hidden>Improve PDF selection, table and diagram copying, spread navigation, and annotation-card positioning during scrolling and zooming.</span>
+      <span class="changelog-copy" data-changelog-lang="zh" lang="zh-CN">正式发版的构建和更新说明统一固定到同一源码提交，仅在全部平台构建、烟测和产物准备成功后创建正式标签；失败构建不再占用新版本，已有标签不会移动。</span><span class="changelog-copy" data-changelog-lang="en" lang="en" hidden>Pin every release build and its notes to one source commit. Create a stable tag only after all platform builds, smoke tests, and artifact preparation succeed; failed builds no longer consume a new version and existing tags are never moved.</span>
     </li>
     <li data-changelog-item>
       <span class="changelog-type" data-i18n="changelogImproved">优化</span>
-      <span class="changelog-copy" data-changelog-lang="zh" lang="zh-CN">加强 S3 同步的本地文件清理、失败重试、并发一致性和同步状态反馈。</span><span class="changelog-copy" data-changelog-lang="en" lang="en" hidden>Strengthen S3 synchronization with local-file cleanup, retries, concurrency consistency, and clearer status feedback.</span>
+      <span class="changelog-copy" data-changelog-lang="zh" lang="zh-CN">保留 NuGet / macOS MTP 缓存、非交互 DMG 打包和逐套件测试诊断，并增加发版工具的离线回归检查。</span><span class="changelog-copy" data-changelog-lang="en" lang="en" hidden>Retain NuGet / macOS MTP caches, non-interactive DMG packaging, and per-suite test diagnostics, with additional offline release-tool regressions.</span>
     </li>
     <li data-changelog-item>
       <span class="changelog-type" data-i18n="changelogFixed">修复</span>
-      <span class="changelog-copy" data-changelog-lang="zh" lang="zh-CN">修复 EPUB/PDF 阅读生命周期、标注重定位、虚拟目录导航和双页切换相关问题。</span><span class="changelog-copy" data-changelog-lang="en" lang="en" hidden>Fix EPUB/PDF reader lifecycle, annotation relocation, virtualized table-of-contents navigation, and spread-switch issues.</span>
+      <span class="changelog-copy" data-changelog-lang="zh" lang="zh-CN">修复 Windows 检出时换行转换破坏原始许可证校验和的问题，补全 Windows Desktop 运行时与 Windows SDK 的发布方原始许可记录；更新许可证清单时保留独立维护的字体与模型声明。</span><span class="changelog-copy" data-changelog-lang="en" lang="en" hidden>Preserve original license bytes during Windows checkout and include the publishers' original Windows Desktop runtime and Windows SDK terms. Refreshing the inventory retains separately maintained font and model notices.</span>
     </li>
     <li data-changelog-item>
       <span class="changelog-type" data-i18n="changelogFixed">修复</span>
-      <span class="changelog-copy" data-changelog-lang="zh" lang="zh-CN">修复切章、书签、阅读位置恢复，以及设备连接和书籍删除流程中的状态不同步。</span><span class="changelog-copy" data-changelog-lang="en" lang="en" hidden>Fix stale state during chapter changes, bookmark and position recovery, device connection, and book deletion flows.</span>
+      <span class="changelog-copy" data-changelog-lang="zh" lang="zh-CN">将 macOS 字体生命周期回归的真实系统字体夹具与无关的整机字体目录探测解耦，避免系统字体服务阻塞发版测试，同时保留注册、排版与释放验证。</span><span class="changelog-copy" data-changelog-lang="en" lang="en" hidden>Decouple real-system-font lifecycle fixtures from unrelated whole-machine font catalogue discovery on macOS, avoiding system font-service stalls while retaining registration, shaping, and release coverage.</span>
     </li>
     <li data-changelog-item>
       <span class="changelog-type" data-i18n="changelogFixed">修复</span>
-      <span class="changelog-copy" data-changelog-lang="zh" lang="zh-CN">修复部分备份、同步和阅读数据在异常退出后的恢复缺口。</span><span class="changelog-copy" data-changelog-lang="en" lang="en" hidden>Close recovery gaps in backup, synchronization, and reading data after abnormal exits.</span>
+      <span class="changelog-copy" data-changelog-lang="zh" lang="zh-CN">修复阅读器切换字体和脚注导航时系统后备字体被提前释放的问题，保留所有已安装布局页面引用的字体。</span><span class="changelog-copy" data-changelog-lang="en" lang="en" hidden>Keep every system fallback font referenced by installed reader pages alive through font switches and footnote navigation.</span>
+    </li>
+    <li data-changelog-item>
+      <span class="changelog-type" data-i18n="changelogFixed">修复</span>
+      <span class="changelog-copy" data-changelog-lang="zh" lang="zh-CN">修复短暂 SQLite 锁造成的加密备份失败、同时间戳删除与重新导入导致书籍复活，以及 Windows 离线朗读语音包下载后的文件占用问题。</span><span class="changelog-copy" data-changelog-lang="en" lang="en" hidden>Fix transient SQLite backup locks, deleted books reappearing after same-timestamp re-imports, and open downloaded speech-pack streams preventing renames on Windows.</span>
     </li>
   </ul>
 </article>
@@ -681,17 +769,13 @@
           <div class="footer-links">
             <a href="https://github.com/kingstacker/Libzora" target="_blank" rel="noreferrer" data-i18n="footerGitHub">GitHub</a>
             <a href="#changelog" data-i18n="footerChangelog">更新日志</a>
-            <a href="manual/index.html" data-i18n="navManual">使用手册</a>
             <a href="https://github.com/kingstacker/Libzora/blob/master/LICENSE" target="_blank" rel="noreferrer" data-i18n="footerLicense">GPL-3.0 License</a>
           </div>
         </div>
-        <p class="footer-note" data-i18n="footerNote">官网与镜像下载由 libzora.stacker.beauty 提供。</p>
+        <p class="footer-note" data-i18n="footerNote">源代码与安装包托管于 GitHub，更新与下载信息以最新 Release 为准。</p>
       </div>
     </footer>
 
-    <noscript>
-      <div class="noscript-note">请启用 JavaScript 以加载最新版本下载信息；镜像下载同样可用。</div>
-    </noscript>
-    <script src="app.js?v=20261115-plans2" defer></script>
+    <script src="app.js?v=20261116-download-menu2" defer></script>
   </body>
 </html>

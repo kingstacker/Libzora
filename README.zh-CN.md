@@ -2,13 +2,15 @@
 
 [![Release](https://github.com/kingstacker/Libzora/actions/workflows/release.yml/badge.svg)](https://github.com/kingstacker/Libzora/actions/workflows/release.yml) [![最新版本](https://img.shields.io/github/v/release/kingstacker/Libzora)](https://github.com/kingstacker/Libzora/releases/latest)
 
-[官方网站](https://libzora.stacker.beauty) · [软件使用手册](https://libzora.stacker.beauty/manual/)
+[官方网站](https://libzora.stacker.beauty)
 
 **简体中文** · [English](README.md)
 
 Libzora 是一款基于 Avalonia 的跨平台电子书与 Kindle 管理器。它将本地书库、阅读、批注、AI 助手、格式转换和 Kindle 传输集中在一个简洁的桌面应用中。
 
-![Libzora 书库主界面](docs/images/主界面.png?v=20261004)
+![Libzora macOS 公版书库预览](website/assets/library.webp?v=20261116-public-domain)
+
+桌面主图截取自 macOS 应用，移动端主图截取自 iOS 应用；README 图示统一展示本地公版书目录中的六本公版书。中英文页面分别使用对应语言的软件界面截图。
 
 ## 平台开发状态
 
@@ -22,10 +24,10 @@ Libzora 是一款基于 Avalonia 的跨平台电子书与 Kindle 管理器。它
 
 ## 多端主界面
 
-| macOS | iOS | Android |
-| :---: | :---: | :---: |
-| <img src="website/assets/macos-library.webp?v=20261106" alt="Libzora macOS 书库主界面" width="460"> | <img src="website/assets/ios-library.webp?v=20261106" alt="Libzora iOS 书库主界面" width="190"> | <img src="website/assets/android-library.webp?v=20261106" alt="Libzora Android 书库主界面" width="190"> |
-| 书库 | 书库 | 书库 |
+| macOS | iOS |
+| :---: | :---: |
+| <img src="website/assets/macos-library.webp?v=20261116-public-domain" alt="Libzora macOS 书库主界面" width="460"> | <img src="website/assets/ios-library.webp?v=20261116-public-domain" alt="Libzora iOS 书库主界面" width="190"> |
+| 书库 | 书库 |
 
 ## 主要功能
 
@@ -110,7 +112,7 @@ bash scripts/build-macos-release.sh 1.1.3 artifacts/macos osx-x64
 bash scripts/build-macos-release.sh 1.1.3 artifacts/macos osx-universal
 ```
 
-这些命令在任一架构的 Mac 上都能执行：随包分发的 libmtp 和 libusb 会按目标架构从源码构建（与主机架构不同时用 macOS SDK 交叉编译），所以 Intel Mac 也能打出 arm64 包，反之亦然。CI 仍分别使用 `macos-15` 和 `macos-15-intel`，只是为了加快构建。
+这些命令在任一架构的 Mac 上都能执行：随包分发的 libmtp 和 libusb 会按目标架构从源码构建（与主机架构不同时用 macOS SDK 交叉编译），所以 Intel Mac 也能打出 arm64 包，反之亦然。CI 的 Apple Silicon 使用 `macos-26`，Intel 使用 `macos-15-intel`，两者固定 Xcode 26.3；ARM64 主机环境也需要与 Icon Composer 工具链兼容。
 
 `osx-universal` 生成的单个 `Libzora.app` 可以在 Intel 和 Apple Silicon 上原生启动。.NET 自包含发布包含按架构编译的原生库和 ReadyToRun 程序集，无法合并成同一套文件，因此包里同时携带两份完整负载（`Contents/MacOS/x86_64` 与 `Contents/MacOS/arm64`），由通用启动器选择对应架构。体积约为单架构包的 2 倍。
 

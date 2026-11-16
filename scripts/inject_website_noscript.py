@@ -21,7 +21,6 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RELEASE = ROOT / "website" / "_release.json"
 START = "<!-- libzora-noscript:start -->"
 END = "<!-- libzora-noscript:end -->"
-BASE = "https://libzora.stacker.beauty/"
 
 LABELS = (
     ("win-x64-setup.exe", "Windows 安装包"),
@@ -81,7 +80,9 @@ def build_block(release: dict) -> str:
         if not is_package(name):
             continue
         size = int(asset.get("size") or 0)
-        url = f"{BASE}dl/{tag}/{name}"
+        url = asset.get("browser_download_url") or ""
+        if not url.startswith("https://github.com/kingstacker/Libzora/releases/download/"):
+            continue
         rows.append(
             f'        <li><a href="{html.escape(url)}">{html.escape(label_for(name))}</a>'
             f" —— {html.escape(name)}（{human_size(size)}）</li>"

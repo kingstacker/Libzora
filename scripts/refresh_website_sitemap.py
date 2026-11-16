@@ -2,8 +2,7 @@
 """Refresh <lastmod> in website/sitemap.xml from the site files' mtimes.
 
 Google ignores a sitemap whose lastmod never moves: the file looks unchanged,
-so the crawl of that URL is deprioritised. Run this after the manual and
-release snapshots have been regenerated, before the artifact is copied.
+so the crawl of that URL is deprioritised. Run this after the release snapshots have been regenerated, before the artifact is copied.
 """
 
 from __future__ import annotations

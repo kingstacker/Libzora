@@ -40,6 +40,12 @@ public sealed class XhtmlChapterLoader
     private static readonly Regex PlainFootnoteBareMarkerPattern = new(
         @"^\s*(?<number>\d{1,4})\s*$",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    // Calibre and similar converters often leave a note reference without
+    // noteref/footnote semantics. The visible marker is then the only signal:
+    // <sup><small><a href="notes.html#filepos123">[1]</a></small></sup>.
+    private static readonly Regex FootnoteMarkerTextPattern = new(
+        @"^(?:[\[［〔【(（]\s*\d{1,4}\s*[\]］〕】)）]|\d{1,4}|[注註]\s*\d{0,4}|[*†‡§¶])$",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     private readonly bool _paragraphIndent;
     private readonly StringBuilder _body = new();
@@ -2044,8 +2050,59 @@ public sealed class XhtmlChapterLoader
             return false;
         }
 
-        return FootnoteDefinitionIdentityPattern.IsMatch(identity);
+        return FootnoteDefinitionIdentityPattern.IsMatch(identity)
+            || LooksLikeConvertedFootnoteDefinition(element);
     }
+
+    /// <summary>
+    /// Recognizes an endnote paragraph written by converters that preserve
+    /// neither epub:type nor a footnote class:
+    /// <p id="filepos652450"><a href="chapter.html#filepos12816">[1]</a>note text</p>.
+    /// The leading marker link must point into another document, which keeps
+    /// ordinary cross-references inside the same chapter visible.
+    /// </summary>
+    private static bool LooksLikeConvertedFootnoteDefinition(XElement element)
+    {
+        var first = element.Elements().FirstOrDefault();
+        if (first is null
+            || !first.Name.LocalName.Equals("a", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var href = (string?)first.Attribute("href");
+        var fragment = GetHrefFragment(href);
+        if (fragment is null || href is null)
+        {
+            return false;
+        }
+
+        // A bare "#fragment" points inside this document, not at a note's
+        // source reference in another spine item.
+        var hash = href.IndexOf('#');
+        if (hash <= 0)
+        {
+            return false;
+        }
+
+        var marker = CollapseWhitespace(first.Value);
+        if (marker.Length == 0 || !FootnoteMarkerTextPattern.IsMatch(marker))
+        {
+            return false;
+        }
+
+        var text = CollapseWhitespace(element.Value);
+        if (text.Length <= marker.Length + 1)
+        {
+            return false;
+        }
+
+        var id = Id(element);
+        return id is null || !string.Equals(fragment, id, StringComparison.Ordinal);
+    }
+
+    private static string CollapseWhitespace(string value) =>
+        string.Join(' ', value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
 
     private void TrackId(XElement element)
     {
@@ -2473,6 +2530,15 @@ public sealed class XhtmlChapterLoader
         {
             return true;
         }
+
+        // Some converters keep no semantic attributes at all; the superscript
+        // wrapper and the marker text are the only footnote signals, e.g.
+        // <sup><small><a href="notes.html#filepos123">[1]</a></small></sup>.
+        if (targetFragment is not null && IsSuperscriptMarkerLink(element))
+        {
+            return true;
+        }
+
         if (!HasNumericIdPrefix(targetFragment, 'm'))
         {
             return false;
@@ -2497,6 +2563,21 @@ public sealed class XhtmlChapterLoader
         return value is { Length: > 1 }
             && value[0] == prefix
             && value[1..].All(char.IsDigit);
+    }
+
+    private static bool IsSuperscriptMarkerLink(XElement element)
+    {
+        var value = element.Value.Trim();
+        if (value.Length == 0 || !FootnoteMarkerTextPattern.IsMatch(value))
+        {
+            return false;
+        }
+
+        return element.Ancestors().Take(6).Any(IsSuperscript)
+            || element.Descendants().Take(8).Any(IsSuperscript);
+
+        static bool IsSuperscript(XElement node) =>
+            node.Name.LocalName.Equals("sup", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsFootnoteDefinitionBacklink(string? href, XElement element)

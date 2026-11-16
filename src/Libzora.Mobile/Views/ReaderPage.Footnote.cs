@@ -376,6 +376,19 @@ public partial class ReaderPage
         var core = label.Trim('[', ']', '【', '】', '(', ')', '（', '）').Trim();
         if (core.StartsWith('注')) core = core[1..].TrimStart(' ', '　');
         if (core.Length == 0) core = label;
+
+        // A bracketed marker is unambiguous even when the note text follows it
+        // without a space, as in Calibre's "<a>[1]</a>野人：…".
+        if (label.Length > 2
+            && "[(［〔【（".Contains(label[0])
+            && "])］〕】）".Contains(label[^1])
+            && text.StartsWith(label, StringComparison.Ordinal))
+        {
+            var rest = text[label.Length..].TrimStart(
+                ' ', '\t', '　', '：', ':', '、', '。', '，', ',', '.', '．', ')', '）', '】', ']');
+            if (rest.Length > 0) return rest;
+        }
+
         var candidates = new[]
         {
             label,

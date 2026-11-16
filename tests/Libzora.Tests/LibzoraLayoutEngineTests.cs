@@ -1102,6 +1102,46 @@ public sealed class LibzoraLayoutEngineTests : IDisposable
     }
 
     [Fact]
+    public void Loader_RecognizesCalibreSuperscriptFootnoteEndnotes()
+    {
+        // Calibre leaves no epub:type, class or noteref attribute. The only
+        // signals are the superscript wrapper, the bracketed marker, and a
+        // cross-document fragment target such as "#filepos…".
+        var path = WriteChapter(
+            "<p>“既然野人<sup class=\"calibre5\"><small id=\"filepos12816\" class=\"calibre6\">"
+            + "<a href=\"notes.xhtml#filepos652450\"><span class=\"calibre7\">[1]</span></a>"
+            + "</small></sup>已经死了，”</p>"
+            + "<p id=\"filepos652450\" class=\"calibre_\">"
+            + "<a href=\"body.xhtml#filepos12816\">[1]</a>野人：指居住在绝境长城以北的人。</p>"
+            + "<p id=\"filepos652669\" class=\"calibre_\">"
+            + "<a href=\"body.xhtml#filepos14617\">[2]</a>守夜人：一支驻守长城的部队。</p>");
+
+        var content = new XhtmlChapterLoader().Load(path);
+        var marker = Assert.Single(
+            content.Blocks.SelectMany(block => block.Items),
+            item => item.Kind == InlineKind.FootnoteMarker);
+
+        Assert.Equal("[1]", marker.Text);
+        Assert.EndsWith("#filepos652450", marker.FootnoteHref, StringComparison.Ordinal);
+
+        // The definitions are still in the offset stream for search and
+        // annotations, but they must not occupy reading pages.
+        Assert.Contains("野人：指居住在绝境长城以北的人。", content.BodyText, StringComparison.Ordinal);
+        Assert.DoesNotContain(content.Blocks.SelectMany(block => block.Items),
+            item => item.Text.Contains("野人：指居住在绝境长城以北的人。", StringComparison.Ordinal));
+        Assert.Contains("filepos652450", content.FragmentIds);
+        Assert.True(content.FragmentTextOffsets.ContainsKey("filepos652450"));
+        Assert.True(content.FragmentTextOffsets.ContainsKey("filepos652669"));
+
+        using var engine = CreateEngine();
+        var layout = engine.Compose(content, Options(TypesetWritingMode.HorizontalTb));
+        var hotZone = Assert.Single(layout.Pages.SelectMany(page => page.HotZones));
+        Assert.Equal(HotZoneKind.FootnoteMarker, hotZone.Kind);
+        Assert.EndsWith("#filepos652450", hotZone.Href, StringComparison.Ordinal);
+        Assert.Equal("[1]", hotZone.Marker);
+    }
+
+    [Fact]
     public void Horizontal_FootnoteMarkerRisesAboveTheBaseline()
     {
         var path = Path.Combine(_tempDir, "footnote-baseline.xhtml");

@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 const workflow = readFileSync(new URL('../.github/workflows/release.yml', import.meta.url), 'utf8');
+const developmentWorkflow = readFileSync(new URL('../.github/workflows/dev-build.yml', import.meta.url), 'utf8');
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 const sourceSha = 'a'.repeat(40);
 const oldSha = 'b'.repeat(40);
@@ -161,6 +162,20 @@ test('concurrent matching creation is verified; mismatching creation is refused'
   await assert.rejects(h.publish(), /Refusing to move/);
   assert.equal(h.refs.get('v1.1.6'), oldSha);
 });
+
+for (const [name, source] of [['Release', workflow], ['Development Build', developmentWorkflow]]) {
+  test(`${name} keeps the native ARM asset runtime on macOS 26 and Intel on macOS 15`, () => {
+    const macosJob = source.match(/\n  macos:\n[\s\S]*?(?=\n  [\w-]+:|$)/)?.[0];
+    assert(macosJob, `${name} must retain its macOS build job`);
+    assert.match(macosJob, /runs-on: \$\{\{ matrix\.runner \}\}/);
+    assert.match(macosJob, /- arch: arm64\n\s+rid: osx-arm64\n\s+runner: macos-26\n/);
+    assert.match(macosJob, /- arch: x64\n\s+rid: osx-x64\n\s+runner: macos-15-intel\n/);
+    assert.match(macosJob, /DEVELOPER_DIR: \/Applications\/Xcode_26\.3\.app\/Contents\/Developer\n/);
+    assert.match(macosJob, /xcrun assetutil -Z/);
+    assert.match(macosJob, /iconutil --convert iconset/);
+    assert.match(macosJob, /codesign --verify --deep --strict/);
+  });
+}
 
 test('all platforms and changelog use the prepared SHA and tag creation stays behind the gate', () => {
   assert.equal((workflow.match(/ref: \$\{\{ needs\.prepare\.outputs\.source_sha \}\}/g) || []).length, 4);

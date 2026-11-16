@@ -76,6 +76,10 @@ The sync subdirectory, encryption, scheduling, and transfer options are shared b
 
 Every `.libzora` data backup is encrypted with the locally configured sync key, including books, reading records, and library metadata. Import and export first prompt you to set that key if it is missing, even when cloud sync is disabled. To restore on another device, configure the original key before importing. Backups exclude connection passwords, account sessions, and the key itself. The key is never uploaded or recovered by the server; forgetting it makes existing encrypted data unreadable. Older plaintext backup files are rejected. See [encrypted backup details](docs/backup-encryption.md).
 
+## Public-domain test books
+
+The [公版书](公版书/README.md) folder contains the six EPUBs shown in the screenshots. Download and import them to test the library, reading, annotations, and Kindle transfers. Sources and SHA-256 checksums are included.
+
 ## Run from source
 
 Requires the exact [.NET SDK 10.0.400](https://dotnet.microsoft.com/download/dotnet/10.0) pinned by `global.json`.

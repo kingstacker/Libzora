@@ -35,7 +35,7 @@ python3 -I scripts/test_optimize_website_assets.py
 
 生成各截图的完整 WebP、响应式变体（640w / 1024w）及 1200×630 分享图。`library.png` 与 `library-grid.png` 是两个独立来源，不会再用固定侧栏宽度裁剪并覆盖第二张图；共享品牌图标及 Apple Touch Icon 由 `scripts/generate_app_icons.py` 统一管理。
 
-本次更新的桌面图从 macOS 上实际运行的 Avalonia 应用内容区域直接采集，避开系统窗口边角与阴影合成残留，移动端图截取自 iPhone 17 模拟器；中文页面使用中文界面截图，英文页面使用 `*-en.png` 英文界面截图。截图演示库只包含来自本地 `books/公版书` 目录的六本公版书（The House of the Arrow、The Sign of the Four、The Vultures、The Gold Bag、Hand and Ring、Carmilla）；Kindle 图来自真实连接的 Kindle Scribe，已传入对应 AZW3 文件。演示库不包含账号、连接设置或批注数据；完整书籍文件及临时截图构建不得提交。
+本次更新的桌面图从 macOS 上实际运行的 Avalonia 应用内容区域直接采集，避开系统窗口边角与阴影合成残留，移动端图截取自 iPhone 17 模拟器；中文页面使用中文界面截图，英文页面使用 `*-en.png` 英文界面截图。截图演示库只包含来自本地 `books/公版书` 目录的六本公版书（The House of the Arrow、The Sign of the Four、The Vultures、The Gold Bag、Hand and Ring、Carmilla）；Kindle 图来自真实连接的 Kindle Scribe，已传入对应 AZW3 文件。演示库不包含账号、连接设置或批注数据；测试用书统一收录于仓库根目录 `公版书/`；临时截图构建不得提交。
 
 ## 目录
 

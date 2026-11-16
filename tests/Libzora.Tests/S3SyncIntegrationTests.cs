@@ -989,6 +989,16 @@ public sealed partial class S3SyncIntegrationTests
             return Convert.ToInt64(await command.ExecuteScalarAsync());
         }
 
+        public async Task<object?> ScalarValueAsync(string sql, params (string Name, object Value)[] parameters)
+        {
+            await using var connection = new SqliteConnection($"Data Source={Paths.Database}");
+            await connection.OpenAsync();
+            using var command = connection.CreateCommand();
+            command.CommandText = sql;
+            foreach (var (name, value) in parameters) command.Parameters.AddWithValue(name, value);
+            return await command.ExecuteScalarAsync();
+        }
+
         public ValueTask DisposeAsync()
         {
             var root = Path.GetFullPath(Root);

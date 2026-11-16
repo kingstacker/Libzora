@@ -85,27 +85,37 @@ public sealed class KindleAnnotationWriteConcurrencyTests
             var service=new MassStorageKindleDeviceService(paths,new Metadata(),[root]);
             var mutations=Enumerable.Range(0,8000).Select(i=>new KindleAnnotationMutation("pc-"+i,"book",1,10,20,1,2,"","{}")).ToArray();
             var completed=new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            using var watcher=new FileSystemWatcher(paths.Backups,"candidate.db"){IncludeSubdirectories=true,NotifyFilter=NotifyFilters.FileName};
-            watcher.Created+=(_,e)=>
+            var inserted=0;
+            // Trigger the external write from the deterministic final candidate
+            // progress report instead of a FileSystemWatcher race: the insert
+            // must happen before ApplyAsync takes its freshness hash.
+            var progress=new InlineProgress(update =>
             {
+                if (update.Stage!=KindleAnnotationSyncStage.PreparingWrite
+                    || update.Completed!=update.Total
+                    || Interlocked.Exchange(ref inserted,1)!=0) return;
                 try
                 {
                     using var connection=Open(db);
                     using var command=connection.CreateCommand();
                     command.CommandText="INSERT INTO nonsyncable_annotations VALUES('external-new','unrelated-book',1,'{}','{}',1,3,'{}');";
                     command.ExecuteNonQuery();
-                    completed.TrySetResult(File.Exists(e.FullPath));
+                    completed.TrySetResult(true);
                 }
                 catch(Exception error){completed.TrySetException(error);}
-            };
-            watcher.EnableRaisingEvents=true;
-            await Assert.ThrowsAsync<IOException>(() => Task.Run(()=>service.ApplyAnnotationMutationsAsync(device,snapshot,mutations)));
+            });
+            await Assert.ThrowsAsync<IOException>(() => Task.Run(()=>service.ApplyAnnotationMutationsAsync(device,snapshot,mutations,default,progress)));
             Assert.True(await completed.Task.WaitAsync(TimeSpan.FromSeconds(10)),"External change must finish before candidate is installed");
             using var verify=Open(db);
             using var query=verify.CreateCommand();query.CommandText="SELECT count(*) FROM nonsyncable_annotations WHERE annotation_id='external-new'";
             Assert.Equal(1L,(long)query.ExecuteScalar()!);
         }
         finally{Directory.Delete(root, recursive:true);}
+    }
+    private sealed class InlineProgress(Action<KindleAnnotationSyncProgress> report)
+        : IProgress<KindleAnnotationSyncProgress>
+    {
+        public void Report(KindleAnnotationSyncProgress value)=>report(value);
     }
     private static SqliteConnection Open(string path)
     {

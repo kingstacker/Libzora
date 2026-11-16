@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using Libzora.Core;
+using Libzora.Infrastructure;
 
 namespace Libzora.Tests;
 
@@ -214,6 +215,65 @@ public sealed partial class S3SyncIntegrationTests
             Assert.Equal(420, dashboard.DailyReading.Sum(day => day.ActiveSeconds));
             Assert.Equal("Shared reading book", Assert.Single(dashboard.RecentBooks).Title);
         }
+    }
+
+    [Fact]
+    public async Task DeletedBook_SuppressesSameTickReimportFromAnotherDevice()
+    {
+        var bucket = new MemoryBucket();
+        await using var b = await Device.CreateAsync(bucket);
+        var book = await AddMatchingReadingBookAsync(b, DateTimeOffset.UtcNow.AddMinutes(-1));
+        await b.SyncAsync();
+        var own = bucket.Snapshot(b.SnapshotKey);
+        await b.Library.DeleteAsync(book.BookId);
+        var deletedAt = DateTimeOffset.Parse(
+            (string)(await b.ScalarValueAsync(
+                "SELECT DeletedAt FROM S3SyncDeletionLog WHERE EntityType = 'book' AND EntityKey = $key;",
+                ("$key", book.BookId.ToString())))!,
+            System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.RoundtripKind);
+
+        // Another device re-imported the same identity. Its capture stamped
+        // the row with the deletion instant's physical tick, but a larger
+        // per-device counter. The deletion must still win the tie.
+        var otherDeviceId = Guid.NewGuid().ToString("N");
+        var remote = new S3SyncSnapshot
+        {
+            DeviceId = otherDeviceId,
+            CreatedAt = DateTimeOffset.UtcNow,
+            Books =
+            [
+                new S3SyncBook
+                {
+                    Id = book.BookId,
+                    Title = "Shared reading book",
+                    Authors = "Author",
+                    CreatedAt = own.Books[0].UpdatedAt,
+                    UpdatedAt = own.Books[0].UpdatedAt,
+                    SyncVersion = S3SyncVersion.Create(deletedAt.UtcTicks, 500, otherDeviceId)
+                }
+            ],
+            Files =
+            [
+                new S3SyncBookFile
+                {
+                    Id = book.FileId,
+                    BookId = book.BookId,
+                    Format = "epub",
+                    FileName = "book.epub",
+                    Size = own.Files[0].Size,
+                    Sha256 = own.Files[0].Sha256,
+                    ModifiedAt = own.Files[0].ModifiedAt,
+                    SyncVersion = S3SyncVersion.Create(deletedAt.UtcTicks, 501, otherDeviceId)
+                }
+            ]
+        };
+        bucket.Objects[$"{b.Settings.Prefix}/devices/{otherDeviceId}/snapshot.bin"] = MemoryBucket.Encode(remote);
+
+        await b.SyncAsync();
+
+        Assert.Equal(0, await b.BookCountAsync());
+        Assert.Equal(0, await b.ScalarAsync("SELECT COUNT(*) FROM BookFiles;"));
     }
 
     [Fact]

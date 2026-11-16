@@ -304,34 +304,38 @@ public sealed class TtsModelStore : IDisposable
                 }
             }
 
-            await using var input = await response.Content
-                .ReadAsStreamAsync(cancellationToken)
-                .ConfigureAwait(false);
-            await using var output = new FileStream(
-                partialPath,
-                usingRange ? FileMode.Append : FileMode.Create,
-                FileAccess.Write,
-                FileShare.None,
-                81920,
-                FileOptions.Asynchronous | FileOptions.SequentialScan);
-            var buffer = new byte[81920];
-            var receivedThisAttempt = 0L;
-            while (true)
+            long receivedThisAttempt = 0;
+            // Dispose the file streams before moving the finished archive:
+            // Windows refuses to rename a file that still has an open handle.
             {
-                var read = await input.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
-                if (read == 0) break;
-                receivedThisAttempt += read;
-                if (existing + receivedThisAttempt > package.ArchiveBytes)
-                    throw new InvalidDataException("语音包下载超过了预期大小。");
-                hasher.AppendData(buffer, 0, read);
-                await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken)
+                await using var input = await response.Content
+                    .ReadAsStreamAsync(cancellationToken)
                     .ConfigureAwait(false);
-                progress?.Report(new TtsModelDownloadProgress(
-                    TtsModelDownloadPhase.Downloading,
-                    existing + receivedThisAttempt,
-                    package.ArchiveBytes));
+                await using var output = new FileStream(
+                    partialPath,
+                    usingRange ? FileMode.Append : FileMode.Create,
+                    FileAccess.Write,
+                    FileShare.None,
+                    81920,
+                    FileOptions.Asynchronous | FileOptions.SequentialScan);
+                var buffer = new byte[81920];
+                while (true)
+                {
+                    var read = await input.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+                    if (read == 0) break;
+                    receivedThisAttempt += read;
+                    if (existing + receivedThisAttempt > package.ArchiveBytes)
+                        throw new InvalidDataException("语音包下载超过了预期大小。");
+                    hasher.AppendData(buffer, 0, read);
+                    await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken)
+                        .ConfigureAwait(false);
+                    progress?.Report(new TtsModelDownloadProgress(
+                        TtsModelDownloadPhase.Downloading,
+                        existing + receivedThisAttempt,
+                        package.ArchiveBytes));
+                }
+                await output.FlushAsync(cancellationToken).ConfigureAwait(false);
             }
-            await output.FlushAsync(cancellationToken).ConfigureAwait(false);
 
             var received = existing + receivedThisAttempt;
             if (received != package.ArchiveBytes)

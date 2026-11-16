@@ -209,21 +209,22 @@ jobs:
           set -euo pipefail
           work="$RUNNER_TEMP/libzora-smoke"
           mkdir -p "$work"
-          tar -xzf "artifacts/development-macos/Libzora-${DEV_VERSION}-${{ matrix.rid }}.tar.gz" -C "$work"
-          plutil -lint "$work/Libzora.app/Contents/Info.plist"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "$work/Libzora.app/Contents/Info.plist")" = Libzora
-          xcrun assetutil -Z "$work/Libzora.app/Contents/Resources/Assets.car"
-          codesign --verify --deep --strict "$work/Libzora.app"
           dmg="artifacts/development-macos/Libzora-${DEV_VERSION}-${{ matrix.rid }}.dmg"
           hdiutil verify "$dmg"
           mountpoint="$RUNNER_TEMP/libzora-dmg"
           mkdir -p "$mountpoint"
-          hdiutil attach -readonly -nobrowse -mountpoint "$mountpoint" "$dmg" >/dev/null
+          hdiutil attach -readonly -nobrowse -noautoopen -mountpoint "$mountpoint" "$dmg" >/dev/null
           trap 'hdiutil detach "$mountpoint" -force -quiet >/dev/null 2>&1 || true' EXIT
           test -d "$mountpoint/Libzora.app"
           test -L "$mountpoint/Applications"
           test "$(readlink "$mountpoint/Applications")" = "/Applications"
+          ditto "$mountpoint/Libzora.app" "$work/Libzora.app"
           hdiutil detach "$mountpoint" >/dev/null
+          trap - EXIT
+          plutil -lint "$work/Libzora.app/Contents/Info.plist"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "$work/Libzora.app/Contents/Info.plist")" = Libzora
+          xcrun assetutil -Z "$work/Libzora.app/Contents/Resources/Assets.car"
+          codesign --verify --deep --strict "$work/Libzora.app"
           log="$RUNNER_TEMP/libzora-macos-smoke.log"
           "$work/Libzora.app/Contents/MacOS/Libzora" >"$log" 2>&1 &
           pid=$!
@@ -238,7 +239,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: Libzora-${{ needs.prepare.outputs.version }}-${{ matrix.rid }}
-          path: artifacts/development-macos/*
+          path: artifacts/development-macos/*.dmg
           if-no-files-found: error
           retention-days: 7
           compression-level: 0

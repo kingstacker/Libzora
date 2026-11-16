@@ -45,13 +45,14 @@ The macOS head matches the Windows build beyond device access:
 - Unhandled exceptions are written to `data/logs/crash.log`. Only loose
   Debug executables also write `libzora-crash.log` next to the binary; a file
   added inside `Libzora.app` would break the bundle's code signature.
-- In-app updates install from the `Libzora-{version}-osx-{arm64|x64}.tar.gz`
-  release asset. A detached helper waits for the app to exit, rejects archive
-  members outside `Libzora.app`, verifies the downloaded bundle's code
-  signature, stops the bundled MCP server, replaces `Libzora.app`, verifies the
-  installed signature again, reopens it, and restores the previous bundle if
-  anything fails. The option is only offered when the bundle directory is
-  writable and the app is not running from App Translocation.
+- In-app updates install from the `Libzora-{version}-osx-{arm64|x64}.dmg`
+  release asset. A detached helper waits for the app to exit, mounts the disk
+  image read-only, copies `Libzora.app` out with `ditto`, verifies the
+  downloaded bundle's code signature, stops the bundled MCP server, replaces
+  `Libzora.app`, verifies the installed signature again, reopens it, and
+  restores the previous bundle if anything fails. The option is only offered
+  when the bundle directory is writable and the app is not running from App
+  Translocation.
 - Send to Kindle streams queued files into the Amazon page as real `File`
   objects through the shared webview bridge, so the platform no longer depends
   on the Windows-only WebView2 file-input API.
@@ -84,8 +85,8 @@ macOS release packaging also requires Xcode 26 or newer to compile the layered
 Icon Composer artwork. Select it with `xcode-select` or `DEVELOPER_DIR` when
 multiple Xcode versions are installed.
 
-Each macOS build produces both `Libzora-{version}-{rid}.dmg` and the
-`Libzora-{version}-{rid}.tar.gz` used by the in-app updater. The DMG contains
+Each macOS build produces a single `Libzora-{version}-{rid}.dmg` used both for
+manual installation and by the in-app updater. The DMG contains
 `Libzora.app` and an `Applications` symlink, so the standard drag-to-Applications
 install works. Its Finder window uses the generated
 `scripts/macos/dmg-background.png`; the Finder layout pass is best effort with a
@@ -168,10 +169,10 @@ as a plugin ZIP and installed with the detected `calibre-customize`. These
 downloads never become part of a Libzora release artifact.
 
 Local macOS builds and GitHub Releases use ad-hoc signing when Apple
-distribution credentials are not configured. The archive includes
-`MACOS-README.md` with the Gatekeeper override steps required for that build.
-Development Build pre-releases are always ad-hoc signed; only the stable
-Release workflow imports distribution credentials.
+distribution credentials are not configured. The Gatekeeper override steps
+required for that build are in `macos-adhoc-install.md`. Development Build
+pre-releases are always ad-hoc signed; only the stable Release workflow imports
+distribution credentials.
 
 For normal Gatekeeper-approved distribution, configure these repository
 secrets:

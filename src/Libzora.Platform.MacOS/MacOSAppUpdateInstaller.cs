@@ -6,12 +6,13 @@ using Libzora.Core;
 namespace Libzora.Platform.MacOS;
 
 /// <summary>
-/// Installs a downloaded <c>.tar.gz</c> update without leaving Libzora.
-/// The app is distributed as a <c>Libzora.app</c> bundle, so the update is
-/// applied by a detached helper script: it waits for this process to exit,
-/// extracts the archive, swaps the bundle in place and reopens the app.
-/// Installation is only offered when the bundle directory is writable by the
-/// current user; otherwise the release page remains the fallback.
+/// Installs a downloaded <c>.dmg</c> update without leaving Libzora.
+/// The app is distributed as a <c>Libzora.app</c> bundle inside a disk image,
+/// so the update is applied by a detached helper script: it waits for this
+/// process to exit, mounts the image, copies the bundle out, swaps it in place
+/// and reopens the app. Installation is only offered when the bundle directory
+/// is writable by the current user; otherwise the release page remains the
+/// fallback.
 /// </summary>
 public sealed class MacOSAppUpdateInstaller : IAppUpdateInstaller
 {
@@ -42,7 +43,7 @@ public sealed class MacOSAppUpdateInstaller : IAppUpdateInstaller
         if (string.IsNullOrWhiteSpace(version)
             || version.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
             throw new ArgumentException("版本号不能用于生成安装包文件名。", nameof(version));
-        return $"Libzora-{version}-{RuntimeIdentifier}.tar.gz";
+        return $"Libzora-{version}-{RuntimeIdentifier}.dmg";
     }
 
     public void LaunchInstaller(string packagePath)
@@ -50,7 +51,7 @@ public sealed class MacOSAppUpdateInstaller : IAppUpdateInstaller
         var fullPath = Path.GetFullPath(packagePath);
         if (!File.Exists(fullPath))
             throw new FileNotFoundException("找不到已下载的 Libzora 更新包。", fullPath);
-        if (!Path.GetFileName(fullPath).EndsWith(".tar.gz", StringComparison.OrdinalIgnoreCase))
+        if (!Path.GetFileName(fullPath).EndsWith(".dmg", StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("Libzora 更新包格式不正确。");
         var bundle = BundlePath;
         if (!CanInstall || bundle is null) throw new InvalidOperationException(UnavailableReason);
@@ -127,13 +128,13 @@ public sealed class MacOSAppUpdateInstaller : IAppUpdateInstaller
 
     internal const string HelperScript = """
         #!/bin/sh
-        # Libzora updater: archive, target bundle, parent pid, log.
-        archive=$1
+        # Libzora updater: disk image, target bundle, parent pid, log.
+        image=$1
         target=$2
         parent_pid=$3
         log=$4
         exec >>"$log" 2>&1
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] updating $target from $archive"
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] updating $target from $image"
         # The app shuts down immediately after launching this script. Give up
         # (without touching the installed bundle) if it is still running after
         # two minutes, e.g. because a quit prompt was cancelled.
@@ -150,48 +151,33 @@ public sealed class MacOSAppUpdateInstaller : IAppUpdateInstaller
         # rename. A cross-volume mv copies file by file and can fail halfway.
         stage=$(mktemp -d "$(dirname "$target")/.libzora-update.XXXXXX" 2>/dev/null) \
           || stage=$(mktemp -d "${TMPDIR:-/tmp}/libzora-update.XXXXXX") || exit 1
-        cleanup() { rm -rf "$stage"; }
+        mountpoint="$stage/dmg"
+        cleanup() {
+          /usr/bin/hdiutil detach "$mountpoint" -force -quiet >/dev/null 2>&1 || true
+          /bin/rm -rf "$stage"
+        }
         trap cleanup EXIT
 
-        # Never let a tampered archive write outside the staging directory.
-        # The updater only accepts a bundle at the archive root.
-        members="$stage/archive-members.txt"
-        if ! /usr/bin/tar -tzf "$archive" > "$members"; then
-          echo "failed to list $archive"
+        # Mount read-only at a private mount point. -nobrowse and -noautoopen
+        # keep Finder and the user's sidebar out of the update.
+        /bin/mkdir -p "$mountpoint"
+        if ! /usr/bin/hdiutil attach -readonly -nobrowse -noautoopen \
+          -mountpoint "$mountpoint" "$image" >/dev/null; then
+          echo "failed to mount $image"
           exit 1
         fi
-        if [ ! -s "$members" ]; then
-          echo "the archive is empty"
+        if [ ! -d "$mountpoint/Libzora.app" ] \
+          || [ ! -x "$mountpoint/Libzora.app/Contents/MacOS/Libzora" ]; then
+          echo "the disk image does not contain a runnable Libzora.app"
           exit 1
         fi
-        while IFS= read -r member; do
-          case "$member" in
-            Libzora.app|Libzora.app/*|MACOS-README.md) ;;
-            *)
-              echo "unsafe archive member: $member"
-              exit 1
-              ;;
-          esac
-          case "/$member/" in
-            */../*)
-              echo "unsafe archive member: $member"
-              exit 1
-              ;;
-          esac
-        done < "$members"
-        if /usr/bin/tar -tvzf "$archive" | grep -Eq '^[lh]'; then
-          echo "the archive contains symbolic or hard links"
+        # ditto preserves the bundle's extended attributes and signature.
+        if ! /usr/bin/ditto "$mountpoint/Libzora.app" "$stage/Libzora.app"; then
+          echo "failed to copy the update bundle"
           exit 1
         fi
-
-        if ! /usr/bin/tar -xzf "$archive" -C "$stage"; then
-          echo "failed to extract $archive"
-          exit 1
-        fi
-        if [ ! -d "$stage/Libzora.app" ] || [ ! -x "$stage/Libzora.app/Contents/MacOS/Libzora" ]; then
-          echo "the archive does not contain a runnable Libzora.app"
-          exit 1
-        fi
+        /usr/bin/hdiutil detach "$mountpoint" -quiet >/dev/null 2>&1 \
+          || /usr/bin/hdiutil detach "$mountpoint" -force -quiet >/dev/null 2>&1 || true
 
         # Reject an update whose bundle signature is broken before replacing
         # the working copy. Ad-hoc signed builds still pass this check.

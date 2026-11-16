@@ -42,7 +42,7 @@ Download the latest Windows, Linux, or macOS package from the [official site](ht
 
 Backup download: [GitHub Releases](https://github.com/kingstacker/Libzora/releases).
 
-Calibre is required separately for format conversion. Official GitHub releases provide Windows, Linux, and macOS packages. macOS builds support macOS 12 or later on Intel and Apple Silicon; when Apple distribution credentials are not configured, the archive is ad-hoc signed and includes `MACOS-README.md` with the Gatekeeper steps.
+Calibre is required separately for format conversion. Official GitHub releases provide Windows, Linux, and macOS packages. macOS builds support macOS 12 or later on Intel and Apple Silicon; when Apple distribution credentials are not configured, the DMG is ad-hoc signed and the first launch needs the Gatekeeper steps in [docs/macos-adhoc-install.md](docs/macos-adhoc-install.md).
 
 The **Settings → Diagnostics** page checks the data directory, PDF parser, WebView, Calibre, TTS, and Kindle services, and is the first place to look for cross-platform issues. The library trash can restore a deleted book or a single format, and permanently purge items after confirmation; trash contents are included in local backups.
 

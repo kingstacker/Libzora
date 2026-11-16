@@ -42,7 +42,7 @@ Libzora 是一款基于 Avalonia 的跨平台电子书与 Kindle 管理器。它
 
 备用下载：[GitHub Releases](https://github.com/kingstacker/Libzora/releases)。
 
-格式转换需要另行安装 Calibre。GitHub 官方 Release 提供 Windows、Linux 和 macOS 包。macOS 包支持 macOS 12+ 的 Intel 与 Apple Silicon；未配置 Apple 发布凭据时使用临时签名，并在压缩包中附带 `MACOS-README.md` 说明 Gatekeeper 放行步骤。
+格式转换需要另行安装 Calibre。GitHub 官方 Release 提供 Windows、Linux 和 macOS 包。macOS 包支持 macOS 12+ 的 Intel 与 Apple Silicon；未配置 Apple 发布凭据时使用临时签名，首次启动需要按 [docs/macos-adhoc-install.md](docs/macos-adhoc-install.md) 放行。
 
 设置中的“诊断”页面会检查数据目录、PDF 解析器、WebView、Calibre、TTS 和 Kindle 服务；跨平台问题可先从这里确认。书库设置中的“回收站”支持恢复误删的整本书或单个格式，也可在确认后永久清理。回收站内容会随本地备份一起保存。
 

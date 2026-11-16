@@ -523,10 +523,5 @@ elif [[ -n "$notary_profile" ]]; then
   xcrun stapler validate "$dmg_path"
 fi
 
-if [[ "$signing_identity" == "-" ]]; then
-  cp "$repo_root/docs/macos-adhoc-install.md" "$work_root/MACOS-README.md"
-  tar -C "$work_root" -czf "$output_root/Libzora-$version-$rid.tar.gz" \
-    Libzora.app MACOS-README.md
-else
-  tar -C "$work_root" -czf "$output_root/Libzora-$version-$rid.tar.gz" Libzora.app
-fi
+# Only the drag-to-Applications DMG is published; the app payload is not
+# shipped as a separate archive.

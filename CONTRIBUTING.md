@@ -10,9 +10,10 @@ model, review flow, and expectations for pull requests.
 | `dev` | Integration branch. **All pull requests target `dev`.** Day-to-day work lands here first. |
 | `master` | Release branch. Only the maintainer merges `dev` into it when preparing a release. |
 
-GitHub may preselect `master` as the pull request base because it is the
-repository's default branch. **Change the base branch to `dev` before opening
-the pull request.**
+`dev` is the repository's default branch, so clones, forks, and new pull
+requests point at it automatically. If you opened a pull request against
+`master` by mistake, **switch its base branch to `dev`** before requesting
+review.
 
 Releases are produced from `master` by `.github/workflows/release.yml` (on a
 push to `master` or a `v*` tag). Changes merged directly into `master` skip
@@ -94,8 +95,8 @@ repository's license.
 
 ## 简体中文约定
 
-- **所有 PR 的目标分支是 `dev`**，不要在 GitHub 默认选中的 `master` 上直接开 PR，
-  提交前手动把 base 改为 `dev`。
+- **所有 PR 的目标分支是 `dev`**（仓库默认分支，GitHub 会自动选中）。如果误开到了
+  `master`，提交审查前把 base 改为 `dev`。
 - `master` 是发布分支，只由维护者在发版时从 `dev` 合并；直接向 `master` 推送会
   触发发布工作流。
 - PR 请保持改动聚焦，行为变化要补测试；本地跑通 `dotnet build` 和相关

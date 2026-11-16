@@ -19,7 +19,7 @@ struct NativeNameSheet: View {
         NavigationView {
             VStack(alignment: .leading, spacing: 12) {
                 Group {
-                    if isSecure { SecureField("请输入密码", text: $value) }
+                    if isSecure { SecureField(L("请输入密码"), text: $value) }
                     else { TextField(title, text: $value) }
                 }.font(NativeTheme.font()).focused($focused).padding(14)
                     .background(NativeTheme.sunk, in: RoundedRectangle(cornerRadius: 12))
@@ -30,7 +30,7 @@ struct NativeNameSheet: View {
                 .navigationTitle(title).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
                 .modifier(NativeKeyboardDone())
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() }.disabled(busy) }
+                    ToolbarItem(placement: .cancellationAction) { Button(L("取消")) { dismiss() }.disabled(busy) }
                     ToolbarItem(placement: .confirmationAction) { Button(button) {
                         busy = true
                         Task { defer { busy = false }; do { try await save(value.trimmingCharacters(in: .whitespacesAndNewlines)); dismiss() } catch { self.error = error.localizedDescription } }
@@ -57,18 +57,18 @@ struct NativeBookDetailPage: View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
                 Button { dismiss() } label: { Image(systemName: "chevron.left").frame(width: 44, height: 44) }
-                    .buttonStyle(.plain).accessibilityLabel("返回书库").accessibilityIdentifier("book.back")
+                    .buttonStyle(.plain).accessibilityLabel(L("返回书库")).accessibilityIdentifier("book.back")
                 Spacer()
                 if let book {
                     Button { action("favorite", ["favorite": !book.favorite]) } label: {
                         Image(systemName: book.favorite ? "star.fill" : "star").frame(width: 44, height: 44)
-                    }.buttonStyle(.plain).disabled(busy).accessibilityLabel(book.favorite ? "取消收藏" : "收藏")
+                    }.buttonStyle(.plain).disabled(busy).accessibilityLabel(book.favorite ? L("取消收藏") : L("收藏"))
                     Menu {
-                        Button("编辑书籍信息") { editor = true }; Button("加入收藏夹") { folders = true }
-                        Button("重命名") { rename = true }; Button("发送到 Kindle") { action("kindle") }
-                        Button("移到回收站", role: .destructive) { action("delete") }
+                        Button(L("编辑书籍信息")) { editor = true }; Button(L("加入收藏夹")) { folders = true }
+                        Button(L("重命名")) { rename = true }; Button(L("发送到 Kindle")) { action("kindle") }
+                        Button(L("移到回收站"), role: .destructive) { action("delete") }
                     } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }
-                        .buttonStyle(.plain).disabled(busy).accessibilityLabel("书籍选项")
+                        .buttonStyle(.plain).disabled(busy).accessibilityLabel(L("书籍选项"))
                 }
             }.font(.system(size: 20, weight: .regular)).padding(.horizontal, 8).padding(.top, 6)
             ScrollView {
@@ -79,35 +79,35 @@ struct NativeBookDetailPage: View {
                             .multilineTextAlignment(.center).frame(maxWidth: .infinity).padding(.top, 28)
                         Text(book.authors).font(NativeTheme.font(14)).foregroundStyle(NativeTheme.secondary)
                             .multilineTextAlignment(.center).frame(maxWidth: .infinity).padding(.top, 6)
-                        Text("\(book.formats) · \(book.size) · 已读 \(book.progress, specifier: "%.0f")%")
+                        Text(L("{0} · {1} · 已读 {2}%", book.formats, book.size, String(format: "%.0f", locale: NativeLocalization.locale, book.progress)))
                             .font(NativeTheme.font(12.5, relativeTo: .caption)).foregroundStyle(NativeTheme.muted)
                             .frame(maxWidth: .infinity).padding(.top, 8)
                         if let description = book.description, !description.isEmpty {
                             VStack(alignment: .leading, spacing: 8) {
                                 Text(description).font(NativeTheme.font(14)).foregroundStyle(NativeTheme.secondary)
                                     .lineLimit(expanded ? nil : 5).lineSpacing(7).textSelection(.enabled)
-                                Button(expanded ? "收起" : "展开全部") { expanded.toggle() }
+                                Button(expanded ? L("收起") : L("展开全部")) { expanded.toggle() }
                                     .font(NativeTheme.font(14)).foregroundStyle(NativeTheme.muted).buttonStyle(.plain)
                             }.padding(.top, 32)
                         }
                         HStack {
-                            Text("书籍信息").font(NativeTheme.font(13)).foregroundStyle(NativeTheme.muted)
+                            Text(L("书籍信息")).font(NativeTheme.font(13)).foregroundStyle(NativeTheme.muted)
                             Spacer()
-                            Button("编辑") { editor = true }.font(NativeTheme.font(14)).foregroundStyle(NativeTheme.muted).buttonStyle(.plain)
+                            Button(L("编辑")) { editor = true }.font(NativeTheme.font(14)).foregroundStyle(NativeTheme.muted).buttonStyle(.plain)
                         }.padding(.top, 24).padding(.bottom, 4)
                         VStack(spacing: 14) {
-                            fact("评分", book.onlineRating.map { String(format: "%.1f", $0) })
-                            fact("丛书", book.series); fact("出版社", book.publisher); fact("出版日期", book.publishDate)
-                            fact("ISBN", book.isbn); fact("页数", book.pageCount); fact("装帧", book.binding)
-                            fact("标签", book.tags); fact("分类", book.category); fact("文件", book.formats)
-                            fact("添加时间", String(book.createdAt.prefix(10)).replacingOccurrences(of: "-", with: "/"))
+                            fact(L("评分"), book.onlineRating.map { String(format: "%.1f", $0) })
+                            fact(L("丛书"), book.series); fact(L("出版社"), book.publisher); fact(L("出版日期"), book.publishDate)
+                            fact("ISBN", book.isbn); fact(L("页数"), book.pageCount); fact(L("装帧"), book.binding)
+                            fact(L("标签"), book.tags); fact(L("分类"), book.category); fact(L("文件"), book.formats)
+                            fact(L("添加时间"), String(book.createdAt.prefix(10)).replacingOccurrences(of: "-", with: "/"))
                         }.font(NativeTheme.font(14)).padding(.top, 7)
                     }.padding(.horizontal, 28).padding(.top, 12).padding(.bottom, 24)
                 }
             }
             if let book {
                 Button { store.perform { try await store.openReader(book) } } label: {
-                    Text(book.progress > 0 ? "继续阅读 · \(book.progress, specifier: "%.0f")%" : "开始阅读")
+                    Text(book.progress > 0 ? L("继续阅读 · {0}%", String(format: "%.0f", locale: NativeLocalization.locale, book.progress)) : L("开始阅读"))
                 }.buttonStyle(NativeLiquidGlassButtonStyle()).disabled(store.openingReader).accessibilityIdentifier("book.read")
                     .padding(.horizontal, 28).padding(.top, 8).padding(.bottom, 14)
             }
@@ -115,7 +115,7 @@ struct NativeBookDetailPage: View {
             .sheet(isPresented: $editor) { if let book { NativeBookEditor(store: store, book: book) } }
             .sheet(isPresented: $folders) { NativeBookCollections(store: store, bookId: bookId) }
             .sheet(isPresented: $rename) {
-                NativeNameSheet(store: store, title: "修改书名", initial: book?.title ?? "", button: "保存") { title in
+                NativeNameSheet(store: store, title: L("修改书名"), initial: book?.title ?? "", button: L("保存")) { title in
                     try await store.command("book.rename", ["bookId": bookId, "title": title]); try await store.refreshLibrary()
                 }
             }
@@ -169,15 +169,15 @@ struct NativeBookEditor: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     coverPanel
-                    editorSection("简介") { descriptionEditor }
-                    editorSection("书籍信息") {
+                    editorSection(L("简介")) { descriptionEditor }
+                    editorSection(L("书籍信息")) {
                         VStack(spacing: 16) {
-                            NativeTextField(title: "书名", text: field("title")); NativeTextField(title: "作者", text: field("authors"))
-                            NativeTextField(title: "评分（0–10）", text: field("onlineRating")).keyboardType(.decimalPad); NativeTextField(title: "标签", text: field("tags"))
-                            NativeTextField(title: "分类", text: field("category")); NativeTextField(title: "丛书", text: field("series"))
-                            NativeTextField(title: "出版社", text: field("publisher")); NativeTextField(title: "出版日期", text: field("publishDate"))
-                            NativeTextField(title: "ISBN", text: field("isbn")); NativeTextField(title: "页数", text: field("pageCount"))
-                            NativeTextField(title: "装帧", text: field("binding"))
+                            NativeTextField(title: L("书名"), text: field("title")); NativeTextField(title: L("作者"), text: field("authors"))
+                            NativeTextField(title: L("评分（0–10）"), text: field("onlineRating")).keyboardType(.decimalPad); NativeTextField(title: L("标签"), text: field("tags"))
+                            NativeTextField(title: L("分类"), text: field("category")); NativeTextField(title: L("丛书"), text: field("series"))
+                            NativeTextField(title: L("出版社"), text: field("publisher")); NativeTextField(title: L("出版日期"), text: field("publishDate"))
+                            NativeTextField(title: "ISBN", text: field("isbn")); NativeTextField(title: L("页数"), text: field("pageCount"))
+                            NativeTextField(title: L("装帧"), text: field("binding"))
                         }
                     }
                     if let error {
@@ -188,10 +188,10 @@ struct NativeBookEditor: View {
             }
             .modifier(NativeScrollDismissesKeyboard())
             .background(NativeAmbientBackground())
-            .navigationTitle("编辑书籍").navigationBarTitleDisplayMode(.inline).navigationBarHidden(false).modifier(NativeKeyboardDone())
+            .navigationTitle(L("编辑书籍")).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false).modifier(NativeKeyboardDone())
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() }.disabled(busy) }
-                    ToolbarItem(placement: .confirmationAction) { Button("保存") {
+                    ToolbarItem(placement: .cancellationAction) { Button(L("取消")) { dismiss() }.disabled(busy) }
+                    ToolbarItem(placement: .confirmationAction) { Button(L("保存")) {
                         busy = true
                         Task { defer { busy = false }; do { try await store.command("book.save", ["bookId": book.id, "fields": fields]); try await store.refreshLibrary(); dismiss() } catch { self.error = error.localizedDescription } }
                     }.disabled(busy || (fields["title"] ?? "").isEmpty) }
@@ -209,7 +209,7 @@ struct NativeBookEditor: View {
                     .fixedSize(horizontal: false, vertical: true)
                 Text(draftAuthors).font(NativeTheme.font(13, relativeTo: .footnote))
                     .foregroundStyle(NativeTheme.secondary).lineLimit(2)
-                Text("\(book.formats) · \(book.size) · 已读 \(book.progress, specifier: "%.0f")%")
+                Text(L("{0} · {1} · 已读 {2}%", book.formats, book.size, String(format: "%.0f", locale: NativeLocalization.locale, book.progress)))
                     .font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.muted)
                     .padding(.top, 2)
                 Spacer(minLength: 12)
@@ -217,7 +217,7 @@ struct NativeBookEditor: View {
                     busy = true
                     Task { defer { busy = false }; do { let value: CoverResult = try await store.request("book.cover"); if let cover = value.cover { fields["cover"] = cover } } catch { self.error = error.localizedDescription } }
                 } label: {
-                    Label("更换封面", systemImage: "photo.on.rectangle.angled")
+                    Label(L("更换封面"), systemImage: "photo.on.rectangle.angled")
                 }.buttonStyle(NativeLiquidGlassButtonStyle(compact: true)).disabled(busy)
                     .accessibilityIdentifier("book.cover.change")
             }
@@ -247,7 +247,7 @@ struct NativeBookEditor: View {
     private var descriptionEditor: some View {
         ZStack(alignment: .topLeading) {
             if (fields["description"] ?? "").isEmpty {
-                Text("写点什么…").font(NativeTheme.font()).foregroundStyle(NativeTheme.faint)
+                Text(L("写点什么…")).font(NativeTheme.font()).foregroundStyle(NativeTheme.faint)
                     .padding(.horizontal, 12).padding(.vertical, 11).allowsHitTesting(false)
             }
             TextEditor(text: field("description")).font(NativeTheme.font()).frame(minHeight: 150)
@@ -272,9 +272,9 @@ struct NativeBookCollections: View {
                         store.perform { defer { busy = false }; try await store.command("collection.membership", ["bookId": bookId, "collectionId": folder.id, "member": member]); try await store.refreshLibrary() }
                     })).tint(NativeTheme.systemSwitchTint)
                 }
-                Section("新建收藏夹") {
-                    TextField("名称", text: $name)
-                    Button("创建并加入") {
+                Section(L("新建收藏夹")) {
+                    TextField(L("名称"), text: $name)
+                    Button(L("创建并加入")) {
                         busy = true
                         store.perform {
                             defer { busy = false }
@@ -284,8 +284,8 @@ struct NativeBookCollections: View {
                         }
                     }.disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
-            }.disabled(busy).navigationTitle("加入收藏夹").navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
-                .toolbar { Button("完成") { dismiss() }.disabled(busy) }
+            }.disabled(busy).navigationTitle(L("加入收藏夹")).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
+                .toolbar { Button(L("完成")) { dismiss() }.disabled(busy) }
         }.navigationViewStyle(.stack).interactiveDismissDisabled(busy)
     }
 }
@@ -305,25 +305,25 @@ struct NativeCollectionPage: View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
                 Button { dismiss() } label: { Image(systemName: "chevron.left").frame(width: 44, height: 44) }
-                    .accessibilityLabel("返回收藏夹").accessibilityIdentifier("collection.back")
-                Text(folder?.name ?? "收藏夹").font(NativeTheme.font(21, relativeTo: .title2)).lineLimit(1)
+                    .accessibilityLabel(L("返回收藏夹")).accessibilityIdentifier("collection.back")
+                Text(folder?.name ?? L("收藏夹")).font(NativeTheme.font(21, relativeTo: .title2)).lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 4)
                 if folder?.automatic == false {
                     Button { addBooks = true } label: { Image(systemName: "plus").frame(width: 44, height: 44) }
-                        .accessibilityLabel("添加书籍").accessibilityIdentifier("collection.add")
+                        .accessibilityLabel(L("添加书籍")).accessibilityIdentifier("collection.add")
                     Menu {
-                        Button("重命名") { rename = true }; Button("清空书籍") { run("clear") }
-                        Menu("合并到") { ForEach(store.folders.filter { !$0.automatic && $0.id != folderId }) { target in Button(target.name) { run("merge", ["targetId": target.id]) } } }
-                        Button("解散收藏夹", role: .destructive) { run("dissolve") }
+                        Button(L("重命名")) { rename = true }; Button(L("清空书籍")) { run("clear") }
+                        Menu(L("合并到")) { ForEach(store.folders.filter { !$0.automatic && $0.id != folderId }) { target in Button(target.name) { run("merge", ["targetId": target.id]) } } }
+                        Button(L("解散收藏夹"), role: .destructive) { run("dissolve") }
                     } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }
-                        .accessibilityLabel("收藏夹选项")
+                        .accessibilityLabel(L("收藏夹选项"))
                 }
             }.font(.system(size: 20, weight: .regular)).buttonStyle(.plain).padding(.horizontal, 8).padding(.top, 16)
             GeometryReader { geometry in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
                         HStack(spacing: 0) {
-                            Text("\(books.count) 本").font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.muted)
+                            Text(L("{0} 本", books.count)).font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.muted)
                             Spacer()
                             NativeBookSortMenu(store: store)
                             NativeBookLayoutButton(store: store, identifier: "collection.layout")
@@ -331,21 +331,21 @@ struct NativeCollectionPage: View {
                         if books.isEmpty {
                             VStack(spacing: 12) {
                                 Image(systemName: "book").font(.system(size: 34, weight: .ultraLight)).foregroundStyle(NativeTheme.muted)
-                                Text("收藏夹还是空的").font(NativeTheme.font(17, relativeTo: .headline))
+                                Text(L("收藏夹还是空的")).font(NativeTheme.font(17, relativeTo: .headline))
                                 if folder?.automatic == false {
-                                    Text("点右上角 + 添加书籍").font(NativeTheme.font(13)).foregroundStyle(NativeTheme.muted)
+                                    Text(L("点右上角 + 添加书籍")).font(NativeTheme.font(13)).foregroundStyle(NativeTheme.muted)
                                 }
                             }.frame(maxWidth: .infinity).padding(.top, 96)
                         } else {
                             NativeBookShelf(store: store, books: books, pageWidth: geometry.size.width) { book in
                                 var items = [
-                                    NativeBookMenuItem("阅读") { store.perform { try await store.openReader(book) } },
-                                    NativeBookMenuItem(book.favorite ? "取消收藏" : "收藏") {
+                                    NativeBookMenuItem(L("阅读")) { store.perform { try await store.openReader(book) } },
+                                    NativeBookMenuItem(book.favorite ? L("取消收藏") : L("收藏")) {
                                         store.perform { try await store.command("book.favorite", ["bookId": book.id, "favorite": !book.favorite]); try await store.refreshLibrary() }
                                     }
                                 ]
                                 if folder?.automatic == false {
-                                    items.append(NativeBookMenuItem("移出收藏夹", destructive: true) {
+                                    items.append(NativeBookMenuItem(L("移出收藏夹"), destructive: true) {
                                         run("membership", ["bookId": book.id, "member": false])
                                     })
                                 }
@@ -361,7 +361,7 @@ struct NativeCollectionPage: View {
         }.background(NativeAmbientBackground()).disabled(busy).navigationBarHidden(true)
             .modifier(NativeHideTabBar())
             .sheet(isPresented: $rename) {
-                NativeNameSheet(store: store, title: "重命名收藏夹", initial: folder?.name ?? "", button: "保存") { name in
+                NativeNameSheet(store: store, title: L("重命名收藏夹"), initial: folder?.name ?? "", button: L("保存")) { name in
                     try await store.command("collection.rename", ["collectionId": folderId, "name": name]); try await store.refreshLibrary()
                 }
             }
@@ -370,7 +370,7 @@ struct NativeCollectionPage: View {
                     List(store.library.filter { !$0.collectionIds.contains(folderId) }) { book in
                         Button { run("membership", ["bookId": book.id, "member": true]) } label: { BookRow(book: book) }
                             .accessibilityIdentifier("collection.pick.\(book.id)")
-                    }.disabled(busy).navigationTitle("添加书籍").navigationBarTitleDisplayMode(.inline).navigationBarHidden(false).toolbar { Button("完成") { addBooks = false }.disabled(busy) }
+                    }.disabled(busy).navigationTitle(L("添加书籍")).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false).toolbar { Button(L("完成")) { addBooks = false }.disabled(busy) }
                 }.navigationViewStyle(.stack)
             }
     }

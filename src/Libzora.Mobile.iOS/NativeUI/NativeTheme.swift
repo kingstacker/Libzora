@@ -317,13 +317,15 @@ struct NativeHideTabBar: ViewModifier {
 /// chevron keeps the same back behavior without that overlay.
 struct NativeBackButton: ViewModifier {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.locale) private var uiLocale
     func body(content: Content) -> some View {
-        content.navigationBarBackButtonHidden(true)
+        let _ = uiLocale
+        return content.navigationBarBackButtonHidden(true)
             .background(NativeSwipeBackEnabler().frame(width: 0, height: 0))
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button { dismiss() } label: { Image(systemName: "chevron.left") }
-                        .accessibilityLabel("返回")
+                        .accessibilityLabel(L("返回"))
                 }
             }
     }

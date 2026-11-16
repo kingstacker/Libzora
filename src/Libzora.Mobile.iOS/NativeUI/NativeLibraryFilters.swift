@@ -22,6 +22,7 @@ struct NativeLibraryFilterOptions: Decodable {
 /// count uses the same quick filter and search as the shelf, so it reflects
 /// what applying the draft will show.
 struct NativeLibraryFilterSheet: View {
+    @Environment(\.locale) private var uiLocale
     @Environment(\.dismiss) private var dismiss
     let options: NativeLibraryFilterOptions
     let quickFilter: Int
@@ -53,30 +54,32 @@ struct NativeLibraryFilterSheet: View {
     }
 
     var body: some View {
+        let _ = uiLocale
+
         NavigationView {
             VStack(spacing: 0) {
                 ScrollView {
                     VStack(spacing: 14) {
                         card {
                             VStack(alignment: .leading, spacing: 12) {
-                                sectionTitle("阅读状态")
+                                sectionTitle(L("阅读状态"))
                                 chipRow {
-                                    chip("全部", selected: draft.readingStatus == nil,
+                                    chip(L("全部"), selected: draft.readingStatus == nil,
                                          identifier: "library.filters.option.status.all") { draft.readingStatus = nil }
-                                    chip("待读", selected: draft.readingStatus == "0",
+                                    chip(L("待读"), selected: draft.readingStatus == "0",
                                          identifier: "library.filters.option.status.0") { draft.readingStatus = "0" }
-                                    chip("在读", selected: draft.readingStatus == "1",
+                                    chip(L("在读"), selected: draft.readingStatus == "1",
                                          identifier: "library.filters.option.status.1") { draft.readingStatus = "1" }
-                                    chip("读完", selected: draft.readingStatus == "2",
+                                    chip(L("读完"), selected: draft.readingStatus == "2",
                                          identifier: "library.filters.option.status.2") { draft.readingStatus = "2" }
                                 }
                             }
                         }
                         card {
                             VStack(alignment: .leading, spacing: 12) {
-                                sectionTitle("格式")
+                                sectionTitle(L("格式"))
                                 chipRow {
-                                    chip("全部", selected: draft.format == nil,
+                                    chip(L("全部"), selected: draft.format == nil,
                                          identifier: "library.filters.option.format.all") { draft.format = nil }
                                     ForEach(options.formats, id: \.self) { format in
                                         chip(format, selected: draft.format == format,
@@ -87,13 +90,13 @@ struct NativeLibraryFilterSheet: View {
                         }
                         card {
                             VStack(spacing: 0) {
-                                metadataLink(icon: "person", title: "作者", key: "author",
+                                metadataLink(icon: "person", title: L("作者"), key: "author",
                                              values: options.authors, selection: $draft.author)
                                 divider
-                                metadataLink(icon: "tag", title: "标签", key: "tag",
+                                metadataLink(icon: "tag", title: L("标签"), key: "tag",
                                              values: options.tags, selection: $draft.tag)
                                 divider
-                                metadataLink(icon: "square.stack.3d.up", title: "分类", key: "category",
+                                metadataLink(icon: "square.stack.3d.up", title: L("分类"), key: "category",
                                              values: options.categories, selection: $draft.category)
                             }.padding(.vertical, 2)
                         }
@@ -102,16 +105,16 @@ struct NativeLibraryFilterSheet: View {
             }
             .background(NativeAmbientBackground(fallback: NativeTheme.sunk))
             .safeAreaInset(edge: .bottom, spacing: 0) { bottomBar }
-            .navigationTitle("筛选书籍").navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
+            .navigationTitle(L("筛选书籍")).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
             .modifier(NativeTransparentNavigationBar())
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button { dismiss() } label: { Image(systemName: "chevron.left") }
-                        .accessibilityLabel("返回")
+                        .accessibilityLabel(L("返回"))
                         .accessibilityIdentifier("library.filters.cancel")
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("清除") { draft = NativeLibraryFilterSelection() }
+                    Button(L("清除")) { draft = NativeLibraryFilterSelection() }
                         .accessibilityIdentifier("library.filters.clear")
                 }
             }
@@ -120,7 +123,7 @@ struct NativeLibraryFilterSheet: View {
 
     private var bottomBar: some View {
         Button { apply(draft); dismiss() } label: {
-            Text("查看 \(count) 本书").font(NativeTheme.font(15)).foregroundStyle(NativeTheme.ink)
+            Text(L("查看 {0} 本书", count)).font(NativeTheme.font(15)).foregroundStyle(NativeTheme.ink)
                 .frame(maxWidth: .infinity).frame(height: 50)
                 .modifier(NativeFilterGlass(shape: Capsule(), interactive: true))
         }.buttonStyle(.plain).accessibilityIdentifier("library.filters.apply")
@@ -164,7 +167,7 @@ struct NativeLibraryFilterSheet: View {
                     .foregroundStyle(NativeTheme.secondary).frame(width: 24)
                 Text(title).font(NativeTheme.font(15))
                 Spacer(minLength: 12)
-                Text(selection.wrappedValue ?? "不限").font(NativeTheme.font(14))
+                Text(selection.wrappedValue ?? L("不限")).font(NativeTheme.font(14))
                     .foregroundStyle(NativeTheme.muted).lineLimit(1)
                 Image(systemName: "chevron.right").font(.system(size: 12, weight: .regular))
                     .foregroundStyle(NativeTheme.faint)
@@ -246,6 +249,7 @@ private struct NativeFilterGlass<S: Shape>: ViewModifier {
 
 /// A pushed selector for the long author, tag and category lists.
 private struct NativeLibraryFilterValuePage: View {
+    @Environment(\.locale) private var uiLocale
     let title: String
     let key: String
     let values: [String]
@@ -260,9 +264,11 @@ private struct NativeLibraryFilterValuePage: View {
     }
 
     var body: some View {
+        let _ = uiLocale
+
         VStack(spacing: 0) {
             if searching {
-                TextField("搜索\(title)", text: $search).font(NativeTheme.font(14)).focused($searchFocused)
+                TextField(L("搜索{0}", title), text: $search).font(NativeTheme.font(14)).focused($searchFocused)
                     .textInputAutocapitalization(.never).disableAutocorrection(true).submitLabel(.done)
                     .onSubmit { searchFocused = false }
                     .padding(.horizontal, 12).frame(height: 40)
@@ -272,15 +278,15 @@ private struct NativeLibraryFilterValuePage: View {
             }
             ScrollView {
                 LazyVStack(spacing: 0) {
-                    option("不限", value: nil, id: "all")
+                    option(L("不限"), value: nil, id: "all")
                     ForEach(matching, id: \.self) { value in
                         option(value, value: value, id: value)
                     }
                     if values.isEmpty {
-                        Text("暂无可选项").font(NativeTheme.font(13)).foregroundStyle(NativeTheme.muted)
+                        Text(L("暂无可选项")).font(NativeTheme.font(13)).foregroundStyle(NativeTheme.muted)
                             .padding(.top, 24)
                     } else if matching.isEmpty {
-                        Text("没有找到匹配项").font(NativeTheme.font(13)).foregroundStyle(NativeTheme.muted)
+                        Text(L("没有找到匹配项")).font(NativeTheme.font(13)).foregroundStyle(NativeTheme.muted)
                             .padding(.top, 24)
                     }
                 }.padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 24)
@@ -297,7 +303,7 @@ private struct NativeLibraryFilterValuePage: View {
                 } label: {
                     Image(systemName: searching ? "xmark" : "magnifyingglass")
                         .font(.system(size: 15))
-                }.accessibilityLabel(searching ? "关闭搜索\(title)" : "搜索\(title)")
+                }.accessibilityLabel(searching ? L("关闭搜索{0}", title) : L("搜索{0}", title))
                     .accessibilityIdentifier("library.filters.search.\(key)")
             }
         }

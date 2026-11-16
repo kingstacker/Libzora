@@ -49,6 +49,7 @@ private struct NativeFootnoteNoteHeightKey: PreferenceKey {
 }
 
 struct NativeReaderFootnoteCard: View {
+    @Environment(\.locale) private var uiLocale
     let footnote: ReaderFootnote
     let cardWidth: CGFloat
     let close: () -> Void
@@ -59,6 +60,8 @@ struct NativeReaderFootnoteCard: View {
     private var noteWidth: CGFloat { max(1, cardWidth - 28) }
 
     var body: some View {
+        let _ = uiLocale
+
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Text(footnote.title)
@@ -74,7 +77,7 @@ struct NativeReaderFootnoteCard: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("定位原注")
+                    .accessibilityLabel(L("定位原注"))
                     .accessibilityIdentifier("reader.footnote.jump")
                 }
                 Button(action: close) {
@@ -84,13 +87,13 @@ struct NativeReaderFootnoteCard: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("关闭注释")
+                .accessibilityLabel(L("关闭注释"))
                 .accessibilityIdentifier("reader.footnote.close")
             }
             if footnote.loading {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text("正在查找注释…").font(NativeTheme.font(14))
+                    Text(L("正在查找注释…")).font(NativeTheme.font(14))
                         .foregroundStyle(NativeTheme.secondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -105,7 +108,7 @@ struct NativeReaderFootnoteCard: View {
                     noteText(text)
                 }
             } else {
-                Text(footnote.error ?? "未找到注释内容")
+                Text(footnote.error ?? L("未找到注释内容"))
                     .font(NativeTheme.font(14))
                     .foregroundStyle(NativeTheme.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)

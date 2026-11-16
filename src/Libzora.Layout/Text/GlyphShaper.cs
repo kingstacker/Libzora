@@ -34,6 +34,7 @@ public sealed class TypesetFontLibrary : IDisposable
     private readonly List<string> _order = new();
     private readonly List<string> _fallbackCandidates = new();
     private int _activeCompositions;
+    private HashSet<string> _retainedFontPaths = new(StringComparer.OrdinalIgnoreCase);
     private HashSet<string>? _deferredReleaseKeys;
     private bool _disposed;
 
@@ -108,8 +109,25 @@ public sealed class TypesetFontLibrary : IDisposable
     }
 
     /// <summary>
-    /// Releases platform faces that are no longer the reader's main font. A
-    /// system face can occupy tens of megabytes (PingFang ships as a ~59 MB
+    /// Replaces the faces borrowed by the reader's installed layout. A former
+    /// main face can still supply missing glyphs in the new layout, so it must
+    /// survive both immediate and deferred platform-font cleanup. Call while
+    /// holding a composition scope when replacing a layout.
+    /// </summary>
+    public void SetRetainedFontPaths(IEnumerable<string> fontPaths)
+    {
+        var retained = fontPaths.Where(IsSystemFontKey)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        lock (_faces)
+        {
+            _retainedFontPaths = retained;
+        }
+    }
+
+    /// <summary>
+    /// Releases platform faces other than the reader's main font and faces
+    /// referenced by its installed layout. A system face can occupy tens of
+    /// megabytes (PingFang ships as a ~59 MB
     /// TTC), so switching families must not keep every earlier face alive for
     /// the rest of the session. The preferred face is re-opened on demand if
     /// the user switches back. The current main face is always kept, even
@@ -160,6 +178,7 @@ public sealed class TypesetFontLibrary : IDisposable
             var key = _order[index];
             if (!IsSystemFontKey(key)
                 || string.Equals(key, keep, StringComparison.OrdinalIgnoreCase)
+                || _retainedFontPaths.Contains(key)
                 || (onlyKeys is not null && !onlyKeys.Contains(key)))
             {
                 continue;
@@ -490,6 +509,7 @@ public sealed class TypesetFontLibrary : IDisposable
             _disposed = true;
             entries = _faces.Values.ToList();
             _deferredReleaseKeys = null;
+            _retainedFontPaths.Clear();
             _faces.Clear();
             _order.Clear();
         }

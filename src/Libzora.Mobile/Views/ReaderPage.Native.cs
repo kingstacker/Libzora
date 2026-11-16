@@ -46,6 +46,7 @@ public partial class ReaderPage
     private int _nativeAppAppearanceRevision = -1;
     private bool _nativeChromeVisible = false;
     private string? _nativeError;
+    private Func<string>? _nativeErrorText;
     private IReadOnlyList<SearchHit> _nativeSearchHits = [];
 
     public event Action<NativeReaderState>? NativeStateChanged;
@@ -68,7 +69,7 @@ public partial class ReaderPage
             }
             else
             {
-                _shell.ShowToast("图片文件已丢失");
+                _shell.ShowToast(UiText.Get("图片文件已丢失"));
             }
 
             return;
@@ -95,7 +96,7 @@ public partial class ReaderPage
             var path = await host.RenderTablePreviewAsync(blockIndex, width, _lifetime.Token);
             if (string.IsNullOrWhiteSpace(path))
             {
-                _shell.ShowToast("这个表格暂时无法单独显示");
+                _shell.ShowToast(UiText.Get("这个表格暂时无法单独显示"));
                 return;
             }
 
@@ -106,7 +107,7 @@ public partial class ReaderPage
         }
         catch (Exception exception)
         {
-            _shell.ShowToast("无法打开表格");
+            _shell.ShowToast(UiText.Get("无法打开表格"));
             Console.WriteLine($"[Libzora] table preview failed: {exception.Message}");
         }
     }
@@ -141,6 +142,27 @@ public partial class ReaderPage
             : null
     };
 
+    /// <summary>
+    /// Refreshes UI labels after a language change without navigating, reflowing
+    /// the document, clearing selection, or interrupting speech and AI sessions.
+    /// Call on the UI thread.
+    /// </summary>
+    public void NativeRefreshUiText()
+    {
+        if (_disposed) return;
+        TypographyLabel.Text = _isPdf ? UiText.Get("显示") : UiText.Get("排版");
+        if (_ready) RefreshPositionUiText();
+        RefreshSpeechUiText(_tts?.State ?? TtsPlaybackState.Stopped,
+            _tts?.SegmentIndex ?? 0, _tts?.SegmentCount ?? 0);
+        if (_nativeErrorText is { } errorText)
+        {
+            _nativeError = errorText();
+            ErrorText.Text = _nativeError;
+        }
+        RefreshFootnoteUiText();
+        NotifyNativeState();
+    }
+
     private void NotifyNativeState()
     {
         if (_usesNativeFrontend && !_disposed) NativeStateChanged?.Invoke(GetNativeState());
@@ -152,7 +174,7 @@ public partial class ReaderPage
         // list can scroll to it even when the page has no entry of its own.
         var selected = CurrentTocIndex();
         return _tocEntries.Select((item, index) =>
-            new NativeReaderTocItem(index, item.Title, item.Level, index == selected)).ToArray();
+            new NativeReaderTocItem(index, item.DisplayTitle, item.Level, index == selected)).ToArray();
     }
 
     public Task NativeJumpToTocAsync(int index)
@@ -190,9 +212,9 @@ public partial class ReaderPage
         var text = _selection?.Text.Trim();
         if (string.IsNullOrWhiteSpace(text)) return;
         if (_shell.Services is not { CreateTtsEngine: { } createEngine, CreateTtsPlayer: { } createPlayer })
-            throw new InvalidOperationException("这台设备不支持朗读");
+            throw new InvalidOperationException(UiText.Get("这台设备不支持朗读"));
         var document = BuildSpeechDocument()
-            ?? throw new InvalidOperationException("当前页面没有可朗读的文字。");
+            ?? throw new InvalidOperationException(UiText.Get("当前页面没有可朗读的文字。"));
         _tts ??= CreateSpeech(createEngine(), createPlayer());
         var settings = await _modules.Reader.TtsSettings.LoadAsync(_lifetime.Token);
         settings.AudioFormat = "wav";
@@ -225,11 +247,11 @@ public partial class ReaderPage
     public Task NativeAnnotateAsync(string? note)
     {
         if (_selection is not { } selection || _bookFile is null)
-            throw new InvalidOperationException("请先长按并选择正文。");
+            throw new InvalidOperationException(UiText.Get("请先长按并选择正文。"));
         var annotation = NewAnnotation(selection);
         if (_annotations.Any(item => item.ChapterPath == annotation.ChapterPath
             && annotation.StartOffset < item.EndOffset && annotation.EndOffset > item.StartOffset))
-            throw new InvalidOperationException("所选文字已有批注，请点击已有划线进行编辑。");
+            throw new InvalidOperationException(UiText.Get("所选文字已有批注，请点击已有划线进行编辑。"));
         annotation.Note = note ?? string.Empty;
         return SaveAnnotationAsync(annotation);
     }
@@ -237,7 +259,7 @@ public partial class ReaderPage
     public Task NativeEditAnnotationAsync(Guid id, string note)
     {
         var annotation = _annotations.Find(item => item.Id == id)
-            ?? throw new InvalidOperationException("批注已不存在。");
+            ?? throw new InvalidOperationException(UiText.Get("批注已不存在。"));
         annotation.Note = note;
         return SaveAnnotationAsync(annotation);
     }
@@ -245,7 +267,7 @@ public partial class ReaderPage
     public Task NativeDeleteAnnotationAsync(Guid id)
     {
         var annotation = _annotations.Find(item => item.Id == id)
-            ?? throw new InvalidOperationException("批注已不存在。");
+            ?? throw new InvalidOperationException(UiText.Get("批注已不存在。"));
         return DeleteAnnotationAsync(annotation);
     }
 }

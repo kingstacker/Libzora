@@ -29,13 +29,13 @@ struct NativeShell: View {
         GeometryReader { geometry in
             TabView(selection: $selectedTab) {
                 NavigationView { NativeLibraryPage(store: store, isActive: selectedTab == 0) }.navigationViewStyle(.stack)
-                    .tabItem { NativeTabLabel(title: "书库", symbol: "book") }.tag(0)
+                    .tabItem { NativeTabLabel(title: L("书库"), symbol: "book") }.tag(0)
                 NavigationView { NativeMaterials(store: store) }.navigationViewStyle(.stack)
-                    .tabItem { NativeTabLabel(title: "阅读资料", symbol: "note.text") }.tag(1)
+                    .tabItem { NativeTabLabel(title: L("阅读资料"), symbol: "note.text") }.tag(1)
                 NavigationView { NativeReadingDashboard(store: store) }.navigationViewStyle(.stack)
-                    .tabItem { NativeTabLabel(title: "阅读数据", symbol: "chart.bar") }.tag(2)
+                    .tabItem { NativeTabLabel(title: L("阅读数据"), symbol: "chart.bar") }.tag(2)
                 NavigationView { NativeProfilePage(store: store) }.navigationViewStyle(.stack)
-                    .tabItem { NativeTabLabel(title: "我的", symbol: "person") }.tag(3)
+                    .tabItem { NativeTabLabel(title: L("我的"), symbol: "person") }.tag(3)
             }
             .allowsHitTesting(!showingLaunch)
             .accessibilityHidden(showingLaunch)
@@ -71,8 +71,8 @@ struct NativeShell: View {
             if store.restartRequired {
                 VStack(spacing: 16) {
                     Image(systemName: "arrow.clockwise").font(.largeTitle)
-                    Text("请重新打开 Libzora").font(NativeTheme.font(21, relativeTo: .title2))
-                    Text("请完全关闭并重新打开应用后继续使用，以载入恢复的数据。")
+                    Text(L("请重新打开 Libzora")).font(NativeTheme.font(21, relativeTo: .title2))
+                    Text(L("请完全关闭并重新打开应用后继续使用，以载入恢复的数据。"))
                         .multilineTextAlignment(.center).foregroundStyle(.secondary)
                 }.padding(32).frame(maxWidth: .infinity, maxHeight: .infinity).background(NativeTheme.page)
             } else if store.dataBusy {
@@ -88,16 +88,22 @@ struct NativeShell: View {
                 NativeBookPreviewOverlay(request: request, center: previewCenter)
             }
         }
+        // Include presented readers, sheets and standalone overlays without
+        // changing view identity or resetting their navigation/session state.
+        .environment(\.locale, Locale(identifier: store.uiLanguage))
     }
 }
 
 private struct NativeLaunchPage: View {
+    @Environment(\.locale) private var uiLocale
     let restoringReader: Bool
     let showBranding: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var revealed = false
 
     var body: some View {
+        let _ = uiLocale
+
         VStack(spacing: 0) {
             if showBranding {
                 Spacer()
@@ -105,7 +111,7 @@ private struct NativeLaunchPage: View {
                     Text("Libzora")
                         .font(NativeTheme.font(34, relativeTo: .largeTitle)).tracking(4)
                         .accessibilityIdentifier("launch.brand")
-                    Text("为学日益，为道日损。")
+                    Text(L("为学日益，为道日损。"))
                         .font(NativeTheme.font(22, relativeTo: .title2))
                         .tracking(1.5).lineLimit(1).minimumScaleFactor(0.65)
                         .accessibilityIdentifier("launch.slogan")
@@ -117,7 +123,7 @@ private struct NativeLaunchPage: View {
             }
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
-                Text(restoringReader ? "正在继续阅读…" : "正在载入书库…")
+                Text(restoringReader ? L("正在继续阅读…") : L("正在载入书库…"))
                     .font(NativeTheme.font(13, relativeTo: .subheadline))
                     .accessibilityIdentifier("launch.status")
             }.foregroundStyle(NativeTheme.muted)

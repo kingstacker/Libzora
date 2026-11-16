@@ -31,7 +31,7 @@ internal sealed partial class IOSNativeFrontend
             new(
                 ReaderFontDefaults.DefaultFamily,
                 "京华老宋体",
-                "内置 · 默认",
+                UiText.Get("内置 · 默认"),
                 "builtin",
                 true,
                 0,
@@ -51,7 +51,7 @@ internal sealed partial class IOSNativeFrontend
             options.Add(new ReaderFontOption(
                 ReaderFontDefaults.SystemFamilyPrefix + face.Family,
                 face.DisplayName,
-                "系统 · " + face.Family,
+                UiText.Get("系统 · {0}", face.Family),
                 "system",
                 true,
                 0,
@@ -74,8 +74,8 @@ internal sealed partial class IOSNativeFrontend
                 : entry.PostScriptName;
             var size = FormatFontSize(entry.Bytes);
             var detail = isInstalled
-                ? $"{entry.Description} · 已下载 · {size} · {entry.License}"
-                : $"{entry.Description} · {size} · {entry.License}";
+                ? UiText.Get("{0} · 已下载 · {1} · {2}", UiText.Localize(entry.Description), size, entry.License)
+                : $"{UiText.Localize(entry.Description)} · {size} · {entry.License}";
             options.Add(new ReaderFontOption(
                 ReaderFontDefaults.CatalogFamilyPrefix + entry.Id,
                 entry.DisplayName,
@@ -94,7 +94,7 @@ internal sealed partial class IOSNativeFrontend
     private async Task<object> InstallReaderFontAsync(string id, CancellationToken token)
     {
         var entry = ReaderFontCatalog.Find(id)
-            ?? throw new InvalidOperationException("字体不存在或已下架。");
+            ?? throw new InvalidOperationException(UiText.Get("字体不存在或已下架。"));
         using var operation = BeginOperation();
         var font = await _shell.Modules.Library.Fonts.InstallCatalogAsync(entry, token);
         var path = _shell.Modules.Library.Fonts.GetAbsolutePath(font);
@@ -119,7 +119,7 @@ internal sealed partial class IOSNativeFrontend
     }
 
     private static string FormatFontSize(long bytes) => bytes <= 0
-        ? "未知大小"
+        ? UiText.Get("未知大小")
         : bytes >= 1024 * 1024
             ? $"{bytes / 1048576.0:0.#} MB"
             : $"{Math.Max(1, bytes / 1024)} KB";

@@ -2,6 +2,7 @@ import SwiftUI
 
 /// The account summary shares the same Free / Trial / Lifetime feature state.
 struct NativeAccountHeader: View {
+    @Environment(\.locale) private var uiLocale
     let account: AccountStatus?
     let membership: AccountMembership?
     let busy: Bool
@@ -14,11 +15,11 @@ struct NativeAccountHeader: View {
     private var plan: String { membership?.plan ?? "free" }
     private var accent: Color { NativeTheme.planAccent(plan) }
     private var summary: String {
-        guard let membership else { return "正在读取会员信息…" }
+        guard let membership else { return L("正在读取会员信息…") }
         switch membership.plan {
-        case "trial": return "试用中 · 自备存储同步已解锁"
-        case "lifetime": return "永久买断 · 自备存储同步已解锁"
-        default: return "Free · 畅享本地阅读"
+        case "trial": return L("试用中 · 自备存储同步已解锁")
+        case "lifetime": return L("永久买断 · 自备存储同步已解锁")
+        default: return L("Free · 畅享本地阅读")
         }
     }
     private var symbol: String {
@@ -30,6 +31,8 @@ struct NativeAccountHeader: View {
     }
 
     var body: some View {
+        let _ = uiLocale
+
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .center, spacing: 14) {
                 ZStack {
@@ -43,7 +46,7 @@ struct NativeAccountHeader: View {
                         .accessibilityIdentifier("account.username")
                     HStack(spacing: 6) {
                         Circle().fill(NativeTheme.success).frame(width: 6, height: 6)
-                        Text("已登录").font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.success)
+                        Text(L("已登录")).font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.success)
                         Text("·").font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.muted)
                         Text(account?.regionName ?? "").font(NativeTheme.font(12, relativeTo: .caption))
                             .foregroundStyle(NativeTheme.muted)
@@ -74,14 +77,14 @@ struct NativeAccountHeader: View {
                 } label: {
                     HStack(spacing: 5) {
                         Image(systemName: "arrow.clockwise").font(.system(size: 12, weight: .medium))
-                        Text("刷新")
+                        Text(L("刷新"))
                     }.font(NativeTheme.font(13)).foregroundStyle(NativeTheme.secondary)
                 }.buttonStyle(.plain).disabled(busy || signingOut)
                     .accessibilityIdentifier("membership.refresh")
                 if busy || signingOut { ProgressView().controlSize(.small) }
                 Spacer(minLength: 0)
                 if let signOut {
-                    Button("退出登录") { signOut() }.buttonStyle(.plain)
+                    Button(L("退出登录")) { signOut() }.buttonStyle(.plain)
                         .font(NativeTheme.font(13)).foregroundStyle(NativeTheme.secondary)
                         .disabled(busy || signingOut)
                         .accessibilityIdentifier("account.logout")
@@ -116,6 +119,7 @@ struct NativeExpiryNotice: View {
 
 /// One device row: platform avatar, name, current-device badge and sign-out action.
 struct NativeDeviceRow: View {
+    @Environment(\.locale) private var uiLocale
     let device: AccountDevice
     let current: Bool
     let onKick: () -> Void
@@ -137,16 +141,18 @@ struct NativeDeviceRow: View {
         }
         guard let seen else { return device.lastSeenAt }
         let elapsed = max(0, Date().timeIntervalSince(seen))
-        if elapsed < 60 { return "刚刚" }
-        if elapsed < 3600 { return "\(Int(elapsed / 60)) 分钟前" }
-        if elapsed < 86_400 { return "\(Int(elapsed / 3600)) 小时前" }
-        if elapsed < 604_800 { return "\(Int(elapsed / 86_400)) 天前" }
+        if elapsed < 60 { return L("刚刚") }
+        if elapsed < 3600 { return L("{0} 分钟前", Int(elapsed / 60)) }
+        if elapsed < 86_400 { return L("{0} 小时前", Int(elapsed / 3600)) }
+        if elapsed < 604_800 { return L("{0} 天前", Int(elapsed / 86_400)) }
         let display = DateFormatter()
         display.dateFormat = "MM/dd HH:mm"
         return display.string(from: seen)
     }
 
     var body: some View {
+        let _ = uiLocale
+
         HStack(alignment: .center, spacing: 12) {
             Image(systemName: symbol).font(.system(size: 16, weight: .medium))
                 .foregroundStyle(current ? NativeTheme.success : NativeTheme.secondary)
@@ -158,17 +164,17 @@ struct NativeDeviceRow: View {
                 Text(device.name).font(NativeTheme.font(13, relativeTo: .subheadline)).lineLimit(1)
                     .truncationMode(.tail)
                     .accessibilityIdentifier("membership.device.\(device.deviceId)")
-                    .accessibilityLabel(device.name + (current ? "（当前设备）" : ""))
-                Text("\(device.platform) · 最近活跃 \(activity)")
+                    .accessibilityLabel(device.name + (current ? L("（当前设备）") : ""))
+                Text(L("{0} · 最近活跃 {1}", device.platform, activity))
                     .font(NativeTheme.font(11, relativeTo: .caption2)).foregroundStyle(NativeTheme.secondary)
             }
             Spacer(minLength: 8)
             if current {
-                Text("当前设备").font(NativeTheme.font(10, relativeTo: .caption2)).foregroundStyle(NativeTheme.success)
+                Text(L("当前设备")).font(NativeTheme.font(10, relativeTo: .caption2)).foregroundStyle(NativeTheme.success)
                     .padding(.horizontal, 6).padding(.vertical, 2)
                     .background(NativeTheme.success.opacity(0.12), in: RoundedRectangle(cornerRadius: 4))
             }
-            Button(current ? "退出此设备" : "退出设备") { onKick() }.buttonStyle(.plain)
+            Button(current ? L("退出此设备") : L("退出设备")) { onKick() }.buttonStyle(.plain)
                 .font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary)
                 .accessibilityIdentifier("membership.kick.\(device.deviceId)")
         }.padding(.vertical, 4)
@@ -176,13 +182,16 @@ struct NativeDeviceRow: View {
 }
 
 struct NativeSyncEntitlements: View {
+    @Environment(\.locale) private var uiLocale
     let status: DeviceFeatureStatus
     var body: some View {
-        Section("同步功能") {
-            Text(status.canUseFeatures ? "自备 S3 / WebDAV 多端同步已解锁"
-                 : "领取试用或购买买断订阅，即可使用自备 S3 / WebDAV 多端同步。")
+        let _ = uiLocale
+
+        Section(L("同步功能")) {
+            Text(status.canUseFeatures ? L("自备 S3 / WebDAV 多端同步已解锁")
+                 : L("领取试用或购买买断订阅，即可使用自备 S3 / WebDAV 多端同步。"))
                 .font(NativeTheme.font(13)).accessibilityIdentifier("membership.sync.features")
-            Text("所有方案均不提供官方云存储或官方云同步；存储与流量费用由用户承担。")
+            Text(L("所有方案均不提供官方云存储或官方云同步；存储与流量费用由用户承担。"))
                 .font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary)
                 .accessibilityIdentifier("membership.no-official-cloud")
         }

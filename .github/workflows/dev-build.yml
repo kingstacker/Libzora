@@ -10,6 +10,16 @@ on:
         required: false
         default: ""
         type: string
+      platform:
+        description: "构建平台；仅 all 会发布完整的开发版 Release"
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - windows
+          - linux
+          - macos
 permissions:
   contents: write
 
@@ -70,13 +80,45 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: 10.0.400
+          global-json-file: global.json
+          check-latest: false
+          skip-lts-prepass: true
+      - name: Cache NuGet packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.nuget/packages
+          key: nuget-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('global.json', '**/*.csproj', '**/*.props', '**/*.targets', '**/NuGet.Config', '**/nuget.config', '**/packages.lock.json') }}
+          restore-keys: |
+            nuget-v1-${{ runner.os }}-${{ runner.arch }}-
       - name: Run quick portable tests
-        run: dotnet test tests/Libzora.Tests/Libzora.Tests.csproj -c Release
+        timeout-minutes: 15
+        run: >-
+          dotnet test tests/Libzora.Tests/Libzora.Tests.csproj -c Release
+          --logger "console;verbosity=normal" --logger trx
+          --blame-hang --blame-hang-timeout 5m --blame-hang-dump-type mini
+          --results-directory artifacts/test-results/portable
       - name: Run quick platform-common tests
-        run: dotnet test tests/Libzora.Platform.Common.Tests/Libzora.Platform.Common.Tests.csproj -c Release
+        timeout-minutes: 15
+        run: >-
+          dotnet test tests/Libzora.Platform.Common.Tests/Libzora.Platform.Common.Tests.csproj -c Release
+          --logger "console;verbosity=normal" --logger trx
+          --blame-hang --blame-hang-timeout 5m --blame-hang-dump-type mini
+          --results-directory artifacts/test-results/platform-common
       - name: Run quick UI smoke tests
-        run: dotnet test tests/Libzora.App.Tests/Libzora.App.Tests.csproj -c Release
+        timeout-minutes: 15
+        run: >-
+          dotnet test tests/Libzora.App.Tests/Libzora.App.Tests.csproj -c Release
+          --logger "console;verbosity=normal" --logger trx
+          --blame-hang --blame-hang-timeout 5m --blame-hang-dump-type mini
+          --results-directory artifacts/test-results/ui
+      - name: Upload test diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: development-test-diagnostics-validation
+          path: artifacts/test-results
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Audit runtime dependencies
         shell: bash
         continue-on-error: true
@@ -97,6 +139,7 @@ jobs:
 
   windows:
     name: Build Windows installer package
+    if: inputs.platform == 'all' || inputs.platform == 'windows'
     needs: [prepare, validate]
     runs-on: windows-2022
     timeout-minutes: 45
@@ -107,7 +150,16 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: 10.0.400
+          global-json-file: global.json
+          check-latest: false
+          skip-lts-prepass: true
+      - name: Cache NuGet packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.nuget/packages
+          key: nuget-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('global.json', '**/*.csproj', '**/*.props', '**/*.targets', '**/NuGet.Config', '**/nuget.config', '**/packages.lock.json') }}
+          restore-keys: |
+            nuget-v1-${{ runner.os }}-${{ runner.arch }}-
       - name: Install release toolchain
         shell: pwsh
         run: |
@@ -131,6 +183,7 @@ jobs:
 
   linux:
     name: Build Linux packages
+    if: inputs.platform == 'all' || inputs.platform == 'linux'
     needs: [prepare, validate]
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -140,7 +193,16 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: 10.0.400
+          global-json-file: global.json
+          check-latest: false
+          skip-lts-prepass: true
+      - name: Cache NuGet packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.nuget/packages
+          key: nuget-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('global.json', '**/*.csproj', '**/*.props', '**/*.targets', '**/NuGet.Config', '**/nuget.config', '**/packages.lock.json') }}
+          restore-keys: |
+            nuget-v1-${{ runner.os }}-${{ runner.arch }}-
       - name: Build amd64 packages
         run: bash scripts/build-linux-release.sh "$DEV_VERSION" artifacts/development-linux linux-x64
       - name: Build arm64 packages
@@ -171,6 +233,7 @@ jobs:
 
   macos:
     name: Build macOS package (${{ matrix.arch }})
+    if: inputs.platform == 'all' || inputs.platform == 'macos'
     needs: [prepare, validate]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
@@ -188,18 +251,66 @@ jobs:
       DEV_VERSION: ${{ needs.prepare.outputs.version }}
       # Icon Composer assets require Xcode 26; the runner defaults to Xcode 16.
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+      LIBZORA_DMG_STYLE: "0"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: 10.0.400
-      - name: Run portable tests
+          global-json-file: global.json
+          check-latest: false
+          skip-lts-prepass: true
+      - name: Cache NuGet packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.nuget/packages
+          key: nuget-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('global.json', '**/*.csproj', '**/*.props', '**/*.targets', '**/NuGet.Config', '**/nuget.config', '**/packages.lock.json') }}
+          restore-keys: |
+            nuget-v1-${{ runner.os }}-${{ runner.arch }}-
+      - name: Check macOS toolchain
+        id: xcode
         shell: bash
         run: |
           set -euo pipefail
+          xcodebuild -version | tee "$RUNNER_TEMP/libzora-toolchain.txt"
+          xcrun --sdk macosx --show-sdk-version | tee -a "$RUNNER_TEMP/libzora-toolchain.txt"
+          clang --version | tee -a "$RUNNER_TEMP/libzora-toolchain.txt"
+          echo "cache-key=$(shasum -a 256 "$RUNNER_TEMP/libzora-toolchain.txt" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+      - name: Cache macOS MTP dependencies
+        uses: actions/cache@v6
+        with:
+          path: artifacts/macos-deps
+          key: macos-mtp-v1-${{ runner.arch }}-${{ matrix.rid }}-${{ steps.xcode.outputs.cache-key }}-${{ hashFiles('scripts/build-macos-mtp-deps.sh', 'docs/macos-mtp-corresponding-source.md') }}
+          restore-keys: |
+            macos-mtp-v1-${{ runner.arch }}-${{ matrix.rid }}-
+      - name: Run portable tests
+        timeout-minutes: 15
+        run: >-
           dotnet test tests/Libzora.Tests/Libzora.Tests.csproj -c Release
+          --logger "console;verbosity=normal" --logger trx
+          --blame-hang --blame-hang-timeout 5m --blame-hang-dump-type mini
+          --results-directory artifacts/test-results/portable
+      - name: Run platform-common tests
+        timeout-minutes: 15
+        run: >-
           dotnet test tests/Libzora.Platform.Common.Tests/Libzora.Platform.Common.Tests.csproj -c Release
+          --logger "console;verbosity=normal" --logger trx
+          --blame-hang --blame-hang-timeout 5m --blame-hang-dump-type mini
+          --results-directory artifacts/test-results/platform-common
+      - name: Run UI smoke tests
+        timeout-minutes: 15
+        run: >-
           dotnet test tests/Libzora.App.Tests/Libzora.App.Tests.csproj -c Release
+          --logger "console;verbosity=normal" --logger trx
+          --blame-hang --blame-hang-timeout 5m --blame-hang-dump-type mini
+          --results-directory artifacts/test-results/ui
+      - name: Upload test diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: development-test-diagnostics-${{ matrix.rid }}
+          path: artifacts/test-results
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Build macOS package
         shell: bash
         run: bash scripts/build-macos-release.sh "$DEV_VERSION" artifacts/development-macos "${{ matrix.rid }}"
@@ -223,7 +334,20 @@ jobs:
           trap - EXIT
           plutil -lint "$work/Libzora.app/Contents/Info.plist"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "$work/Libzora.app/Contents/Info.plist")" = Libzora
-          xcrun assetutil -Z "$work/Libzora.app/Contents/Resources/Assets.car"
+          test -s "$work/Libzora.app/Contents/Resources/Assets.car"
+          test -s "$work/Libzora.app/Contents/Resources/Libzora.icns"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$work/Libzora.app/Contents/Info.plist")" = Libzora
+          iconset="$work/Libzora-fallback.iconset"
+          iconutil --convert iconset --output "$iconset" "$work/Libzora.app/Contents/Resources/Libzora.icns"
+          test -s "$iconset/icon_512x512@2x.png"
+          # macOS 15's CoreUI validator cannot decode Xcode 26 Icon Composer
+          # renditions. Verify its fallback icon and signature on older hosts.
+          macos_major="$(sw_vers -productVersion | cut -d . -f 1)"
+          if (( macos_major >= 26 )); then
+            xcrun assetutil -Z "$work/Libzora.app/Contents/Resources/Assets.car"
+          else
+            printf 'Legacy CoreUI host: checked compiled assets and decoded ICNS fallback.\n'
+          fi
           codesign --verify --deep --strict "$work/Libzora.app"
           log="$RUNNER_TEMP/libzora-macos-smoke.log"
           "$work/Libzora.app/Contents/MacOS/Libzora" >"$log" 2>&1 &
@@ -247,7 +371,7 @@ jobs:
   publish:
     name: Publish development GitHub Release
     needs: [prepare, windows, linux, macos]
-    if: ${{ github.ref_name == 'dev' || github.ref_name == 'develop' || startsWith(github.ref_name, 'dev/') }}
+    if: ${{ inputs.platform == 'all' && (github.ref_name == 'dev' || github.ref_name == 'develop' || startsWith(github.ref_name, 'dev/')) }}
     runs-on: ubuntu-24.04
     env:
       DEV_VERSION: ${{ needs.prepare.outputs.version }}

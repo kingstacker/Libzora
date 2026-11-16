@@ -2668,6 +2668,56 @@ public sealed class LibzoraLayoutEngineTests : IDisposable
         Assert.False(shaper.Shape("阅读测试", 0, 4, _fontPath, 16f).ContainsNotdef);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SwitchingToMissingGlyphFontKeepsLiveLayoutFallback(bool deferred)
+    {
+        var face = SystemFontCatalog.CjkFonts.FirstOrDefault();
+        if (face is null) return;
+
+        // This file-backed face deliberately has no Chinese body glyphs. The
+        // previously selected platform face must supply the new layout's ink.
+        var symbols = Path.Combine(Path.GetDirectoryName(_fontPath)!, "NotoSansSymbols2-Regular.ttf");
+        using var library = new TypesetFontLibrary(symbols);
+        Assert.True(library.TryEnsureSystemFont(face.Family, out var systemKey));
+        Assert.True(library.TrySetMainFont(systemKey));
+        using var engine = new TypesetEngine(library, ownsFonts: false);
+        var content = new XhtmlChapterLoader().Load(WriteChapter("<p>阅读测试</p>"));
+        var options = new TypesetLayoutOptions { ViewportWidth = 390, ViewportHeight = 600 };
+        Assert.Contains(engine.Compose(content, options).Pages.SelectMany(page => page.Runs),
+            run => run.FontPath == systemKey);
+
+        Assert.True(library.TrySetMainFont(symbols));
+        ChapterLayout layout;
+        using (deferred ? library.BeginComposition() : null)
+        {
+            layout = engine.Compose(content, options);
+            Assert.Contains(layout.Pages.SelectMany(page => page.Runs), run => run.FontPath == systemKey);
+            // Another layout can request cleanup before this worker's result
+            // is installed. The outer scope protects that unpublished result;
+            // its retained set must then govern the older cleanup request.
+            if (deferred)
+            {
+                library.ReleaseSystemFontsExcept(library.MainFontPath);
+                Assert.Contains(systemKey, library.LoadedSystemFontKeys);
+            }
+            library.SetRetainedFontPaths(layout.Pages.SelectMany(page => page.Runs).Select(run => run.FontPath));
+            library.ReleaseSystemFontsExcept(library.MainFontPath);
+        }
+
+        // Layout installation must not retire a face still used as fallback.
+        Assert.NotNull(library.GetTypeface(systemKey));
+        using var surface = SKSurface.Create(new SKImageInfo(390, 600));
+        new TypesetPainter(library).Paint(surface.Canvas, layout.Pages[0]);
+
+        // A later layout that needs no platform face must reclaim it, rather
+        // than keeping every previously selected system font indefinitely.
+        library.SetRetainedFontPaths([]);
+        library.ReleaseSystemFontsExcept(library.MainFontPath);
+        Assert.Empty(library.LoadedSystemFontKeys);
+    }
+
     [Fact]
     public void DeferredSystemFontReleaseWaitsForComposition()
     {

@@ -48,6 +48,8 @@ public partial class ReaderPage : UserControl
     private int _pdfPageCount;
     private double _epubPosition;
     private double _overallProgress;
+    private string _positionTitle = string.Empty;
+    private string _positionPages = string.Empty;
     private ReaderLayoutSettings _layout;
     private DateTimeOffset _lastProgressSave = DateTimeOffset.MinValue;
     private readonly ReadingActivityClock _activityClock = new(DateTimeOffset.UtcNow);
@@ -162,12 +164,12 @@ public partial class ReaderPage : UserControl
         {
             LoadingPanel.IsVisible = !_usesNativeFrontend;
             ErrorPanel.IsVisible = false;
-            LoadingDetailText.Text = "正在读取书籍信息";
+            LoadingDetailText.Text = UiText.Get("正在读取书籍信息");
 
             _bookFile = ChooseReadableFile(_book);
             if (_bookFile is null)
             {
-                ShowError("这本书没有可读取的 EPUB 或 PDF 文件。");
+                ShowError(() => UiText.Get("这本书没有可读取的 EPUB 或 PDF 文件。"));
                 return;
             }
 
@@ -182,7 +184,7 @@ public partial class ReaderPage : UserControl
             if (!File.Exists(path) && await TryDownloadAsync(_bookFile) is { } downloaded) path = downloaded;
             if (!File.Exists(path))
             {
-                ShowError("书籍文件不在本机，请重新导入，或在“我的”里开启同步后重试。");
+                ShowError(() => UiText.Get("书籍文件不在本机，请重新导入，或在“我的”里开启同步后重试。"));
                 return;
             }
 
@@ -200,14 +202,14 @@ public partial class ReaderPage : UserControl
                 return;
             }
 
-            ShowError($"暂不支持在安卓阅读 {format.ToUpperInvariant()} 格式。");
+            ShowError(() => UiText.Get("暂不支持在安卓阅读 {0} 格式。", format.ToUpperInvariant()));
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
         {
         }
         catch (Exception exception)
         {
-            ShowError(UiText.Localize(exception.Message));
+            ShowError(() => UiText.Localize(exception.Message));
         }
     }
 
@@ -216,7 +218,7 @@ public partial class ReaderPage : UserControl
     {
         var stored = await _modules.Sync.Service.LoadSettingsAsync(_lifetime.Token);
         if (!stored.Settings.Enabled || !stored.Settings.IsConfigured || !stored.Settings.HasChosenCustomProvider) return null;
-        LoadingDetailText.Text = "正在从云端下载…";
+        LoadingDetailText.Text = UiText.Get("正在从云端下载…");
         var progress = new Progress<string>(message => LoadingDetailText.Text = UiText.Localize(message));
         return await _modules.Sync.Service.EnsureBookFileDownloadedAsync(
             stored.DeviceId, stored.Settings, file, progress, _lifetime.Token);
@@ -225,7 +227,7 @@ public partial class ReaderPage : UserControl
     private async Task OpenEpubAsync(string sourcePath, string format, CancellationToken cancellationToken)
     {
         _isPdf = false;
-        LoadingDetailText.Text = "正在整理章节与图片…";
+        LoadingDetailText.Text = UiText.Get("正在整理章节与图片…");
 
         _epubPath = sourcePath;
         if (format is "azw3" or "mobi")
@@ -316,8 +318,8 @@ public partial class ReaderPage : UserControl
     private async Task OpenPdfAsync(string path, CancellationToken cancellationToken)
     {
         _isPdf = true;
-        TypographyLabel.Text = "显示";
-        LoadingDetailText.Text = "正在渲染 PDF 页面…";
+        TypographyLabel.Text = UiText.Get("显示");
+        LoadingDetailText.Text = UiText.Get("正在渲染 PDF 页面…");
 
         var savedProgress = _jump ?? await _modules.Reader.Data.GetProgressAsync(_bookFile!.Id, cancellationToken);
         var initialPage = Math.Max(1, (savedProgress?.ChapterIndex ?? 0) + 1);
@@ -497,20 +499,28 @@ public partial class ReaderPage : UserControl
     {
         if (_pdfPageCount <= 0) return;
         _overallProgress = Math.Clamp((double)_pdfPage / _pdfPageCount, 0, 1);
-        PresentPosition($"第 {_pdfPage} 页", $"{_pdfPage} / {_pdfPageCount}");
+        PresentPosition(UiText.Get("第 {0} 页", _pdfPage), $"{_pdfPage} / {_pdfPageCount}");
     }
 
     private void PresentPosition(string title, string position)
     {
-        var percent = $"{_overallProgress * 100:0}%";
-        FooterChapter.Text = title;
-        FooterPosition.Text = $"{ProgressDetail(position)}  ·  {percent}";
-        ChapterText.Text = title;
+        _positionTitle = title;
+        _positionPages = position;
+        RefreshPositionUiText();
         if (_sliderActive) return;
-        PercentText.Text = percent;
         ProgressSlider.Value = _overallProgress * 100;
         BookmarkIcon.Filled = FindCurrentBookmark() is not null;
         NotifyNativeState();
+    }
+
+    private void RefreshPositionUiText()
+    {
+        var title = _isPdf ? UiText.Get("第 {0} 页", _pdfPage) : _positionTitle;
+        var percent = $"{_overallProgress * 100:0}%";
+        FooterChapter.Text = title;
+        FooterPosition.Text = $"{ProgressDetail(_positionPages)}  ·  {percent}";
+        ChapterText.Text = title;
+        if (!_sliderActive) PercentText.Text = percent;
     }
 
     private void BuildEpubToc()
@@ -527,10 +537,13 @@ public partial class ReaderPage : UserControl
                 ? _epubDocument.ChapterTitles.ElementAtOrDefault(item.ChapterIndex)
                 : item.Title;
             _tocEntries.Add(new TocEntry(
-                string.IsNullOrWhiteSpace(title) ? $"第 {item.ChapterIndex + 1} 章" : title,
+                string.IsNullOrWhiteSpace(title) ? UiText.Get("第 {0} 章", item.ChapterIndex + 1) : title,
                 item.ChapterIndex,
                 item.Target,
-                item.Level));
+                item.Level)
+            {
+                UiTextTemplate = string.IsNullOrWhiteSpace(title) ? "第 {0} 章" : null
+            });
         }
     }
 
@@ -552,7 +565,10 @@ public partial class ReaderPage : UserControl
         }
 
         for (var page = 1; page <= Math.Min(_pdfPageCount, 300); page++)
-            _tocEntries.Add(new TocEntry($"第 {page} 页", page - 1, null, 0));
+            _tocEntries.Add(new TocEntry(UiText.Get("第 {0} 页", page), page - 1, null, 0)
+            {
+                UiTextTemplate = "第 {0} 页"
+            });
     }
 
     private async Task JumpToAsync(TocEntry item)
@@ -675,12 +691,13 @@ public partial class ReaderPage : UserControl
         Interlocked.Add(ref _unsavedSeconds, _activityClock.CountUntil(now));
     }
 
-    private void ShowError(string message)
+    private void ShowError(Func<string> message)
     {
-        _nativeError = message;
+        _nativeErrorText = message;
+        _nativeError = message();
         LoadingPanel.IsVisible = false;
         ErrorPanel.IsVisible = !_usesNativeFrontend;
-        ErrorText.Text = message;
+        ErrorText.Text = _nativeError;
         SetChromeVisible(false);
     }
 
@@ -918,7 +935,7 @@ public partial class ReaderPage : UserControl
     }
 
     private void ShowEdgeNotice(int direction) =>
-        _shell.ShowToast(direction < 0 ? "已经是第一页" : "已经是最后一页");
+        _shell.ShowToast(direction < 0 ? UiText.Get("已经是第一页") : UiText.Get("已经是最后一页"));
 
     private async Task MoveChapterAsync(int direction)
     {
@@ -952,10 +969,10 @@ public partial class ReaderPage : UserControl
         {
             if (_usesNativeFrontend)
             {
-                NativeDialogRequested?.Invoke(new NativeReaderDialog("info", "注释", footnoteText));
+                NativeDialogRequested?.Invoke(new NativeReaderDialog("info", UiText.Get("注释"), footnoteText));
                 return;
             }
-            _shell.ShowSheet("注释", new InfoSheet(footnoteText), ThemeScope.RequestedThemeVariant);
+            _shell.ShowSheet(UiText.Get("注释"), new InfoSheet(footnoteText), ThemeScope.RequestedThemeVariant);
             return;
         }
 
@@ -1095,12 +1112,12 @@ public partial class ReaderPage : UserControl
 
     private void PromptNote(ReaderAnnotation annotation)
     {
-        _shell.ShowSheet("笔记", new PromptSheet(annotation.SelectedText, "保存", async note =>
+        _shell.ShowSheet(UiText.Get("笔记"), new PromptSheet(annotation.SelectedText, UiText.Get("保存"), async note =>
         {
             annotation.Note = note;
             _shell.HideSheet();
             await SaveAnnotationAsync(annotation);
-        }, initialText: annotation.Note, placeholder: "写下你的想法"), ThemeScope.RequestedThemeVariant);
+        }, initialText: annotation.Note, placeholder: UiText.Get("写下你的想法")), ThemeScope.RequestedThemeVariant);
     }
 
     private async Task SaveAnnotationAsync(ReaderAnnotation annotation)
@@ -1121,7 +1138,7 @@ public partial class ReaderPage : UserControl
         }
         catch (Exception exception)
         {
-            _shell.ShowToast("保存失败：" + UiText.Localize(exception.Message));
+            _shell.ShowToast(UiText.Get("保存失败：{0}", UiText.Localize(exception.Message)));
         }
     }
 
@@ -1130,7 +1147,7 @@ public partial class ReaderPage : UserControl
         if (_annotations.Find(item => item.Id == id) is not { } annotation) return;
         if (_usesNativeFrontend)
         {
-            NativeDialogRequested?.Invoke(new NativeReaderDialog("annotation", "批注", annotation.DisplayQuote,
+            NativeDialogRequested?.Invoke(new NativeReaderDialog("annotation", UiText.Get("批注"), annotation.DisplayQuote,
                 annotation.Id, annotation.Note));
             return;
         }
@@ -1139,8 +1156,8 @@ public partial class ReaderPage : UserControl
             : annotation.DisplayQuote;
         _shell.ShowSheet(title, new ChoiceSheet(
             [
-                new ChoiceItem(annotation.Note.Length > 0 ? "编辑笔记" : "写笔记", Tag: true),
-                new ChoiceItem("删除", Tag: false)
+                new ChoiceItem(annotation.Note.Length > 0 ? UiText.Get("编辑笔记") : UiText.Get("写笔记"), Tag: true),
+                new ChoiceItem(UiText.Get("删除"), Tag: false)
             ],
             choice =>
             {
@@ -1169,7 +1186,7 @@ public partial class ReaderPage : UserControl
         }
         catch (Exception exception)
         {
-            _shell.ShowToast("删除失败：" + UiText.Localize(exception.Message));
+            _shell.ShowToast(UiText.Get("删除失败：{0}", UiText.Localize(exception.Message)));
         }
     }
 
@@ -1178,7 +1195,7 @@ public partial class ReaderPage : UserControl
         ClearSelection();
         if (TopLevel.GetTopLevel(this)?.Clipboard is not { } clipboard) return;
         await clipboard.SetTextAsync(text);
-        _shell.ShowToast("已复制");
+        _shell.ShowToast(UiText.Get("已复制"));
     }
 
     private void OnSliderPressed(object? sender, PointerPressedEventArgs e) => _sliderActive = true;
@@ -1236,7 +1253,7 @@ public partial class ReaderPage : UserControl
         HideSelectionBar();
         var selected = CurrentTocIndex();
         var items = _tocEntries
-            .Select((entry, index) => new ChoiceItem(entry.Title, null, index == selected, entry.Level, entry))
+            .Select((entry, index) => new ChoiceItem(entry.DisplayTitle, null, index == selected, entry.Level, entry))
             .ToList();
         _shell.ShowSheet(_book.Title, new ChoiceSheet(items, choice =>
         {
@@ -1264,7 +1281,7 @@ public partial class ReaderPage : UserControl
     public void ShowTypography()
     {
         HideSelectionBar();
-        _shell.ShowSheet(_isPdf ? "显示" : "排版", new ReaderSettingsSheet(_shell.Preferences, !_isPdf, OnReaderSettingsChanged),
+        _shell.ShowSheet(_isPdf ? UiText.Get("显示") : UiText.Get("排版"), new ReaderSettingsSheet(_shell.Preferences, !_isPdf, OnReaderSettingsChanged),
             ThemeScope.RequestedThemeVariant);
     }
 
@@ -1366,13 +1383,13 @@ public partial class ReaderPage : UserControl
                 _bookmarks.Remove(existing);
                 BookmarkIcon.Filled = false;
                 NotifyNativeState();
-                _shell.ShowToast("已移除书签");
+                _shell.ShowToast(UiText.Get("已移除书签"));
                 return;
             }
 
             var title = _isPdf
-                ? $"第 {_pdfPage} 页"
-                : _epubDocument?.ChapterTitles.ElementAtOrDefault(_chapterIndex) ?? "当前章节";
+                ? UiText.Get("第 {0} 页", _pdfPage)
+                : _epubDocument?.ChapterTitles.ElementAtOrDefault(_chapterIndex) ?? UiText.Get("当前章节");
             var bookmark = new ReaderBookmark
             {
                 BookId = _book.Id,
@@ -1382,13 +1399,13 @@ public partial class ReaderPage : UserControl
                 ScrollPosition = _isPdf ? 0 : (int)Math.Clamp(_epubPosition, 0, int.MaxValue),
                 FlowMode = 1,
                 Title = title,
-                Quote = CurrentPageQuote() ?? $"进度 {_overallProgress * 100:0}%"
+                Quote = CurrentPageQuote() ?? UiText.Get("进度 {0:0}%", _overallProgress * 100)
             };
             await _modules.Reader.Data.SaveBookmarkAsync(bookmark, _lifetime.Token);
             _bookmarks.Add(bookmark);
             BookmarkIcon.Filled = true;
             NotifyNativeState();
-            _shell.ShowToast("已添加书签");
+            _shell.ShowToast(UiText.Get("已添加书签"));
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
         {
@@ -1483,5 +1500,10 @@ public partial class ReaderPage : UserControl
         double? Y,
         double? Bottom);
 
-    private sealed record TocEntry(string Title, int ChapterIndex, string? Target, int Level);
+    private sealed record TocEntry(string Title, int ChapterIndex, string? Target, int Level)
+    {
+        public string? UiTextTemplate { get; init; }
+        public string DisplayTitle => UiTextTemplate is null
+            ? Title : UiText.Get(UiTextTemplate, ChapterIndex + 1);
+    }
 }

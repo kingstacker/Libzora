@@ -40,6 +40,7 @@ final class NativeBookPreviewCenter: ObservableObject {
 }
 
 struct NativeBookPreviewOverlay: View {
+    @Environment(\.locale) private var uiLocale
     let request: NativeBookPreviewRequest
     @ObservedObject var center: NativeBookPreviewCenter
     @State private var expanded = false
@@ -56,6 +57,8 @@ struct NativeBookPreviewOverlay: View {
     }
 
     var body: some View {
+        let _ = uiLocale
+
         GeometryReader { proxy in
             let origin = proxy.frame(in: .global).origin
             let centerPoint = CGPoint(x: request.sourceFrame.midX - origin.x,
@@ -74,7 +77,7 @@ struct NativeBookPreviewOverlay: View {
                     .contentShape(Rectangle())
                     .onTapGesture { center.dismiss() }
                     .accessibilityIdentifier("book.preview.dismiss")
-                    .accessibilityLabel("关闭预览")
+                    .accessibilityLabel(L("关闭预览"))
 
                 NativeBookTile(book: request.book, width: request.coverWidth, muted: request.muted,
                                showRating: request.showRating, showSyncStatus: request.showSyncStatus,
@@ -99,6 +102,7 @@ struct NativeBookPreviewOverlay: View {
                     action()
                 }
                 .frame(width: Self.menuWidth)
+                .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("book.preview.menu")
                 .position(x: menuX, y: menuCenter)
             }
@@ -128,7 +132,7 @@ private struct NativeBookPreviewMenu: View {
 
     private var panel: some View {
         VStack(spacing: 0) {
-            ForEach(Array(actions.enumerated()), id: \.offset) { _, item in
+            ForEach(Array(actions.enumerated()), id: \.offset) { index, item in
                 Button { perform(item.action) } label: {
                     Text(item.title)
                         .font(NativeTheme.font(16))
@@ -138,6 +142,7 @@ private struct NativeBookPreviewMenu: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier(item.identifier ?? "book.preview.action.\(index)")
             }
         }
         .padding(.vertical, 5)

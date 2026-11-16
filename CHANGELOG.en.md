@@ -6,6 +6,28 @@ the Chinese changelog when the language is English.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 1.1.6 (2026-11-16)
+
+The 1.1.4 and 1.1.5 stable release builds did not complete. This release includes their product updates and release fixes.
+
+### Added
+
+- Support Simplified Chinese, English, and automatic system-language selection across the native iOS UI and shared mobile messages, with persistent manual preferences.
+- Include the Libzora rebranding, Apple Silicon / Intel macOS DMGs, native menu bar and tray, libmtp Kindle support, reader transitions and footnotes, and experimental Kindle highlight and note synchronization.
+
+### Improved
+
+- Switching UI language preserves navigation and body layout; book titles, content, notes, and actual font names remain unchanged.
+- Pin every release build and its notes to one source commit. Create a stable tag only after all platform builds, smoke tests, and artifact preparation succeed; failed builds no longer consume a new version and existing tags are never moved.
+- Retain NuGet / macOS MTP caches, non-interactive DMG packaging, and per-suite test diagnostics, with additional offline release-tool regressions.
+
+### Fixed
+
+- Preserve original license bytes during Windows checkout and include the publishers' original Windows Desktop runtime and Windows SDK terms. Refreshing the inventory retains separately maintained font and model notices.
+- Decouple real-system-font lifecycle fixtures from unrelated whole-machine font catalogue discovery on macOS, avoiding system font-service stalls while retaining registration, shaping, and release coverage.
+- Keep every system fallback font referenced by installed reader pages alive through font switches and footnote navigation.
+- Fix transient SQLite backup locks, deleted books reappearing after same-timestamp re-imports, and open downloaded speech-pack streams preventing renames on Windows.
+
 ## 1.1.5 (2026-11-16)
 
 The 1.1.4 release build did not complete. This release also ships its branding, desktop, and Kindle updates.

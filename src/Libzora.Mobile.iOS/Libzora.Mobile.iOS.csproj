@@ -10,8 +10,8 @@
     <ApplicationId>com.kingstacker.libzora</ApplicationId>
     <ApplicationTitle>Libzora</ApplicationTitle>
     <AppIcon>Libzora</AppIcon>
-    <ApplicationVersion>15</ApplicationVersion>
-    <ApplicationDisplayVersion>1.1.5</ApplicationDisplayVersion>
+    <ApplicationVersion>16</ApplicationVersion>
+    <ApplicationDisplayVersion>1.1.6</ApplicationDisplayVersion>
     <!-- Intel Macs are capped at Xcode 26, while the current .NET iOS
          workload targets Xcode 27.1. Skip its version gate and link only SDK
          assemblies: the shared UI calls no iOS 27-only API. -->

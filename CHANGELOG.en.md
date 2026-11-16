@@ -6,6 +6,29 @@ the Chinese changelog when the language is English.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## 1.1.4 (2026-11-16)
+
+### Added
+
+- Introduce the Libzora brand across the client, server, plugins, and the official download site.
+- Add official macOS packages for Apple Silicon and Intel as drag-to-Applications DMGs, with optional Developer ID signing and notarization.
+- Add native macOS windows, menu bar, tray, and MTP Kindles through libmtp, with more complete device connection and transfer.
+- Add a shelf-to-reader cover transition, explicit Read and Back actions, Calibre footnote detection without semantic markup, and Wikipedia lookup from the dictionary.
+- Add experimental Kindle highlight and note sync, annotation position calibration, free sync through your own S3 / WebDAV, and opt-in plugins.
+
+### Improved
+
+- Single-click selects a book and double-click opens the reader, with cleaner rubber-band, multi-select, and reading-overlay behavior.
+- Improve Kindle device scanning, transfer retry, and status feedback.
+- Unify desktop window chrome, menus, and task history, and finish macOS quit and notification behavior.
+- Publish macOS as DMG only; in-app updates now mount the image and replace the app bundle.
+
+### Fixed
+
+- Fix the app not quitting after closing the reader, Kindle reconnection failures, and annotation position drift.
+- Fix popup note text, cross-document footnote navigation, and Calibre endnotes that were not recognized.
+- Fix the reading overlay flashing during multi-select, hover zoom snapping back, and transition overlays covering the reader.
+
 ## 1.1.3 (2026-10-29)
 
 ### Added

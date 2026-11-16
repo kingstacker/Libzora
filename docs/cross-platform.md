@@ -162,7 +162,11 @@ release (or a manually supplied base version). Its `platform` input defaults to
 development version. Selecting `windows`, `linux` or `macos` builds only that
 platform and keeps its artifacts for seven days without publishing an incomplete
 Release. The stable `Release` workflow still builds and verifies every platform
-before publishing.
+before publishing. It pins all builds and release notes to one immutable source
+commit, and creates the stable tag only after all builds, smoke tests and artifact
+preparation succeed. A failed build can retry the same unconsumed version with a
+fix; explicitly rebuilding an existing tag uses its original commit and never
+moves the tag.
 
 All desktop workflows select the exact SDK from the checked-out revision's
 `global.json`, reuse an already installed matching SDK, and cache NuGet packages

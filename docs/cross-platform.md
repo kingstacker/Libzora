@@ -104,8 +104,12 @@ older hosts still verify the fallback icon and the sealed bundle resources.
 into `artifacts/macos-deps/<arch>/`. When the target differs from the build
 host, `build-macos-mtp-deps.sh` cross-compiles them with clang against the
 universal macOS SDK, so either package can be produced from one Mac. The
-Release and Development Build workflows still use native `macos-15`
-(`osx-arm64`) and `macos-15-intel` (`osx-x64`) runners to keep CI fast.
+Release and Development Build workflows use native `macos-26` (`osx-arm64`)
+and `macos-15-intel` (`osx-x64`) runners, both pinned to Xcode 26.3. The ARM
+host matches Xcode 26's Icon Composer asset runtime; on macOS 15 ARM runners,
+its AssetCatalogAgent failed with CoreMedia/MediaToolbox symbol mismatches.
+Intel keeps the working macOS 15 image and its older-host compatibility checks.
+The newer ARM build host does not change the app's minimum macOS version.
 
 Pass `osx-universal` as the RID for one bundle that runs natively on both
 architectures. .NET self-contained output embeds RID-specific native libraries
@@ -171,8 +175,9 @@ moves the tag.
 All desktop workflows select the exact SDK from the checked-out revision's
 `global.json`, reuse an already installed matching SDK, and cache NuGet packages
 separately by runner OS and architecture. macOS also caches MTP dependencies by
-host/target architecture, Xcode toolchain and source-build inputs; the dependency
-builder still verifies its stamp, binaries and corresponding source before reuse.
+host/target architecture, macOS version, Xcode toolchain and source-build inputs;
+the dependency builder still verifies its stamp, binaries and corresponding
+source before reuse.
 A cache miss is normal and the first successful run populates it. Package publish
 already builds the platform head, so CI does not run an extra standalone head
 build immediately beforehand.

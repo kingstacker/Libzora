@@ -241,15 +241,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Avoid the macOS 15 ARM AssetCatalogAgent runtime/symbol mismatch.
           - arch: arm64
             rid: osx-arm64
-            runner: macos-15
+            runner: macos-26
           - arch: x64
             rid: osx-x64
             runner: macos-15-intel
     env:
       DEV_VERSION: ${{ needs.prepare.outputs.version }}
-      # Icon Composer assets require Xcode 26; the runner defaults to Xcode 16.
+      # Pin the same Xcode 26 Icon Composer toolchain on both native images.
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
       LIBZORA_DMG_STYLE: "0"
     steps:
@@ -271,7 +272,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          xcodebuild -version | tee "$RUNNER_TEMP/libzora-toolchain.txt"
+          sw_vers | tee "$RUNNER_TEMP/libzora-toolchain.txt"
+          uname -m | tee -a "$RUNNER_TEMP/libzora-toolchain.txt"
+          xcodebuild -version | tee -a "$RUNNER_TEMP/libzora-toolchain.txt"
+          xcrun --find actool | tee -a "$RUNNER_TEMP/libzora-toolchain.txt"
           xcrun --sdk macosx --show-sdk-version | tee -a "$RUNNER_TEMP/libzora-toolchain.txt"
           clang --version | tee -a "$RUNNER_TEMP/libzora-toolchain.txt"
           echo "cache-key=$(shasum -a 256 "$RUNNER_TEMP/libzora-toolchain.txt" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"

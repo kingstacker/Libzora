@@ -142,14 +142,19 @@ def read_package(directory):
     license_type = ""
     for element in ET.parse(nuspec).iter():
         tag = element.tag.split("}")[-1]
-        if tag in ("id", "version", "authors", "copyright", "projectUrl", "license"):
+        if tag in ("id", "version", "authors", "copyright", "projectUrl", "license", "licenseUrl"):
             values[tag] = (element.text or "").strip()
         if tag == "license":
             license_type = element.attrib.get("type", "")
         if tag == "repository":
             repository = element.attrib
+    # Older targeting packs declare an original EULA URL rather than a SPDX
+    # expression or an embedded LICENSE. Do not relabel those terms as MIT.
+    license_value = values.get("license", "")
+    if not license_value and values.get("licenseUrl"):
+        license_type, license_value = "url", values["licenseUrl"]
     return {"id": values["id"], "version": values["version"],
-            "licenseType": license_type, "license": values.get("license", ""),
+            "licenseType": license_type, "license": license_value,
             "copyright": values.get("copyright", ""), "authors": values.get("authors", ""),
             "repository": repository, "projectUrl": values.get("projectUrl", ""),
             "developmentOnly": values["id"].lower() == "avaloniaui.diagnosticssupport",
@@ -178,7 +183,8 @@ def restored_packages(extra_caches):
     # Runtime packs are resolved by the SDK and do not necessarily appear in
     # project.assets.json. Preserve their own unmodified license/notices too.
     for cache in sorted(caches):
-        for pattern in ("microsoft.netcore.app.runtime.*", "microsoft.aspnetcore.app.runtime.*"):
+        for pattern in ("microsoft.netcore.app.runtime.*", "microsoft.aspnetcore.app.runtime.*",
+                        "microsoft.windowsdesktop.app.runtime.*", "microsoft.windows.sdk.net.ref"):
             for parent in sorted(cache.glob(pattern)):
                 for directory in sorted(parent.iterdir()):
                     if directory.is_dir() and next(directory.glob("*.nuspec"), None):
@@ -209,6 +215,17 @@ def github_source(package):
 
 
 def resolve_upstream_document(package, documents, extra=False):
+    if package["licenseType"] == "url":
+        if extra:
+            return None
+        url = package["license"]
+        if urllib.parse.urlparse(url).scheme != "https":
+            raise RuntimeError("Original license URL must use HTTPS: " + package["id"])
+        data = documents.fetch(url)
+        if not data:
+            raise RuntimeError("Original license URL returned an empty document: " + package["id"])
+        extension = ".rtf" if data.startswith(b"{\\rtf") else ".pdf" if data.startswith(b"%PDF-") else ".html" if data.lstrip().startswith(b"<") else ".txt"
+        return data, "LICENSE" + extension, url
     repo, refs = github_source(package)
     key = (repo, refs, extra)
     if key in documents.resolved:
@@ -440,7 +457,23 @@ def font_documents(packages, documents):
     return fonts
 
 
+def write_package_notices(lines):
+    target = ROOT / "THIRD-PARTY-NOTICES.md"
+    marker = "## NuGet package licenses and copyright notices"
+    text = "\n".join(lines)
+    if target.is_file():
+        previous = target.read_text(encoding="utf-8")
+        if marker in previous:
+            # Font/model notices are maintained separately from the generated
+            # package inventory. A refresh must not remove those attributions.
+            text = previous.split(marker, 1)[0] + marker + text.split(marker, 1)[1]
+    target.write_text(text, encoding="utf-8")
+
+
 def refresh(offline, caches):
+    previous_documents = set()
+    if MANIFEST.is_file():
+        previous_documents = {doc["path"] for doc in json.loads(MANIFEST.read_text())["documents"]}
     documents = Documents(offline)
     packages = restored_packages(caches)
     missing = {}
@@ -449,8 +482,12 @@ def refresh(offline, caches):
             continue
         if not any(file.is_file() and re.match(r"(?:license|copying)(?:\.|$)", file.name, re.I)
                    for file in package["directory"].rglob("*")):
-            repo, refs = github_source(package)
-            missing.setdefault((repo, refs), package)
+            if package["licenseType"] == "url":
+                key = (package["license"],)
+            else:
+                repo, refs = github_source(package)
+                key = (repo, refs)
+            missing.setdefault(key, package)
     # Independent upstream reads happen together. Writing/deduplicating the
     # reviewed bundle stays sequential so the generated paths are deterministic.
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
@@ -508,10 +545,13 @@ def refresh(offline, caches):
     lines.extend(["", "The machine-readable manifest and document SHA-256 values are in",
                   "ThirdParty/Notices/manifest.json. Dependency upgrades require refreshing and",
                   "reviewing this bundle; publish validation rejects undocumented package versions.", ""])
-    (ROOT / "THIRD-PARTY-NOTICES.md").write_text("\n".join(lines), encoding="utf-8")
+    write_package_notices(lines)
     keep = {x["path"] for x in manifest["documents"]} | {"manifest.json", "fonts/NOTICE.md"}
-    for file in BUNDLE.rglob("*"):
-        if file.is_file() and file.relative_to(BUNDLE).as_posix() not in keep:
+    # Only collect previously registered, generated documents. Leave separately
+    # maintained files alone rather than deleting every unknown bundle entry.
+    for relative in previous_documents - keep:
+        file = BUNDLE / relative
+        if file.is_file():
             file.unlink()
     print("Offline bundle:", len(packages), "package versions,", len(fonts), "fonts,", len(documents.by_hash), "license/notice documents")
 

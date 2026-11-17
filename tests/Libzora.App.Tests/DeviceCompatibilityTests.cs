@@ -633,6 +633,61 @@ public sealed partial class SettingsTests
     });
 
     [Fact]
+    public Task EarlyUsbArrivalRetriesWithoutAnotherNotification() => Run(async () =>
+    {
+        await using var scope = await TestWindow.Create();
+        // Isolate the notification path from periodic fallback detection.
+        scope.Field<Avalonia.Threading.DispatcherTimer>("_stage3Timer").Stop();
+        var device = Reader(scope, "READY-LATER", ReaderDeviceProfiles.Kindle);
+        var service = new ReaderService
+        {
+            DetectionReader = count => Task.FromResult<IReadOnlyList<KindleDevice>>(count < 3 ? [] : [device])
+        };
+        await UseReaderServiceAsync(scope, service);
+        scope.Call("DeviceChangeNotifier_DeviceChanged", null, EventArgs.Empty);
+        await Until(() => scope.Field<IReadOnlyList<KindleDevice>>("_devices").Count == 1);
+        Assert.Equal(3, service.DetectionRequests);
+        Assert.Equal(device.Identity, Assert.Single(scope.Field<IReadOnlyList<KindleDevice>>("_devices")).Identity);
+    });
+
+    [Fact]
+    public Task SlowBookScanDoesNotBlockUsbDisconnectDetection() => Run(async () =>
+    {
+        await using var scope = await TestWindow.Create();
+        scope.Field<Avalonia.Threading.DispatcherTimer>("_stage3Timer").Stop();
+        var device = Reader(scope, "SCANNING", ReaderDeviceProfiles.Kindle);
+        var books = new TaskCompletionSource<IReadOnlyList<KindleBook>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var service = new ReaderService { Devices = [device], ProgressiveBooksReader = _ => books.Task };
+        await UseReaderServiceAsync(scope, service);
+        scope.Call("ShowStage3Page", scope.Get<Grid>("DevicePage"), null);
+        var refresh = scope.Call<Task>("RefreshDevicesAsync", true, CancellationToken.None);
+        await Until(() => service.ScanRequests == 1);
+        Assert.False(refresh.IsCompleted);
+        Assert.False(scope.Field<bool>("_isRefreshingDevices"));
+        service.Devices = [];
+        scope.Call("DeviceChangeNotifier_DeviceChanged", null, EventArgs.Empty);
+        await Until(() => scope.Field<IReadOnlyList<KindleDevice>>("_devices").Count == 0);
+        books.SetResult([]);
+        await refresh;
+        Assert.Empty(scope.Field<IReadOnlyList<KindleDevice>>("_devices"));
+    });
+
+    [Fact]
+    public Task HotplugRetriesStopAfterTheReadinessWindow() => Run(async () =>
+    {
+        await using var scope = await TestWindow.Create();
+        scope.Field<Avalonia.Threading.DispatcherTimer>("_stage3Timer").Stop();
+        var service = new ReaderService();
+        await UseReaderServiceAsync(scope, service);
+        scope.Set("_deviceChangePending", true);
+        scope.Set("_deviceChangeRetryUntil", Environment.TickCount64 - 1);
+        scope.Call("DeviceChangeDebounceTimer_Tick", null, EventArgs.Empty);
+        await Until(() => service.DetectionRequests == 1 && !scope.Field<bool>("_isRefreshingDevices"));
+        Assert.False(scope.Field<bool>("_deviceChangePending"));
+        Assert.False(scope.Field<Avalonia.Threading.DispatcherTimer>("_deviceChangeDebounceTimer").IsEnabled);
+    });
+
+    [Fact]
     public Task DeviceChangeDuringDetectionRunsAnotherPass() => Run(async () =>
     {
         await using var scope = await TestWindow.Create();

@@ -35,7 +35,8 @@ internal static class WpdNativeTransfer
         string objectId,
         string destinationPath,
         long expectedSize,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool overwrite = false)
     {
         if (string.IsNullOrWhiteSpace(objectId))
             throw new IOException("设备源文件的 WPD 对象 ID 为空。");
@@ -82,7 +83,7 @@ internal static class WpdNativeTransfer
                 expectedSize,
                 optimalReadBufferSize,
                 cancellationToken);
-            File.Move(temporaryPath, destinationPath, overwrite: false);
+            File.Move(temporaryPath, destinationPath, overwrite);
         }
         finally
         {

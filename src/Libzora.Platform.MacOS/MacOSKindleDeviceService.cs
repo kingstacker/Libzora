@@ -24,8 +24,13 @@ public sealed class MacOSKindleDeviceService : IKindleDeviceService, IDeviceAtta
 
     public async Task<IReadOnlyList<KindleDevice>> DetectDevicesAsync(CancellationToken cancellationToken = default)
     {
-        var massStorage = await _massStorage.DetectDevicesAsync(cancellationToken).ConfigureAwait(false);
-        var mtp = await _mtp.DetectDevicesAsync(cancellationToken).ConfigureAwait(false);
+        // Mounted-volume enumeration and MTP discovery are independent. Do not
+        // make a ready MTP reader wait for filesystem/volume metadata first.
+        var massStorageTask = _massStorage.DetectDevicesAsync(cancellationToken);
+        var mtpTask = _mtp.DetectDevicesAsync(cancellationToken);
+        await Task.WhenAll(massStorageTask, mtpTask).ConfigureAwait(false);
+        var massStorage = await massStorageTask.ConfigureAwait(false);
+        var mtp = await mtpTask.ConfigureAwait(false);
         if (mtp.Count == 0) return massStorage;
         return [.. massStorage, .. mtp];
     }

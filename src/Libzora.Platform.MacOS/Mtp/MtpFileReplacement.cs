@@ -36,6 +36,11 @@ internal interface IMtpFileReplacementOperations
 /// </summary>
 internal static class MtpFileReplacement
 {
+    // Restoring the old bytes is deliberately not cancelable by the user, but
+    // it must still be bounded: an unresponsive reader would otherwise hold
+    // the global MTP gate forever and make shutdown hang.
+    private static readonly TimeSpan RestoreUploadTimeout = TimeSpan.FromMinutes(10);
+
     public static MtpEntry Commit(
         MtpEntry existing,
         MtpEntry staged,
@@ -159,8 +164,11 @@ internal static class MtpFileReplacement
             try
             {
                 // Restoring the old bytes must not be skipped because the user
-                // cancelled after the original had already been removed.
-                operations.Upload(recoveryPath, fileName, null, CancellationToken.None);
+                // cancelled after the original had already been removed. Use a
+                // bounded timeout instead of CancellationToken.None so a dead
+                // device cannot block the MTP gate indefinitely.
+                using var restoreTimeout = new CancellationTokenSource(RestoreUploadTimeout);
+                operations.Upload(recoveryPath, fileName, null, restoreTimeout.Token);
             }
             catch (Exception exception)
             {

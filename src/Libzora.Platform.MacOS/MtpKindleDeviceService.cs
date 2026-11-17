@@ -24,6 +24,9 @@ public sealed class MtpKindleDeviceService : IKindleDeviceService, IDeviceAttach
     // notifications invalidate this cache immediately, so a longer lifetime is
     // safe and keeps libmtp from being opened/closed continuously.
     private static readonly TimeSpan DetectionCacheLifetime = TimeSpan.FromSeconds(10);
+    // An arrival notification can precede usable MTP storage. Never hide that
+    // reader for another 10 seconds just because the first attempt was early.
+    private static readonly TimeSpan EmptyDetectionCacheLifetime = TimeSpan.FromMilliseconds(200);
     private static readonly SemaphoreSlim Gate = new(1, 1);
 
     private readonly AppPaths _paths;
@@ -33,9 +36,12 @@ public sealed class MtpKindleDeviceService : IKindleDeviceService, IDeviceAttach
     private readonly string _coverCacheDirectory;
     private readonly object _detectionSync = new();
     private readonly MtpAttachmentTracker _attachmentTracker = new();
+    private readonly Func<CancellationToken, IReadOnlyList<KindleDevice>> _detectDevices;
+    private readonly TimeProvider _timeProvider = TimeProvider.System;
+    private readonly bool _detectionSupported = MtpDeviceSession.IsSupported;
     private IReadOnlyList<KindleDevice>? _detectionCache;
     private IReadOnlyList<KindleDevice>? _lastDetected;
-    private DateTime _detectionCacheAt;
+    private DateTimeOffset _detectionCacheAt;
     private int _detectionGeneration;
 
     public MtpKindleDeviceService(
@@ -48,19 +54,38 @@ public sealed class MtpKindleDeviceService : IKindleDeviceService, IDeviceAttach
         _metadata = metadata ?? throw new ArgumentNullException(nameof(metadata));
         _scanCache = new KindleScanCacheStore(paths);
         _formatConverter = formatConverter ?? new BookFormatConversionService();
+        _detectDevices = Detect;
         _coverCacheDirectory = Path.Combine(paths.Covers, "kindle-mtp");
         Directory.CreateDirectory(_coverCacheDirectory);
     }
 
-    public async Task<IReadOnlyList<KindleDevice>> DetectDevicesAsync(CancellationToken cancellationToken = default)
+    internal MtpKindleDeviceService(
+        AppPaths paths,
+        IMetadataService metadata,
+        Func<CancellationToken, IReadOnlyList<KindleDevice>> detectDevices,
+        TimeProvider timeProvider) : this(paths, metadata)
     {
-        if (!MtpDeviceSession.IsSupported) return [];
-        cancellationToken.ThrowIfCancellationRequested();
+        _detectDevices = detectDevices ?? throw new ArgumentNullException(nameof(detectDevices));
+        _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
+        _detectionSupported = true;
+    }
+
+    private IReadOnlyList<KindleDevice>? GetCachedDetection()
+    {
         lock (_detectionSync)
         {
-            if (_detectionCache is not null && DateTime.UtcNow - _detectionCacheAt < DetectionCacheLifetime)
-                return _detectionCache;
+            if (_detectionCache is null) return null;
+            var lifetime = _detectionCache.Count == 0 ? EmptyDetectionCacheLifetime : DetectionCacheLifetime;
+            return _timeProvider.GetUtcNow() - _detectionCacheAt < lifetime ? _detectionCache : null;
         }
+    }
+
+    public async Task<IReadOnlyList<KindleDevice>> DetectDevicesAsync(CancellationToken cancellationToken = default)
+    {
+        if (!_detectionSupported) return [];
+        cancellationToken.ThrowIfCancellationRequested();
+        var cached = GetCachedDetection();
+        if (cached is not null) return cached;
 
         // libmtp allows one session at a time, so detection shares the gate
         // with transfers. A scan or transfer holds it for as long as it runs;
@@ -78,19 +103,28 @@ public sealed class MtpKindleDeviceService : IKindleDeviceService, IDeviceAttach
         }
         try
         {
-            int generation;
-            lock (_detectionSync) generation = _detectionGeneration;
-            var devices = await Task.Run(() => Detect(cancellationToken), cancellationToken).ConfigureAwait(false);
-            lock (_detectionSync)
+            // Another detector may have populated the cache while this caller
+            // waited for the gate. Do not open a second identical session.
+            cached = GetCachedDetection();
+            if (cached is not null) return cached;
+            while (true)
             {
-                _lastDetected = devices;
-                if (generation == _detectionGeneration)
+                cancellationToken.ThrowIfCancellationRequested();
+                int generation;
+                lock (_detectionSync) generation = _detectionGeneration;
+                var devices = await Task.Run(() => _detectDevices(cancellationToken), cancellationToken).ConfigureAwait(false);
+                lock (_detectionSync)
                 {
+                    // A USB change during a native probe invalidates its result,
+                    // not just its cache. Retry against the new topology rather
+                    // than resurrecting the old device in the UI or busy path.
+                    if (generation != _detectionGeneration) continue;
+                    _lastDetected = devices;
                     _detectionCache = devices;
-                    _detectionCacheAt = DateTime.UtcNow;
+                    _detectionCacheAt = _timeProvider.GetUtcNow();
+                    return devices;
                 }
             }
-            return devices;
         }
         finally
         {
@@ -373,12 +407,33 @@ public sealed class MtpKindleDeviceService : IKindleDeviceService, IDeviceAttach
     {
         var destination = Path.GetFullPath(destinationPath);
         Directory.CreateDirectory(Path.GetDirectoryName(destination) ?? ".");
+        var temporary = $"{destination}.{Guid.NewGuid():N}.libzora-part";
         return WithSessionAsync(device, session =>
         {
             var entry = session.Find(resource.RelativePath)
                 ?? throw new FileNotFoundException("设备资源不存在。", resource.RelativePath);
-            session.Download(entry, destination, cancellationToken: cancellationToken);
-            return true;
+            try
+            {
+                // libmtp opens the destination with truncation. A failed or
+                // cancelled transfer must not destroy the user's existing
+                // file, so download beside it and publish only on success.
+                session.Download(entry, temporary, cancellationToken: cancellationToken);
+                File.Move(temporary, destination, overwrite: true);
+                return true;
+            }
+            finally
+            {
+                try
+                {
+                    if (File.Exists(temporary)) File.Delete(temporary);
+                }
+                catch (IOException)
+                {
+                }
+                catch (UnauthorizedAccessException)
+                {
+                }
+            }
         }, cancellationToken);
     }
 

@@ -98,6 +98,11 @@ internal static class WpdKindleAccess
 
     public static IReadOnlyList<KindleDevice> DetectDevices(CancellationToken cancellationToken)
     {
+        // The PnP manager can establish absence without opening Shell storage
+        // objects or forcing a full GC. This keeps mass-storage discovery and
+        // short hotplug retries cheap when no MTP device is attached. An
+        // unavailable manager reports "unknown" and still takes the full path.
+        if (!WpdAttachmentProbe.HasAnyDevice(cancellationToken)) return [];
         var devices = new List<KindleDevice>();
         dynamic? shell = null;
         dynamic? computer = null;
@@ -399,7 +404,8 @@ internal static class WpdKindleAccess
                 GetWpdObjectId(item),
                 destinationPath,
                 resource.Size,
-                cancellationToken);
+                cancellationToken,
+                overwrite: true);
         }
         catch (COMException exception)
         {

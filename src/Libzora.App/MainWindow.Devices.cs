@@ -70,6 +70,11 @@ public partial class MainWindow
         }
     }
 
+    private void ConfigureDevicePollingInterval() =>
+        _stage3Timer.Interval = _deviceChangeNotifier is null
+            ? TimeSpan.FromMilliseconds(500)
+            : TimeSpan.FromSeconds(3);
+
     private void InitializeDeviceChangeNotifier(Func<IntPtr, IDeviceChangeNotifier?>? factory)
     {
         if (factory is null || _deviceChangeNotifier is not null || _kindle is null) return;
@@ -91,6 +96,10 @@ public partial class MainWindow
         {
             Debug.WriteLine($"Device change notifications unavailable: {exception}");
         }
+        finally
+        {
+            ConfigureDevicePollingInterval();
+        }
     }
 
     private void DisposeDeviceChangeNotifier()
@@ -106,13 +115,23 @@ public partial class MainWindow
 #if DEBUG
         Console.Error.WriteLine("Device change notification received.");
 #endif
-        // The native callback runs inside the window procedure; defer all work
-        // and coalesce the burst of Windows device-change messages.
+        // The native callback runs inside the window procedure; defer work.
+        // Use a leading-edge delay: restarting it for every USB message could
+        // postpone detection indefinitely during driver enumeration.
         Dispatcher.UIThread.Post(() =>
         {
             if (_lifetimeCancellation.IsCancellationRequested) return;
             _deviceChangePending = true;
-            _deviceChangeDebounceTimer.Stop();
+            _deviceChangeRetryUntil = Environment.TickCount64 + 5_000;
+            if (_deviceBookScanTask is { IsCompleted: false })
+            {
+                // A read-only scan of the old topology must not hold the MTP
+                // gate while the next attachment is trying to connect.
+                _deviceBooksDirty = true;
+                CancelQuietly(_deviceBookScanCancellation);
+            }
+            if (_deviceChangeDebounceTimer.IsEnabled) return;
+            _deviceChangeDebounceTimer.Interval = DeviceChangeCoalescingDelay;
             _deviceChangeDebounceTimer.Start();
         });
     }
@@ -124,12 +143,26 @@ public partial class MainWindow
         if (!_stage3Ready) return;
         if (_isRefreshingDevices || _deviceEjectInProgress)
         {
+            _deviceChangeDebounceTimer.Interval = DeviceChangeRetryDelay;
             _deviceChangeDebounceTimer.Start();
             return;
         }
         _deviceChangePending = false;
         _stage3IdleTicks = 0;
         await RefreshDevicesAsync(scanBooks: DevicePage.IsVisible, _lifetimeCancellation.Token);
+        // USB arrival often precedes a mounted volume or unlocked MTP storage.
+        // A single early empty result must not defer reconnect to the 6s/15s
+        // idle poll. Retry briefly, but never reopen a reader the user stopped
+        // or ignored, and never turn this into permanent aggressive polling.
+        if (!_lifetimeCancellation.IsCancellationRequested && !_deviceChangePending
+            && _kindle is not null && CurrentDevice is null
+            && _manuallyDisconnectedDeviceId is null && _ignoredDeviceId is null
+            && Environment.TickCount64 < _deviceChangeRetryUntil)
+        {
+            _deviceChangePending = true;
+            _deviceChangeDebounceTimer.Interval = DeviceChangeRetryDelay;
+            _deviceChangeDebounceTimer.Start();
+        }
     }
 
     private bool IsCurrentDevice(KindleDevice device) => CurrentDevice is { } current && IsSameDevice(current, device);

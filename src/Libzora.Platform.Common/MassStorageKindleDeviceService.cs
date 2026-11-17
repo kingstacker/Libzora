@@ -264,7 +264,20 @@ public sealed class MassStorageKindleDeviceService : IKindleDeviceService
         // the reading state down with it: the .sdr is only cleared once the
         // book is actually gone, so a failed removal leaves the book usable.
         File.Delete(path);
-        KindleReadingState.DeleteForRemovedBook(path);
+        // The book is already gone. A stale or link-shaped .sdr must not turn
+        // a successful removal into an error the user cannot act on.
+        try
+        {
+            KindleReadingState.DeleteForRemovedBook(path);
+        }
+        catch (IOException exception)
+        {
+            System.Diagnostics.Debug.WriteLine($"Reading state could not be removed: {exception.Message}");
+        }
+        catch (UnauthorizedAccessException exception)
+        {
+            System.Diagnostics.Debug.WriteLine($"Reading state could not be removed: {exception.Message}");
+        }
         await Task.CompletedTask;
     }
 

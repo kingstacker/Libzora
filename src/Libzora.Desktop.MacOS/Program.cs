@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Avalonia;
+using Libzora;
 using Libzora.Core;
 using Libzora.Infrastructure;
 using Libzora.Platform.Common;
@@ -21,7 +22,7 @@ internal static class Program
         try
         {
             var startupPaths = new AppPaths(AppRootConfiguration.ResolveRoot(
-                MacOSAppData.ResolveConfigurationDirectory(),
+                MacOSAppData.PrepareConfigurationDirectory(),
                 MacOSAppData.ResolveRoot()));
             SoftwareLog.Configure(startupPaths, ApplicationVersion.GetDisplayVersion(typeof(Program).Assembly));
         }
@@ -64,8 +65,13 @@ internal static class Program
             {
                 // Files passed on the command line belong to the running
                 // instance, so forward them with the activation request.
+                // Resolve relative paths here: the primary instance has its
+                // own working directory and would otherwise drop them.
                 var requestedFiles = args
-                    .Where(argument => !argument.StartsWith('-') && File.Exists(argument))
+                    .Select(ResolveExistingFileArgument)
+                    .Where(path => path is not null)
+                    .Select(path => path!)
+                    .Distinct(StringComparer.Ordinal)
                     .ToArray();
                 // The primary instance takes the lock a moment before it binds
                 // the socket, so retry briefly before falling back.
@@ -87,10 +93,39 @@ internal static class Program
         {
             BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
         }
+        catch (Exception exception)
+        {
+            WriteCrashLog("StartupFailure", exception);
+            StartupErrorReporter.Show(
+                "Libzora 无法启动",
+                exception is AppRootUnavailableException
+                    ? exception.Message
+                    : $"启动时发生错误：{exception.Message}\n\n详细信息已写入 crash.log。");
+        }
         finally
         {
             activationServer?.Dispose();
             instanceLock?.Dispose();
+        }
+
+        // Start the replacement only after releasing the instance lock, so it
+        // can become the primary instance instead of activating this one.
+        AppRestartRequest.LaunchIfRequested();
+    }
+
+    private static string? ResolveExistingFileArgument(string argument)
+    {
+        if (string.IsNullOrWhiteSpace(argument)) return null;
+        try
+        {
+            var path = Path.GetFullPath(argument);
+            return File.Exists(path) ? path : null;
+        }
+        catch (Exception exception) when (exception is ArgumentException
+            or NotSupportedException
+            or PathTooLongException)
+        {
+            return null;
         }
     }
 
@@ -140,7 +175,7 @@ internal static class Program
 
     private static AppServices BuildServices()
     {
-        var configurationDirectory = MacOSAppData.ResolveConfigurationDirectory();
+        var configurationDirectory = MacOSAppData.PrepareConfigurationDirectory();
         var paths = new AppPaths(AppRootConfiguration.ResolveRoot(configurationDirectory, MacOSAppData.ResolveRoot()));
         var metadata = new BookMetadataService();
         var massStorage = new MassStorageKindleDeviceService(
@@ -216,7 +251,7 @@ internal static class Program
         try
         {
             var paths = new AppPaths(AppRootConfiguration.ResolveRoot(
-                MacOSAppData.ResolveConfigurationDirectory(),
+                MacOSAppData.PrepareConfigurationDirectory(),
                 MacOSAppData.ResolveRoot()));
             targets.Add(Path.Combine(paths.Logs, "crash.log"));
         }

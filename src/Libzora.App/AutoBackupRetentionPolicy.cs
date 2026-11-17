@@ -17,8 +17,13 @@ internal static class AutoBackupRetentionPolicy
         && fileName.StartsWith(FileNamePrefix, StringComparison.OrdinalIgnoreCase)
         && fileName.EndsWith(AppBackupService.FileExtension, StringComparison.OrdinalIgnoreCase);
 
-    public static bool IsFresh(DateTime lastWriteUtc, DateTime nowUtc) =>
-        nowUtc - lastWriteUtc < MinimumInterval;
+    public static bool IsFresh(DateTime lastWriteUtc, DateTime nowUtc)
+    {
+        var age = nowUtc - lastWriteUtc;
+        // A timestamp in the future (clock rollback or a copied file) must not
+        // count as fresh forever; otherwise automatic backups stop entirely.
+        return age >= TimeSpan.Zero && age < MinimumInterval;
+    }
 
     /// <summary>Automatic backups, newest first.</summary>
     public static IReadOnlyList<FileInfo> SelectAutomatic(IEnumerable<FileInfo> files)

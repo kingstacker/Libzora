@@ -51,6 +51,8 @@ public sealed class AppDataMigrationTests
             await File.WriteAllTextAsync(Path.Combine(sourceRoot, "plugin-data", "state.json"), "{}");
             Directory.CreateDirectory(Path.Combine(sourceRoot, "browser-data"));
             await File.WriteAllTextAsync(Path.Combine(sourceRoot, "browser-data", "session"), "not migrated");
+            Directory.CreateDirectory(Path.Combine(sourceRoot, "data", "logs"));
+            await File.WriteAllTextAsync(Path.Combine(sourceRoot, "data", "logs", "app.log"), "volatile");
 
             var target = Path.Combine(root, "target");
             var result = await new AppDataMigrationService(region, configuration).MigrateAsync(target);
@@ -81,6 +83,9 @@ public sealed class AppDataMigrationTests
             Assert.True(File.Exists(Path.Combine(physicalTarget, "plugins", "plugin.dll")));
             Assert.True(File.Exists(Path.Combine(physicalTarget, "plugin-data", "state.json")));
             Assert.False(Directory.Exists(Path.Combine(physicalTarget, "browser-data")));
+            // Logs are written continuously by the running process and are
+            // excluded from the snapshot so consistency checks stay useful.
+            Assert.False(Directory.Exists(Path.Combine(physicalTarget, "data", "logs")));
 
             // A plain backup deliberately drops secrets; a same-machine move
             // must copy the protected settings file byte-for-byte.
@@ -305,6 +310,28 @@ public sealed class AppDataMigrationTests
         {
             TestHelpers.TryDelete(root);
         }
+    }
+
+    [Fact]
+    public async Task MigrationStateBlocksWritersThatBypassProcessLock()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var installation = new AppPaths(Path.Combine(root, "source"));
+            var fontPath = Path.Combine(root, "sample.ttf");
+            await File.WriteAllBytesAsync(fontPath, [0, 1, 2, 3]);
+            var dictionaryPath = Path.Combine(root, "sample.txt");
+            await File.WriteAllTextAsync(dictionaryPath, "word\texplain");
+
+            using var scope = DataRootMigrationState.Begin(installation.Root);
+
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => new FontLibraryService(installation).ImportAsync(fontPath));
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => new DictionaryService(installation).ImportAsync(dictionaryPath));
+        }
+        finally { TestHelpers.TryDelete(root); }
     }
 
     [Fact]

@@ -46,6 +46,7 @@ public sealed class FontLibraryService
 
     public async Task<ManagedFont> ImportAsync(string sourcePath, CancellationToken cancellationToken = default)
     {
+        DataRootMigrationState.ThrowIfActive(_paths);
         var extension = Path.GetExtension(sourcePath).ToLowerInvariant();
         if (extension is not (".ttf" or ".otf" or ".woff" or ".woff2")) throw new InvalidDataException("仅支持 TTF、OTF、WOFF 和 WOFF2 字体。");
         if (!File.Exists(sourcePath)) throw new FileNotFoundException("字体文件不存在。", sourcePath);
@@ -72,6 +73,7 @@ public sealed class FontLibraryService
         ReaderFontCatalogEntry entry,
         CancellationToken cancellationToken = default)
     {
+        DataRootMigrationState.ThrowIfActive(_paths);
         await CatalogInstallGate.WaitAsync(cancellationToken);
         try
         {
@@ -192,6 +194,7 @@ public sealed class FontLibraryService
 
     public async Task RemoveAsync(string id, CancellationToken cancellationToken = default)
     {
+        DataRootMigrationState.ThrowIfActive(_paths);
         var manifest = (await ListAsync(cancellationToken)).ToList();
         var item = manifest.FirstOrDefault(font => font.Id == id);
         if (item is null) return;

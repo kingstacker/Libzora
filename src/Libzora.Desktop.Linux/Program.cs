@@ -1,4 +1,5 @@
 using Avalonia;
+using Libzora;
 using Libzora.Core;
 using Libzora.Infrastructure;
 using Libzora.Platform.Common;
@@ -12,11 +13,24 @@ internal static class Program
     public static void Main(string[] args)
     {
         if (!OperatingSystem.IsLinux()) throw new PlatformNotSupportedException("This Libzora head is for Linux.");
-        ConfigureLinuxWebViewRendering();
-        var configurationDirectory = LinuxAppData.ResolveConfigurationDirectory();
-        var paths = new AppPaths(AppRootConfiguration.ResolveRoot(configurationDirectory, LinuxAppData.ResolveRoot()));
-        SoftwareLog.Configure(paths, ApplicationVersion.GetDisplayVersion(typeof(Program).Assembly));
-        BuildAvaloniaApp(BuildServices(paths, configurationDirectory)).StartWithClassicDesktopLifetime(args);
+        try
+        {
+            ConfigureLinuxWebViewRendering();
+            var configurationDirectory = LinuxAppData.ResolveConfigurationDirectory();
+            var paths = new AppPaths(AppRootConfiguration.ResolveRoot(configurationDirectory, LinuxAppData.ResolveRoot()));
+            SoftwareLog.Configure(paths, ApplicationVersion.GetDisplayVersion(typeof(Program).Assembly));
+            BuildAvaloniaApp(BuildServices(paths, configurationDirectory)).StartWithClassicDesktopLifetime(args);
+        }
+        catch (Exception exception)
+        {
+            StartupErrorReporter.Show(
+                "Libzora 无法启动",
+                exception is AppRootUnavailableException
+                    ? exception.Message
+                    : $"启动时发生错误：{exception.Message}");
+        }
+
+        AppRestartRequest.LaunchIfRequested();
     }
 
     private static void ConfigureLinuxWebViewRendering()

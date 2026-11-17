@@ -8,6 +8,7 @@ using System.Text.RegularExpressions;
 using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -33,8 +34,11 @@ public partial class MainWindow
     private const int MaxReadingMaterials = 5_000;
     private const int DevicePageSize = 200;
     private readonly DispatcherTimer _stage3Timer = new() { Interval = TimeSpan.FromSeconds(3) };
-    private readonly DispatcherTimer _deviceChangeDebounceTimer = new() { Interval = TimeSpan.FromMilliseconds(350) };
+    private static readonly TimeSpan DeviceChangeCoalescingDelay = TimeSpan.FromMilliseconds(75);
+    private static readonly TimeSpan DeviceChangeRetryDelay = TimeSpan.FromMilliseconds(150);
+    private readonly DispatcherTimer _deviceChangeDebounceTimer = new() { Interval = DeviceChangeCoalescingDelay };
     private bool _deviceChangePending;
+    private long _deviceChangeRetryUntil;
     private readonly DispatcherTimer _taskSpinnerTimer = new(DispatcherPriority.Render)
     {
         Interval = TimeSpan.FromMilliseconds(50)
@@ -77,6 +81,7 @@ public partial class MainWindow
     private readonly Dictionary<string, IReadOnlyList<KindleClipping>> _deviceClippingCache = new(StringComparer.OrdinalIgnoreCase);
     private bool _backupBusy;
     private bool _backupImportInProgress;
+    private bool _dataRootMigrationInProgress;
     private bool _s3SyncBusy;
     private bool _s3SyncExitInProgress;
     private bool _allowWindowCloseForS3Sync;
@@ -246,17 +251,16 @@ public partial class MainWindow
 
     private void ConfigureStage3Timer()
     {
+        ConfigureDevicePollingInterval();
         _deviceChangeDebounceTimer.Tick += DeviceChangeDebounceTimer_Tick;
         _stage3Timer.Tick += async (_, _) =>
         {
             if (!_stage3Ready || _kindle is null || _deviceEjectInProgress) return;
-            // When the device shelf is hidden and nothing is attached, polling
-            // every 3 seconds only burns COM/disk enumeration. Check every
-            // fifth tick (15s) instead on Windows; macOS uses MTP, where a
-            // missed hotplug event would leave the reader invisible, so it
-            // keeps a shorter 6s fallback. Opening the shelf still refreshes
-            // immediately through the explicit navigation path.
-            if (!DevicePage.IsVisible && _devices.Count == 0)
+            // Native notifications use a fast coalesced/retry path; retain the
+            // quiet 6s/15s fallback rather than opening COM/MTP every 500ms.
+            // Without a notifier (Linux, or failed native registration), use
+            // the 500ms timer on every page so a ready mount need not wait 15s.
+            if (_deviceChangeNotifier is not null && !DevicePage.IsVisible)
             {
                 var idleTickDivisor = OperatingSystem.IsMacOS() ? 2 : 5;
                 if (++_stage3IdleTicks % idleTickDivisor != 0) return;
@@ -738,6 +742,9 @@ public partial class MainWindow
     {
         if (_isRefreshingDevices || _deviceEjectInProgress) return;
         _isRefreshingDevices = true;
+        KindleDevice? deviceToRefresh = null;
+        var deviceChanged = false;
+        var detectionStarted = Stopwatch.GetTimestamp();
         try
         {
             // A manually ejected device stays disconnected while it remains
@@ -867,13 +874,15 @@ public partial class MainWindow
             UpdateDeviceStorageBar();
             SetEjectButtonsEnabled(true);
             if (changed) ShowDeviceStatusToast(T("{0} 已连接", displayName));
+#if DEBUG
+            if (changed)
+                Console.Error.WriteLine($"Device connection ready in {Stopwatch.GetElapsedTime(detectionStarted).TotalMilliseconds:F1}ms ({device.Transport}); content loads separately.");
+#endif
             if (changed)
                 _deviceWarmTask = TrackDeviceOperationAsync(() => WarmDeviceCachesAsync(
                     device, !scanBooks && !DeviceResourcePage.IsVisible && !ReadingMaterialsPage.IsVisible, cancellationToken));
-            if (scanBooks && (changed || !_deviceBooksLoaded || _deviceBooksDirty))
-                await RefreshDeviceBooksAsync(cancellationToken);
-            if (changed && DeviceResourcePage.IsVisible) await RefreshDeviceResourcesAsync();
-            if (changed && ReadingMaterialsPage.IsVisible) await RefreshReadingMaterialsAsync();
+            deviceToRefresh = device;
+            deviceChanged = changed;
         }
         catch (OperationCanceledException)
         {
@@ -894,7 +903,30 @@ public partial class MainWindow
         }
         finally
         {
+            // Only connection discovery is single-flight. Slow book/cover/note
+            // reads below must not hold off a later USB removal or reconnect.
             _isRefreshingDevices = false;
+        }
+
+        if (deviceToRefresh is not { } connected || !IsCurrentDevice(connected)) return;
+        try
+        {
+            if (scanBooks && (deviceChanged || !_deviceBooksLoaded || _deviceBooksDirty))
+                await RefreshDeviceBooksAsync(cancellationToken);
+            if (!IsCurrentDevice(connected)) return;
+            if (deviceChanged && DeviceResourcePage.IsVisible) await RefreshDeviceResourcesAsync();
+            if (!IsCurrentDevice(connected)) return;
+            if (deviceChanged && ReadingMaterialsPage.IsVisible) await RefreshReadingMaterialsAsync();
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception exception)
+        {
+            // A content read failure is not a failed USB connection, and a
+            // late failure from the previous reader must not disconnect a new one.
+            if (IsCurrentDevice(connected))
+                DevicePageStatusText.Text = T("设备信息读取失败：{0}", UiText.Localize(exception.Message));
         }
     }
 
@@ -6824,6 +6856,14 @@ public partial class MainWindow
         }
         if (_backupBusy || _readingDataResetBusy || _s3SyncBusy || _isTransferring) return;
 
+        var restarting = false;
+        _suppressAppSettingsAutoSave = true;
+        _dataRootMigrationInProgress = true;
+        CancelAppSettingsDebounce();
+        // Background sync would queue on the migration's data lock. Keep those
+        // writers idle for the duration; they restart if migration fails.
+        _s3SyncTimer.Stop();
+        _s3LocalChangeSyncTimer.Stop();
         _backupBusy = true;
         ShowTaskProgressPopup();
         TaskProgressPopupBar.IsIndeterminate = false;
@@ -6845,21 +6885,25 @@ public partial class MainWindow
                 _lifetimeCancellation.Token);
             TaskProgressPopupBar.Value = 100;
             TaskProgressPopupText.Text = T("迁移完成：{0} 本书、{1} 个文件。", result.BookCount, result.FileCount);
-            var restartMessage = T("迁移完成：{0} 本书、{1} 个文件已复制到：\n{2}", result.BookCount, result.FileCount, result.TargetRoot);
             if (result.RestartRequired)
             {
-                ShowSettingsCapsule(T("迁移完成，请重启 Libzora 以使用新的数据目录。"), 6000);
-                await ShowMessageAsync(
-                    T("迁移完成"),
-                    restartMessage + "\n\n"
-                    + T("旧数据目录未删除，确认新目录正常后可自行清理。") + "\n\n"
-                    + T("请重启 Libzora 以使用新目录。"));
+                // The running process still uses the old AppPaths. Continuing
+                // to use it would write books/settings into the old root and
+                // silently lose them on the next launch, so exit as soon as
+                // the new root is published and restart against it.
+                TaskProgressPopupText.Text = T("迁移完成，正在重启 Libzora…");
+                ShowSettingsCapsule(
+                    T("迁移完成：{0} 本书、{1} 个文件。正在重启…", result.BookCount, result.FileCount),
+                    5000,
+                    success: true);
+                restarting = true;
+                await Task.Delay(1200);
+                RestartAfterDataRootMigration();
+                return;
             }
-            else
-            {
-                ShowSettingsCapsule(T("迁移完成。"), 4000);
-                await ShowMessageAsync(T("迁移完成"), restartMessage);
-            }
+
+            ShowSettingsCapsule(T("迁移完成。"), 4000);
+            await ShowMessageAsync(T("迁移完成"), T("迁移完成：{0} 本书、{1} 个文件已复制到：\n{2}", result.BookCount, result.FileCount, result.TargetRoot));
         }
         catch (OperationCanceledException) when (_lifetimeCancellation.IsCancellationRequested)
         {
@@ -6872,10 +6916,48 @@ public partial class MainWindow
         }
         finally
         {
+            if (!restarting)
+            {
+                _suppressAppSettingsAutoSave = false;
+                _dataRootMigrationInProgress = false;
+                _s3SyncTimer.Start();
+                _s3LocalChangeSyncTimer.Start();
+            }
             _backupBusy = false;
             TaskProgressPopupBar.IsIndeterminate = false;
             HideTaskProgressPopup();
         }
+    }
+
+    /// <summary>
+    /// Stops background writers and exits without the normal exit-time saves
+    /// (they would target the old root). The platform head starts a new
+    /// process after releasing the single-instance lock.
+    /// </summary>
+    private void RestartAfterDataRootMigration()
+    {
+        _allowWindowCloseForDataRootSwitch = true;
+        _applicationShuttingDown = true;
+        _stage3Timer.Stop();
+        _deviceChangeDebounceTimer.Stop();
+        _s3SyncTimer.Stop();
+        _s3LocalChangeSyncTimer.Stop();
+        CancelQuietly(_appSettingsAutoSaveCancellation);
+        CancelQuietly(_s3SyncCancellation);
+        CancelQuietly(_s3SyncExitCancellation);
+        CancelQuietly(_deviceBookScanCancellation);
+        CancelQuietly(_calibreDetectionCancellation);
+        AppRestartRequest.Request();
+        if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+            desktop.Shutdown();
+        else
+            Close();
+    }
+
+    private static void CancelQuietly(CancellationTokenSource? source)
+    {
+        try { source?.Cancel(); }
+        catch (ObjectDisposedException) { }
     }
 
     private async Task<bool> EnsureBackupEncryptionForUiAsync()

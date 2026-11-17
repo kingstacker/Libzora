@@ -23,7 +23,7 @@ internal static class MacOSSingleInstanceGuard
         lockFile = null;
         try
         {
-            var directory = MacOSAppData.ResolveRoot();
+            var directory = MacOSAppData.ResolveConfigurationDirectory();
             Directory.CreateDirectory(directory);
             var path = Path.Combine(directory, LockFileName);
             // FileShare.None maps to an exclusive flock on Unix, so the handle
@@ -79,7 +79,7 @@ internal sealed class MacOSInstanceActivationServer : IDisposable
     }
 
     public static string SocketPath =>
-        Path.Combine(MacOSAppData.ResolveRoot(), "libzora.instance.sock");
+        Path.Combine(MacOSAppData.ResolveConfigurationDirectory(), "libzora.instance.sock");
 
     public static MacOSInstanceActivationServer? TryStart()
     {

@@ -75,6 +75,9 @@ public sealed class AutoBackupRetentionTests
         var now = new DateTime(2026, 11, 17, 12, 0, 0, DateTimeKind.Utc);
         Assert.True(AutoBackupRetentionPolicy.IsFresh(now.AddHours(-19), now));
         Assert.False(AutoBackupRetentionPolicy.IsFresh(now.AddHours(-20), now));
+        // Clock rollback or a copied future timestamp must not suppress new
+        // backups until the clock catches up.
+        Assert.False(AutoBackupRetentionPolicy.IsFresh(now.AddHours(1), now));
     }
 
     [Fact]

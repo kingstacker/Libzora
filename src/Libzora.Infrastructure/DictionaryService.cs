@@ -46,6 +46,7 @@ public sealed partial class DictionaryService
 
     public async Task<DictionaryDefinition> ImportAsync(string sourcePath, string? name = null, CancellationToken cancellationToken = default, IProgress<DictionaryImportProgress>? progress = null)
     {
+        DataRootMigrationState.ThrowIfActive(_paths);
         if (!File.Exists(sourcePath)) throw new FileNotFoundException("词典文件不存在。", sourcePath);
         var extension = Path.GetExtension(sourcePath).ToLowerInvariant();
         progress?.Report(new("读取词典"));
@@ -138,6 +139,7 @@ public sealed partial class DictionaryService
 
     public async Task SetEnabledAsync(string id, bool enabled, CancellationToken cancellationToken = default)
     {
+        DataRootMigrationState.ThrowIfActive(_paths);
         var manifest = (await ListAsync(cancellationToken)).ToList();
         var index = manifest.FindIndex(item => item.Id == id);
         if (index < 0) return;
@@ -147,6 +149,7 @@ public sealed partial class DictionaryService
 
     public async Task RemoveAsync(string id, CancellationToken cancellationToken = default)
     {
+        DataRootMigrationState.ThrowIfActive(_paths);
         var manifest = (await ListAsync(cancellationToken)).ToList();
         var item = manifest.FirstOrDefault(entry => entry.Id == id);
         if (item is null) return;

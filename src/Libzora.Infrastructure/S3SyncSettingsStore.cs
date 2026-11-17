@@ -130,6 +130,7 @@ public sealed class S3SyncSettingsStore
         S3SyncSettings settings,
         CancellationToken cancellationToken = default)
     {
+        DataRootMigrationState.ThrowIfActive(_paths);
         SecretStoreGuard.ThrowIfUnreadable(SettingsPath);
         using var lease = await SettingsWriteLock.AcquireAsync(_paths, cancellationToken);
         _paths.EnsureDirectories();

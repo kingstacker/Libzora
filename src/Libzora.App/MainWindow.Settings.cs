@@ -55,6 +55,7 @@ public partial class MainWindow
     private long _appSettingsEditVersion;
     private long _appSettingsSavedVersion;
     private bool _skipS3SyncOnExit;
+    private bool _allowWindowCloseForDataRootSwitch;
     private bool _s3SettingsDirty;
     private bool _s3SettingsSaving;
     private long _s3SettingsEditVersion;

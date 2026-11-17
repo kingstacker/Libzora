@@ -784,6 +784,7 @@ public sealed partial class SqliteBookLibraryService : IBookLibraryService
         Func<ImportBookConflict, Task<ImportConflictResolution>>? conflictResolver = null,
         IReadOnlyDictionary<string, TxtImportRules>? txtImportRules = null)
     {
+        DataRootMigrationState.ThrowIfActive(_paths);
         using var processLease = await AppDataProcessLock.AcquireAsync(_paths, cancellationToken);
         var files = ExpandInputFiles(paths).ToList();
         var result = new ImportBatchResult();

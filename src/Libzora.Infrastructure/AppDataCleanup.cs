@@ -33,6 +33,11 @@ public static class AppDataCleanup
             TryDeleteDirectory(Path.Combine(dataRoot, "data"));
             TryDeleteDirectory(Path.Combine(dataRoot, "backups"));
             TryDeleteDirectory(Path.Combine(dataRoot, "browser-data"));
+            // Regional libraries and plugins are per-installation payloads
+            // too. Leaving them behind contradicted the uninstall contract.
+            TryDeleteDirectory(Path.Combine(dataRoot, "regions"));
+            TryDeleteDirectory(Path.Combine(dataRoot, "plugins"));
+            TryDeleteDirectory(Path.Combine(dataRoot, "plugin-data"));
             TryDeleteFile(AppRootConfiguration.MigrationBackupPath(dataRoot));
             TryDeleteEmptyDirectory(dataRoot);
         }

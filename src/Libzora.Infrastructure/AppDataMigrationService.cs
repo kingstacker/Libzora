@@ -84,6 +84,15 @@ public sealed class AppDataMigrationService
         if (IsNested(sourceRoot, target) || IsNested(target, sourceRoot))
             throw new InvalidOperationException("目标目录不能位于当前数据目录内部，也不能包含当前数据目录。");
 
+        // Writers such as font and dictionary imports do not take the
+        // AppDataProcessLock. Mark the source as migrating so those entry
+        // points fail fast instead of racing the copy. Register both the
+        // physical and the lexical installation roots: on macOS /var is a
+        // symlink to /private/var, and AppPaths may hold either spelling.
+        using var migrationState = DataRootMigrationState.Begin(
+            sourceRoot,
+            _sourcePaths.InstallationRoot);
+
         progress?.Report(new AppDataMigrationProgress(0, "正在检查迁移目标…"));
         Directory.CreateDirectory(target);
 
@@ -135,9 +144,9 @@ public sealed class AppDataMigrationService
 
                 journal.Phase = MigrationPhase.Copying;
                 await WriteJournalAsync(journalPath, journal, cancellationToken);
-                var copiedFiles = new List<string>();
-                journal.CopiedBytes = await CopyPayloadAsync(
-                    sourceRoot, stagePath, journal, copiedFiles, progress, cancellationToken);
+                var copied = await CopyPayloadAsync(
+                    sourceRoot, stagePath, journal, progress, cancellationToken);
+                journal.CopiedBytes = copied.CopiedBytes;
 
                 cancellationToken.ThrowIfCancellationRequested();
                 journal.Phase = MigrationPhase.Verifying;
@@ -146,11 +155,20 @@ public sealed class AppDataMigrationService
                 var (bookCount, fileCount) = await VerifyPayloadAsync(
                     stagePath,
                     journal.CopiedDatabasePaths,
-                    copiedFiles,
+                    copied.Files.Select(file => file.RelativePath).ToList(),
                     journal.ActiveDataRelativePath,
                     cancellationToken);
                 journal.BookCount = bookCount;
                 journal.FileCount = fileCount;
+
+                // Font/dictionary/settings writes bypass the process lock. If
+                // any payload changed or appeared while we were copying, the
+                // target is not a complete snapshot; abort before publishing
+                // app-root.json so the old root remains authoritative.
+                EnsurePayloadUnchanged(
+                    copied.Files,
+                    CollectPayloadFiles(sourceRoot, stageRoot: null, cancellationToken),
+                    journal.CopiedDatabasePaths);
 
                 journal.PayloadEntries = PayloadDirectoryNames
                     .Where(name => Directory.Exists(Path.Combine(stagePath, name)))
@@ -307,21 +325,14 @@ public sealed class AppDataMigrationService
             yield return region;
     }
 
-    private async Task<long> CopyPayloadAsync(
+    private async Task<(long CopiedBytes, IReadOnlyList<PayloadFile> Files)> CopyPayloadAsync(
         string sourceRoot,
         string stageRoot,
         MigrationJournal journal,
-        List<string> copiedFiles,
         IProgress<AppDataMigrationProgress>? progress,
         CancellationToken cancellationToken)
     {
-        var files = new List<PayloadFile>();
-        foreach (var name in PayloadDirectoryNames)
-        {
-            var sourceDirectory = Path.Combine(sourceRoot, name);
-            if (!Directory.Exists(sourceDirectory)) continue;
-            CollectPayloadFiles(sourceDirectory, name, stageRoot, files, cancellationToken);
-        }
+        var files = CollectPayloadFiles(sourceRoot, stageRoot, cancellationToken);
 
         var totalBytes = files.Sum(file => file.Length);
         var copiedBytes = 0L;
@@ -350,7 +361,6 @@ public sealed class AppDataMigrationService
 
             if (!File.Exists(destination))
                 throw new IOException($"迁移文件复制不完整：{file.RelativePath}");
-            copiedFiles.Add(file.RelativePath);
             copiedBytes += file.Length;
             if (totalBytes > 0)
             {
@@ -359,21 +369,39 @@ public sealed class AppDataMigrationService
                     "正在复制数据…"));
             }
         }
-        return copiedBytes;
+        return (copiedBytes, files);
+    }
+
+    private static List<PayloadFile> CollectPayloadFiles(
+        string sourceRoot,
+        string? stageRoot,
+        CancellationToken cancellationToken)
+    {
+        var files = new List<PayloadFile>();
+        foreach (var name in PayloadDirectoryNames)
+        {
+            var sourceDirectory = Path.Combine(sourceRoot, name);
+            if (!Directory.Exists(sourceDirectory)) continue;
+            CollectPayloadFiles(sourceDirectory, name, stageRoot, files, cancellationToken);
+        }
+        return files;
     }
 
     private static void CollectPayloadFiles(
         string sourceDirectory,
         string relativeDirectory,
-        string stageRoot,
+        string? stageRoot,
         List<PayloadFile> files,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var destinationDirectory = Path.Combine(
-            stageRoot,
-            relativeDirectory.Replace('/', Path.DirectorySeparatorChar));
-        Directory.CreateDirectory(destinationDirectory);
+        if (stageRoot is not null)
+        {
+            var destinationDirectory = Path.Combine(
+                stageRoot,
+                relativeDirectory.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(destinationDirectory);
+        }
 
         foreach (var entry in Directory.EnumerateFileSystemEntries(sourceDirectory))
         {
@@ -390,16 +418,62 @@ public sealed class AppDataMigrationService
 
             if ((attributes & FileAttributes.Directory) != 0)
             {
-                if (ShouldSkipDirectory(name)) continue;
+                if (ShouldSkipDirectory(name) || IsVolatilePayloadDirectory(relativePath)) continue;
                 CollectPayloadFiles(entry, relativePath, stageRoot, files, cancellationToken);
             }
             else if (!ShouldSkipFile(name))
             {
-                var length = new FileInfo(entry).Length;
-                files.Add(new PayloadFile(entry, relativePath, length));
+                var info = new FileInfo(entry);
+                files.Add(new PayloadFile(entry, relativePath, info.Length, info.LastWriteTimeUtc));
             }
         }
     }
+
+    private static void EnsurePayloadUnchanged(
+        IReadOnlyList<PayloadFile> expected,
+        IReadOnlyList<PayloadFile> actual,
+        IReadOnlyCollection<string> snapshotDatabases)
+    {
+        var current = actual.ToDictionary(file => file.RelativePath, StringComparer.Ordinal);
+        foreach (var file in expected)
+        {
+            // Regenerable caches may be touched or recreated by browsing while
+            // the copy is running. They are copied best-effort; a stale cache
+            // is harmless.
+            if (IsVolatilePayloadFile(file.RelativePath)) continue;
+            if (!current.TryGetValue(file.RelativePath, out var now))
+                throw new IOException(
+                    $"迁移期间数据文件被删除或移走：{file.RelativePath}。"
+                    + "请停止导入或插件写入后重试。");
+            // SQLite files are copied through the backup API, which can touch
+            // headers/WAL state while taking its consistent snapshot. Writers
+            // to them are serialized by AppDataProcessLock, so timestamp drift
+            // here is our own read, not an external mutation.
+            if (snapshotDatabases.Contains(file.RelativePath, StringComparer.Ordinal)) continue;
+            if (now.Length != file.Length || now.LastWriteTimeUtc != file.LastWriteTimeUtc)
+                throw new IOException(
+                    $"迁移期间数据文件发生变化：{file.RelativePath}。"
+                    + "请停止导入或插件写入后重试。");
+        }
+
+        if (actual.Count == expected.Count) return;
+        var known = expected.Select(file => file.RelativePath).ToHashSet(StringComparer.Ordinal);
+        var added = actual.FirstOrDefault(file =>
+            !known.Contains(file.RelativePath) && !IsVolatilePayloadFile(file.RelativePath));
+        if (added is null) return;
+        throw new IOException(
+            $"迁移期间新增了数据文件：{added.RelativePath}。"
+            + "请停止导入或插件写入后重试。");
+    }
+
+    private static bool IsVolatilePayloadDirectory(string relativePath) =>
+        // Diagnostics are not part of the library snapshot and are written
+        // continuously by the running process.
+        string.Equals(relativePath, "data/logs", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsVolatilePayloadFile(string relativePath) =>
+        relativePath.StartsWith("data/covers/", StringComparison.OrdinalIgnoreCase)
+        || relativePath.StartsWith("data/reader-cache/", StringComparison.OrdinalIgnoreCase);
 
     private static bool ShouldSkipDirectory(string name) =>
         name.StartsWith(".libzora-export-", StringComparison.Ordinal)
@@ -857,7 +931,11 @@ public sealed class AppDataMigrationService
         catch (UnauthorizedAccessException) { }
     }
 
-    private sealed record PayloadFile(string SourcePath, string RelativePath, long Length);
+    private sealed record PayloadFile(
+        string SourcePath,
+        string RelativePath,
+        long Length,
+        DateTime LastWriteTimeUtc);
 
     internal enum MigrationPhase
     {

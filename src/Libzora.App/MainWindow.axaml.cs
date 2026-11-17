@@ -985,7 +985,8 @@ public partial class MainWindow : Window
             SetTaskStatus(T("备份正在导入，请等待完成后再退出。"));
             return;
         }
-        if (_allowWindowCloseForPendingUpdate || _allowWindowCloseForS3Sync)
+        if (_allowWindowCloseForPendingUpdate || _allowWindowCloseForS3Sync
+            || _allowWindowCloseForDataRootSwitch)
         {
             DisposeDeviceChangeNotifier();
             return;
@@ -2422,6 +2423,11 @@ public partial class MainWindow : Window
         BookFile? requestedFile = null,
         bool restoreProgress = true)
     {
+        if (_dataRootMigrationInProgress)
+        {
+            SetTaskStatus(T("数据目录迁移正在进行，请稍后再打开书籍。"));
+            return;
+        }
         // A remote reset can be applied by a sync that started before this
         // click. Wait before loading any checkpoint into the reader session.
         while (_s3SyncBusy)

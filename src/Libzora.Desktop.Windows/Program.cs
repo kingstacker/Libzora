@@ -1,4 +1,5 @@
 using Avalonia;
+using Libzora;
 using Libzora.Core;
 using Libzora.Infrastructure;
 using Libzora.Platform.Windows;
@@ -112,11 +113,24 @@ internal static class Program
             BuildAvaloniaApp()
                 .StartWithClassicDesktopLifetime(args);
         }
+        catch (Exception exception)
+        {
+            WriteCrashLog("StartupFailure", exception);
+            StartupErrorReporter.Show(
+                "Libzora 无法启动",
+                exception is AppRootUnavailableException
+                    ? exception.Message
+                    : $"启动时发生错误：{exception.Message}\n\n详细信息已写入 libzora-crash.log。");
+        }
         finally
         {
             activationServer?.Dispose();
             singleInstanceMutex?.Dispose();
         }
+
+        // The old single-instance lock is gone by now, so the replacement
+        // process starts as the primary instance instead of activating us.
+        AppRestartRequest.LaunchIfRequested();
     }
 
     /// <summary>

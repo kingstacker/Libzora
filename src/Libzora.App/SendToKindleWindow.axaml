@@ -50,10 +50,10 @@
             <Border Background="Transparent" PointerPressed="TitleBarDragRegion_PointerPressed">
                 <StackPanel x:Name="SendWindowBrand" Orientation="Horizontal" Spacing="8" Margin="16,0"
                             VerticalAlignment="Center" IsHitTestVisible="False">
-                    <Border Width="18" Height="18" Background="{DynamicResource InkBrush}">
-                        <TextBlock Text="K" Foreground="{DynamicResource PaperBrush}" FontSize="13" FontWeight="Bold"
-                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
-                    </Border>
+                    <Image Width="18" Height="18"
+                           Source="avares://Libzora.App/Assets/Icons/libzora.png"
+                           Stretch="Uniform"
+                           AutomationProperties.Name="Libzora" />
                     <TextBlock Text="Libzora" FontSize="12" Foreground="{DynamicResource MutedInkBrush}" />
                 </StackPanel>
             </Border>

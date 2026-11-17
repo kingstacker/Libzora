@@ -6869,17 +6869,12 @@
                                            FontWeight="Bold"
                                            LetterSpacing="1.08" />
                             </StackPanel>
-                            <Border Grid.Column="1"
-                                    Width="34"
-                                    Height="34"
-                                    Background="{DynamicResource InkBrush}">
-                                <TextBlock Text="K"
-                                           Foreground="{DynamicResource PaperBrush}"
-                                           FontSize="20"
-                                           FontWeight="Bold"
-                                           HorizontalAlignment="Center"
-                                           VerticalAlignment="Center" />
-                            </Border>
+                            <Image Grid.Column="1"
+                                   Width="34"
+                                   Height="34"
+                                   Source="avares://Libzora.App/Assets/Icons/libzora.png"
+                                   Stretch="Uniform"
+                                   AutomationProperties.Name="Libzora" />
                         </Grid>
                     </Border>
 

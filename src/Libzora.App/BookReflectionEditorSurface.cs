@@ -2114,21 +2114,7 @@ internal sealed class BookReflectionEditorSurface : Border
                 IsHitTestVisible = false,
                 Children =
                 {
-                    new Border
-                    {
-                        Width = 18,
-                        Height = 18,
-                        Background = AppAppearanceResources.GetBrush("InkBrush"),
-                        Child = new TextBlock
-                        {
-                            Text = "K",
-                            Foreground = AppAppearanceResources.GetBrush("PaperBrush"),
-                            FontSize = 13,
-                            FontWeight = FontWeight.Bold,
-                            HorizontalAlignment = HorizontalAlignment.Center,
-                            VerticalAlignment = VerticalAlignment.Center
-                        }
-                    },
+                    AppBrandMark.Create(18),
                     new TextBlock
                     {
                         Text = "Libzora",

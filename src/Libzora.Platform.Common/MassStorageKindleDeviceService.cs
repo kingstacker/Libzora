@@ -260,8 +260,11 @@ public sealed class MassStorageKindleDeviceService : IKindleDeviceService
         var path = ResolveWithinRoot(device.RootPath, book.RelativePath, GetDocumentsRoot(device));
         RejectLink(path);
         if (!File.Exists(path)) throw new FileNotFoundException("设备书籍不存在。", book.RelativePath);
-        KindleReadingState.DeleteForRemovedBook(path);
+        // Remove the book first. A failed or locked book file must not take
+        // the reading state down with it: the .sdr is only cleared once the
+        // book is actually gone, so a failed removal leaves the book usable.
         File.Delete(path);
+        KindleReadingState.DeleteForRemovedBook(path);
         await Task.CompletedTask;
     }
 
@@ -369,9 +372,21 @@ public sealed class MassStorageKindleDeviceService : IKindleDeviceService
         if (!File.Exists(source)) throw new FileNotFoundException("设备资源不存在。", resource.RelativePath);
         var destination = Path.GetFullPath(destinationPath);
         Directory.CreateDirectory(Path.GetDirectoryName(destination) ?? throw new InvalidOperationException("导出路径无效。"));
-        await using var input = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read, 128 * 1024, true);
-        await using var output = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None, 128 * 1024, true);
-        await input.CopyToAsync(output, cancellationToken);
+        // Write to a sibling temporary file and publish only after the whole
+        // copy succeeded. Cancelling or hitting a read error must leave an
+        // existing destination untouched instead of truncating it.
+        var temporary = $"{destination}.{Guid.NewGuid():N}.libzora-part";
+        try
+        {
+            await using (var input = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read, 128 * 1024, true))
+            await using (var output = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None, 128 * 1024, true))
+                await input.CopyToAsync(output, cancellationToken);
+            File.Move(temporary, destination, overwrite: true);
+        }
+        finally
+        {
+            TryDelete(temporary);
+        }
     }
 
     public async Task RemoveResourceAsync(

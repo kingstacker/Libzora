@@ -13,7 +13,12 @@ public sealed class KindleDeviceService : IKindleDeviceService, IDeviceAttachmen
     private const long MaximumMetadataFileSize = 128L * 1024 * 1024;
     private const int FileOperationRetryAttempts = 30;
     private const int FileOperationRetryDelayMilliseconds = 100;
-    private static readonly TimeSpan WpdDetectionTimeout = TimeSpan.FromSeconds(12);
+    // A timed-out Shell/WPD enumeration cannot be cancelled: its native call
+    // may never return after the reader disappears. Allow one retry (the
+    // reconnection path) but never let every refresh accumulate another dead
+    // detection task.
+    private const int MaximumOutstandingWpdDetections = 2;
+    private static readonly TimeSpan DefaultWpdDetectionTimeout = TimeSpan.FromSeconds(12);
     private static readonly HashSet<string> SupportedExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".epub", ".pdf", ".mobi", ".azw3", ".azw", ".prc", ".kfx"
@@ -23,8 +28,16 @@ public sealed class KindleDeviceService : IKindleDeviceService, IDeviceAttachmen
     private readonly AppPaths? _paths;
     private readonly string? _coverCacheDirectory;
     private readonly KindleScanCacheStore? _scanCache;
+    private readonly Func<CancellationToken, Task<IReadOnlyList<KindleDevice>>> _detectWpdDevicesAsync;
+    private readonly Func<CancellationToken, IReadOnlyList<KindleDevice>> _detectMassStorageDevices;
+    private readonly TimeSpan _wpdDetectionTimeout;
     private readonly object _wpdDetectionSync = new();
-    private Task<IReadOnlyList<KindleDevice>>? _wpdDetectionTask;
+    // Serializes live native probes: a probe that has not been declared hung
+    // holds this gate until it completes. A timed-out probe releases the gate
+    // when it is abandoned so exactly one replacement can be attempted.
+    private readonly SemaphoreSlim _wpdDetectionGate = new(1, 1);
+    private readonly List<WpdDetectionAttempt> _outstandingWpdDetections = [];
+    private WpdDetectionAttempt? _wpdDetectionAttempt;
 
     public KindleDeviceService()
         : this(null, new BookMetadataService(), new BookFormatConversionService())
@@ -35,10 +48,32 @@ public sealed class KindleDeviceService : IKindleDeviceService, IDeviceAttachmen
         AppPaths? paths,
         IMetadataService metadata,
         IBookFormatConverter? formatConverter = null)
+        : this(
+            paths,
+            metadata,
+            formatConverter,
+            static cancellationToken => Task.Run(
+                () => WpdKindleAccess.DetectDevices(cancellationToken),
+                CancellationToken.None),
+            DetectMassStorageDevices,
+            DefaultWpdDetectionTimeout)
+    {
+    }
+
+    internal KindleDeviceService(
+        AppPaths? paths,
+        IMetadataService metadata,
+        IBookFormatConverter? formatConverter,
+        Func<CancellationToken, Task<IReadOnlyList<KindleDevice>>> detectWpdDevicesAsync,
+        Func<CancellationToken, IReadOnlyList<KindleDevice>> detectMassStorageDevices,
+        TimeSpan wpdDetectionTimeout)
     {
         _paths = paths;
         _metadata = metadata;
         _formatConverter = formatConverter ?? new BookFormatConversionService();
+        _detectWpdDevicesAsync = detectWpdDevicesAsync;
+        _detectMassStorageDevices = detectMassStorageDevices;
+        _wpdDetectionTimeout = wpdDetectionTimeout;
         _coverCacheDirectory = paths is null ? null : Path.Combine(paths.Covers, "kindle");
         _scanCache = paths is null ? null : new KindleScanCacheStore(paths);
         if (_coverCacheDirectory is not null) Directory.CreateDirectory(_coverCacheDirectory);
@@ -46,13 +81,42 @@ public sealed class KindleDeviceService : IKindleDeviceService, IDeviceAttachmen
 
     public async Task<IReadOnlyList<KindleDevice>> DetectDevicesAsync(CancellationToken cancellationToken = default)
     {
-        var wpdTask = GetOrStartWpdDetectionTask();
-        var devices = await Task.Run(() => DetectMassStorageDevices(cancellationToken), cancellationToken)
+        var wpdAttempt = GetOrStartWpdDetectionAttempt();
+        var massStorageDevices = await Task.Run(
+                () => _detectMassStorageDevices(cancellationToken),
+                cancellationToken)
             .ConfigureAwait(false);
+        var devices = new List<KindleDevice>(massStorageDevices);
+        if (wpdAttempt is null) return devices;
+
         IReadOnlyList<KindleDevice> wpdDevices;
         try
         {
-            wpdDevices = await wpdTask.WaitAsync(WpdDetectionTimeout, cancellationToken).ConfigureAwait(false);
+            wpdDevices = await wpdAttempt.Task
+                .WaitAsync(_wpdDetectionTimeout, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            // A native Shell/WPD enumeration can block forever on a reader
+            // that disappeared mid-unplug. Do not turn that into a failed
+            // refresh: the mounted mass-storage devices are still valid, and
+            // the probe is abandoned below so the next refresh can retry
+            // (for example after the user plugs the reader back in).
+            return devices;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            // A WPD/Shell enumeration can also fail outright (reader
+            // unplugged mid-enumeration, COM or IO error). The mounted
+            // volumes detected above are still valid, so a failed WPD probe
+            // must not turn the whole refresh into an error.
+            SoftwareLog.ErrorWithoutMessage("kindle.detect.wpd", exception);
+            return devices;
         }
         finally
         {
@@ -63,9 +127,17 @@ public sealed class KindleDeviceService : IKindleDeviceService, IDeviceAttachmen
                 // device; reusing that task would make every later refresh
                 // wait on the same dead handle, so replugging the reader
                 // appeared to do nothing until the app restarted.
-                if (ReferenceEquals(_wpdDetectionTask, wpdTask))
-                    _wpdDetectionTask = null;
+                if (ReferenceEquals(_wpdDetectionAttempt, wpdAttempt))
+                    _wpdDetectionAttempt = null;
             }
+
+            // A call that is still running after this caller stops waiting is
+            // abandoned, not killed (the COM call cannot be cancelled).
+            // Releasing the gate lets the next refresh start exactly one
+            // replacement probe; the abandoned call remains counted against
+            // the bounded outstanding-probe limit. When the task completed on
+            // its own, its continuation already released the gate.
+            if (!wpdAttempt.Task.IsCompleted) wpdAttempt.ReleaseGate();
         }
 
         devices.AddRange(wpdDevices.Where(wpd => devices.All(disk =>
@@ -73,21 +145,81 @@ public sealed class KindleDeviceService : IKindleDeviceService, IDeviceAttachmen
         return devices;
     }
 
-    private Task<IReadOnlyList<KindleDevice>> GetOrStartWpdDetectionTask()
+    private WpdDetectionAttempt? GetOrStartWpdDetectionAttempt()
     {
         lock (_wpdDetectionSync)
         {
-            if (_wpdDetectionTask is null || _wpdDetectionTask.IsCompleted)
+            if (_wpdDetectionAttempt is { } current && !current.Task.IsCompleted)
+                return current;
+
+            // Timed-out detections cannot be cancelled. Prune the ones that
+            // eventually returned and cap the still-running ones so repeated
+            // refreshes cannot accumulate an unbounded number of native COM
+            // calls. When the cap is reached the mass-storage result is still
+            // returned, and a later completion frees a slot for a new probe.
+            _outstandingWpdDetections.RemoveAll(static attempt => attempt.Task.IsCompleted);
+            if (_outstandingWpdDetections.Count >= MaximumOutstandingWpdDetections)
+                return null;
+
+            // At most one live native probe runs at a time. The gate is
+            // released only when that probe completes or when its caller
+            // abandons it after a timeout, so ordinary refreshes cannot
+            // overlap two healthy Shell/WPD enumerations.
+            if (!_wpdDetectionGate.Wait(0)) return null;
+
+            Task<IReadOnlyList<KindleDevice>> task;
+            try
             {
-                _wpdDetectionTask = Task.Run<IReadOnlyList<KindleDevice>>(
-                    () => WpdKindleAccess.DetectDevices(CancellationToken.None));
-                _ = _wpdDetectionTask.ContinueWith(
-                    task => _ = task.Exception,
-                    CancellationToken.None,
-                    TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
-                    TaskScheduler.Default);
+                task = _detectWpdDevicesAsync(CancellationToken.None);
             }
-            return _wpdDetectionTask;
+            catch
+            {
+                _wpdDetectionGate.Release();
+                throw;
+            }
+
+            var attempt = new WpdDetectionAttempt(task, _wpdDetectionGate);
+            _wpdDetectionAttempt = attempt;
+            _outstandingWpdDetections.Add(attempt);
+            _ = task.ContinueWith(
+                completed =>
+                {
+                    lock (_wpdDetectionSync) _outstandingWpdDetections.Remove(attempt);
+                    // Observe faults even when no caller is waiting anymore
+                    // (for example after a timeout).
+                    _ = completed.Exception;
+                    attempt.ReleaseGate();
+                },
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+            return attempt;
+        }
+    }
+
+    /// <summary>
+    /// One native WPD probe plus ownership of the serialization gate. The gate
+    /// is released exactly once: when the probe completes, or when its caller
+    /// gives up waiting on a hung native call.
+    /// </summary>
+    private sealed class WpdDetectionAttempt
+    {
+        private readonly SemaphoreSlim _gate;
+        private int _gateReleased;
+
+        public WpdDetectionAttempt(
+            Task<IReadOnlyList<KindleDevice>> task,
+            SemaphoreSlim gate)
+        {
+            Task = task;
+            _gate = gate;
+        }
+
+        public Task<IReadOnlyList<KindleDevice>> Task { get; }
+
+        public void ReleaseGate()
+        {
+            if (Interlocked.Exchange(ref _gateReleased, 1) == 0) _gate.Release();
         }
     }
 
@@ -759,8 +891,11 @@ public sealed class KindleDeviceService : IKindleDeviceService, IDeviceAttachmen
         if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
             throw new InvalidOperationException("不能删除链接形式的设备文件。");
 
-        KindleReadingState.DeleteForRemovedBook(path);
+        // Remove the book first. A failed or locked book file must not take
+        // the .sdr reading state with it; clear that state only after the book
+        // is actually gone so a retry can still resume at the old position.
         File.Delete(path);
+        KindleReadingState.DeleteForRemovedBook(path);
     }
 
     public async Task<IReadOnlyList<KindleDeviceResource>> ScanResourcesAsync(
@@ -865,9 +1000,23 @@ public sealed class KindleDeviceService : IKindleDeviceService, IDeviceAttachmen
         EnsureUnderRoot(source, root);
         if ((File.GetAttributes(source) & FileAttributes.ReparsePoint) != 0)
             throw new InvalidOperationException("不允许读取设备目录中的链接文件。");
-        await using var input = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read, 128 * 1024, true);
-        await using var output = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None, 128 * 1024, true);
-        await input.CopyToAsync(output, cancellationToken);
+        // Publish a sibling temporary file only after the whole copy succeeds.
+        // Opening the final path with FileMode.Create truncated an existing
+        // export before a device read failure or cancellation could occur.
+        var temporary = $"{destination}.{Guid.NewGuid():N}.libzora-part";
+        try
+        {
+            await using (var input = new FileStream(
+                source, FileMode.Open, FileAccess.Read, FileShare.Read, 128 * 1024, true))
+            await using (var output = new FileStream(
+                temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None, 128 * 1024, true))
+                await input.CopyToAsync(output, cancellationToken);
+            await MoveFileAsync(temporary, destination, overwrite: true, cancellationToken);
+        }
+        finally
+        {
+            await TryDeleteAsync(temporary);
+        }
     }
 
     public async Task RemoveResourceAsync(

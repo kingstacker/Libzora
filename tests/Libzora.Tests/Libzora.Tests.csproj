@@ -25,6 +25,7 @@
     <Compile Include="..\..\src\Libzora.App\ReaderLinuxVerticalPagingPolicy.cs" Link="ReaderLinuxVerticalPagingPolicy.cs" />
     <Compile Include="..\..\src\Libzora.App\ReaderLinuxVerticalTextUnits.cs" Link="ReaderLinuxVerticalTextUnits.cs" />
     <Compile Include="..\..\src\Libzora.App\LibraryDropImportPolicy.cs" Link="LibraryDropImportPolicy.cs" />
+    <Compile Include="..\..\src\Libzora.App\AutoBackupRetentionPolicy.cs" Link="AutoBackupRetentionPolicy.cs" />
     <Compile Include="..\..\src\Libzora.App\ReadingMaterialCoverMatcher.cs" Link="ReadingMaterialCoverMatcher.cs" />
     <PackageReference Include="Avalonia" Version="12.1.1" />
     <Compile Include="..\..\src\Libzora.App\ReaderFeatureViewModels.cs" Link="ReaderFeatureViewModels.cs" />

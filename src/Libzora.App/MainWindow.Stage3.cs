@@ -1029,6 +1029,23 @@ public partial class MainWindow
         }
     }
 
+    private async Task TryRefreshDeviceBooksAfterTransferAsync(KindleDevice device)
+    {
+        try
+        {
+            await RefreshDeviceBooksAfterTransferAsync(device, _lifetimeCancellation.Token);
+        }
+        catch (OperationCanceledException) when (_lifetimeCancellation.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            // The transfer outcome is already reported; a failed shelf refresh
+            // must not throw out of a finally block or replace that report.
+            LogSendDiagnostic("RefreshDeviceBooksAfterTransferAsync", exception);
+        }
+    }
+
     private async Task RefreshDeviceBooksCoreAsync(CancellationToken cancellationToken)
     {
         if (_kindle is null || CurrentDevice is not { } device) return;
@@ -2566,7 +2583,7 @@ public partial class MainWindow
             if (ReferenceEquals(_transferCancellation, cancellation)) _transferCancellation = null;
             cancellation.Dispose();
             HideTaskProgressPopup();
-            await RefreshDeviceBooksAfterTransferAsync(device, _lifetimeCancellation.Token);
+            await TryRefreshDeviceBooksAfterTransferAsync(device);
         }
         return failures;
     }
@@ -2750,6 +2767,7 @@ public partial class MainWindow
             return;
         }
 
+        var transferStarted = false;
         try
         {
             if (!await ConfirmAsync(T("发送到设备"), T("将《{0}》发送到 {1}？", card.Title, _deviceDisplayName ?? device.Name)
@@ -2762,6 +2780,7 @@ public partial class MainWindow
                 SetTaskStatus(T("已跳过设备中可能已有的书籍，没有发送。"));
                 return;
             }
+            transferStarted = true;
             _isTransferring = true;
             _transferStopRequested = false;
             SetTransferNavigationEnabled(false);
@@ -2813,7 +2832,6 @@ public partial class MainWindow
                 _transferStopRequested = false;
                 HideTaskProgressPopup();
             }
-            await RefreshDeviceBooksAfterTransferAsync(device, _lifetimeCancellation.Token);
         }
         catch (OperationCanceledException) when (_lifetimeCancellation.IsCancellationRequested)
         {
@@ -2824,6 +2842,13 @@ public partial class MainWindow
             SetTaskStatus(T("发送到设备失败：{0}", UiText.Localize(exception.Message)));
             ShowTransferToast(T("发送到设备"), T("发送到设备失败：{0}", UiText.Localize(exception.Message)), autoHide: true);
             await ShowMessageAsync(T("发送失败"), UiText.Localize(exception.Message));
+        }
+        finally
+        {
+            // A transfer can install the book and still fail afterwards (for
+            // example while writing the shelf thumbnail). Refresh from a
+            // finally so the device shelf never keeps a stale pre-send view.
+            if (transferStarted) await TryRefreshDeviceBooksAfterTransferAsync(device);
         }
     }
 
@@ -6768,10 +6793,17 @@ public partial class MainWindow
 
     private async void MigrateDataDirectoryButton_Click(object? sender, RoutedEventArgs e)
     {
-        if (_readerDocument is not null || _readerIsPdf)
+        if (_readerDocument is not null || _readerIsPdf || _bookOpenInProgress > 0 || _readerCloseInProgress != 0)
         {
             ShowSettingsCapsule(T("请先关闭阅读器，再迁移数据目录。"), 4000);
             await ShowMessageAsync(T("请先返回书库"), T("迁移数据目录前请关闭阅读器。"));
+            return;
+        }
+        if (_backupBusy || _readingDataResetBusy || _s3SyncBusy || _isTransferring)
+        {
+            await ShowMessageAsync(
+                T("请稍候"),
+                T("备份、同步或设备传输正在进行，请完成后再迁移数据目录。"));
             return;
         }
 
@@ -6790,17 +6822,59 @@ public partial class MainWindow
             ShowSettingsCapsule(T("所选目录已经是当前数据根目录。"), 4000);
             return;
         }
+        if (_backupBusy || _readingDataResetBusy || _s3SyncBusy || _isTransferring) return;
 
+        _backupBusy = true;
+        ShowTaskProgressPopup();
+        TaskProgressPopupBar.IsIndeterminate = false;
+        TaskProgressPopupBar.Value = 0;
+        TaskProgressPopupText.Text = T("正在准备迁移数据目录…");
         try
         {
-            var migrationBackup = AppRootConfiguration.MigrationBackupPath(targetRoot);
-            await _backupService.ExportAsync(migrationBackup, _lifetimeCancellation.Token);
-            AppRootConfiguration.Save(_rootConfigurationDirectory, targetRoot);
-            ShowSettingsCapsule(T("迁移包已准备；重启 Libzora 后自动完成迁移。"), 4000);
+            using var progress = new CoalescingUiProgress<AppDataMigrationProgress>(value =>
+            {
+                TaskProgressPopupBar.Value = Math.Clamp(value.Fraction, 0, 1) * 100;
+                TaskProgressPopupText.Text = UiText.Localize(value.Message);
+            });
+            // The service performs SQLite snapshot/verification work that is
+            // partly synchronous; keep it off the UI thread so the progress
+            // popup and cancellation stay responsive.
+            var migrationService = new AppDataMigrationService(_paths, _rootConfigurationDirectory);
+            var result = await Task.Run(
+                () => migrationService.MigrateAsync(targetRoot, progress, _lifetimeCancellation.Token),
+                _lifetimeCancellation.Token);
+            TaskProgressPopupBar.Value = 100;
+            TaskProgressPopupText.Text = T("迁移完成：{0} 本书、{1} 个文件。", result.BookCount, result.FileCount);
+            var restartMessage = T("迁移完成：{0} 本书、{1} 个文件已复制到：\n{2}", result.BookCount, result.FileCount, result.TargetRoot);
+            if (result.RestartRequired)
+            {
+                ShowSettingsCapsule(T("迁移完成，请重启 Libzora 以使用新的数据目录。"), 6000);
+                await ShowMessageAsync(
+                    T("迁移完成"),
+                    restartMessage + "\n\n"
+                    + T("旧数据目录未删除，确认新目录正常后可自行清理。") + "\n\n"
+                    + T("请重启 Libzora 以使用新目录。"));
+            }
+            else
+            {
+                ShowSettingsCapsule(T("迁移完成。"), 4000);
+                await ShowMessageAsync(T("迁移完成"), restartMessage);
+            }
+        }
+        catch (OperationCanceledException) when (_lifetimeCancellation.IsCancellationRequested)
+        {
+            ShowSettingsCapsule(T("迁移已取消，原数据目录未改变。"), 4000);
         }
         catch (Exception exception)
         {
-            ShowSettingsCapsule(T("迁移准备失败：{0}", UiText.Localize(exception.Message)), 4000);
+            ShowSettingsCapsule(T("迁移失败：{0}", UiText.Localize(exception.Message)), 6000);
+            await ShowMessageAsync(T("迁移失败"), UiText.Localize(exception.Message));
+        }
+        finally
+        {
+            _backupBusy = false;
+            TaskProgressPopupBar.IsIndeterminate = false;
+            HideTaskProgressPopup();
         }
     }
 
@@ -6857,31 +6931,38 @@ public partial class MainWindow
         }
     }
 
+    private static IReadOnlyList<FileInfo> EnumerateBackupFiles(string directory) =>
+        AutoBackupRetentionPolicy.SelectAutomatic(
+            Directory.GetFiles(directory, $"*{AppBackupService.FileExtension}")
+                .Select(path => new FileInfo(path)));
+
     private async Task RunAutoBackupIfNeededAsync(CancellationToken cancellationToken = default)
     {
         if (!_appSettings.AutoBackupEnabled || _backupBusy || _readingDataResetBusy) return;
         try
         {
             Directory.CreateDirectory(_paths.Backups);
-            var existing = Directory.GetFiles(_paths.Backups, $"*{AppBackupService.FileExtension}")
-                .Select(path => new FileInfo(path))
-                .OrderByDescending(file => file.LastWriteTimeUtc)
-                .ToList();
+            var existing = EnumerateBackupFiles(_paths.Backups);
             if (existing.FirstOrDefault() is { } latest
-                && DateTime.UtcNow - latest.LastWriteTimeUtc < TimeSpan.FromHours(20))
+                && AutoBackupRetentionPolicy.IsFresh(latest.LastWriteTimeUtc, DateTime.UtcNow))
                 return;
 
             _backupBusy = true;
             var destination = Path.Combine(
                 _paths.Backups,
-                $"Libzora-auto-{DateTime.Now:yyyyMMdd-HHmmss}{AppBackupService.FileExtension}");
+                $"{AutoBackupRetentionPolicy.FileNamePrefix}{DateTime.Now:yyyyMMdd-HHmmss}{AppBackupService.FileExtension}");
             await _backupService.ExportAsync(destination, cancellationToken);
-            existing = Directory.GetFiles(_paths.Backups, $"*{AppBackupService.FileExtension}")
-                .Select(path => new FileInfo(path))
-                .OrderByDescending(file => file.LastWriteTimeUtc)
-                .ToList();
-            foreach (var oldBackup in existing.Skip(_appSettings.AutoBackupRetention))
-                oldBackup.Delete();
+            existing = EnumerateBackupFiles(_paths.Backups);
+            foreach (var oldBackup in AutoBackupRetentionPolicy.SelectExpired(
+                existing,
+                _appSettings.AutoBackupRetention))
+            {
+                // Retention is best effort: a locked file must not abort
+                // cleanup of the remaining expired automatic backups.
+                try { oldBackup.Delete(); }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+            }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

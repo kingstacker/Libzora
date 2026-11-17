@@ -204,6 +204,42 @@ public sealed class MassStorageKindleDeviceServiceTests
         finally { TryDelete(root); }
     }
 
+    [Fact]
+    public async Task CancelledResourceExportLeavesExistingDestinationIntact()
+    {
+        var root = CreateTempDirectory();
+        try
+        {
+            var kindle = Path.Combine(root, "Kindle");
+            var fonts = Path.Combine(kindle, "fonts");
+            Directory.CreateDirectory(fonts);
+            await File.WriteAllTextAsync(Path.Combine(fonts, "reader.ttf"), "new font bytes");
+            var service = new MassStorageKindleDeviceService(
+                new AppPaths(Path.Combine(root, "appdata")),
+                new FakeMetadataService(),
+                [root]);
+            var device = new KindleDevice { RootPath = kindle, Transport = KindleTransport.MassStorage };
+            var destination = Path.Combine(root, "export", "reader.ttf");
+            Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+            await File.WriteAllTextAsync(destination, "keep this file");
+            using var cancellation = new CancellationTokenSource();
+            cancellation.Cancel();
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.ExportResourceAsync(
+                device,
+                new KindleDeviceResource { Kind = KindleResourceKind.Font, RelativePath = "fonts/reader.ttf" },
+                destination,
+                cancellation.Token));
+
+            Assert.Equal("keep this file", await File.ReadAllTextAsync(destination));
+            Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(destination)!, "*.libzora-part"));
+        }
+        finally
+        {
+            TryDelete(root);
+        }
+    }
+
     private sealed class FakeMetadataService : IMetadataService
     {
         public Task<BookMetadata> ReadMetadataAsync(string path, CancellationToken cancellationToken = default) =>

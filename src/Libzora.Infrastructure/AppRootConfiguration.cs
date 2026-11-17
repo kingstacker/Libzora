@@ -45,18 +45,53 @@ public static class AppRootConfiguration
         }
     }
 
-    public static void Save(string configurationDirectory, string root)
+    public static void Save(string configurationDirectory, string root) =>
+        Save(configurationDirectory, root, previousRoot: null);
+
+    // The previous root is diagnostic/recovery metadata only. ResolveRoot
+    // deliberately keeps using Root, so a failed manual cleanup can never
+    // silently reopen an old library.
+    public static void Save(string configurationDirectory, string root, string? previousRoot)
     {
         var configurationRoot = Path.GetFullPath(configurationDirectory);
         var target = Path.GetFullPath(root);
         Directory.CreateDirectory(configurationRoot);
         Directory.CreateDirectory(target);
+        var config = new RootConfig { Root = target };
+        if (!string.IsNullOrWhiteSpace(previousRoot))
+            config.PreviousRoot = Path.GetFullPath(previousRoot);
         var temporary = ConfigPath(configurationRoot) + ".tmp";
-        File.WriteAllText(temporary, JsonSerializer.Serialize(new RootConfig { Root = target }, new JsonSerializerOptions { WriteIndented = true }));
+        File.WriteAllText(temporary, JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true }));
         File.Move(temporary, ConfigPath(configurationRoot), true);
+    }
+
+    /// <summary>
+    /// Returns the root recorded by the last successful migration, if any.
+    /// Existing app-root.json files without this field remain valid.
+    /// </summary>
+    public static string? TryReadPreviousRoot(string configurationDirectory)
+    {
+        var configurationRoot = Path.GetFullPath(configurationDirectory);
+        var path = ConfigPath(configurationRoot);
+        if (!File.Exists(path)) return null;
+        try
+        {
+            var config = JsonSerializer.Deserialize<RootConfig>(File.ReadAllText(path));
+            return string.IsNullOrWhiteSpace(config?.PreviousRoot)
+                ? null
+                : Path.GetFullPath(config.PreviousRoot);
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     public static string MigrationBackupPath(string root) => Path.Combine(Path.GetFullPath(root), ".libzora-migration.libzora");
 
-    private sealed class RootConfig { public string Root { get; set; } = string.Empty; }
+    private sealed class RootConfig
+    {
+        public string Root { get; set; } = string.Empty;
+        public string? PreviousRoot { get; set; }
+    }
 }

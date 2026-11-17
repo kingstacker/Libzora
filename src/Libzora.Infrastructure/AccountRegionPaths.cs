@@ -10,7 +10,9 @@ public static class AccountRegionPaths
     {
         // Preserve the existing installation's library as the China library.
         AccountRegion.China => installation,
-        AccountRegion.International => new(Path.Combine(installation.Root, "regions", "international")),
+        AccountRegion.International => new(
+            Path.Combine(installation.Root, "regions", "international"),
+            installation.InstallationRoot),
         _ => throw new ArgumentOutOfRangeException(nameof(region))
     };
 

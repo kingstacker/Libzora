@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 namespace Libzora.Platform.MacOS.Mtp;
@@ -43,7 +44,7 @@ internal sealed class MtpDeviceSession : IDisposable
 
     private readonly IntPtr _device;
     private readonly IntPtr _rawDevice;
-    private readonly Dictionary<(uint StorageId, uint ParentId), IReadOnlyList<MtpEntry>> _children = [];
+    private readonly MtpDirectoryListingCache _children = new();
     private bool _disposed;
 
     private MtpDeviceSession(IntPtr device, IntPtr rawDevice, MtpRawDevice raw)
@@ -246,7 +247,10 @@ internal sealed class MtpDeviceSession : IDisposable
     /// Uploads <paramref name="sourcePath"/> as <paramref name="fileName"/>.
     /// An existing file with that name is replaced only after the new bytes
     /// are fully on the device: the upload goes to a temporary name first, so
-    /// a failed or cancelled transfer leaves the original untouched.
+    /// a failed or cancelled transfer leaves the original untouched. The
+    /// replacement itself is handled by <see cref="MtpFileReplacement"/>,
+    /// which preserves the previous bytes when the firmware cannot rename or
+    /// when the final installation fails.
     /// </summary>
     public MtpEntry Upload(
         string relativeDirectory,
@@ -265,25 +269,27 @@ internal sealed class MtpDeviceSession : IDisposable
         // indexes the staged copy.
         var temporaryName = $"{fileName}.libzora-part-{Guid.NewGuid().ToString("N")[..8]}";
         var staged = UploadNew(directory, sourcePath, temporaryName, progress, cancellationToken);
-        Delete(existing);
-        ClearErrors();
-        if (LibMtp.LIBMTP_Set_Object_Filename(_device, staged.ItemId, fileName) == 0)
+        try
         {
-            Invalidate(directory.StorageId, directory.ItemId);
-            var renamed = FindChild(directory, fileName);
-            if (renamed is not null && renamed.ItemId == staged.ItemId) return renamed;
+            return MtpFileReplacement.Commit(
+                existing,
+                staged,
+                temporaryName,
+                sourcePath,
+                fileName,
+                cancellationToken,
+                new UploadReplacementOperations(this, directory));
         }
-
-        // Firmware without ObjectFileName write support: the verified staged
-        // copy keeps the content safe while the final name is written again.
-        Invalidate(directory.StorageId, directory.ItemId);
-        var installed = UploadNew(directory, sourcePath, fileName, null, CancellationToken.None);
-        if (FindChild(directory, temporaryName) is { } leftover)
+        catch (OperationCanceledException)
         {
-            try { Delete(leftover); }
+            // Commit can observe cancellation before it starts moving objects;
+            // clean up the staged copy so a cancelled replace does not leave a
+            // permanent temporary object on the reader. Once Commit has begun
+            // it either restores the original or reports the surviving copies.
+            try { Delete(staged); }
             catch (IOException) { }
+            throw;
         }
-        return installed;
     }
 
     private MtpEntry? FindChild(MtpEntry directory, string fileName) =>
@@ -439,52 +445,140 @@ internal sealed class MtpDeviceSession : IDisposable
 
     private IReadOnlyList<MtpEntry> Children(uint storageId, uint parentId, string relativeParentPath)
     {
-        if (_children.TryGetValue((storageId, parentId), out var cached)) return cached;
-        var list = LibMtp.LIBMTP_Get_Files_And_Folders(_device, storageId, parentId);
-        var entries = new List<MtpEntry>();
-        try
+        return _children.GetOrLoad((storageId, parentId), () =>
         {
-            var reference = list;
-            while (reference != IntPtr.Zero)
+            ClearErrors();
+            var list = LibMtp.LIBMTP_Get_Files_And_Folders(_device, storageId, parentId);
+            try
             {
-                var next = Marshal.ReadIntPtr(reference, LibMtp.FileNextOffset);
-                var file = Marshal.PtrToStructure<LibMtp.File>(reference);
-                var name = LibMtp.ToString(file.FileName);
-                if (name.Length > 0)
+                if (list == IntPtr.Zero)
                 {
-                    entries.Add(new MtpEntry
-                    {
-                        ItemId = file.ItemId,
-                        ParentId = file.ParentId,
-                        StorageId = file.StorageId,
-                        Name = name,
-                        RelativePath = Normalize($"{relativeParentPath}/{name}"),
-                        IsFolder = file.FileType == LibMtp.FileTypeFolder,
-                        Size = (long)file.FileSize,
-                        ModifiedAt = file.ModificationDate > 0
-                            ? DateTimeOffset.FromUnixTimeSeconds(file.ModificationDate)
-                            : null
-                    });
+                    var errors = LibMtp.ReadErrorStack(_device);
+                    ClearErrors();
+                    // A null list is only an empty directory when libmtp did
+                    // not record an error. A failed listing throws here and is
+                    // therefore never cached as empty.
+                    return MtpDirectoryListing.ResolveEmpty(errors, relativeParentPath);
                 }
-                reference = next;
+                return ParseChildren(list, relativeParentPath);
             }
-        }
-        finally
-        {
-            // libmtp has no list destructor; every node is released individually.
-            var reference = list;
-            while (reference != IntPtr.Zero)
+            finally
             {
-                var next = Marshal.ReadIntPtr(reference, LibMtp.FileNextOffset);
-                LibMtp.LIBMTP_destroy_file_t(reference);
-                reference = next;
+                // libmtp has no list destructor; every node is released individually.
+                var reference = list;
+                while (reference != IntPtr.Zero)
+                {
+                    var next = Marshal.ReadIntPtr(reference, LibMtp.FileNextOffset);
+                    LibMtp.LIBMTP_destroy_file_t(reference);
+                    reference = next;
+                }
             }
+        });
+    }
+
+    private static IReadOnlyList<MtpEntry> ParseChildren(IntPtr list, string relativeParentPath)
+    {
+        var entries = new List<MtpEntry>();
+        var reference = list;
+        while (reference != IntPtr.Zero)
+        {
+            var next = Marshal.ReadIntPtr(reference, LibMtp.FileNextOffset);
+            var file = Marshal.PtrToStructure<LibMtp.File>(reference);
+            var name = LibMtp.ToString(file.FileName);
+            if (name.Length > 0)
+            {
+                entries.Add(new MtpEntry
+                {
+                    ItemId = file.ItemId,
+                    ParentId = file.ParentId,
+                    StorageId = file.StorageId,
+                    Name = name,
+                    RelativePath = Normalize($"{relativeParentPath}/{name}"),
+                    IsFolder = file.FileType == LibMtp.FileTypeFolder,
+                    Size = (long)file.FileSize,
+                    ModifiedAt = file.ModificationDate > 0
+                        ? DateTimeOffset.FromUnixTimeSeconds(file.ModificationDate)
+                        : null
+                });
+            }
+            reference = next;
         }
-        _children[(storageId, parentId)] = entries;
         return entries;
     }
 
-    private void Invalidate(uint storageId, uint parentId) => _children.Remove((storageId, parentId));
+    private void Invalidate(uint storageId, uint parentId) => _children.Invalidate((storageId, parentId));
+
+    private sealed class UploadReplacementOperations : IMtpFileReplacementOperations
+    {
+        private readonly MtpDeviceSession _session;
+        private readonly MtpEntry _directory;
+
+        public UploadReplacementOperations(MtpDeviceSession session, MtpEntry directory)
+        {
+            _session = session;
+            _directory = directory;
+        }
+
+        public MtpEntry? Find(string fileName) => _session.FindChild(_directory, fileName);
+
+        public bool Rename(MtpEntry entry, string newFileName)
+        {
+            _session.ClearErrors();
+            var result = LibMtp.LIBMTP_Set_Object_Filename(_session._device, entry.ItemId, newFileName);
+            _session.Invalidate(entry.StorageId, entry.ParentId);
+            // The directory entry that FindChild uses must be refreshed even
+            // if the object did not report its parent id consistently.
+            _session.Invalidate(_directory.StorageId, _directory.ItemId);
+            return result == 0;
+        }
+
+        public void Delete(MtpEntry entry) => _session.Delete(entry);
+
+        public MtpEntry Upload(
+            string sourcePath,
+            string fileName,
+            Action<long, long>? progress,
+            CancellationToken cancellationToken) =>
+            _session.UploadNew(_directory, sourcePath, fileName, progress, cancellationToken);
+
+        public string? CreateRecoveryCopy(MtpEntry entry)
+        {
+            var recoveryDirectory = Path.Combine(Path.GetTempPath(), "Libzora", "mtp-recovery");
+            var path = Path.Combine(recoveryDirectory, $"{Guid.NewGuid():N}.recovery");
+            try
+            {
+                Directory.CreateDirectory(recoveryDirectory);
+                _session.Download(entry, path);
+                // Some firmware reports 0 until the object is re-read; only a
+                // known, mismatching size means the recovery copy is not safe.
+                if (entry.Size > 0 && new FileInfo(path).Length != entry.Size)
+                {
+                    TryDeleteFile(path);
+                    return null;
+                }
+                return path;
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                TryDeleteFile(path);
+                return null;
+            }
+        }
+
+        public void DeleteRecoveryCopy(string path) => TryDeleteFile(path);
+
+        public void Log(string message) => Debug.WriteLine(message);
+
+        private static void TryDeleteFile(string path)
+        {
+            try
+            {
+                if (File.Exists(path)) File.Delete(path);
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
 
     private void Throw(string message)
     {

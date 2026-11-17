@@ -69,6 +69,12 @@ public partial class App : Application
             var window = new MainWindow(modules, _services);
             desktop.MainWindow = window;
             _mainWindow = window;
+            // A second Windows launch forwards files through the instance
+            // activation pipe. Route those into the same import pipeline as a
+            // Finder activation instead of leaving them in the startup queue,
+            // which is only drained once during initialization.
+            ExternalFileOpenQueue.SetHandler(paths =>
+                Dispatcher.UIThread.Post(() => _ = window.OpenExternalFilesAsync(paths)));
             window.InitializeMacMenu();
             // Prepare TTS in the background while the library opens. If the
             // user enters a reader before setup finishes, the reader awaits
@@ -80,7 +86,9 @@ public partial class App : Application
             // the startup arguments (command line) or through activation
             // (Finder). Both paths feed the same import queue.
             var startupFiles = (desktop.Args ?? [])
-                .Where(argument => !argument.StartsWith('-') && File.Exists(argument));
+                .Select(ResolveExistingFileArgument)
+                .Where(path => path is not null)
+                .Select(path => path!);
             var files = startupFiles
                 .Concat(ExternalFileOpenQueue.Drain())
                 .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -126,6 +134,28 @@ public partial class App : Application
             _ = window.OpenExternalFilesAsync(paths);
         else
             ExternalFileOpenQueue.Enqueue(paths);
+    }
+
+    /// <summary>
+    /// Resolves a startup argument that names an existing document. Windows
+    /// paths may start with '/' just like a Unix path, so a bare
+    /// <c>StartsWith('-')</c> switch filter would drop valid files; switches
+    /// and other non-file arguments are excluded by the existence check.
+    /// </summary>
+    private static string? ResolveExistingFileArgument(string argument)
+    {
+        if (string.IsNullOrWhiteSpace(argument)) return null;
+        try
+        {
+            var path = Path.GetFullPath(argument);
+            return File.Exists(path) ? path : null;
+        }
+        catch (Exception exception) when (exception is ArgumentException
+            or NotSupportedException
+            or PathTooLongException)
+        {
+            return null;
+        }
     }
 
     internal static bool IsInsideMacAppBundle(string directory) =>

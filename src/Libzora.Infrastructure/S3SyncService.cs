@@ -11,6 +11,15 @@ using Microsoft.Data.Sqlite;
 namespace Libzora.Infrastructure;
 
 /// <summary>
+/// An on-demand download completed after its BookFiles row was deleted or
+/// changed. Callers must not treat the staged bytes as a valid local file.
+/// </summary>
+public sealed class SyncedBookFileChangedException(string message, string relativePath) : IOException(message)
+{
+    public string RelativePath { get; } = relativePath;
+}
+
+/// <summary>
 /// S3/WebDAV synchronisation for Libzora's logical data.
 ///
 /// The live SQLite database is never placed in the bucket. Each device owns a
@@ -316,22 +325,61 @@ public sealed partial class S3SyncService : ISyncService
             using var client = CreateStore(normalized);
             await InitializeBlobNamingForDownloadAsync(client, normalized, deviceId, storageIdentity, state, cancellationToken);
             progress?.Report(UiText.Get("正在下载《{0}》…", Path.GetFileName(file.RelativePath)));
-            await EnsureLocalBlobAsync(
-                client,
-                normalized,
-                file.Sha256,
-                targetPath,
-                progress,
-                cancellationToken);
+            var needsDownload = true;
+            if (File.Exists(targetPath))
+            {
+                try
+                {
+                    needsDownload = !string.Equals(
+                        await GetCachedFileHashAsync(targetPath, cancellationToken),
+                        file.Sha256,
+                        StringComparison.OrdinalIgnoreCase);
+                }
+                catch (IOException)
+                {
+                    needsDownload = true;
+                }
+            }
+            var staged = needsDownload
+                ? await DownloadBlobToStagingAsync(
+                    client,
+                    normalized,
+                    file.Sha256,
+                    targetPath,
+                    cancellationToken)
+                : null;
+            try
+            {
+                // Network I/O must not hold the library writer lease. Recheck
+                // the live row under the same lease used by DeleteFileAsync/
+                // DeleteAsync before publishing, so a format deleted meanwhile
+                // is never resurrected at its old path.
+                using var processLease = await AppDataProcessLock.AcquireAsync(_paths, cancellationToken);
+                if (!await BookFileMatchesAsync(file, targetPath, cancellationToken))
+                    throw new SyncedBookFileChangedException(
+                        "该书籍格式已在下载期间被删除或更改，已取消写入。",
+                        file.RelativePath);
 
-            state.DeviceId = deviceId;
-            state.StorageIdentity = storageIdentity;
-            state.RemoteOnlyFileHashes = (state.RemoteOnlyFileHashes ?? [])
-                .Where(hash => !string.Equals(hash, file.Sha256, StringComparison.OrdinalIgnoreCase))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
-            await SaveStateAsync(state, cancellationToken);
-            return targetPath;
+                if (staged is not null)
+                {
+                    PublishStagedSyncBlob(staged.Path, targetPath);
+                    progress?.Report(UiText.Get("已下载 {0}", Path.GetFileName(targetPath)));
+                }
+
+                state.DeviceId = deviceId;
+                state.StorageIdentity = storageIdentity;
+                state.RemoteOnlyFileHashes = (state.RemoteOnlyFileHashes ?? [])
+                    .Where(hash => !string.Equals(hash, file.Sha256, StringComparison.OrdinalIgnoreCase))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                await SaveStateAsync(state, cancellationToken);
+                return targetPath;
+            }
+            finally
+            {
+                if (staged is not null)
+                    TryDeleteSyncPartialFile(staged.Path);
+            }
         }
         finally
         {

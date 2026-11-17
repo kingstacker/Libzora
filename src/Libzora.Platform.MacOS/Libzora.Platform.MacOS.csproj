@@ -6,4 +6,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Libzora.Platform.Common\Libzora.Platform.Common.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Libzora.Platform.Common.Tests" />
+  </ItemGroup>
 </Project>

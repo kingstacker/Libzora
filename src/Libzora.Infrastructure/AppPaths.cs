@@ -2,9 +2,13 @@ namespace Libzora.Infrastructure;
 
 public sealed class AppPaths
 {
-    public AppPaths(string? root = null)
+    public AppPaths(string? root = null, string? installationRoot = null)
     {
         Root = root ?? AppContext.BaseDirectory;
+        // AccountRegionPaths creates a regional root below the installation
+        // root. Migration needs the installation root even when the active
+        // paths point at one region.
+        InstallationRoot = installationRoot ?? Root;
         Data = Path.Combine(Root, "data");
         Library = Path.Combine(Data, "library");
         Covers = Path.Combine(Data, "covers");
@@ -27,6 +31,7 @@ public sealed class AppPaths
     }
 
     public string Root { get; }
+    public string InstallationRoot { get; }
     public string Data { get; }
     public string Library { get; }
     public string Covers { get; }

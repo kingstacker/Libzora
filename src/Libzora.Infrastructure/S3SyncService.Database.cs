@@ -3758,6 +3758,35 @@ public sealed partial class S3SyncService
             }
         }
 
+        var staged = await DownloadBlobToStagingAsync(
+            client, settings, hash, targetPath, cancellationToken);
+        try
+        {
+            PublishStagedSyncBlob(staged.Path, targetPath);
+            progress?.Report(UiText.Get("已下载 {0}", Path.GetFileName(targetPath)));
+        }
+        finally
+        {
+            TryDeleteSyncPartialFile(staged.Path);
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Downloads and verifies one content-addressed blob into a staging file
+    /// next to the target. The caller decides when to publish it, so network
+    /// I/O never has to run while the library writer lease is held.
+    /// </summary>
+    private async Task<StagedSyncBlob> DownloadBlobToStagingAsync(
+        ISyncObjectStore client,
+        S3SyncSettings settings,
+        string hash,
+        string targetPath,
+        CancellationToken cancellationToken)
+    {
+        if (!IsSha256(hash))
+            throw new InvalidDataException("同步文件缺少有效的 SHA-256 校验值。");
+
         var directory = Path.GetDirectoryName(targetPath);
         if (string.IsNullOrWhiteSpace(directory))
             throw new InvalidDataException("同步文件目标目录无效。");
@@ -3765,6 +3794,7 @@ public sealed partial class S3SyncService
         var temporaryPath = targetPath + $".sync-{hash.ToLowerInvariant()}.part";
         var decryptedPath = temporaryPath + ".plain";
         var keepPartial = true;
+        string? stagedPath = null;
         try
         {
             if (settings.EncryptionKey.Length == 0 && File.Exists(temporaryPath))
@@ -3772,8 +3802,9 @@ public sealed partial class S3SyncService
                 var partialHash = await Hashing.Sha256Async(temporaryPath, cancellationToken);
                 if (partialHash.Equals(hash, StringComparison.OrdinalIgnoreCase))
                 {
-                    File.Move(temporaryPath, targetPath, overwrite: true);
-                    return true;
+                    stagedPath = temporaryPath;
+                    keepPartial = false;
+                    return new StagedSyncBlob(stagedPath);
                 }
             }
 
@@ -3845,19 +3876,65 @@ public sealed partial class S3SyncService
                 throw new InvalidDataException("下载后的同步文件校验值不匹配。");
             }
 
-            File.Move(candidatePath, targetPath, overwrite: true);
+            stagedPath = candidatePath;
+            keepPartial = false;
             if (settings.EncryptionKey.Length > 0)
                 TryDeleteSyncPartialFile(temporaryPath);
-            keepPartial = false;
-            progress?.Report(UiText.Get("已下载 {0}", Path.GetFileName(targetPath)));
-            return true;
+            return new StagedSyncBlob(stagedPath);
         }
         finally
         {
-            TryDeleteSyncPartialFile(decryptedPath);
-            if (!keepPartial) TryDeleteSyncPartialFile(temporaryPath);
+            if (stagedPath is null)
+            {
+                TryDeleteSyncPartialFile(decryptedPath);
+                if (!keepPartial) TryDeleteSyncPartialFile(temporaryPath);
+            }
         }
     }
+
+    private static void PublishStagedSyncBlob(string stagedPath, string targetPath)
+    {
+        var directory = Path.GetDirectoryName(targetPath);
+        if (string.IsNullOrWhiteSpace(directory))
+            throw new InvalidDataException("同步文件目标目录无效。");
+        Directory.CreateDirectory(directory);
+        File.Move(stagedPath, targetPath, overwrite: true);
+    }
+
+    private async Task<bool> BookFileMatchesAsync(
+        BookFile expected,
+        string targetPath,
+        CancellationToken cancellationToken)
+    {
+        await using var connection = await OpenDatabaseConnectionAsync(cancellationToken);
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT f.BookId, f.RelativePath, f.Sha256
+            FROM BookFiles f
+            JOIN Books b ON b.Id = f.BookId
+            WHERE f.Id = $id;
+            """;
+        command.Parameters.AddWithValue("$id", expected.Id.ToString());
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken)) return false;
+        if (!Guid.TryParse(reader.GetString(0), out var bookId) || bookId != expected.BookId) return false;
+        if (!string.Equals(reader.GetString(2), expected.Sha256, StringComparison.OrdinalIgnoreCase)) return false;
+        var currentTarget = ResolveDataPath(reader.GetString(1));
+        return currentTarget is not null && PathsEqual(currentTarget, targetPath);
+    }
+
+    private static bool PathsEqual(string left, string right)
+    {
+        var comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+        return string.Equals(
+            Path.GetFullPath(left).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+            Path.GetFullPath(right).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+            comparison);
+    }
+
+    private sealed record StagedSyncBlob(string Path);
 
     private static void TryDeleteSyncPartialFile(string path)
     {

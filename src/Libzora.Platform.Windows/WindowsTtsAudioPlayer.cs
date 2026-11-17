@@ -7,11 +7,22 @@ namespace Libzora.Platform.Windows;
 public sealed class WindowsTtsAudioPlayer : ITtsAudioPlayer
 {
     private readonly object _gate = new();
-    private WaveOut? _output;
-    private WaveStream? _reader;
+    private readonly Func<string, ITtsWaveOutput> _outputFactory;
+    private ITtsWaveOutput? _output;
     private TaskCompletionSource<object?>? _completion;
     private bool _paused;
     private bool _disposed;
+
+    public WindowsTtsAudioPlayer()
+        : this(audioPath => new NAudioWaveOutput(CreateReader(audioPath)))
+    {
+    }
+
+    internal WindowsTtsAudioPlayer(Func<string, ITtsWaveOutput> outputFactory)
+    {
+        ArgumentNullException.ThrowIfNull(outputFactory);
+        _outputFactory = outputFactory;
+    }
 
     public bool IsAvailable => !_disposed && OperatingSystem.IsWindows();
 
@@ -42,22 +53,23 @@ public sealed class WindowsTtsAudioPlayer : ITtsAudioPlayer
 
         Stop();
 
-        WaveStream reader = CreateReader(audioPath);
-        var output = new WaveOut();
+        var output = _outputFactory(audioPath);
         var completion = new TaskCompletionSource<object?>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         lock (_gate)
         {
             _output = output;
-            _reader = reader;
             _completion = completion;
             _paused = false;
         }
 
-        output.PlaybackStopped += (_, _) => Complete(output, null);
+        // NAudio reports decoder/output failures through the stopped event.
+        // Forwarding only a null error would make a failed segment look like a
+        // successful playback and let the reading position advance.
+        output.PlaybackStopped += (_, args) => Complete(output, args.Exception);
         try
         {
-            output.Init(reader);
+            output.Init();
             output.Play();
         }
         catch (Exception exception)
@@ -67,11 +79,7 @@ public sealed class WindowsTtsAudioPlayer : ITtsAudioPlayer
 
         CancellationTokenRegistration registration = default;
         registration = cancellationToken.Register(() =>
-        {
-            try { output.Stop(); }
-            catch { }
-            Complete(output, new OperationCanceledException(cancellationToken));
-        });
+            Complete(output, new OperationCanceledException(cancellationToken)));
         _ = completion.Task.ContinueWith(
             _ => registration.Dispose(),
             CancellationToken.None,
@@ -82,7 +90,7 @@ public sealed class WindowsTtsAudioPlayer : ITtsAudioPlayer
 
     public void Pause()
     {
-        WaveOut? output;
+        ITtsWaveOutput? output;
         lock (_gate)
         {
             output = _output;
@@ -96,7 +104,7 @@ public sealed class WindowsTtsAudioPlayer : ITtsAudioPlayer
 
     public void Resume()
     {
-        WaveOut? output;
+        ITtsWaveOutput? output;
         lock (_gate)
         {
             output = _output;
@@ -110,33 +118,30 @@ public sealed class WindowsTtsAudioPlayer : ITtsAudioPlayer
 
     public void Stop()
     {
-        WaveOut? output;
+        ITtsWaveOutput? output;
         lock (_gate) output = _output;
         if (output is null) return;
-
-        try { output.Stop(); }
-        catch { }
         Complete(output, new OperationCanceledException());
     }
 
-    private void Complete(WaveOut output, Exception? error)
+    private void Complete(ITtsWaveOutput output, Exception? error)
     {
-        WaveStream? reader;
         TaskCompletionSource<object?>? completion;
         lock (_gate)
         {
             if (!ReferenceEquals(_output, output)) return;
             _output = null;
-            reader = _reader;
-            _reader = null;
             completion = _completion;
             _completion = null;
             _paused = false;
         }
 
-        try { output.Dispose(); }
+        // Detach the playback state before stopping. WaveOut raises
+        // PlaybackStopped synchronously from Stop() with a null error, and that
+        // event must not overwrite a user Stop/cancellation with success.
+        try { output.Stop(); }
         catch { }
-        try { reader?.Dispose(); }
+        try { output.Dispose(); }
         catch { }
 
         if (completion is null) return;
@@ -167,5 +172,43 @@ public sealed class WindowsTtsAudioPlayer : ITtsAudioPlayer
         if (_disposed) return;
         _disposed = true;
         Stop();
+    }
+
+    /// <summary>
+    /// Narrow seam around <see cref="WaveOut"/> so the completion and
+    /// cancellation semantics can be tested without an audio device.
+    /// </summary>
+    internal interface ITtsWaveOutput : IDisposable
+    {
+        event EventHandler<StoppedEventArgs>? PlaybackStopped;
+        void Init();
+        void Play();
+        void Pause();
+        void Stop();
+    }
+
+    private sealed class NAudioWaveOutput : ITtsWaveOutput
+    {
+        private readonly WaveOut _output = new();
+        private readonly WaveStream _reader;
+
+        public NAudioWaveOutput(WaveStream reader) => _reader = reader;
+
+        public event EventHandler<StoppedEventArgs>? PlaybackStopped
+        {
+            add => _output.PlaybackStopped += value;
+            remove => _output.PlaybackStopped -= value;
+        }
+
+        public void Init() => _output.Init(_reader);
+        public void Play() => _output.Play();
+        public void Pause() => _output.Pause();
+        public void Stop() => _output.Stop();
+
+        public void Dispose()
+        {
+            try { _output.Dispose(); }
+            finally { _reader.Dispose(); }
+        }
     }
 }

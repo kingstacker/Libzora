@@ -273,10 +273,9 @@ cat > "$app_root/Contents/Info.plist" <<EOF
       <key>LSHandlerRank</key><string>Alternate</string>
       <key>LSItemContentTypes</key><array>
         <string>io.github.kingstacker.libzora.mobi</string>
-        <string>io.github.kingstacker.libzora.azw</string>
         <string>io.github.kingstacker.libzora.azw3</string>
       </array>
-      <key>CFBundleTypeExtensions</key><array><string>mobi</string><string>prc</string><string>azw</string><string>azw3</string></array>
+      <key>CFBundleTypeExtensions</key><array><string>mobi</string><string>azw3</string></array>
     </dict>
     <dict>
       <key>CFBundleTypeName</key><string>Plain Text</string>
@@ -293,16 +292,8 @@ cat > "$app_root/Contents/Info.plist" <<EOF
       <key>UTTypeDescription</key><string>Mobipocket eBook</string>
       <key>UTTypeConformsTo</key><array><string>public.data</string></array>
       <key>UTTypeTagSpecification</key><dict>
-        <key>public.filename-extension</key><array><string>mobi</string><string>prc</string></array>
+        <key>public.filename-extension</key><array><string>mobi</string></array>
         <key>public.mime-type</key><string>application/x-mobipocket-ebook</string>
-      </dict>
-    </dict>
-    <dict>
-      <key>UTTypeIdentifier</key><string>io.github.kingstacker.libzora.azw</string>
-      <key>UTTypeDescription</key><string>Kindle eBook</string>
-      <key>UTTypeConformsTo</key><array><string>public.data</string></array>
-      <key>UTTypeTagSpecification</key><dict>
-        <key>public.filename-extension</key><array><string>azw</string></array>
       </dict>
     </dict>
     <dict>

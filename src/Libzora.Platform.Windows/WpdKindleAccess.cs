@@ -1256,19 +1256,36 @@ internal static class WpdKindleAccess
             if ((bool)item.IsFolder) throw new InvalidOperationException("不能删除设备文件夹。");
 
             cancellationToken.ThrowIfCancellationRequested();
-            dynamic? readingState = FindItemByRelativePath(documents, Path.ChangeExtension(book.RelativePath, ".sdr"));
-            try
-            {
-                if (readingState is not null && (bool)readingState.IsFolder)
-                    WpdNativeTransfer.DeleteObject(device.RootPath, GetWpdObjectId(readingState), cancellationToken);
-            }
-            finally { Release(readingState); }
+            // Delete the book first and only clear its .sdr reading state once
+            // the device confirms the book is gone. Deleting state up front
+            // would irreversibly lose reading position and annotations when
+            // the second step fails (a locked book, a disconnect mid-delete).
             ShellFileOperation.DeletePermanently((object)item);
             var startedAt = DateTime.UtcNow;
             while (DateTime.UtcNow - startedAt < TimeSpan.FromSeconds(20))
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                if (!DocumentItemExists(device, book.RelativePath)) return;
+                if (!DocumentItemExists(device, book.RelativePath))
+                {
+                    dynamic? readingState = FindItemByRelativePath(
+                        documents,
+                        Path.ChangeExtension(book.RelativePath, ".sdr"));
+                    try
+                    {
+                        if (readingState is not null && (bool)readingState.IsFolder)
+                            WpdNativeTransfer.DeleteObject(
+                                device.RootPath,
+                                GetWpdObjectId(readingState),
+                                cancellationToken);
+                    }
+                    catch (Exception exception) when (exception is COMException or IOException)
+                    {
+                        // The book is already gone; a stale .sdr must not turn
+                        // a completed removal into a reported failure.
+                    }
+                    finally { Release(readingState); }
+                    return;
+                }
                 Thread.Sleep(250);
             }
             throw new TimeoutException("等待设备删除文件超时。");

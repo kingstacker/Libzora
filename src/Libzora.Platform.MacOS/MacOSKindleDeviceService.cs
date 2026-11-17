@@ -1,5 +1,6 @@
 using Libzora.Core;
 using Libzora.Platform.Common;
+using Libzora.Platform.MacOS.Mtp;
 
 namespace Libzora.Platform.MacOS;
 
@@ -34,11 +35,32 @@ public sealed class MacOSKindleDeviceService : IKindleDeviceService, IDeviceAtta
     /// storage detection only enumerates mounted volumes, and the MTP probe
     /// only enumerates USB devices, so neither opens a session on the reader.
     /// </summary>
-    public async Task<bool> IsDeviceAttachedAsync(CancellationToken cancellationToken = default)
+    public Task<bool> IsDeviceAttachedAsync(CancellationToken cancellationToken = default) =>
+        IsDeviceAttachedAsync(null, cancellationToken);
+
+    public async Task<bool> IsDeviceAttachedAsync(
+        string? deviceIdentity,
+        CancellationToken cancellationToken = default)
     {
         var massStorage = await _massStorage.DetectDevicesAsync(cancellationToken).ConfigureAwait(false);
-        if (massStorage.Count > 0) return true;
-        return await _mtp.IsDeviceAttachedAsync(cancellationToken).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(deviceIdentity))
+        {
+            // The broad probe is only used when no stopped device needs to be
+            // distinguished; keep the previous "any reader" behavior.
+            if (massStorage.Count > 0) return true;
+            return await _mtp.IsDeviceAttachedAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        // MTP identities are matched against raw USB topology so probing never
+        // opens a session on the reader the user just stopped.
+        if (MtpDeviceIdentity.IsMtpIdentity(deviceIdentity))
+            return await _mtp.IsDeviceAttachedAsync(deviceIdentity, cancellationToken).ConfigureAwait(false);
+
+        // A mass-storage identity only matches the same mounted volume. Falling
+        // back to "any Kindle" would keep the latch while a different reader is
+        // attached.
+        return massStorage.Any(device =>
+            string.Equals(device.Identity, deviceIdentity, StringComparison.OrdinalIgnoreCase));
     }
 
     public Task<IReadOnlyList<KindleBook>> GetCachedBooksAsync(KindleDevice device, CancellationToken cancellationToken = default) =>

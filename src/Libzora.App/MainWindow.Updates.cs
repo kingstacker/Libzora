@@ -173,10 +173,18 @@ public partial class MainWindow
         try
         {
             var currentVersion = ApplicationVersion.GetDisplayVersion(typeof(MainWindow).Assembly);
-            var channel = DevelopmentUpdateCheck.IsChecked == true
+            // Automatic checks can start before the settings controls are
+            // populated. Read the persisted settings for those checks instead
+            // of the default (and not-yet-synced) control values; manual
+            // checks use what the user currently sees in the settings page.
+            var channel = (userInitiated
+                    ? DevelopmentUpdateCheck.IsChecked == true
+                    : _appSettings.DevelopmentUpdateCheckEnabled)
                 ? AppUpdateChannel.Development
                 : AppUpdateChannel.Stable;
-            _updateService.ConfigureProxy(TranslationGoogleProxyBox.Text);
+            _updateService.ConfigureProxy(userInitiated
+                ? TranslationGoogleProxyBox.Text
+                : _appSettings.Translation.GoogleProxyAddress);
             var update = await RunUpdateTaskAsync(
                 T("检查更新"),
                 (_, token) => _updateService.CheckForUpdateAsync(currentVersion, channel, token),

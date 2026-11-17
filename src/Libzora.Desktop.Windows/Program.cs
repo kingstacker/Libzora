@@ -68,15 +68,43 @@ internal static class Program
         const bool isolateValidation = false;
 #endif
         Mutex? singleInstanceMutex = null;
+        WindowsInstanceActivationServer? activationServer = null;
         if (!isolateValidation)
         {
             if (!SingleInstanceGuard.TryAcquire(out var acquiredMutex))
             {
+                // Files passed on the command line belong to the running
+                // instance. The primary reserves the pipe name right after it
+                // takes the mutex, but a launch can still beat the listener;
+                // retry briefly, then fall back to a plain window activation.
+                var requestedFiles = args
+                    .Select(ResolveExistingFileArgument)
+                    .Where(path => path is not null)
+                    .Select(path => path!)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+                if (requestedFiles.Length > 0)
+                {
+                    for (var attempt = 0; attempt < 20; attempt++)
+                    {
+                        if (WindowsInstanceActivationServer.TryRequestActivation(requestedFiles))
+                            break;
+                        Thread.Sleep(100);
+                    }
+                }
+
+                // Bring the window back even when it is parked in the tray or
+                // the primary instance is still initializing.
                 SingleInstanceGuard.ActivateExistingInstance();
                 acquiredMutex.Dispose();
                 return;
             }
             singleInstanceMutex = acquiredMutex;
+            // Listen before Avalonia initializes so forwarded files are queued
+            // until the main window is ready. The handler feeds the same import
+            // queue used by command-line and Finder-style activations.
+            activationServer = WindowsInstanceActivationServer.TryStart(
+                paths => ExternalFileOpenQueue.Enqueue(paths));
         }
 
         try
@@ -86,7 +114,32 @@ internal static class Program
         }
         finally
         {
+            activationServer?.Dispose();
             singleInstanceMutex?.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Turns a command-line document argument into an absolute path so the
+    /// primary instance can resolve it regardless of its own working
+    /// directory. Arguments that do not resolve to an existing file, including
+    /// normal switches, are ignored. Do not reject paths by their first
+    /// character: Windows accepts both '\' and '/', so "/books/..." can be a
+    /// real document path.
+    /// </summary>
+    private static string? ResolveExistingFileArgument(string argument)
+    {
+        if (string.IsNullOrWhiteSpace(argument)) return null;
+        try
+        {
+            var path = Path.GetFullPath(argument);
+            return File.Exists(path) ? path : null;
+        }
+        catch (Exception exception) when (exception is ArgumentException
+            or NotSupportedException
+            or PathTooLongException)
+        {
+            return null;
         }
     }
 

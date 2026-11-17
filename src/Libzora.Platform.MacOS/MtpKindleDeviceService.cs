@@ -32,6 +32,7 @@ public sealed class MtpKindleDeviceService : IKindleDeviceService, IDeviceAttach
     private readonly IBookFormatConverter _formatConverter;
     private readonly string _coverCacheDirectory;
     private readonly object _detectionSync = new();
+    private readonly MtpAttachmentTracker _attachmentTracker = new();
     private IReadOnlyList<KindleDevice>? _detectionCache;
     private IReadOnlyList<KindleDevice>? _lastDetected;
     private DateTime _detectionCacheAt;
@@ -102,7 +103,19 @@ public sealed class MtpKindleDeviceService : IKindleDeviceService, IDeviceAttach
     /// this never opens an MTP session, so it is safe while the reader has
     /// been "stopped" and is still plugged in.
     /// </summary>
-    public async Task<bool> IsDeviceAttachedAsync(CancellationToken cancellationToken = default)
+    public Task<bool> IsDeviceAttachedAsync(CancellationToken cancellationToken = default) =>
+        IsDeviceAttachedAsync(null, cancellationToken);
+
+    /// <summary>
+    /// Identity-aware variant used to release the manual-disconnect latch.
+    /// The stopped reader is matched against the USB roots observed for its
+    /// serial; no session is opened. Identities that cannot be resolved to
+    /// exactly one root fail closed so another Kindle cannot release the
+    /// latch by being plugged in.
+    /// </summary>
+    public async Task<bool> IsDeviceAttachedAsync(
+        string? deviceIdentity,
+        CancellationToken cancellationToken = default)
     {
         if (!MtpDeviceSession.IsSupported) return false;
         // Raw enumeration must not race an open libmtp session. When another
@@ -111,9 +124,14 @@ public sealed class MtpKindleDeviceService : IKindleDeviceService, IDeviceAttach
         if (!await Gate.WaitAsync(0, cancellationToken).ConfigureAwait(false)) return true;
         try
         {
-            return await Task.Run(
-                () => MtpDeviceSession.Detect().Any(raw => raw.VendorId == AmazonVendorId),
-                cancellationToken).ConfigureAwait(false);
+            return await Task.Run(() =>
+            {
+                var roots = MtpDeviceSession.Detect()
+                    .Where(raw => raw.VendorId == AmazonVendorId)
+                    .Select(MtpDeviceIdentity.RootPath)
+                    .ToArray();
+                return _attachmentTracker.IsAttached(deviceIdentity, roots);
+            }, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -901,6 +919,7 @@ public sealed class MtpKindleDeviceService : IKindleDeviceService, IDeviceAttach
         }
 
         var devices = new List<KindleDevice>();
+        var observed = new List<(string Identity, string RootPath)>();
         foreach (var raw in rawDevices)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -908,14 +927,14 @@ public sealed class MtpKindleDeviceService : IKindleDeviceService, IDeviceAttach
             try
             {
                 using var session = MtpDeviceSession.Open(raw);
-                var serial = string.IsNullOrWhiteSpace(session.SerialNumber)
-                    ? $"{session.Model}"
-                    : session.SerialNumber.Trim();
+                var identity = MtpDeviceIdentity.Describe(session.SerialNumber, session.Model);
+                var rootPath = MtpDeviceIdentity.RootPath(raw);
+                observed.Add((identity, rootPath));
                 devices.Add(new KindleDevice
                 {
                     Profile = ReaderDeviceProfiles.Kindle,
-                    RootPath = $"mtp://{raw.BusLocation}/{raw.DevNum}",
-                    VolumeSerial = $"mtp:{serial}",
+                    RootPath = rootPath,
+                    VolumeSerial = identity,
                     Name = session.Model,
                     TotalBytes = session.PrimaryStorage.TotalBytes,
                     FreeBytes = session.PrimaryStorage.FreeBytes,
@@ -932,6 +951,7 @@ public sealed class MtpKindleDeviceService : IKindleDeviceService, IDeviceAttach
                 Debug.WriteLine($"MTP device {raw.VendorId:X4}:{raw.ProductId:X4} unavailable: {exception.Message}");
             }
         }
+        _attachmentTracker.Observe(observed);
         return devices;
     }
 
@@ -1103,19 +1123,76 @@ public sealed class MtpKindleDeviceService : IKindleDeviceService, IDeviceAttach
         }
     }
 
-    private static MtpDeviceSession OpenSession(KindleDevice device)
+    private MtpDeviceSession OpenSession(KindleDevice device)
     {
-        var raw = MtpDeviceSession.Detect().FirstOrDefault(candidate =>
-            candidate.VendorId == AmazonVendorId
-            && device.RootPath == $"mtp://{candidate.BusLocation}/{candidate.DevNum}");
-        if (raw is null)
+        var candidates = MtpDeviceSession.Detect()
+            .Where(raw => raw.VendorId == AmazonVendorId)
+            .ToArray();
+        var exact = candidates.FirstOrDefault(candidate =>
+            string.Equals(
+                MtpDeviceIdentity.RootPath(candidate),
+                device.RootPath.Trim(),
+                StringComparison.OrdinalIgnoreCase));
+        if (exact is not null)
         {
-            // Bus/device numbers change across replugs; fall back to the first
-            // Amazon device so the transfer still reaches a single connected Kindle.
-            raw = MtpDeviceSession.Detect().FirstOrDefault(candidate => candidate.VendorId == AmazonVendorId);
+            var session = MtpDeviceSession.Open(exact);
+            if (MtpDeviceIdentity.Matches(
+                    device,
+                    session.SerialNumber,
+                    session.Model,
+                    MtpDeviceIdentity.RootPath(exact)))
+                return session;
+            session.Dispose();
+            throw new IOException("Kindle 设备身份与上次连接不一致，已停止操作。请断开设备后重新连接并刷新。");
         }
-        if (raw is null) throw new IOException("Kindle 设备已断开，请重新连接后再试。");
-        return MtpDeviceSession.Open(raw);
+
+        // Bus/device numbers change across replugs. Re-identify the reader by
+        // serial before touching anything; a model fallback is not unique and
+        // must fail closed rather than operate on another Kindle.
+        if (!MtpDeviceIdentity.CanReconnectByIdentity(device))
+            throw new IOException("Kindle 设备已重新连接，但无法可靠确认设备身份。请重新连接并刷新设备列表后重试。");
+
+        MtpDeviceSession? matched = null;
+        try
+        {
+            foreach (var candidate in candidates)
+            {
+                MtpDeviceSession session;
+                try
+                {
+                    session = MtpDeviceSession.Open(candidate);
+                }
+                catch (Exception exception) when (exception is IOException or InvalidOperationException)
+                {
+                    throw new IOException(
+                        "存在无法读取的 Kindle 候选设备，无法可靠确认操作目标。请断开其他 Kindle 后重试。",
+                        exception);
+                }
+
+                if (MtpDeviceIdentity.Matches(device, session.SerialNumber, session.Model))
+                {
+                    if (matched is not null)
+                    {
+                        session.Dispose();
+                        throw new IOException("检测到多台身份相同的 Kindle 设备，无法安全确定操作目标。请仅连接一台后重试。");
+                    }
+                    matched = session;
+                }
+                else
+                {
+                    session.Dispose();
+                }
+            }
+        }
+        catch
+        {
+            matched?.Dispose();
+            throw;
+        }
+
+        if (matched is null)
+            throw new IOException("原 Kindle 设备未找到或身份不匹配，请重新连接并刷新设备列表后重试。");
+        return matched;
     }
 
     private async Task<string?> ReadClippingsTextAsync(KindleDevice device, CancellationToken cancellationToken)

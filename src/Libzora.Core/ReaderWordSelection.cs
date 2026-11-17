@@ -4,8 +4,8 @@ using System.Text;
 namespace Libzora.Core;
 
 /// <summary>
-/// Resolves what a long press on reader text should select: one CJK text
-/// element, one Latin-style word, or the single character under the finger.
+/// Resolves what a long press or mouse double-click on reader text should
+/// select: one CJK text element, one Latin-style word, or one character.
 /// The word rules mirror the inline typesetting units so "don't",
 /// "well-known" and "20°C" stay whole.
 /// </summary>
@@ -27,6 +27,16 @@ public static class ReaderWordSelection
 
         var elementEnd = TextElementEnd(text, offset);
         var rune = Rune.GetRuneAt(text, offset);
+        if (IsConnector(rune) && offset > 0 && elementEnd < text.Length)
+        {
+            var previousStart = PreviousTextElementStart(text, offset);
+            if (IsWordRune(Rune.GetRuneAt(text, previousStart))
+                && IsWordRune(Rune.GetRuneAt(text, elementEnd)))
+            {
+                return GetRange(text, previousStart);
+            }
+        }
+
         if (IsCjk(rune.Value) || !IsWordRune(rune))
         {
             return (offset, elementEnd);

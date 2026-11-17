@@ -11,7 +11,11 @@ public sealed class ReaderWordSelectionTests
     [InlineData("hello world", 7, 6, 11)]
     [InlineData("hello world", 5, 5, 6)] // A space selects only itself.
     [InlineData("don't stop", 2, 0, 5)]
+    [InlineData("don't stop", 3, 0, 5)] // An internal apostrophe belongs to the word.
     [InlineData("well-known", 6, 0, 10)]
+    [InlineData("well-known", 4, 0, 10)] // A hyphen joins the surrounding word runs.
+    [InlineData("'hello'", 0, 0, 1)] // An opening quote is not an internal connector.
+    [InlineData("'hello'", 6, 6, 7)]
     [InlineData("AT&T", 3, 0, 4)]
     [InlineData("20°C today", 0, 0, 4)]
     [InlineData("50%的读者", 1, 0, 3)]

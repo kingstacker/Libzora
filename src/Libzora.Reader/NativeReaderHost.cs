@@ -9,6 +9,7 @@ using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Libzora.Core;
 using Libzora.Layout;
 using SkiaSharp;
@@ -163,6 +164,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
     private int _pointerDownOffset = -1;
     private PlacedHotZone? _pointerHotZone;
     private string? _hoveredFootnoteHref;
+    private IDisposable? _pendingPageClick;
     private int _pointerClickCount;
     private string? _loadedFootnoteFragment;
 
@@ -237,6 +239,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
 
     public void Stop()
     {
+        CancelPendingPageClick();
         ++_configurationVersion;
         _relayoutCts?.Cancel();
         _navigationCts?.Cancel();
@@ -245,6 +248,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
     public void Dispose()
     {
         _disposed = true;
+        CancelPendingPageClick();
         _relayoutCts?.Cancel();
         _scrollEmitTimer?.Stop();
         _scrollEmitTimer = null;
@@ -422,6 +426,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         double? legacyChapterRatio = null)
     {
         if (_disposed) return;
+        CancelPendingPageClick();
         var configurationVersion = ++_configurationVersion;
         // A reparse owns the pending position until it finishes. Applying a
         // second settings change to the old content would erase that position
@@ -1551,6 +1556,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
     private Task<bool> NavigateCore(string chapterPath, string? fragment, ViewportReadingAnchor? readingAnchor = null,
         bool anchorPageStart = false, int? composeTextOffset = null, bool allowPartialCompose = false)
     {
+        CancelPendingPageClick();
         var initialPage = _pageIndex;
         var initialScroll = _scrollOffset;
         _navigationTarget = null;
@@ -3222,6 +3228,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
 
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
+        CancelPendingPageClick();
         if (IsOverScrollBar(e.GetPosition(this)))
         {
             return;
@@ -3442,6 +3449,16 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         }
 
         _selecting = false;
+        // Resolve a mouse double-click only after release. Opening the popup
+        // on press would steal input from a possible drag on the second click.
+        if (!wasDrag && insideSurface && e.Pointer.Type == PointerType.Mouse
+            && _pointerClickCount >= 2 && SelectWordAt(position.X, position.Y))
+        {
+            _wordSelectionActive = false;
+            e.Handled = true;
+            return;
+        }
+
         var clickedAnnotation = releasedMap is { } annotationMap
             && TryGetAnnotationAt(
                 annotationMap.Page,
@@ -3461,7 +3478,8 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         }
         else if (clickSide is not null)
         {
-            Emit(new { type = "pageClick", side = clickSide });
+            EmitPageClick(clickSide, IsPaginated && _pointerDownOffset >= 0
+                && e.Pointer.Type == PointerType.Mouse);
         }
         else if (_pointerDownOffset >= 0)
         {
@@ -3491,6 +3509,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
 
     protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
     {
+        CancelPendingPageClick();
         // Scroll mode consumes the wheel itself: the offset drives the paint
         // directly and chapter edges are reported through continuousEdge.
         if (IsScroll)
@@ -3518,6 +3537,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
 
     protected override void OnKeyDown(KeyEventArgs e)
     {
+        CancelPendingPageClick();
         var ctrl = (e.KeyModifiers & KeyModifiers.Control) != 0;
         if (ctrl && e.Key is Key.F or Key.B)
         {
@@ -3558,6 +3578,38 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         }
 
         base.OnKeyDown(e);
+    }
+
+    private void EmitPageClick(string side, bool deferForDoubleClick)
+    {
+        CancelPendingPageClick();
+        if (!deferForDoubleClick)
+        {
+            Emit(new { type = "pageClick", side });
+            return;
+        }
+
+        // Text in the outer thirds is also a double-click target. Wait out the
+        // platform's double-click window before turning so the first click
+        // cannot replace the word under the pointer with a different page.
+        var layout = _layout;
+        var page = _pageIndex;
+        var interval = this.GetPlatformSettings()?.GetDoubleTapTime(PointerType.Mouse)
+            ?? TimeSpan.FromMilliseconds(400);
+        _pendingPageClick = DispatcherTimer.RunOnce(() =>
+        {
+            _pendingPageClick = null;
+            if (!_disposed && ReferenceEquals(_layout, layout) && _pageIndex == page)
+            {
+                Emit(new { type = "pageClick", side });
+            }
+        }, interval + TimeSpan.FromMilliseconds(100));
+    }
+
+    private void CancelPendingPageClick()
+    {
+        _pendingPageClick?.Dispose();
+        _pendingPageClick = null;
     }
 
     private string? GetPageClickSide(Point position)
@@ -4168,9 +4220,48 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
             rects.Max(rect => rect.Bottom));
     }
 
+    private (int Start, int End) GetWordSelectionRange(int offset)
+    {
+        var text = _content!.BodyText;
+        // BodyText is the DOM text-node concatenation: adjacent paragraphs and
+        // <br> elements need not contribute whitespace. Keep inline emphasis
+        // within a word, but never join words across a structural break.
+        foreach (var block in _content.Blocks)
+        {
+            var segmentStart = int.MaxValue;
+            var segmentEnd = 0;
+            var containsOffset = false;
+            foreach (var item in block.Items)
+            {
+                if (item.Kind is InlineKind.LineBreak or InlineKind.Image)
+                {
+                    if (containsOffset) break;
+                    segmentStart = int.MaxValue;
+                    segmentEnd = 0;
+                    continue;
+                }
+
+                if (item.TextStart < 0 || item.Text.Length == 0) continue;
+                var itemEnd = item.TextStart + item.Text.Length;
+                segmentStart = Math.Min(segmentStart, item.TextStart);
+                segmentEnd = Math.Max(segmentEnd, itemEnd);
+                containsOffset |= offset >= item.TextStart && offset < itemEnd;
+            }
+
+            if (containsOffset)
+            {
+                var (start, end) = ReaderWordSelection.GetRange(
+                    text[segmentStart..segmentEnd], offset - segmentStart);
+                return (segmentStart + start, segmentStart + end);
+            }
+        }
+
+        return ReaderWordSelection.GetRange(text, offset);
+    }
+
     /// <summary>
-    /// Selects the character or word under a long press. Links and existing
-    /// annotations keep their tap behavior instead of starting a selection.
+    /// Selects the character or word under a long press or mouse double-click.
+    /// Links and existing annotations keep their tap behavior instead.
     /// </summary>
     public bool SelectWordAt(double x, double y)
     {
@@ -4193,12 +4284,13 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
             return false;
         }
 
-        var (start, end) = ReaderWordSelection.GetRange(_content.BodyText, offset);
+        var (start, end) = GetWordSelectionRange(offset);
         if (end <= start)
         {
             return false;
         }
 
+        CancelPendingPageClick();
         StopSelectionAutoPageTurn();
         _selecting = false;
         _wordSelectionActive = true;
@@ -4215,6 +4307,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
 
     public void ClearSelection()
     {
+        CancelPendingPageClick();
         _selecting = false;
         _wordSelectionActive = false;
         StopSelectionAutoPageTurn();

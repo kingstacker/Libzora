@@ -276,11 +276,12 @@ def composer_config() -> dict:
     return {
         "fill": {"solid": f"srgb:{colour},1.0"},
         "groups": [{
+            # Icon Composer lists the frontmost layer first.
             "layers": [{
                 "image-name": f"{name}.png",
                 "name": name,
                 "position": {"scale": 1, "translation-in-points": [0, 0]},
-            } for name in ("Spine", "Page")],
+            } for name in ("Page", "Spine")],
             "translucency": {"enabled": False, "value": 0.0},
         }],
         "supported-platforms": {"squares": "shared"},

@@ -187,7 +187,7 @@ class AppIconGenerationTests(unittest.TestCase):
     def test_composer_layers_use_the_new_canvas_without_double_scaling(self):
         config = json.loads((ROOT / "scripts/macos/Libzora.icon/icon.json").read_text())
         layers = config["groups"][0]["layers"]
-        self.assertEqual([layer["image-name"] for layer in layers], ["Spine.png", "Page.png"])
+        self.assertEqual([layer["image-name"] for layer in layers], ["Page.png", "Spine.png"])
         for layer in layers:
             self.assertEqual(layer["position"]["scale"], 1)
             self.assertEqual(layer["position"]["translation-in-points"], [0, 0])

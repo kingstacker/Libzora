@@ -6,8 +6,8 @@
     {
       "layers": [
         {
-          "image-name": "Spine.png",
-          "name": "Spine",
+          "image-name": "Page.png",
+          "name": "Page",
           "position": {
             "scale": 1,
             "translation-in-points": [
@@ -17,8 +17,8 @@
           }
         },
         {
-          "image-name": "Page.png",
-          "name": "Page",
+          "image-name": "Spine.png",
+          "name": "Spine",
           "position": {
             "scale": 1,
             "translation-in-points": [

@@ -9,7 +9,7 @@
     <AssemblyName>Libzora.Mobile.iOS</AssemblyName>
     <ApplicationId>com.kingstacker.libzora</ApplicationId>
     <ApplicationTitle>Libzora</ApplicationTitle>
-    <AppIcon>AppIcon</AppIcon>
+    <AppIcon>Libzora</AppIcon>
     <ApplicationVersion>16</ApplicationVersion>
     <ApplicationDisplayVersion>1.1.6</ApplicationDisplayVersion>
     <!-- Intel Macs are capped at Xcode 26, while the current .NET iOS
@@ -39,8 +39,12 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Use the approved flat icon from Assets.xcassets/AppIcon.appiconset.
-         Icon Composer layers change its appearance through system lighting. -->
+    <!-- Share the real Icon Composer layers with macOS. ACTool emits the
+         Liquid Glass rendition and the fallback for iOS 15–25 together. -->
+    <ImageAsset Remove="Assets.xcassets/AppIcon.appiconset/**" />
+    <ImageAsset Include="../../scripts/macos/Libzora.icon/**/*"
+                Exclude="../../scripts/macos/Libzora.icon/**/.DS_Store"
+                Link="Libzora.icon/%(RecursiveDir)%(Filename)%(Extension)" />
     <!-- The reader's typesetter opens this font by filesystem path. An
          AvaloniaResource alone embeds it in an assembly, not in the app bundle. -->
     <BundleResource Include="..\Libzora.App\Assets\Fonts\KingHwaOldSong-v3.0.ttf"

@@ -177,6 +177,16 @@ pymobiledevice3 springboard state get --userspace \
 当前图标与 macOS 共用 `scripts/macos/Libzora.icon` 的分层书页图标。
 `CFBundleIconName` 应为 `Libzora`，`Assets.car` 应包含 `IconImageStack`、`IconGroup`
 及 Page/Spine 图层；只检查 PNG 存在不能证明 iOS 26 的液态玻璃图标已经接入。
+Icon Composer 的图层列表按前景到背景排列：`Page.png` 必须在 `Spine.png`
+之前，否则灰色后书页会遮住白色前书页，与静态图标的遮挡关系相反。
+
+可直接获取真机实际渲染的图标，检查遮挡关系，而不只验证包内资源：
+
+```bash
+xcrun devicectl device info appIcon --device "$DEVICE_ID" \
+  --app-bundle-id "$BUNDLE_ID" --destination /tmp/libzora-device-icon.png
+```
+
 图标文件存在但主屏看不到时，也要检查 App 资源库、主屏下一页和系统图标缓存。
 
 ## 真机自动化测试原则

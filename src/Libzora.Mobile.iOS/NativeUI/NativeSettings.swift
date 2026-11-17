@@ -126,29 +126,26 @@ struct NativeProfilePage: View {
         }
     }
 
-    @ViewBuilder private var themeRow: some View {
-        HStack(spacing: 10) {
-            Text(L("外观")).font(NativeTheme.font())
-            Spacer(minLength: 8)
-            Picker(L("主题"), selection: Binding(get: { store.preferences.themeMode }, set: { mode in
+    private var themeRow: some View {
+        let follow = store.uiLanguage == "en-US" ? L("系统") : L("跟随系统")
+        let choice = store.preferences.themeMode == 1 ? L("浅色")
+            : store.preferences.themeMode == 2 ? L("深色") : follow
+        return preferenceMenuRow(title: L("外观"), value: choice, identifier: "profile.theme",
+            selection: Binding(get: { store.preferences.themeMode }, set: { mode in
                 var value = store.preferences; value.themeMode = mode
                 store.setPreferences(value)
             })) {
-                Text(store.uiLanguage == "en-US" ? L("系统") : L("跟随系统")).tag(0)
-                Text(L("浅色")).tag(1); Text(L("深色")).tag(2)
+                Text(follow).tag(0)
+                Text(L("浅色")).tag(1)
+                Text(L("深色")).tag(2)
             }
-            .pickerStyle(.segmented)
-            .controlSize(.small)
-            .frame(width: 200)
-            .accessibilityIdentifier("profile.theme")
-        }.padding(.vertical, 12)
     }
 
     private var languageRow: some View {
-        HStack(spacing: 10) {
-            Text(L("语言")).font(NativeTheme.font())
-            Spacer(minLength: 8)
-            Picker(L("界面语言"), selection: Binding(get: { store.preferences.uiLanguage }, set: { language in
+        let choice = store.preferences.uiLanguage == "en-US" ? "English"
+            : store.preferences.uiLanguage == "zh-CN" ? "简体中文" : L("跟随系统")
+        return preferenceMenuRow(title: L("语言"), value: choice, identifier: "profile.language",
+            selection: Binding(get: { store.preferences.uiLanguage }, set: { language in
                 var value = store.preferences; value.uiLanguage = language
                 store.setPreferences(value)
             })) {
@@ -156,13 +153,26 @@ struct NativeProfilePage: View {
                 Text("简体中文").tag("zh-CN")
                 Text("English").tag("en-US")
             }
-            .pickerStyle(.menu)
-            .labelsHidden()
-            .accessibilityLabel(L("界面语言"))
-            .accessibilityValue(store.preferences.uiLanguage == "en-US" ? "English"
-                : store.preferences.uiLanguage == "zh-CN" ? "简体中文" : L("跟随系统"))
-            .accessibilityIdentifier("profile.language")
-        }.padding(.vertical, 12)
+    }
+
+    private func preferenceMenuRow<Selection: Hashable, Options: View>(
+        title: String, value: String, identifier: String, selection: Binding<Selection>,
+        @ViewBuilder options: @escaping () -> Options
+    ) -> some View {
+        // The system lifts and hides a Menu's source label while it is open.
+        // Keep the visible row outside that source so it remains on the page.
+        profileRow(title: title, value: value)
+            .accessibilityHidden(true)
+            .overlay {
+                Menu {
+                    Picker(title, selection: selection, content: options)
+                } label: {
+                    Color.clear.contentShape(Rectangle())
+                }
+                .accessibilityLabel(title)
+                .accessibilityValue(value)
+                .accessibilityIdentifier(identifier)
+            }
     }
 
     private func groupLabel(_ title: String) -> some View {

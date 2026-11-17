@@ -27,11 +27,49 @@ final class NativeLocalizationTests: XCTestCase {
         settle()
     }
 
+    func testLanguageMenuPresentationPreservesTheSettingRow() throws {
+        let before = try currentChoice()
+        capture("language-row-before-menu")
+        app.buttons["profile.language"].tap()
+        XCTAssertTrue(app.buttons["English"].waitForExistence(timeout: 5))
+        capture("language-row-menu-expanded")
+        app.staticTexts["page.profile"].tap()
+        XCTAssertTrue(waitUntil { !self.app.buttons["English"].exists })
+        XCTAssertEqual(try currentChoice(), before)
+        capture("language-row-menu-dismissed")
+    }
+
+    func testAppearanceMenuSwitchesAndKeepsTheSettingRow() throws {
+        let theme = app.buttons["profile.theme"]
+        XCTAssertTrue(theme.waitForExistence(timeout: 10))
+        let original = try XCTUnwrap(theme.value as? String)
+        let chinese = app.staticTexts["page.profile"].label == "我的"
+        defer {
+            if theme.value as? String != original {
+                theme.tap()
+                app.buttons[original].tap()
+            }
+        }
+        capture("appearance-row-before-menu")
+        theme.tap()
+        let dark = chinese ? "深色" : "Dark"
+        XCTAssertTrue(app.buttons[dark].waitForExistence(timeout: 5))
+        capture("appearance-row-menu-expanded")
+        app.buttons[dark].tap()
+        XCTAssertTrue(waitUntil { theme.value as? String == dark })
+        capture("appearance-row-dark")
+        let light = chinese ? "浅色" : "Light"
+        theme.tap()
+        app.buttons[light].tap()
+        XCTAssertTrue(waitUntil { theme.value as? String == light })
+        capture("appearance-row-light")
+    }
+
     func testManualLanguageRefreshesNativePagesAndPersists() {
         select("en-US")
         XCTAssertEqual(app.staticTexts["page.profile"].label, "Profile")
         XCTAssertTrue(app.staticTexts["Reading & Appearance"].exists)
-        XCTAssertTrue(app.segmentedControls["profile.theme"].buttons["System"].exists)
+        XCTAssertTrue(app.buttons["profile.theme"].exists)
         XCTAssertTrue(waitUntil { self.app.staticTexts["Off"].exists
             && self.app.staticTexts.matching(NSPredicate(format: "label == 'Not Set'")).count == 2 })
         capture("language-english-profile")

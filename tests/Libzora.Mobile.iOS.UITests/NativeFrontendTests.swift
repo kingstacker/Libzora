@@ -284,12 +284,12 @@ final class NativeFrontendTests: XCTestCase {
         attachScreenshot("我的-问题反馈说明")
     }
 
-    /// System-hosted segmented controls and tabs keep their native containers
-    /// while their titles use the app's custom font.
+    /// System-hosted menus, segmented controls and tabs keep their native
+    /// containers while their titles use the app's custom font.
     func testCustomFontOnSegmentedControlsAndTabs() {
         app.tabBars.buttons["我的"].tap()
-        XCTAssertTrue(app.segmentedControls["profile.theme"].waitForExistence(timeout: 15))
-        attachScreenshot("字体-外观分段与底部标签")
+        XCTAssertTrue(app.buttons["profile.theme"].waitForExistence(timeout: 15))
+        attachScreenshot("字体-外观菜单与底部标签")
         app.tabBars.buttons["书库"].tap()
         XCTAssertTrue(app.segmentedControls["library.filter"].waitForExistence(timeout: 15))
         attachScreenshot("字体-书库筛选分段")
@@ -453,7 +453,7 @@ final class NativeFrontendTests: XCTestCase {
             attachScreenshot(capture)
         }
         app.tabBars.buttons["我的"].tap()
-        XCTAssertTrue(app.segmentedControls["profile.theme"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["profile.theme"].waitForExistence(timeout: 10))
         attachScreenshot("炫彩滚动后-我的")
         app.tabBars.buttons["书库"].tap()
         attachScreenshot("炫彩滚动后-返回书库")
@@ -478,10 +478,13 @@ final class NativeFrontendTests: XCTestCase {
         // The dark wash must keep the same even coverage without turning the
         // neutral cards into tinted blocks.
         app.tabBars.buttons["我的"].tap()
-        let theme = app.segmentedControls["profile.theme"]
+        let theme = app.buttons["profile.theme"]
         XCTAssertTrue(theme.waitForExistence(timeout: 10))
-        theme.buttons["深色"].tap()
-        XCTAssertTrue(waitUntil { theme.buttons["深色"].isSelected })
+        guard let originalTheme = theme.value as? String else {
+            XCTFail("The current theme must be known before changing preferences.")
+            return
+        }
+        selectTheme("深色")
         app.tabBars.buttons["书库"].tap()
         showLibrary(true)
         attachScreenshot("炫彩-深色-收藏夹")
@@ -493,8 +496,7 @@ final class NativeFrontendTests: XCTestCase {
         attachScreenshot("炫彩-深色-阅读数据")
         app.tabBars.buttons["我的"].tap()
         XCTAssertTrue(theme.waitForExistence(timeout: 10))
-        theme.buttons["跟随系统"].tap()
-        XCTAssertTrue(waitUntil { theme.buttons["跟随系统"].isSelected })
+        selectTheme(originalTheme)
         app.tabBars.buttons["书库"].tap()
         showLibrary()
         openLibrarySettings()
@@ -529,10 +531,13 @@ final class NativeFrontendTests: XCTestCase {
         XCTAssertTrue(colorful.waitForExistence(timeout: 10))
         XCTAssertEqual(colorful.value as? String, "1")
         app.navigationBars.buttons.element(boundBy: 0).tap()
-        let theme = app.segmentedControls["profile.theme"]
+        let theme = app.buttons["profile.theme"]
         XCTAssertTrue(theme.waitForExistence(timeout: 10))
-        theme.buttons["深色"].tap()
-        XCTAssertTrue(waitUntil { theme.buttons["深色"].isSelected })
+        guard let originalTheme = theme.value as? String else {
+            XCTFail("The current theme must be known before changing preferences.")
+            return
+        }
+        selectTheme("深色")
         openLibrarySettings()
         XCTAssertTrue(colorful.waitForExistence(timeout: 10))
         attachScreenshot("书库设置-深色炫彩模式")
@@ -540,7 +545,7 @@ final class NativeFrontendTests: XCTestCase {
         XCTAssertTrue(waitUntil { colorful.value as? String == "0" })
         attachScreenshot("书库设置-炫彩关闭")
         app.navigationBars.buttons.element(boundBy: 0).tap()
-        theme.buttons["跟随系统"].tap()
+        selectTheme(originalTheme)
     }
 
     func testLibrarySyncStatusSettingShowsAndPersists() {
@@ -1583,7 +1588,9 @@ final class NativeFrontendTests: XCTestCase {
     /// with --preserve-data. This checks the real restored UIKit scene session.
     func testLegacyUpgradePreservesLibraryAndPreferences() throws {
         app.tabBars.buttons["我的"].tap()
-        XCTAssertTrue(app.segmentedControls["profile.theme"].buttons["浅色"].isSelected)
+        let theme = app.buttons["profile.theme"]
+        XCTAssertTrue(theme.waitForExistence(timeout: 10))
+        XCTAssertEqual(theme.value as? String, "浅色")
         app.tabBars.buttons["书库"].tap()
         try openBook(containing: "Native UI EPUB")
         let typography = app.buttons["reader.排版"]
@@ -1724,12 +1731,13 @@ final class NativeFrontendTests: XCTestCase {
     /// app's light, colourful paper instead of keeping the reader dark.
     func testReaderFollowAfterInkReturnsToLightPaper() throws {
         app.tabBars.buttons["我的"].tap()
-        let theme = app.segmentedControls["profile.theme"]
+        let theme = app.buttons["profile.theme"]
         XCTAssertTrue(theme.waitForExistence(timeout: 15))
-        let wasTheme = theme.buttons["浅色"].isSelected ? "浅色"
-            : theme.buttons["深色"].isSelected ? "深色" : "跟随系统"
-        theme.buttons["浅色"].tap()
-        XCTAssertTrue(waitUntil { theme.buttons["浅色"].isSelected })
+        guard let wasTheme = theme.value as? String else {
+            XCTFail("The current theme must be known before changing preferences.")
+            return
+        }
+        selectTheme("浅色")
         openLibrarySettings()
         let colorful = app.switches["library.settings.colorful"]
         XCTAssertTrue(colorful.waitForExistence(timeout: 10))
@@ -1774,8 +1782,7 @@ final class NativeFrontendTests: XCTestCase {
         app.buttons["book.back"].tap()
         app.tabBars.buttons["我的"].tap()
         XCTAssertTrue(theme.waitForExistence(timeout: 10))
-        theme.buttons[wasTheme].tap()
-        XCTAssertTrue(waitUntil { theme.buttons[wasTheme].isSelected })
+        selectTheme(wasTheme)
         if !wasColorful {
             openLibrarySettings()
             XCTAssertTrue(colorful.waitForExistence(timeout: 10))
@@ -2338,6 +2345,16 @@ final class NativeFrontendTests: XCTestCase {
         XCTAssertTrue(panel.waitForExistence(timeout: 5))
         XCTAssertGreaterThan(panel.frame.minY, app.frame.minY + app.frame.height * 0.5,
                              "Reader settings must leave at least the upper half of the page visible: \(panel.frame)")
+    }
+
+    private func selectTheme(_ label: String) {
+        let theme = app.buttons["profile.theme"]
+        XCTAssertTrue(theme.waitForExistence(timeout: 10))
+        theme.tap()
+        let option = app.buttons[label]
+        XCTAssertTrue(option.waitForExistence(timeout: 5))
+        option.tap()
+        XCTAssertTrue(waitUntil { theme.value as? String == label })
     }
 
     private func waitUntil(_ predicate: @escaping () -> Bool) -> Bool {

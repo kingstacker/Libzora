@@ -15,17 +15,16 @@ final class NativeProfilePageTests: XCTestCase {
 
     func testProfileFlatGroupsAcrossThemes() {
         openProfile()
-        let theme = app.segmentedControls["profile.theme"]
+        let theme = app.buttons["profile.theme"]
         XCTAssertTrue(theme.waitForExistence(timeout: 10))
-        guard let originalTheme = theme.buttons.allElementsBoundByIndex.first(where: { $0.isSelected })?.label else {
+        guard let originalTheme = theme.value as? String else {
             XCTFail("The current theme must be known before changing preferences.")
             return
         }
         let originalColorful = colorfulMode()
         defer {
             setColorfulMode(originalColorful)
-            theme.buttons[originalTheme].tap()
-            XCTAssertTrue(waitUntil { theme.buttons[originalTheme].isSelected })
+            selectTheme(originalTheme)
             capture("我的-轻列表-恢复原有外观")
         }
 
@@ -36,8 +35,7 @@ final class NativeProfilePageTests: XCTestCase {
             ("深色", false, "我的-轻列表-深色")
         ] {
             setColorfulMode(colorful)
-            theme.buttons[mode].tap()
-            XCTAssertTrue(waitUntil { theme.buttons[mode].isSelected })
+            selectTheme(mode)
             assertAlignedRows()
             capture(checkpoint)
         }
@@ -73,7 +71,7 @@ final class NativeProfilePageTests: XCTestCase {
                            "Rows should align with the page title instead of sitting inside an inset card.")
             XCTAssertGreaterThanOrEqual(row.frame.height, 44)
         }
-        XCTAssertTrue(app.segmentedControls["profile.theme"].isHittable)
+        XCTAssertTrue(app.buttons["profile.theme"].isHittable)
     }
 
     private func openProfile() {
@@ -94,7 +92,7 @@ final class NativeProfilePageTests: XCTestCase {
         XCTAssertTrue(setting.waitForExistence(timeout: 10))
         let enabled = setting.value as? String == "1"
         app.navigationBars["书库设置"].buttons.firstMatch.tap()
-        XCTAssertTrue(app.segmentedControls["profile.theme"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["profile.theme"].waitForExistence(timeout: 10))
         return enabled
     }
 
@@ -106,7 +104,17 @@ final class NativeProfilePageTests: XCTestCase {
         if (setting.value as? String == "1") != enabled { setting.tap() }
         XCTAssertTrue(waitUntil { (setting.value as? String == "1") == enabled })
         app.navigationBars["书库设置"].buttons.firstMatch.tap()
-        XCTAssertTrue(app.segmentedControls["profile.theme"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["profile.theme"].waitForExistence(timeout: 10))
+    }
+
+    private func selectTheme(_ label: String) {
+        let theme = app.buttons["profile.theme"]
+        XCTAssertTrue(theme.waitForExistence(timeout: 10))
+        theme.tap()
+        let option = app.buttons[label]
+        XCTAssertTrue(option.waitForExistence(timeout: 5))
+        option.tap()
+        XCTAssertTrue(waitUntil { theme.value as? String == label })
     }
 
     private func waitUntil(_ condition: @escaping () -> Bool) -> Bool {

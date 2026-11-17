@@ -1206,8 +1206,15 @@ final class NativeFrontendTests: XCTestCase {
         XCTAssertTrue(search.waitForExistence(timeout: 40))
         let progress = app.sliders["reader.progress"]
         let initialPosition = progress.value as? String
-        progress.adjust(toNormalizedSliderPosition: 0.85)
-        XCTAssertTrue(waitUntil { progress.value as? String != initialPosition })
+        // The toolbar can appear while its presentation animation is still
+        // running; adjusting before it accepts touches silently does nothing.
+        XCTAssertTrue(waitUntil { progress.isHittable }, "The progress slider must accept a seek.")
+        // A short drag can fall inside the thumb's touch slop and be ignored.
+        // Pick the far half so the target is always a large move.
+        let currentPercent = Double((initialPosition ?? "").replacingOccurrences(of: "%", with: "")) ?? 0
+        progress.adjust(toNormalizedSliderPosition: currentPercent > 50 ? 0.2 : 0.8)
+        XCTAssertTrue(waitUntil { progress.value as? String != initialPosition },
+                      "Seek stayed at \(initialPosition ?? "nil").")
         let beforeSearch = progress.value as? String
         search.tap()
         let input = app.textFields["reader.search.query"]
@@ -1234,7 +1241,12 @@ final class NativeFrontendTests: XCTestCase {
         XCTAssertLessThan(result.frame.maxY, app.frame.height * 0.55)
         XCTAssertEqual(app.textFields.count, 1)
         attachScreenshot("阅读搜索结果浮层")
-        result.tap()
+        // Results are ordered by reading position and the first hit can sit on
+        // the current page, where progress would not change. Jump across the
+        // list so this asserts a real navigation.
+        let results = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'reader.search.hit.'"))
+        let destination = results.allElementsBoundByIndex.last ?? result
+        destination.tap()
         XCTAssertTrue(waitUntil { !input.exists && !self.app.keyboards.firstMatch.exists })
         XCTAssertTrue(progress.waitForExistence(timeout: 10))
         XCTAssertNotEqual(progress.value as? String, beforeSearch)

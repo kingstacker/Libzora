@@ -12,6 +12,26 @@ internal sealed partial class IOSNativeFrontend
 {
     private async Task<object> DispatchReaderAsync(string command, JsonElement args, CancellationToken token)
     {
+        // Progressive search returns immediately. Its chapter scan and index
+        // writes run outside the navigation gate so page turns, the TOC and
+        // settings remain responsive while results stream in.
+        if (command == "reader.searchStart")
+        {
+            await _readerGate.WaitAsync(token);
+            try
+            {
+                var current = _reader ?? throw new InvalidOperationException(UiText.Get("请先打开一本书。"));
+                return Data(("generation", current.NativeStartSearch(Text(args, "query"), Text(args, "searchId"))));
+            }
+            finally { _readerGate.Release(); }
+        }
+
+        if (command == "reader.searchCancel")
+        {
+            _reader?.NativeCancelSearch(Text(args, "searchId"));
+            return Data();
+        }
+
         // Network work captures the current page, then releases the navigation
         // gate. A slow AI/translation response must not prevent closing a book
         // or changing its typography. Closing cancels these session requests.
@@ -62,7 +82,8 @@ internal sealed partial class IOSNativeFrontend
                 case "reader.seek": await reader.NativeSeekAsync(args.GetProperty("progress").GetDouble()); break;
                 case "reader.bookmark": await reader.ToggleBookmarkAsync(); break;
                 case "reader.search": return await reader.NativeSearchAsync(Text(args, "query"), session.Token);
-                case "reader.searchJump": await reader.NativeJumpToSearchAsync(Number(args, "id")); break;
+                case "reader.searchJump": await reader.NativeJumpToSearchAsync(Number(args, "id"),
+                    args.TryGetProperty("searchId", out var searchId) ? searchId.GetString() : null); break;
                 case "reader.speech": await reader.NativeToggleSpeechAsync(); break;
                 case "reader.selectionSpeech": await reader.NativeSpeakSelectionAsync(); break;
                 case "reader.showChrome": reader.SetChromeVisible(true); break;

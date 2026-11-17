@@ -615,6 +615,95 @@ public sealed class ReaderProductivityTests
     }
 
     [Fact]
+    public async Task ProgressiveIndexMarksOnlyFullyScannedBooksCurrent()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            var service = new ReaderDataService(paths);
+            await service.InitializeAsync();
+            var bookId = Guid.NewGuid();
+            var fileId = Guid.NewGuid();
+            var hash = new string('b', 64);
+
+            var initial = await service.GetBookContentIndexSnapshotAsync(fileId, hash);
+            Assert.False(initial.IsComplete);
+            Assert.Empty(initial.IndexedChapters);
+
+            await service.EnsureBookContentIndexStateAsync(fileId, hash, 3);
+            Assert.False(await service.IsIndexCurrentAsync(fileId, hash));
+
+            await service.ReplaceBookChapterChunksAsync(bookId, fileId, hash, 1,
+            [
+                new BookContentChunkDraft(1, 0, "第二章", "text/two.xhtml", 0, 8, "这一章命中目标。")
+            ]);
+
+            var partial = await service.GetBookContentIndexSnapshotAsync(fileId, hash);
+            Assert.False(partial.IsComplete);
+            Assert.Contains(1, partial.IndexedChapters);
+            Assert.DoesNotContain(0, partial.IndexedChapters);
+            Assert.False(await service.IsIndexCurrentAsync(fileId, hash));
+
+            var scoped = await service.SearchBookAsync(
+                bookId, "命中", 20, bookFileId: fileId, chapterFrom: 1, chapterTo: 1,
+                sourceHash: hash);
+            Assert.Equal(1, Assert.Single(scoped).ChapterIndex);
+
+            // Empty chapters still carry a completion row, otherwise a book
+            // with illustration-only chapters could never finish indexing.
+            Assert.False(await service.MarkBookContentIndexCompleteAsync(fileId, hash, 3));
+            await service.ReplaceBookChapterChunksAsync(bookId, fileId, hash, 0,
+            [
+                new BookContentChunkDraft(0, 0, "第一章", "text/one.xhtml", 0, 6, "第一章正文。")
+            ]);
+            await service.ReplaceBookChapterChunksAsync(bookId, fileId, hash, 2, []);
+            Assert.True(await service.MarkBookContentIndexCompleteAsync(fileId, hash, 3));
+            Assert.True(await service.IsIndexCurrentAsync(fileId, hash));
+            Assert.True((await service.GetBookContentIndexSnapshotAsync(fileId, hash)).IsComplete);
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
+    public async Task LegacyChunkIndexIsAdoptedWithoutRebuilding()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            var service = new ReaderDataService(paths);
+            await service.InitializeAsync();
+            var bookId = Guid.NewGuid();
+            var fileId = Guid.NewGuid();
+            var hash = new string('c', 64);
+            await service.ReplaceBookChunksAsync(bookId, fileId, hash,
+            [
+                new BookContentChunkDraft(0, 0, "第一章", "text/one.xhtml", 0, 6, "第一章正文。")
+            ]);
+
+            // Simulate an index written before chapter state existed.
+            await using (var connection = new SqliteConnection(
+                new SqliteConnectionStringBuilder { DataSource = paths.Database }.ToString()))
+            {
+                await connection.OpenAsync();
+                using var delete = connection.CreateCommand();
+                delete.CommandText = """
+                    DELETE FROM BookContentIndexStates;
+                    DELETE FROM BookContentIndexChapters;
+                    """;
+                await delete.ExecuteNonQueryAsync();
+            }
+
+            var snapshot = await service.GetBookContentIndexSnapshotAsync(fileId, hash);
+            Assert.True(snapshot.IsComplete);
+            Assert.Contains(0, snapshot.IndexedChapters);
+            Assert.True(await service.IsIndexCurrentAsync(fileId, hash));
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
     public void PdfSearchHonorsCancellation()
     {
         using var cancellation = new CancellationTokenSource();

@@ -49,6 +49,8 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
     private readonly object _engineGate = new();
     private CancellationTokenSource? _relayoutCts;
     internal Task RelayoutTask { get; private set; } = Task.CompletedTask;
+    private bool _layoutCompletionScheduled;
+    private const int InitialComposeAheadCharacters = 8000;
     private ChapterContent? _content;
     private readonly List<TableTextRange> _tableTextRanges = new();
     private ChapterLayout? _layout;
@@ -219,6 +221,10 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
 
     public event EventHandler<ReaderNavigationCompletedEventArgs>? NavigationCompleted;
 
+    /// <summary>Raised after a partial opening layout has been completed in
+    /// the background, so labels can switch from text position to real pages.</summary>
+    public event EventHandler? LayoutCompleted;
+
     public event EventHandler<ReaderWebMessageReceivedEventArgs>? WebMessageReceived;
 
     public Task<string?> InvokeScriptAsync(string script)
@@ -277,6 +283,14 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
     public void Navigate(Uri uri) => Navigate(uri, _settings, _showVerticalDebugBoxes);
 
     public void Navigate(Uri uri, ReaderLayoutSettings settings, bool showVerticalDebugBoxes)
+        => NavigateCoreFromUri(uri, settings, showVerticalDebugBoxes, null, false);
+
+    public void Navigate(Uri uri, ReaderLayoutSettings settings, bool showVerticalDebugBoxes,
+        int? composeTextOffset, bool allowPartialCompose)
+        => NavigateCoreFromUri(uri, settings, showVerticalDebugBoxes, composeTextOffset, allowPartialCompose);
+
+    private void NavigateCoreFromUri(Uri uri, ReaderLayoutSettings settings, bool showVerticalDebugBoxes,
+        int? composeTextOffset, bool allowPartialCompose)
     {
         if (_disposed)
         {
@@ -304,7 +318,8 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
                 fragment = uri.Fragment.TrimStart('#');
             }
         }
-        _ = NavigateCore(path, fragment);
+        _ = NavigateCore(path, fragment, composeTextOffset: composeTextOffset,
+            allowPartialCompose: allowPartialCompose);
     }
 
     // ---- native surface API used by the MainWindow seams ------------------
@@ -337,6 +352,56 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
     public int PageCount => _layout?.Pages.Count ?? 0;
 
     public int CurrentPage => _pageIndex;
+
+    /// <summary>
+    /// False while the opening pass has only composed the first screen of a
+    /// large chapter. Page turns, seeking and speech wait for the background
+    /// completion instead of treating the partial page count as the chapter.
+    /// </summary>
+    public bool IsLayoutComplete => _layout?.IsComplete ?? true;
+
+    public int BodyTextLength => _content?.BodyText.Length ?? 0;
+
+    /// <summary>
+    /// Character offset of the first visible text. Progress uses this ratio
+    /// while the layout is partial, because the page index would otherwise
+    /// report the end of the composed prefix as the end of the chapter.
+    /// </summary>
+    public int CurrentTextOffset
+    {
+        get
+        {
+            if (_layout is null || _layout.Pages.Count == 0) return 0;
+            var pageIndex = Math.Clamp(VisibleFirstPageIndex, 0, _layout.Pages.Count - 1);
+            return Math.Max(0, _layout.Pages[pageIndex].TextStartOffset);
+        }
+    }
+
+    /// <summary>
+    /// Text range covered by the page(s) currently filling the viewport. The
+    /// native search uses this to publish visible matches before scanning the
+    /// rest of the chapter.
+    /// </summary>
+    public (int Start, int End)? GetVisiblePageTextRange()
+    {
+        if (_content is null || _layout is null || _layout.Pages.Count == 0) return null;
+        var first = Math.Clamp(VisibleFirstPageIndex, 0, _layout.Pages.Count - 1);
+        var last = IsSpread ? Math.Min(first + 1, _layout.Pages.Count - 1) : first;
+        var start = -1;
+        var end = -1;
+        for (var index = first; index <= last; index++)
+        {
+            var page = _layout.Pages[index];
+            if (page.TextStartOffset < 0 || page.TextEndOffset <= page.TextStartOffset) continue;
+            if (start < 0 || page.TextStartOffset < start) start = page.TextStartOffset;
+            if (page.TextEndOffset > end) end = page.TextEndOffset;
+        }
+
+        if (start < 0 || end <= start) return null;
+        start = Math.Clamp(start, 0, _content.BodyText.Length);
+        end = Math.Clamp(end, start, _content.BodyText.Length);
+        return end > start ? (start, end) : null;
+    }
 
     /// <summary>Keep the current page's first text at a page boundary when settings change.</summary>
     public bool PreservePageStartOnSettingsChange { get; set; }
@@ -462,6 +527,9 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         _bitmapDirty = true;
         InvalidateVisual();
         EmitScroll();
+        // The saved position is authoritative and has now been applied. Only
+        // then is it safe to finish a partial opening layout in the background.
+        CompleteLayoutInBackground();
     }
 
     private static ReaderPresentation DerivePresentation(ReaderLayoutSettings settings) =>
@@ -1265,7 +1333,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         var layout = _layout;
         var content = _content;
         var options = _options;
-        if (layout is null || content is null || options is null) return null;
+        if (layout is null || content is null || options is null || !layout.IsComplete) return null;
         var expected = BuildOptions(settings, width, height);
         return options.WritingMode == expected.WritingMode
             && Math.Abs(options.BaseFontSize - expected.BaseFontSize) < 0.01f
@@ -1460,8 +1528,28 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         || settings.TwoPageMode != _settings.TwoPageMode
         || Math.Abs(settings.BodyPadding - _settings.BodyPadding) > 0.001;
 
+    private static int? ResolveInitialComposeStop(
+        ChapterContent content,
+        string? fragment,
+        ViewportReadingAnchor? readingAnchor,
+        int? composeTextOffset)
+    {
+        if (content.BodyText.Length <= InitialComposeAheadCharacters / 2) return null;
+        var anchor = composeTextOffset
+            ?? (readingAnchor?.TextOffset is >= 0 ? readingAnchor.TextOffset : (int?)null)
+            ?? (string.IsNullOrWhiteSpace(fragment)
+                ? (int?)null
+                : content.FragmentTextOffsets.TryGetValue(NormalizeFragment(fragment), out var fragmentOffset)
+                    ? fragmentOffset
+                    : (int?)null)
+            ?? 0;
+        var stop = (long)Math.Max(0, anchor) + InitialComposeAheadCharacters;
+        if (stop >= content.BodyText.Length) return null;
+        return (int)Math.Max(1, stop);
+    }
+
     private Task<bool> NavigateCore(string chapterPath, string? fragment, ViewportReadingAnchor? readingAnchor = null,
-        bool anchorPageStart = false)
+        bool anchorPageStart = false, int? composeTextOffset = null, bool allowPartialCompose = false)
     {
         var initialPage = _pageIndex;
         var initialScroll = _scrollOffset;
@@ -1533,8 +1621,11 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
                     fontUse = fonts.BeginComposition();
                     navigationEngine = new TypesetEngine(fonts, ownsFonts: false);
                     SelectReaderMainFont(navigationEngine, settings.FontFamily);
+                    var stopAfter = allowPartialCompose
+                        ? ResolveInitialComposeStop(content, fragment, readingAnchor, composeTextOffset)
+                        : null;
                     var layout = navigationEngine.Compose(content, options, navigationToken,
-                        anchorPageStart ? readingAnchor?.TextOffset : null);
+                        anchorPageStart ? readingAnchor?.TextOffset : null, stopAfter);
                     return (content, options, layout);
                 }, navigationToken);
 
@@ -2299,6 +2390,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
             return;
         }
 
+        var completingPartialLayout = _layout is { IsComplete: false };
         var viewportAnchor = readingAnchor ?? (_preserveViewportPosition && ViewportReadingPositionMatches()
             ? _viewportReadingAnchor : null);
         _preserveViewportPosition = false;
@@ -2391,6 +2483,66 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
             _viewportReadingState = null;
         }
         PrefetchVisibleImages();
+
+        if (!_disposed && completingPartialLayout && _layout is { IsComplete: true })
+        {
+            LayoutCompleted?.Invoke(this, EventArgs.Empty);
+            EmitScroll();
+        }
+    }
+
+    /// <summary>
+    /// Starts the full layout pass for a chapter whose first screen was
+    /// composed for immediate display. Idempotent while a completion is
+    /// already running.
+    /// </summary>
+    public void CompleteLayoutInBackground()
+    {
+        if (_disposed || _layout is not { IsComplete: false } || _layoutCompletionScheduled) return;
+        _layoutCompletionScheduled = true;
+        RelayoutTask = CompleteLayoutAfterPaintAsync();
+    }
+
+    /// <summary>
+    /// Waits for the background completion before an operation that needs the
+    /// whole chapter (page turn, seek, speech). Starts a fresh pass if the
+    /// previous one was cancelled or installed another partial layout.
+    /// </summary>
+    public async Task EnsureCompleteLayoutAsync()
+    {
+        for (var attempt = 0; attempt < 4 && !_disposed && _layout is { IsComplete: false }; attempt++)
+        {
+            var running = RelayoutTask;
+            if (!running.IsCompleted)
+            {
+                try { await running; }
+                catch (OperationCanceledException) { }
+                catch (Exception exception) when (exception is not OutOfMemoryException)
+                {
+                    Console.WriteLine($"[Libzora] layout completion failed: {exception.Message}");
+                    return;
+                }
+            }
+
+            if (_disposed || _layout is not { IsComplete: false }) return;
+            await (RelayoutTask = RecomposeAsync());
+        }
+    }
+
+    private async Task CompleteLayoutAfterPaintAsync()
+    {
+        try
+        {
+            await RecomposeAsync();
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            Console.WriteLine($"[Libzora] background layout completion failed: {exception.Message}");
+        }
+        finally
+        {
+            _layoutCompletionScheduled = false;
+        }
     }
 
     /// <summary>Repaint only: selection, layout, page index and scroll offset stay intact.</summary>

@@ -152,6 +152,7 @@ private struct NativeEvent: Decodable {
     let dialog: ReaderDialog?
     let media: ReaderMedia?
     let footnote: ReaderFootnote?
+    let search: ReaderSearchBatch?
     let txtImport: TxtReview?
     let busy: Bool?
     let channel: String?
@@ -170,6 +171,7 @@ final class NativeReaderSession: ObservableObject {
     @Published var dialog: ReaderDialog?
     @Published var media: ReaderMedia?
     @Published var footnote: ReaderFootnote?
+    @Published var searchBatch: ReaderSearchBatch?
     @Published var aiStreams: [String: String] = [:]
     var appearanceSessionId = ""
     /// Monotonic per reading session. SwiftUI may recreate the reader view
@@ -320,6 +322,7 @@ final class NativeStore: ObservableObject {
         case "readerMedia": session.media = event.media
         case "readerFootnote":
             session.footnote = event.footnote?.visible == true ? event.footnote : nil
+        case "readerSearch": session.searchBatch = event.search
         case "txtImport": txtReview = event.txtImport
         case "dataBusy": dataBusy = event.busy ?? false; busyMessage = event.message ?? ""
         case "status": if event.channel == "sync" { syncStatus = event.message ?? "" }

@@ -40,7 +40,8 @@ public sealed class TypesetEngine : IDisposable
         ChapterContent content,
         TypesetLayoutOptions options,
         CancellationToken cancellationToken = default,
-        int? pageStartTextOffset = null)
+        int? pageStartTextOffset = null,
+        int? stopAfterTextOffset = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         using var composition = _fonts.BeginComposition();
@@ -54,18 +55,30 @@ public sealed class TypesetEngine : IDisposable
                 ? pageStartTextOffset : null,
         };
         var cells = new CellFactory(context);
-        var pages = new PageBuilder(options);
-
-        if (options.WritingMode == TypesetWritingMode.VerticalRl)
+        var pages = new PageBuilder(options)
         {
-            new VerticalComposer(context, cells, pages).Compose(content);
-        }
-        else
-        {
-            new HorizontalComposer(context, cells, pages).Compose(content);
-        }
+            StopAfterTextOffset = stopAfterTextOffset is > 0 ? stopAfterTextOffset : null,
+        };
 
-        pages.Finish(endOfChapter: true);
+        var truncated = false;
+        try
+        {
+            if (options.WritingMode == TypesetWritingMode.VerticalRl)
+            {
+                new VerticalComposer(context, cells, pages).Compose(content);
+            }
+            else
+            {
+                new HorizontalComposer(context, cells, pages).Compose(content);
+            }
+
+            pages.Finish(endOfChapter: true);
+        }
+        catch (CompositionTruncatedException)
+        {
+            truncated = true;
+            pages.Finish(endOfChapter: false);
+        }
 
         var layout = new ChapterLayout
         {
@@ -73,6 +86,7 @@ public sealed class TypesetEngine : IDisposable
             BodyTextLength = content.BodyText.Length,
             FragmentPages = pages.Fragments,
             Options = options,
+            IsComplete = !truncated,
         };
 
         // Block-level fragment ids are recorded when a block first enters a
@@ -80,9 +94,16 @@ public sealed class TypesetEngine : IDisposable
         // can occur after a long paragraph has already crossed a page break;
         // their source offsets are authoritative and must replace that coarse
         // first-page mapping.
+        var composedTextEnd = truncated
+            ? layout.Pages.LastOrDefault(page => page.TextEndOffset >= 0)?.TextEndOffset ?? 0
+            : int.MaxValue;
         foreach (var (fragmentId, offset) in content.FragmentTextOffsets)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            // A partial layout cannot locate anchors after its prefix; leaving
+            // the coarse block mapping untouched is less misleading than
+            // mapping every future anchor to the last composed page.
+            if (offset < 0 || offset >= composedTextEnd) continue;
             var fragmentPage = layout.GetPageIndexOfOffset(offset);
             if (fragmentPage >= 0)
             {
@@ -111,39 +132,49 @@ public readonly record struct PageOverlay(int Start, int Length, OverlayKind Kin
 /// </summary>
 public static class ChapterLayoutInteraction
 {
+    private sealed class TextPageLookup(int[] pageIndexes, int[] endOffsets)
+    {
+        public int[] PageIndexes { get; } = pageIndexes;
+        public int[] EndOffsets { get; } = endOffsets;
+    }
+
+    private static readonly ConditionalWeakTable<ChapterLayout, TextPageLookup> TextPageLookups = new();
+
     public static int GetPageIndexOfOffset(this ChapterLayout layout, int offset)
     {
-        var firstTextPage = -1;
-        var lastTextPage = -1;
-        for (var i = 0; i < layout.Pages.Count; i++)
+        var lookup = TextPageLookups.GetValue(layout, static value => BuildTextPageLookup(value));
+        if (lookup.PageIndexes.Length == 0) return -1;
+
+        // Pages are built in reading order and their end offsets are
+        // non-decreasing. The first page whose exclusive end is beyond the
+        // offset is the page the linear scan used to find.
+        var low = 0;
+        var high = lookup.EndOffsets.Length;
+        while (low < high)
         {
-            var page = layout.Pages[i];
-            if (page.TextStartOffset < 0)
-            {
-                continue;
-            }
-
-            firstTextPage = firstTextPage < 0 ? i : firstTextPage;
-            lastTextPage = i;
-            if (offset < page.TextStartOffset)
-            {
-                return i == firstTextPage ? firstTextPage : i;
-            }
-
-            if (page.TextEndOffset < 0 || offset < page.TextEndOffset)
-            {
-                return i;
-            }
-        }
-
-        if (firstTextPage < 0)
-        {
-            return -1;
+            var middle = low + (high - low) / 2;
+            if (offset < lookup.EndOffsets[middle]) high = middle;
+            else low = middle + 1;
         }
 
         // Offsets after the final visible run belong to the final page. This
         // is also where trailing whitespace safely restores.
-        return lastTextPage;
+        return lookup.PageIndexes[Math.Min(low, lookup.PageIndexes.Length - 1)];
+    }
+
+    private static TextPageLookup BuildTextPageLookup(ChapterLayout layout)
+    {
+        var indexes = new List<int>(layout.Pages.Count);
+        var ends = new List<int>(layout.Pages.Count);
+        for (var index = 0; index < layout.Pages.Count; index++)
+        {
+            var page = layout.Pages[index];
+            if (page.TextStartOffset < 0) continue;
+            indexes.Add(index);
+            ends.Add(page.TextEndOffset < 0 ? int.MaxValue : page.TextEndOffset);
+        }
+
+        return new TextPageLookup(indexes.ToArray(), ends.ToArray());
     }
 
     public static int GetPageIndexOfFragment(this ChapterLayout layout, string fragmentId) =>

@@ -259,6 +259,7 @@ public partial class ReaderPage : UserControl
         _readerHost = host;
         host.SetAppearance(new ReaderAppearanceSettings { Theme = CurrentTheme });
         host.WebMessageReceived += OnReaderWebMessage;
+        host.LayoutCompleted += OnReaderLayoutCompleted;
         ReaderHostSlot.Content = host.View;
         BuildEpubToc();
 
@@ -267,7 +268,17 @@ public partial class ReaderPage : UserControl
         if (restore is { ScrollPosition: <= 0 } && !string.IsNullOrWhiteSpace(restore.Fragment))
             target = new Uri(target.AbsoluteUri + "#" + Uri.EscapeDataString(restore.Fragment));
 
-        if (!await NavigateEpubAsync(host, target, cancellationToken))
+        // A saved text offset lets the first pass stop after the page the
+        // reader will actually see. Legacy pixel/page positions have no text
+        // offset and still require the whole chapter before restoring exactly.
+        var composeOffset = restore?.ContentPosition is { TextOffset: >= 0 } saved
+            ? saved.TextOffset
+            : (int?)null;
+        var allowPartialCompose = restore is null || composeOffset is not null;
+        if (!await NavigateEpubAsync(
+                host, target, cancellationToken, composeOffset,
+                allowPartialCompose: allowPartialCompose,
+                startLayoutCompletion: false))
             throw new InvalidOperationException("阅读器无法加载 EPUB 章节。");
 
         if (restore is not null)
@@ -284,6 +295,7 @@ public partial class ReaderPage : UserControl
         _annotations.AddRange(await _modules.Reader.Data.GetAnnotationsAsync(_bookFile.Id, cancellationToken));
         host.SetAnnotations(_annotations.ToList());
         UpdateEpubLabels();
+        host.CompleteLayoutInBackground();
         LoadingPanel.IsVisible = false;
         _ready = true;
         NotifyNativeState();
@@ -375,7 +387,10 @@ public partial class ReaderPage : UserControl
     private async Task<bool> NavigateEpubAsync(
         NativeReaderHost host,
         Uri target,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        int? composeTextOffset = null,
+        bool allowPartialCompose = true,
+        bool startLayoutCompletion = true)
     {
         var completion = new TaskCompletionSource<bool>(
             TaskCreationOptions.RunContinuationsAsynchronously);
@@ -388,8 +403,15 @@ public partial class ReaderPage : UserControl
         host.NavigationCompleted += handler;
         try
         {
-            host.Navigate(target, _layout, showVerticalDebugBoxes: false);
-            return await completion.Task.WaitAsync(TimeSpan.FromSeconds(30), cancellationToken);
+            host.Navigate(
+                target,
+                _layout,
+                showVerticalDebugBoxes: false,
+                composeTextOffset,
+                allowPartialCompose);
+            var navigated = await completion.Task.WaitAsync(TimeSpan.FromSeconds(30), cancellationToken);
+            if (navigated && startLayoutCompletion) host.CompleteLayoutInBackground();
+            return navigated;
         }
         finally
         {
@@ -486,13 +508,53 @@ public partial class ReaderPage : UserControl
     private void UpdateEpubLabels()
     {
         if (_epubDocument is null || _readerHost is not NativeReaderHost host) return;
+        var title = _epubDocument.ChapterTitles.ElementAtOrDefault(_chapterIndex)
+            ?? Path.GetFileNameWithoutExtension(_epubDocument.Chapters[_chapterIndex]);
+        if (!host.IsLayoutComplete)
+        {
+            // Only the opening prefix is composed. A page-index ratio would
+            // show the end of that prefix as the end of the chapter, so use
+            // the visible text position until the full layout arrives.
+            var ratio = Math.Clamp(
+                host.CurrentTextOffset / (double)Math.Max(1, host.BodyTextLength), 0, 1);
+            _overallProgress = Math.Clamp(
+                (_chapterIndex + ratio) / _epubDocument.Chapters.Count, 0, 1);
+            PresentPosition(title, UiText.Get("排版中"));
+            return;
+        }
+
         var pages = Math.Max(1, host.PageCount);
         var page = Math.Clamp(host.CurrentPage, 0, pages - 1);
         var chapterRatio = pages > 1 ? (double)page / (pages - 1) : 0;
         _overallProgress = Math.Clamp((_chapterIndex + chapterRatio) / _epubDocument.Chapters.Count, 0, 1);
-        var title = _epubDocument.ChapterTitles.ElementAtOrDefault(_chapterIndex)
-            ?? Path.GetFileNameWithoutExtension(_epubDocument.Chapters[_chapterIndex]);
         PresentPosition(title, BookPagePosition(page, pages));
+    }
+
+    private void OnReaderLayoutCompleted(object? sender, EventArgs e)
+    {
+        if (_disposed || !_ready) return;
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            // The completion runs on a worker; labels and the progress slider
+            // must be updated on the UI thread.
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (!_disposed && _ready) UpdateEpubLabels();
+            }, DispatcherPriority.Background);
+            return;
+        }
+        UpdateEpubLabels();
+    }
+
+    /// <summary>
+    /// Operations that cross the composed prefix need the whole chapter. The
+    /// background pass normally finishes long before the reader turns a page,
+    /// so this usually returns immediately.
+    /// </summary>
+    private async Task EnsureLayoutCompleteAsync()
+    {
+        if (_readerHost is NativeReaderHost host && !host.IsLayoutComplete)
+            await host.EnsureCompleteLayoutAsync();
     }
 
     private void UpdatePdfLabels()
@@ -873,6 +935,7 @@ public partial class ReaderPage : UserControl
         _turning = true;
         try
         {
+            await EnsureLayoutCompleteAsync();
             if (_isPdf && (_pdfPage + direction < 1 || _pdfPage + direction > _pdfPageCount))
             {
                 ShowEdgeNotice(direction);
@@ -929,7 +992,11 @@ public partial class ReaderPage : UserControl
         }
 
         if (!await NavigateToChapterAsync(host, chapter, new Uri(_epubDocument.Chapters[chapter]))) return;
-        if (fromEnd) host.SeekToBoundary(toEnd: true);
+        if (fromEnd)
+        {
+            await EnsureLayoutCompleteAsync();
+            host.SeekToBoundary(toEnd: true);
+        }
         UpdateEpubLabels();
         _ = SaveProgressSoonAsync(force: true);
     }
@@ -1229,9 +1296,16 @@ public partial class ReaderPage : UserControl
             if (_readerHost is not NativeReaderHost host || _epubDocument is null) return;
             var position = percent / 100 * _epubDocument.Chapters.Count;
             var chapter = Math.Min((int)position, _epubDocument.Chapters.Count - 1);
+            var chapterRatio = Math.Clamp(position - chapter, 0, 1);
             if (chapter != _chapterIndex)
                 await GoToChapterAsync(host, chapter, fromEnd: false, chapter - _chapterIndex);
-            host.SeekToRatio(Math.Clamp(position - chapter, 0, 1));
+            // A different chapter starts at page zero, which is exact even in
+            // a partially composed layout. Larger ratios need the full page
+            // table, but only for the destination chapter: completing the
+            // chapter being left first would double the wait.
+            if (!host.IsLayoutComplete && chapterRatio > 0)
+                await EnsureLayoutCompleteAsync();
+            host.SeekToRatio(chapterRatio);
             UpdateEpubLabels();
             _ = SaveProgressSoonAsync(force: true);
         }
@@ -1456,11 +1530,16 @@ public partial class ReaderPage : UserControl
             _ = SaveAndSyncOnExitAsync();
             StopReadingStatsTimer();
             _bookPageCountCancellation?.Cancel();
+            NativeCancelSearch();
             _lifetime.Cancel();
             if (_readerHost is not null)
             {
                 _readerHost.WebMessageReceived -= OnReaderWebMessage;
-                if (_readerHost is NativeReaderHost epub) epub.SetAnnotations([]);
+                if (_readerHost is NativeReaderHost epub)
+                {
+                    epub.LayoutCompleted -= OnReaderLayoutCompleted;
+                    epub.SetAnnotations([]);
+                }
                 _readerHost.Dispose();
                 _readerHost = null;
             }

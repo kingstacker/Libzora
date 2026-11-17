@@ -57,6 +57,7 @@ internal sealed record ReaderFontInstall(string Key, string Path, string Preview
 [JsonSerializable(typeof(NativeReaderFootnote))]
 [JsonSerializable(typeof(NativeReaderTocItem[]))]
 [JsonSerializable(typeof(NativeReaderSearchItem[]))]
+[JsonSerializable(typeof(NativeReaderSearchBatch))]
 [JsonSerializable(typeof(NativeMaterial[]))]
 [JsonSerializable(typeof(BookCollection))]
 [JsonSerializable(typeof(LibraryFilterOptions))]

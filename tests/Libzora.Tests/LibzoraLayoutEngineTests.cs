@@ -173,6 +173,73 @@ public sealed class LibzoraLayoutEngineTests : IDisposable
         Assert.NotEmpty(engine.Compose(content, Options(mode)).Pages);
     }
 
+    [Theory]
+    [InlineData(TypesetWritingMode.HorizontalTb)]
+    [InlineData(TypesetWritingMode.VerticalRl)]
+    public void OpeningCompositionCanStopAfterTheFirstScreen(TypesetWritingMode mode)
+    {
+        var path = WriteChapter(string.Concat(Enumerable.Range(0, 60).Select(index =>
+            $"<p>第{index + 1}段 " + string.Concat(Enumerable.Repeat("春风吹过山林读书应当记住眼前这一行文字", 8)) + "</p>")));
+        var content = new XhtmlChapterLoader(false).Load(path);
+        using var engine = CreateEngine();
+        var options = Options(mode);
+        var full = engine.Compose(content, options);
+        Assert.True(full.IsComplete);
+        Assert.True(full.Pages.Count > 4);
+
+        var stop = full.Pages[full.Pages.Count / 2].TextEndOffset;
+        var partial = engine.Compose(content, options, stopAfterTextOffset: stop);
+
+        Assert.False(partial.IsComplete);
+        Assert.NotEmpty(partial.Pages);
+        Assert.True(partial.Pages.Count < full.Pages.Count);
+        Assert.True(partial.Pages[^1].TextEndOffset >= stop);
+        Assert.False(partial.Pages[^1].EndOfChapter);
+        for (var index = 0; index < partial.Pages.Count; index++)
+        {
+            Assert.Equal(full.Pages[index].TextStartOffset, partial.Pages[index].TextStartOffset);
+            Assert.Equal(full.Pages[index].TextEndOffset, partial.Pages[index].TextEndOffset);
+            Assert.Equal(full.Pages[index].Runs.Count, partial.Pages[index].Runs.Count);
+        }
+    }
+
+    [Theory]
+    [InlineData(TypesetWritingMode.HorizontalTb)]
+    [InlineData(TypesetWritingMode.VerticalRl)]
+    public void OffsetLookupMatchesTheLinearContract(TypesetWritingMode mode)
+    {
+        var content = new XhtmlChapterLoader(false).Load(WriteChapter(
+            "<h1 id=\"start\">开始</h1>"
+            + string.Concat(Enumerable.Range(0, 18).Select(index =>
+                $"<p id=\"p{index}\">" + string.Concat(Enumerable.Repeat("山川湖海与城市街巷中的普通一天", 6)) + "</p>"))
+            + "<p id=\"end\">结束</p>"));
+        using var engine = CreateEngine();
+        var layout = engine.Compose(content, Options(mode, 360, 420));
+
+        static int Linear(ChapterLayout value, int offset)
+        {
+            var firstTextPage = -1;
+            var lastTextPage = -1;
+            for (var index = 0; index < value.Pages.Count; index++)
+            {
+                var page = value.Pages[index];
+                if (page.TextStartOffset < 0) continue;
+                firstTextPage = firstTextPage < 0 ? index : firstTextPage;
+                lastTextPage = index;
+                if (offset < page.TextStartOffset) return index == firstTextPage ? firstTextPage : index;
+                if (page.TextEndOffset < 0 || offset < page.TextEndOffset) return index;
+            }
+            return firstTextPage < 0 ? -1 : lastTextPage;
+        }
+
+        for (var offset = -4; offset <= layout.BodyTextLength + 4; offset += 37)
+        {
+            Assert.Equal(Linear(layout, offset), layout.GetPageIndexOfOffset(offset));
+        }
+        Assert.Equal(Linear(layout, int.MaxValue), layout.GetPageIndexOfOffset(int.MaxValue));
+        Assert.Equal(Linear(layout, int.MinValue), layout.GetPageIndexOfOffset(int.MinValue));
+    }
+
     private sealed class CancelAfterFirstBlock(IReadOnlyList<ContentBlock> blocks, CancellationTokenSource cancellation)
         : IReadOnlyList<ContentBlock>
     {

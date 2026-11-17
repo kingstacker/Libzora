@@ -51,7 +51,74 @@ public sealed partial class EpubBookContentService
             file.Id,
             file.Sha256,
             EnumerateChunkDraftsAsync(document, cancellationToken),
-            cancellationToken);
+            cancellationToken,
+            totalChapters: document.Chapters.Count);
+    }
+
+    /// <summary>
+    /// Indexes only the requested chapters, committing each one separately and
+    /// reporting its extracted text after the commit. Reader search uses the
+    /// callback to show hits from a chapter as soon as it has been scanned.
+    /// </summary>
+    public async Task<int> IndexBookChaptersAsync(
+        Book book,
+        BookFile file,
+        EpubReaderDocument document,
+        IReadOnlyList<int> chapterIndexes,
+        Func<EpubIndexedChapter, CancellationToken, Task>? onChapterIndexed,
+        CancellationToken cancellationToken = default)
+    {
+        if (chapterIndexes.Count == 0) return 0;
+        await _indexGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return await Task.Run(
+                () => IndexBookChaptersCoreAsync(
+                    book, file, document, chapterIndexes, onChapterIndexed, cancellationToken),
+                cancellationToken).ConfigureAwait(false);
+        }
+        finally { _indexGate.Release(); }
+    }
+
+    private async Task<int> IndexBookChaptersCoreAsync(
+        Book book,
+        BookFile file,
+        EpubReaderDocument document,
+        IReadOnlyList<int> chapterIndexes,
+        Func<EpubIndexedChapter, CancellationToken, Task>? onChapterIndexed,
+        CancellationToken cancellationToken)
+    {
+        await _readerData.EnsureBookContentIndexStateAsync(
+            file.Id, file.Sha256, document.Chapters.Count, cancellationToken);
+        var titles = document.Navigation.GroupBy(item => item.ChapterIndex)
+            .ToDictionary(group => group.Key, group => group.First().Title);
+        var seen = new HashSet<int>();
+        var count = 0;
+        foreach (var chapterIndex in chapterIndexes)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (chapterIndex < 0 || chapterIndex >= document.Chapters.Count || !seen.Add(chapterIndex))
+                continue;
+
+            var chapterPath = Path.GetFullPath(document.Chapters[chapterIndex]);
+            EnsureContainedPath(document.RootPath, chapterPath);
+            var relativePath = Path.GetRelativePath(document.RootPath, chapterPath).Replace('\\', '/');
+            var chapterTitle = titles.GetValueOrDefault(chapterIndex)
+                ?? $"第 {chapterIndex + 1} 章";
+            var text = await ExtractPlainTextAsync(chapterPath, cancellationToken);
+            var chunks = EnumerateChunks(text, chapterIndex, chapterTitle, relativePath, cancellationToken)
+                .ToArray();
+            count += await _readerData.ReplaceBookChapterChunksAsync(
+                book.Id, file.Id, file.Sha256, chapterIndex, chunks, cancellationToken);
+            if (onChapterIndexed is not null)
+            {
+                await onChapterIndexed(
+                    new EpubIndexedChapter(chapterIndex, chapterTitle, relativePath, text),
+                    cancellationToken);
+            }
+        }
+
+        return count;
     }
 
     private async IAsyncEnumerable<BookContentChunkDraft> EnumerateChunkDraftsAsync(
@@ -258,3 +325,10 @@ public sealed partial class EpubBookContentService
     [GeneratedRegex(@"[\t\f\v ]+")]
     private static partial Regex InlineWhitespaceRegex();
 }
+
+/// <summary>Plain text extracted for one chapter while building the index.</summary>
+public sealed record EpubIndexedChapter(
+    int ChapterIndex,
+    string ChapterTitle,
+    string ChapterPath,
+    string Text);

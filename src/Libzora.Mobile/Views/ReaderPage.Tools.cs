@@ -141,6 +141,7 @@ public partial class ReaderPage
 
             var chapter = Math.Clamp(chunk.ChapterIndex, 0, document.Chapters.Count - 1);
             if (chapter != _chapterIndex) await GoToChapterAsync(host, chapter, fromEnd: false, direction: 1);
+            await EnsureLayoutCompleteAsync();
 
             // Index offsets come from plain text, the host's from its own layout;
             // the nearest rendered match to the indexed one is the hit.
@@ -188,6 +189,9 @@ public partial class ReaderPage
             return;
         }
 
+        // Speech needs the whole chapter so it can continue past the first
+        // screen that the opening pass composed.
+        await EnsureLayoutCompleteAsync();
         try
         {
             // Engine construction binds platform speech services and can throw.

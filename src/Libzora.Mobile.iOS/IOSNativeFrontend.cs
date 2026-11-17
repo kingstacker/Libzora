@@ -326,6 +326,7 @@ internal sealed partial class IOSNativeFrontend
                     _reader.NativeDialogRequested += dialog => Publish(Data(("type", "readerDialog"), ("dialog", dialog)));
                     _reader.NativeReaderMediaRequested += media => Publish(Data(("type", "readerMedia"), ("media", media)));
                     _reader.NativeFootnoteRequested += footnote => Publish(Data(("type", "readerFootnote"), ("footnote", footnote)));
+                    _reader.NativeSearchBatchChanged += search => Publish(Data(("type", "readerSearch"), ("search", search)));
                     _reader.UseNativeFrontend();
                     var darkAppearance = _shell.Preferences.Current.ThemeMode switch
                     {
@@ -380,6 +381,7 @@ internal sealed partial class IOSNativeFrontend
     private async Task CloseReaderAsync()
     {
         if (_reader is not { } reader) return;
+        reader.NativeCancelSearch();
         await reader.PauseAsync();
         _readerSurface.Content = null;
         _reader = null;

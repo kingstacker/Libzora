@@ -43,8 +43,12 @@ struct NativeReaderPage: View {
     @State private var searchSubmitted = ""
     @State private var searchHits: [ReaderSearchHit] = []
     @State private var searchBusy = false
+    @State private var searchFinal = false
+    @State private var searchScanned = 0
+    @State private var searchTotal = 0
     @State private var searchError: String?
     @State private var searchGeneration = 0
+    @State private var searchId = ""
     @State private var showingSearchResults = false
     @State private var jumpingToSearch = false
     @State private var speechExpanded = true
@@ -123,7 +127,9 @@ struct NativeReaderPage: View {
                     .transition(.opacity)
                 }
                 if showingSearchResults {
-                    NativeReaderSearchResults(hits: searchHits, query: searchSubmitted, busy: searchBusy, error: searchError,
+                    NativeReaderSearchResults(hits: searchHits, query: searchSubmitted, busy: searchBusy,
+                                              final: searchFinal, scanned: searchScanned, total: searchTotal,
+                                              error: searchError,
                                               jumping: jumpingToSearch, pick: jumpToSearch, close: dismissSearchResults)
                         .frame(height: searchHits.isEmpty ? 58 : min(300, CGFloat(searchHits.count) * 96 + 38))
                         .modifier(NativeFloatingSurface()).padding(.horizontal, 12)
@@ -204,16 +210,33 @@ struct NativeReaderPage: View {
         }
         .task(id: searchGeneration) {
             let generation = searchGeneration
-            guard !searchSubmitted.isEmpty else { return }
+            let requestId = searchId
+            let query = searchSubmitted
+            guard !query.isEmpty, !requestId.isEmpty else { return }
             do {
-                let hits: [ReaderSearchHit] = try await store.request("reader.search", ["query": searchSubmitted])
-                guard !Task.isCancelled, generation == searchGeneration else { return }
-                searchHits = hits
+                let _: Done = try await store.request(
+                    "reader.searchStart", ["query": query, "searchId": requestId])
+                guard !Task.isCancelled, generation == searchGeneration else {
+                    store.perform { try? await store.command("reader.searchCancel", ["searchId": requestId]) }
+                    return
+                }
             } catch {
                 guard !Task.isCancelled, generation == searchGeneration else { return }
                 searchError = error.localizedDescription
+                searchBusy = false
+                searchFinal = true
             }
-            if !Task.isCancelled, generation == searchGeneration { searchBusy = false }
+        }
+        .onChange(of: session.searchBatch) { batch in
+            guard let batch,
+                  batch.searchId == searchId,
+                  batch.query == searchSubmitted else { return }
+            searchHits = batch.items
+            searchScanned = batch.scannedChapters
+            searchTotal = batch.totalChapters
+            searchFinal = batch.isFinal
+            searchBusy = !batch.isFinal
+            if let error = batch.error { searchError = error }
         }
     }
     private func resyncAppAppearance() {
@@ -248,6 +271,14 @@ struct NativeReaderPage: View {
         ZStack {
             paper.ignoresSafeArea()
             ReaderSurface(controller: store.readerController).padding(.bottom, readerBottomInset)
+            if store.preferences.readerThemeFollowsAppearance && store.preferences.colorfulMode {
+                // One continuous wash covers both the rendered page and the
+                // progress/footer paper, so following appearance never leaves
+                // a seam. It stays below the toolbars: an overlay here used to
+                // cover the bottom bar and swallow its touches.
+                NativeAmbientWash().opacity(appColorScheme == .dark ? 0.14 : 0.10)
+                    .ignoresSafeArea().allowsHitTesting(false).accessibilityHidden(true)
+            }
             if !reader.ready {
                 VStack(spacing: 16) {
                     Text(book.title).font(NativeTheme.font(21, relativeTo: .title2)).multilineTextAlignment(.center)
@@ -274,14 +305,6 @@ struct NativeReaderPage: View {
                     }.font(footerFont).foregroundStyle(NativeTheme.muted).padding(.horizontal, 24).frame(height: footerHeight)
                         .background(paper).allowsHitTesting(false)
                 }
-            }
-        }
-        .overlay {
-            if store.preferences.readerThemeFollowsAppearance && store.preferences.colorfulMode {
-                // One continuous wash covers both the rendered page and the
-                // progress/footer paper, so following appearance never leaves a seam.
-                NativeAmbientWash().opacity(appColorScheme == .dark ? 0.14 : 0.10)
-                    .ignoresSafeArea().allowsHitTesting(false)
             }
         }
         .overlay {
@@ -372,21 +395,27 @@ struct NativeReaderPage: View {
         withAnimation(.easeOut(duration: 0.2)) { searching = false }
     }
     private func dismissSearchResults() {
-        showingSearchResults = false; searchSubmitted = ""; searchBusy = false; searchGeneration += 1
+        let requestId = searchId
+        showingSearchResults = false; searchSubmitted = ""; searchBusy = false; searchFinal = false
+        searchScanned = 0; searchTotal = 0; searchGeneration += 1; searchId = ""
+        store.perform { try? await store.command("reader.searchCancel", ["searchId": requestId]) }
     }
     private func submitSearch() {
         guard !jumpingToSearch else { return }
         let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return }
         searchFocused = false; searchSubmitted = query
-        searchHits = []; searchError = nil; searchBusy = true; showingSearchResults = true; searchGeneration += 1
+        searchHits = []; searchError = nil; searchBusy = true; searchFinal = false
+        searchScanned = 0; searchTotal = 0
+        showingSearchResults = true; searchId = UUID().uuidString; searchGeneration += 1
     }
     private func jumpToSearch(_ hit: ReaderSearchHit) {
-        guard !searchBusy, !jumpingToSearch else { return }
+        guard !jumpingToSearch else { return }
         jumpingToSearch = true
+        let requestId = searchId
         store.perform {
             defer { jumpingToSearch = false }
-            try await store.command("reader.searchJump", ["id": hit.id]); closeSearch()
+            try await store.command("reader.searchJump", ["id": hit.id, "searchId": requestId]); closeSearch()
         }
     }
     private var topBar: some View {
@@ -864,16 +893,20 @@ struct NativeReaderTocView: View {
     let close: () -> Void
     @State private var items: [ReaderToc] = []
     @State private var collapsed: Set<Int> = []
+    /// Large books can carry hundreds of entries; recomputing the outline on
+    /// every body evaluation made every checkmark and layout pass O(n).
+    @State private var parents: Set<Int> = []
+    @State private var rows: [NativeReaderTocOutline.Row] = []
 
-    private var parentIDs: Set<Int> { NativeReaderTocOutline.parentIDs(items) }
-    private var visibleRows: [NativeReaderTocOutline.Row] {
-        NativeReaderTocOutline.visibleRows(items, collapsed: collapsed)
+    private func refreshOutline() {
+        parents = NativeReaderTocOutline.parentIDs(items)
+        rows = NativeReaderTocOutline.visibleRows(items, collapsed: collapsed)
     }
 
     var body: some View {
         VStack(spacing: 0) {
             ScrollViewReader { proxy in
-                List(visibleRows) { row in
+                List(rows) { row in
                     let item = row.item
                     HStack(spacing: 0) {
                         if row.hasChildren {
@@ -888,7 +921,7 @@ struct NativeReaderTocView: View {
                             }
                             .accessibilityLabel(L("{0}{1}的子章节", collapsed.contains(item.id) ? L("展开") : L("收起"), item.title))
                             .accessibilityIdentifier("reader.toc.toggle.\(item.id)")
-                        } else if !parentIDs.isEmpty {
+                        } else if !parents.isEmpty {
                             Color.clear.frame(width: 32, height: 1)
                         }
                         Button {
@@ -922,12 +955,12 @@ struct NativeReaderTocView: View {
         .modifier(NativeReaderTocNavigationBackground())
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                if !parentIDs.isEmpty {
-                    let allCollapsed = parentIDs.isSubset(of: collapsed)
+                if !parents.isEmpty {
+                    let allCollapsed = parents.isSubset(of: collapsed)
                     Button {
                         withAnimation(.easeInOut(duration: 0.18)) {
                             if allCollapsed { collapsed.removeAll() }
-                            else { collapsed = parentIDs }
+                            else { collapsed = parents }
                         }
                     } label: {
                         Image(systemName: allCollapsed ? "chevron.down" : "chevron.up")
@@ -937,7 +970,15 @@ struct NativeReaderTocView: View {
                 }
             }
         }
-        .task(id: store.uiLanguage) { do { items = try await store.request("reader.toc") } catch { if !Task.isCancelled { store.failure = error.localizedDescription } } }
+        .onChange(of: collapsed) { _ in refreshOutline() }
+        .task(id: store.uiLanguage) {
+            do {
+                items = try await store.request("reader.toc")
+                refreshOutline()
+            } catch {
+                if !Task.isCancelled { store.failure = error.localizedDescription }
+            }
+        }
     }
 }
 
@@ -989,6 +1030,9 @@ struct NativeReaderSearchResults: View {
     let hits: [ReaderSearchHit]
     let query: String
     let busy: Bool
+    let final: Bool
+    let scanned: Int
+    let total: Int
     let error: String?
     let jumping: Bool
     let pick: (ReaderSearchHit) -> Void
@@ -998,9 +1042,20 @@ struct NativeReaderSearchResults: View {
 
         VStack(alignment: .leading, spacing: 0) {
             Group {
-                if busy { ProgressView(L("正在搜索全书…")) }
-                else if let error { Text(error) }
-                else { Text(hits.isEmpty ? L("没有找到相关文字") : L("找到 {0} 处结果", hits.count)) }
+                if let error { Text(error) }
+                else if busy && hits.isEmpty {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text(scanned <= 1 ? L("正在搜索当前章节…") : L("正在搜索全书…"))
+                    }
+                } else if busy {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text(L("已找到 {0} 处，继续搜索…", hits.count))
+                    }
+                } else {
+                    Text(hits.isEmpty ? L("没有找到相关文字") : L("找到 {0} 处结果", hits.count))
+                }
             }.font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.muted)
                 .padding(.horizontal, 20).padding(.top, 14).padding(.bottom, 6).accessibilityIdentifier("reader.search.status")
             ScrollView {
@@ -1012,7 +1067,7 @@ struct NativeReaderSearchResults: View {
                                 Text(highlighted(hit.excerpt)).font(NativeTheme.font(14)).lineLimit(3).lineSpacing(5)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                             }.padding(.vertical, 14).contentShape(Rectangle())
-                        }.disabled(busy || jumping).accessibilityIdentifier("reader.search.hit.\(hit.id)")
+                        }.disabled(jumping).accessibilityIdentifier("reader.search.hit.\(hit.id)")
                         NativeTheme.strong.frame(height: 0.5)
                     }
                 }.padding(.horizontal, 20).padding(.bottom, 20)

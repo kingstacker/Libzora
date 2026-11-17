@@ -59,6 +59,15 @@ public sealed record BookContentChunkDraft(
     int EndOffset,
     string Content);
 
+/// <summary>
+/// Which chapters of one EPUB file already have indexed text, plus whether
+/// the whole file is complete. Progressive search uses the chapter set to
+/// resume an interrupted build and to avoid re-extracting known chapters.
+/// </summary>
+public sealed record BookContentIndexSnapshot(
+    bool IsComplete,
+    IReadOnlySet<int> IndexedChapters);
+
 // ------------------------------------------------------------------
 // Reader persistence: progress restore, bookmarks, per-format layout rows,
 // book-level layout/appearance scope and cumulative reading stats. Layout

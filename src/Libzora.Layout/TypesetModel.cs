@@ -371,4 +371,10 @@ public sealed class ChapterLayout
     /// <summary>Element id → page index for fragment navigation.</summary>
     public required IReadOnlyDictionary<string, int> FragmentPages { get; init; }
     public required TypesetLayoutOptions Options { get; init; }
+    /// <summary>
+    /// False when composition intentionally stopped at an early page so the
+    /// first screen could be shown; the host then completes the chapter in the
+    /// background. Page ranges and fragment maps only cover the composed prefix.
+    /// </summary>
+    public bool IsComplete { get; init; } = true;
 }

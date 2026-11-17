@@ -340,6 +340,51 @@ public sealed class ProductivityFeatureTests
     }
 
     [Fact]
+    public void RootConfigurationRefusesMissingConfiguredRoot()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var app = Path.Combine(root, "app");
+            var missing = Path.Combine(root, "unmounted-disk", "Libzora");
+            Directory.CreateDirectory(app);
+            AppRootConfiguration.Save(app, missing);
+            // Simulate an external disk that is no longer mounted.
+            Directory.Delete(missing, recursive: true);
+
+            var exception = Assert.Throws<AppRootUnavailableException>(
+                () => AppRootConfiguration.ResolveRoot(app, Path.Combine(root, "fallback")));
+
+            Assert.Equal(Path.GetFullPath(missing), exception.Root);
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
+    public void LegacyConfigurationCopiesIntoStableDirectory()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var legacy = Path.Combine(root, "legacy");
+            var configuration = Path.Combine(root, "config");
+            var target = Path.Combine(root, "relocated");
+            Directory.CreateDirectory(legacy);
+            AppRootConfiguration.Save(legacy, target);
+
+            AppRootConfiguration.EnsureConfigurationMigrated(legacy, configuration);
+
+            Assert.True(File.Exists(Path.Combine(configuration, "app-root.json")));
+            Assert.Equal(
+                Path.GetFullPath(target),
+                AppRootConfiguration.ResolveRoot(configuration, Path.Combine(root, "fallback")));
+            // The legacy file stays behind so downgrading still works.
+            Assert.True(File.Exists(Path.Combine(legacy, "app-root.json")));
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
     public void RootConfigurationSupportsSeparatePlatformFallback()
     {
         var root = TestHelpers.CreateTempDirectory();
@@ -367,6 +412,12 @@ public sealed class ProductivityFeatureTests
             Directory.CreateDirectory(Path.Combine(relocated, "data"));
             Directory.CreateDirectory(Path.Combine(relocated, "backups"));
             Directory.CreateDirectory(Path.Combine(relocated, "browser-data", "send-to-kindle"));
+            Directory.CreateDirectory(Path.Combine(relocated, "regions", "international", "data"));
+            Directory.CreateDirectory(Path.Combine(relocated, "plugins", "sample"));
+            Directory.CreateDirectory(Path.Combine(relocated, "plugin-data", "sample"));
+            await File.WriteAllTextAsync(Path.Combine(relocated, "regions", "international", "data", "libzora.db"), "regional");
+            await File.WriteAllTextAsync(Path.Combine(relocated, "plugins", "sample", "plugin.json"), "{}");
+            await File.WriteAllTextAsync(Path.Combine(relocated, "plugin-data", "sample", "state.json"), "{}");
             await File.WriteAllTextAsync(Path.Combine(relocated, "browser-data", "send-to-kindle", "session"), "test-session");
             Directory.CreateDirectory(Path.Combine(temporary, "Libzora", "updates"));
             Directory.CreateDirectory(Path.Combine(temporary, "Libzora", "resource-transfer"));
@@ -390,6 +441,9 @@ public sealed class ProductivityFeatureTests
             Assert.False(Directory.Exists(Path.Combine(relocated, "data")));
             Assert.False(Directory.Exists(Path.Combine(relocated, "backups")));
             Assert.False(Directory.Exists(Path.Combine(relocated, "browser-data")));
+            Assert.False(Directory.Exists(Path.Combine(relocated, "regions")));
+            Assert.False(Directory.Exists(Path.Combine(relocated, "plugins")));
+            Assert.False(Directory.Exists(Path.Combine(relocated, "plugin-data")));
             Assert.False(File.Exists(Path.Combine(relocated, ".libzora-migration.libzora")));
             Assert.True(File.Exists(Path.Combine(relocated, "keep.txt")));
             Assert.True(Directory.Exists(relocated));

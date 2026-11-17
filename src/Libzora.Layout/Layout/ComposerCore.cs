@@ -105,6 +105,13 @@ internal sealed class PageBuilder
     private LayoutPage _current;
     private bool _used;
 
+    /// <summary>
+    /// Stops composition once the just-closed page reaches this character
+    /// offset. The reader uses it to paint the first screen of a very large
+    /// chapter without waiting for the whole chapter.
+    /// </summary>
+    public int? StopAfterTextOffset { get; init; }
+
     public PageBuilder(TypesetLayoutOptions options)
     {
         _options = options;
@@ -149,8 +156,13 @@ internal sealed class PageBuilder
     public void Next()
     {
         _pages.Add(_current);
+        var truncated = StopAfterTextOffset is { } stop && _current.TextEndOffset >= stop;
         _current = MakePage();
         _used = false;
+        if (truncated)
+        {
+            throw new CompositionTruncatedException();
+        }
     }
 
     public void Finish(bool endOfChapter)
@@ -293,6 +305,15 @@ internal sealed class PageBuilder
         InsetHorizontal = _options.InsetHorizontal,
         InsetVertical = _options.InsetVertical,
     };
+}
+
+/// <summary>Internal control-flow signal for an intentional partial layout.</summary>
+internal sealed class CompositionTruncatedException : Exception
+{
+    public CompositionTruncatedException()
+        : base("Composition stopped after the requested text offset.")
+    {
+    }
 }
 
 /// <summary>

@@ -239,7 +239,19 @@ struct DashboardSnapshot: Decodable {
 struct TrashRecord: Decodable, Identifiable { let id: String; let title: String; let detail: String; let deletedAt: String }
 
 struct ReaderToc: Decodable, Identifiable { let id: Int; let title: String; let level: Int; let selected: Bool }
-struct ReaderSearchHit: Decodable, Identifiable { let id: Int; let title: String; let excerpt: String }
+struct ReaderSearchHit: Decodable, Identifiable, Equatable { let id: Int; let title: String; let excerpt: String }
+/// A cumulative progressive-search update. Ids stay stable across batches so
+/// results already on screen remain tappable while later chapters load.
+struct ReaderSearchBatch: Decodable, Equatable {
+    let generation: Int
+    let searchId: String
+    let query: String
+    let items: [ReaderSearchHit]
+    let scannedChapters: Int
+    let totalChapters: Int
+    let isFinal: Bool
+    let error: String?
+}
 struct ReaderDialog: Decodable, Equatable { let kind: String; let title: String; let text: String; let annotationId: String?; let note: String? }
 struct ReaderMedia: Decodable, Identifiable, Equatable { let id: String; let kind: String; let title: String; let path: String }
 struct SpeechVoice: Decodable, Identifiable { let id: String; let name: String; let culture: String? }

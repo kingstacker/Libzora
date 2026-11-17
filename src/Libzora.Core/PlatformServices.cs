@@ -67,6 +67,15 @@ public interface IDeviceChangeNotifier : IDisposable
 public interface IDeviceAttachmentProbe
 {
     Task<bool> IsDeviceAttachedAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Variant that can match one specific reader. Windows reports Plug and
+    /// Play device IDs, so it can tell the stopped reader apart from an
+    /// unrelated phone or USB disk; platforms that cannot keep the broader
+    /// "any reader" answer of the parameterless overload.
+    /// </summary>
+    Task<bool> IsDeviceAttachedAsync(string? deviceIdentity, CancellationToken cancellationToken = default)
+        => IsDeviceAttachedAsync(cancellationToken);
 }
 
 /// <summary>

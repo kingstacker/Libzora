@@ -7,6 +7,20 @@ namespace Libzora.Tests.Windows;
 public sealed class KindleDeviceTests
 {
     [Fact]
+    public void ServiceCanProbeAttachmentWithoutOpeningADeviceSession()
+    {
+        Assert.IsAssignableFrom<IDeviceAttachmentProbe>(new KindleDeviceService());
+    }
+
+    [Fact]
+    public async Task UnrelatedWpdIdentityIsNotReportedAsAttached()
+    {
+        var service = new KindleDeviceService();
+        Assert.False(await service.IsDeviceAttachedAsync(
+            @"\\?\usb#vid_0000&pid_0000#libzora-test-missing#{6ac27878-a6fa-4155-ba85-f98f491d4f33}"));
+    }
+
+    [Fact]
     public async Task MissingWpdDeviceDoesNotReportAnEmptyVerifiedLibrary()
     {
         var service = new KindleDeviceService();

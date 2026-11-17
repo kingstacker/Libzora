@@ -8,7 +8,7 @@ using Libzora.Infrastructure;
 
 namespace Libzora.Platform.Windows;
 
-public sealed class KindleDeviceService : IKindleDeviceService
+public sealed class KindleDeviceService : IKindleDeviceService, IDeviceAttachmentProbe
 {
     private const long MaximumMetadataFileSize = 128L * 1024 * 1024;
     private const int FileOperationRetryAttempts = 30;
@@ -56,13 +56,15 @@ public sealed class KindleDeviceService : IKindleDeviceService
         }
         finally
         {
-            if (wpdTask.IsCompleted)
+            lock (_wpdDetectionSync)
             {
-                lock (_wpdDetectionSync)
-                {
-                    if (ReferenceEquals(_wpdDetectionTask, wpdTask))
-                        _wpdDetectionTask = null;
-                }
+                // Never leave a timed-out or cancelled detection cached. After
+                // a USB unplug a Shell/WPD call can block on the vanished
+                // device; reusing that task would make every later refresh
+                // wait on the same dead handle, so replugging the reader
+                // appeared to do nothing until the app restarted.
+                if (ReferenceEquals(_wpdDetectionTask, wpdTask))
+                    _wpdDetectionTask = null;
             }
         }
 
@@ -87,6 +89,36 @@ public sealed class KindleDeviceService : IKindleDeviceService
             }
             return _wpdDetectionTask;
         }
+    }
+
+    /// <summary>
+    /// Checks whether a reader is still physically attached without opening a
+    /// WPD session or touching a mounted volume. The UI uses this to release
+    /// its "stopped access" latch after the reader is unplugged.
+    /// </summary>
+    public Task<bool> IsDeviceAttachedAsync(CancellationToken cancellationToken = default) =>
+        IsDeviceAttachedAsync(null, cancellationToken);
+
+    public Task<bool> IsDeviceAttachedAsync(string? deviceIdentity, CancellationToken cancellationToken = default) =>
+        Task.Run(() => IsDeviceAttached(deviceIdentity, cancellationToken), cancellationToken);
+
+    private static bool IsDeviceAttached(string? deviceIdentity, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var drives = DetectMassStorageDevices(cancellationToken);
+        if (!string.IsNullOrWhiteSpace(deviceIdentity))
+        {
+            // The stopped identity is either a volume serial (mounted USB
+            // disk) or a WPD Plug and Play device path. Match that exact
+            // device so an unrelated phone or flash drive cannot hold the
+            // latch open.
+            if (drives.Any(drive =>
+                    string.Equals(drive.Identity, deviceIdentity, StringComparison.OrdinalIgnoreCase)))
+                return true;
+            return WpdAttachmentProbe.IsDeviceAttached(deviceIdentity, cancellationToken);
+        }
+
+        return drives.Count > 0 || WpdAttachmentProbe.HasAnyDevice(cancellationToken);
     }
 
     private static List<KindleDevice> DetectMassStorageDevices(CancellationToken cancellationToken)

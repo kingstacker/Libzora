@@ -667,6 +667,7 @@ public sealed partial class SettingsTests
         Assert.Empty(scope.Field<IReadOnlyList<KindleDevice>>("_devices"));
         Assert.Equal(0, service.DetectionRequests);
         Assert.True(service.AttachmentProbes >= 1);
+        Assert.Equal(device.Identity, service.LastProbedIdentity);
     });
 
     [Fact]
@@ -680,6 +681,7 @@ public sealed partial class SettingsTests
         scope.Call("DeviceChangeNotifier_DeviceChanged", null, EventArgs.Empty);
         await Until(() => scope.Field<string?>("_manuallyDisconnectedDeviceId") is null);
         Assert.True(service.AttachmentProbes >= 1);
+        Assert.Equal(device.Identity, service.LastProbedIdentity);
         await Until(() => !scope.Field<bool>("_deviceChangePending") && service.DetectionRequests >= 1);
         Assert.Empty(scope.Field<IReadOnlyList<KindleDevice>>("_devices"));
 
@@ -710,6 +712,7 @@ public sealed partial class SettingsTests
     {
         public bool IsAttached { get; set; } = true;
         public int AttachmentProbes { get; private set; }
+        public string? LastProbedIdentity { get; private set; }
         public IReadOnlyList<KindleDevice> Devices { get; set; } = [];
         public IReadOnlyList<KindleBook> CachedBooks { get; init; } = [];
         public IReadOnlyList<KindleClipping> Notes { get; init; } = [];
@@ -737,6 +740,12 @@ public sealed partial class SettingsTests
         public Task<bool> IsDeviceAttachedAsync(CancellationToken cancellationToken = default)
         {
             AttachmentProbes++;
+            return Task.FromResult(IsAttached);
+        }
+        public Task<bool> IsDeviceAttachedAsync(string? deviceIdentity, CancellationToken cancellationToken = default)
+        {
+            AttachmentProbes++;
+            LastProbedIdentity = deviceIdentity;
             return Task.FromResult(IsAttached);
         }
         public Task<IReadOnlyList<KindleBook>> ScanBooksAsync(KindleDevice device, CancellationToken cancellationToken = default)

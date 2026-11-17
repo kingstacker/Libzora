@@ -754,7 +754,7 @@ public partial class MainWindow
                     bool attached;
                     try
                     {
-                        attached = await probe.IsDeviceAttachedAsync(probeToken);
+                        attached = await probe.IsDeviceAttachedAsync(_manuallyDisconnectedDeviceId, probeToken);
                     }
                     catch (OperationCanceledException)
                     {

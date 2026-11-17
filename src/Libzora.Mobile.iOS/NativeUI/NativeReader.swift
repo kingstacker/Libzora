@@ -303,7 +303,10 @@ struct NativeReaderPage: View {
                         Text(reader.position).monospacedDigit().lineLimit(1).minimumScaleFactor(0.85)
                             .layoutPriority(1).accessibilityIdentifier("reader.position")
                     }.font(footerFont).foregroundStyle(NativeTheme.muted).padding(.horizontal, 24).frame(height: footerHeight)
-                        .background(paper).allowsHitTesting(false)
+                        // The page already reserves this footer space. Keep it
+                        // transparent so the continuous ambient wash remains
+                        // visible instead of ending at an opaque paper strip.
+                        .allowsHitTesting(false)
                 }
             }
         }

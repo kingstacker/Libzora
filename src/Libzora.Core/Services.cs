@@ -36,6 +36,7 @@ public interface IBookLibraryService
         Func<ImportBookConflict, Task<ImportConflictResolution>>? conflictResolver = null,
         IReadOnlyDictionary<string, TxtImportRules>? txtImportRules = null);
     Task<BookFile> AddFileToBookAsync(Guid bookId, string sourcePath, CancellationToken cancellationToken = default);
+    Task RenameFileAsync(Guid bookId, Guid bookFileId, string fileName, CancellationToken cancellationToken = default);
     Task RenameBookAsync(Guid bookId, string title, CancellationToken cancellationToken = default);
     Task UpdateMetadataAsync(Book book, CancellationToken cancellationToken = default);
     Task<string?> EnsurePdfCoverAsync(Guid bookId, CancellationToken cancellationToken = default) => Task.FromResult<string?>(null);

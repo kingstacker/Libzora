@@ -530,6 +530,33 @@ internal sealed class PluginBookTaskService : IPluginBookTaskHost
                     UiText.Get("书籍注音未完全完成：{0}。已保存的进度可下次继续。", reason));
             }
 
+            // Generated output is deterministic for unchanged input. The
+            // library rejects duplicate hashes, so replace the old edition
+            // only when the new file actually differs.
+            var generatedHash = await Hashing.Sha256Async(outputPath, cancellationToken);
+            var identical = existingPinyinFiles.FirstOrDefault(file =>
+                !string.IsNullOrWhiteSpace(file.Sha256)
+                && file.Sha256.Equals(generatedHash, StringComparison.OrdinalIgnoreCase));
+            if (identical is not null)
+            {
+                if (!File.Exists(_library.GetAbsoluteFilePath(identical)))
+                    throw new InvalidOperationException(
+                        UiText.Get("旧注音文件在磁盘上已丢失，请先在书籍详情中删除该注音版本后重试。"));
+                imported = true;
+                return new JsonObject
+                {
+                    ["bookId"] = bookId.ToString("D"),
+                    ["title"] = generatedTitle,
+                    ["replaced"] = existingPinyinFiles.Length,
+                    ["scannedPages"] = result.ScannedPageCount,
+                    ["annotatedPages"] = result.AnnotatedPageCount,
+                    ["characters"] = result.AnnotatedCharacterCount,
+                    ["reviewCandidates"] = result.ReviewCandidateCount,
+                    ["aiReviewed"] = result.AiReviewedCandidateCount,
+                    ["aiReview"] = aiSettings is not null
+                };
+            }
+
             progress?.Report(new PluginTaskProgress(
                 "import",
                 UiText.Get("正在加入书库…"),
@@ -537,12 +564,38 @@ internal sealed class PluginBookTaskService : IPluginBookTaskHost
                 0,
                 0,
                 true));
-            // Remove the previous generated edition first so the new file can
-            // take the canonical "_pinyin" name instead of a "(2)" suffix.
+            // Import the new edition first: if the copy or database insert
+            // fails, the book keeps its previous generated version. The new
+            // file may get a "(2)" suffix while the old name is occupied, so
+            // retire the old versions afterwards and restore the canonical
+            // name (the reader identifies generated editions by that suffix).
+            var addedFile = await _library.AddFileToBookAsync(bookId, outputPath, cancellationToken);
+            imported = true;
             foreach (var existing in existingPinyinFiles)
                 await _library.DeleteFileAsync(bookId, existing.Id, cancellationToken);
-            await _library.AddFileToBookAsync(bookId, outputPath, cancellationToken);
-            imported = true;
+            var canonicalName = Path.GetFileName(outputPath);
+            if (!string.Equals(
+                    Path.GetFileName(addedFile.RelativePath),
+                    canonicalName,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    await _library.RenameFileAsync(
+                        bookId,
+                        addedFile.Id,
+                        canonicalName,
+                        cancellationToken);
+                }
+                catch (Exception exception) when (exception is IOException or InvalidOperationException)
+                {
+                    // Both files are already in the library; a failed cosmetic
+                    // rename must not turn a successful annotation into a
+                    // reported failure.
+                    System.Diagnostics.Debug.WriteLine(
+                        $"Unable to restore pinyin file name: {exception.Message}");
+                }
+            }
 
             return new JsonObject
             {

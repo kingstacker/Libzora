@@ -322,7 +322,7 @@ public sealed class ProductivityFeatureTests
     }
 
     [Fact]
-    public void RootConfigurationPersistsAndFallsBackOnCorruption()
+    public void RootConfigurationStopsOnCorruption()
     {
         var root = TestHelpers.CreateTempDirectory();
         try
@@ -334,7 +334,12 @@ public sealed class ProductivityFeatureTests
             Assert.Equal(Path.GetFullPath(data), AppRootConfiguration.ResolveRoot(app));
 
             File.WriteAllText(Path.Combine(app, "app-root.json"), "broken");
-            Assert.Equal(Path.GetFullPath(app), AppRootConfiguration.ResolveRoot(app));
+            // Falling back here used to reopen the pre-migration library and
+            // let new imports create a second, diverging root.
+            Assert.Throws<AppRootConfigurationException>(
+                () => AppRootConfiguration.ResolveRoot(app));
+            // Cleanup still needs a non-throwing best-effort read.
+            Assert.Null(AppRootConfiguration.TryReadRoot(app));
         }
         finally { TestHelpers.TryDelete(root); }
     }

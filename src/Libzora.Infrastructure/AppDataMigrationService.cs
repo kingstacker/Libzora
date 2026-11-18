@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Libzora.Core;
@@ -170,6 +172,12 @@ public sealed class AppDataMigrationService
                     CollectPayloadFiles(sourceRoot, stageRoot: null, cancellationToken),
                     journal.CopiedDatabasePaths);
 
+                // Record what the snapshot actually contains. If the process
+                // dies after the move but before app-root.json is published,
+                // recovery may only adopt this target when the old root still
+                // matches; otherwise the user has kept using it and the copy
+                // is now stale.
+                journal.SourceFingerprint = ComputeSourceFingerprint(copied.Files);
                 journal.PayloadEntries = PayloadDirectoryNames
                     .Where(name => Directory.Exists(Path.Combine(stagePath, name)))
                     .ToList();
@@ -191,6 +199,7 @@ public sealed class AppDataMigrationService
                 // This is the only point where the active root changes. A crash
                 // before this line leaves the old root in use.
                 AppRootConfiguration.Save(_configurationDirectory, target, sourceRoot);
+                MarkRetiredRoots(sourceRoot, target);
                 committed = true;
                 TryDeleteFile(legacyPath);
                 CleanupCompletedArtifacts(target, journalPath, stagePath);
@@ -278,6 +287,19 @@ public sealed class AppDataMigrationService
                 "上次迁移已标记完成，但目标数据目录不完整。旧数据目录仍然保留，请选择新的空目录重试。");
         }
 
+        // The old root remained authoritative until app-root.json was
+        // published, so the user (or another process) may have added books
+        // after the copy finished. Re-publish only if the source still matches
+        // the snapshot the journal describes; otherwise discard this target
+        // and copy the current library again.
+        if (!string.IsNullOrWhiteSpace(journal.SourceFingerprint)
+            && Directory.Exists(journal.SourceRoot)
+            && !SourceMatchesFingerprint(journal.SourceRoot, journal.SourceFingerprint, cancellationToken))
+        {
+            progress?.Report(new AppDataMigrationProgress(0.05, "旧数据目录在迁移后已发生变化，正在重新迁移…"));
+            return null;
+        }
+
         try
         {
             progress?.Report(new AppDataMigrationProgress(0.9, "正在校验上次迁移的数据…"));
@@ -304,6 +326,7 @@ public sealed class AppDataMigrationService
         }
 
         AppRootConfiguration.Save(_configurationDirectory, target, journal.SourceRoot);
+        MarkRetiredRoots(journal.SourceRoot, target);
         TryDeleteFile(legacyPath);
         CleanupCompletedArtifacts(target, journalPath, Path.Combine(target, journal.StageDirectory));
         progress?.Report(new AppDataMigrationProgress(1, "迁移完成，重启 Libzora 后生效。"));
@@ -323,6 +346,56 @@ public sealed class AppDataMigrationService
         if (!Directory.Exists(regions)) yield break;
         foreach (var region in Directory.EnumerateDirectories(regions))
             yield return region;
+    }
+
+    private static void MarkRetiredRoots(string retiredRoot, string activeRoot)
+    {
+        foreach (var root in EnumerateLockRoots(retiredRoot).Distinct(PathComparer))
+            AppRootConfiguration.MarkMigrated(root, activeRoot);
+    }
+
+    internal static string ComputeSourceFingerprint(string sourceRoot, CancellationToken cancellationToken) =>
+        ComputeSourceFingerprint(CollectPayloadFiles(sourceRoot, stageRoot: null, cancellationToken));
+
+    private static string ComputeSourceFingerprint(IEnumerable<PayloadFile> files)
+    {
+        // Volatile caches are rewritten by ordinary browsing and would make
+        // every recovery look stale. Everything else uses size + timestamp,
+        // which is enough to detect imports, edits and deletions.
+        var builder = new StringBuilder();
+        foreach (var file in files
+                     .Where(file => !IsVolatilePayloadFile(file.RelativePath))
+                     .OrderBy(file => file.RelativePath, StringComparer.Ordinal))
+        {
+            builder.Append(file.RelativePath)
+                .Append('|')
+                .Append(file.Length)
+                .Append('|')
+                .Append(file.LastWriteTimeUtc.Ticks)
+                .Append('\n');
+        }
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(builder.ToString())));
+    }
+
+    private static bool SourceMatchesFingerprint(
+        string sourceRoot,
+        string expectedFingerprint,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var actual = ComputeSourceFingerprint(
+                CollectPayloadFiles(sourceRoot, stageRoot: null, cancellationToken));
+            return string.Equals(actual, expectedFingerprint, StringComparison.Ordinal);
+        }
+        catch (Exception exception) when (exception is IOException
+            or UnauthorizedAccessException
+            or DirectoryNotFoundException)
+        {
+            // A vanished transient file must not make recovery publish a stale
+            // target; treat an unreadable source as changed.
+            return false;
+        }
     }
 
     private async Task<(long CopiedBytes, IReadOnlyList<PayloadFile> Files)> CopyPayloadAsync(
@@ -956,6 +1029,7 @@ public sealed class AppDataMigrationService
         public string ActiveDataRelativePath { get; set; } = "data";
         public List<string> PayloadEntries { get; set; } = [];
         public List<string> CopiedDatabasePaths { get; set; } = [];
+        public string SourceFingerprint { get; set; } = string.Empty;
         public int BookCount { get; set; }
         public int FileCount { get; set; }
         public long CopiedBytes { get; set; }

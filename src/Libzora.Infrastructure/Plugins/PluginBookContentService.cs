@@ -74,6 +74,11 @@ public sealed class PluginBookContentService : IPluginContentHost
     private readonly Func<BookFile, CancellationToken, Task<string?>>? _resolveFile;
     private readonly ConcurrentDictionary<Guid, Lazy<Task<PreparedBook>>> _prepared = new();
     private readonly ConcurrentDictionary<(Guid FileId, int Chapter), string> _chapterText = new();
+    // Bound cached text by characters, not entry count: a few long chapters
+    // could otherwise pin hundreds of megabytes while the outline requests
+    // their lengths.
+    private const int MaximumCachedChapterCharacters = 16 * 1024 * 1024;
+    private int _cachedChapterCharacters;
 
     public PluginBookContentService(
         AppPaths paths,
@@ -183,9 +188,18 @@ public sealed class PluginBookContentService : IPluginContentHost
             ? throw new NotSupportedException("当前运行环境不支持读取书籍正文。")
             : string.Empty;
 #endif
-        // Keep the cache bounded; a long book read chapter by chapter
-        // would otherwise pin its whole text in memory.
-        if (_chapterText.Count > 400) _chapterText.Clear();
+        // Keep the cache bounded by text size. Clearing wholesale is
+        // intentional: chapters are reloaded from the reader cache, and a
+        // size-aware eviction list would add contention for little gain.
+        if (text.Length > 0)
+        {
+            var projected = Interlocked.Add(ref _cachedChapterCharacters, text.Length);
+            if (projected > MaximumCachedChapterCharacters)
+            {
+                _chapterText.Clear();
+                Interlocked.Exchange(ref _cachedChapterCharacters, 0);
+            }
+        }
         _chapterText[(fileId, index)] = text;
         return text;
     }

@@ -255,6 +255,17 @@ public sealed class MtpKindleDeviceService : IKindleDeviceService, IDeviceAttach
             if (!device.Profile.SupportsBookFile(sourcePath))
                 throw new NotSupportedException(UiText.Get("当前设备不支持此书籍格式。"));
 
+            // The filesystem transports refuse to replace a device copy when
+            // the source no longer matches the hash recorded at import. MTP
+            // previously only compared sizes, so same-length corruption could
+            // overwrite a valid device copy.
+            if (!string.IsNullOrWhiteSpace(bookFile.Sha256))
+            {
+                var sourceHash = await Hashing.Sha256Async(sourcePath, cancellationToken).ConfigureAwait(false);
+                if (!sourceHash.Equals(bookFile.Sha256, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException("书籍文件校验失败，源文件可能已损坏。请重新导入后再发送。");
+            }
+
             var fileName = KindleTransferPolicy.CreateSafeFileName(
                 Path.GetFileNameWithoutExtension(sourcePath),
                 Path.GetExtension(sourcePath),

@@ -42,6 +42,8 @@ internal static class DataRootMigrationState
         if (IsActiveFor(paths))
             throw new InvalidOperationException(
                 "数据目录迁移正在进行，请等待迁移完成后再修改书库或资源。");
+        AppRootConfiguration.ThrowIfMigrated(paths.Root);
+        AppRootConfiguration.ThrowIfMigrated(paths.InstallationRoot);
     }
 
     public static bool IsActiveFor(string root)

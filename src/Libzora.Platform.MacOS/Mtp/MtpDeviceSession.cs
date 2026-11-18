@@ -338,25 +338,21 @@ internal sealed class MtpDeviceSession : IDisposable
                 IntPtr.Zero);
             if (result < 0)
             {
-                if (cancellationToken.IsCancellationRequested)
-                {
-                    // libmtp may have created a partial object before the
-                    // callback aborted the transfer. Remove it so a retry does
-                    // not leave an unreadable half-book on the device.
-                    Invalidate(directory.StorageId, directory.ItemId);
-                    try
-                    {
-                        if (FindChild(directory, fileName) is { } partial) Delete(partial);
-                    }
-                    catch (Exception cleanupFailure) when (cleanupFailure is IOException or InvalidOperationException)
-                    {
-                        // The transfer already failed; a cleanup failure must
-                        // not hide the cancellation.
-                    }
-                    ClearErrors();
+                var cancellationRequested = cancellationToken.IsCancellationRequested;
+                // Capture libmtp's diagnostics before cleanup clears the
+                // per-device error stack.
+                IReadOnlyList<string> errors = cancellationRequested
+                    ? []
+                    : LibMtp.ReadErrorStack(_device);
+                // libmtp may have created a partial object before any error,
+                // not only when the callback aborted for cancellation. Remove
+                // it in every failure case so the device does not advertise a
+                // truncated file with a real book extension.
+                TryDeletePartialUpload(directory, fileName);
+                if (cancellationRequested)
                     throw new OperationCanceledException(cancellationToken);
-                }
-                Throw($"无法写入设备文件 {fileName}");
+                var detail = errors.Count == 0 ? string.Empty : $" ({string.Join("; ", errors)})";
+                throw new IOException($"无法写入设备文件 {fileName}{detail}");
             }
         }
         finally
@@ -371,8 +367,29 @@ internal sealed class MtpDeviceSession : IDisposable
         // Some firmware reports 0 until the object is re-read; only a known,
         // mismatching size is treated as a failed transfer.
         if (uploaded.Size > 0 && uploaded.Size != size)
+        {
+            TryDeletePartialUpload(directory, fileName);
             throw new IOException($"设备文件大小校验失败：{fileName}");
+        }
         return uploaded;
+    }
+
+    private void TryDeletePartialUpload(MtpEntry directory, string fileName)
+    {
+        try
+        {
+            Invalidate(directory.StorageId, directory.ItemId);
+            if (FindChild(directory, fileName) is { } partial) Delete(partial);
+        }
+        catch (Exception cleanupFailure) when (cleanupFailure is IOException or InvalidOperationException)
+        {
+            // The transfer already failed; a cleanup failure must not hide the
+            // original error.
+        }
+        finally
+        {
+            ClearErrors();
+        }
     }
 
     public void Delete(MtpEntry entry)

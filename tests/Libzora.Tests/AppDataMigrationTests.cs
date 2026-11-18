@@ -104,6 +104,14 @@ public sealed class AppDataMigrationTests
             // The old root is retained exactly as it was.
             Assert.True(File.Exists(installation.Database));
             Assert.True(File.Exists(region.Database));
+            // ...but long-running helpers that still resolve the old AppPaths
+            // must not keep writing into the retired library.
+            Assert.True(File.Exists(Path.Combine(sourceRoot, AppRootConfiguration.MigratedMarkerFileName)));
+            Assert.True(File.Exists(Path.Combine(region.Root, AppRootConfiguration.MigratedMarkerFileName)));
+            await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            {
+                using var lease = await AppDataProcessLock.AcquireAsync(installation, CancellationToken.None);
+            });
         }
         finally
         {
@@ -272,6 +280,68 @@ public sealed class AppDataMigrationTests
             Assert.False(File.Exists(Path.Combine(physicalTarget, AppDataMigrationService.JournalFileName)));
             Assert.False(Directory.Exists(Path.Combine(physicalTarget, stageName)));
             Assert.True(File.Exists(Path.Combine(physicalTarget, "data", "libzora.db")));
+        }
+        finally
+        {
+            TestHelpers.TryDelete(root);
+        }
+    }
+
+    [Fact]
+    public async Task CommittedJournalDoesNotPublishStaleSnapshotAfterSourceChanges()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var sourceRoot = Path.Combine(root, "source");
+            var configuration = Path.Combine(root, "config");
+            var installation = new AppPaths(sourceRoot);
+            var library = new SqliteBookLibraryService(installation, new BookMetadataService());
+            await library.InitializeAsync();
+            await AddBookAsync(installation, "first");
+
+            var target = Path.Combine(root, "target");
+            await new AppDataMigrationService(installation, configuration).MigrateAsync(target);
+            var physicalSource = AppDataMigrationService.ResolvePhysicalPath(sourceRoot);
+            var physicalTarget = AppDataMigrationService.ResolvePhysicalPath(target);
+
+            // Simulate a crash after the move but before app-root.json was
+            // published: the target holds a complete copy and the journal is
+            // still Committed. The user then keeps importing into the old
+            // library.
+            File.Delete(Path.Combine(physicalSource, AppRootConfiguration.MigratedMarkerFileName));
+            var fingerprint = AppDataMigrationService.ComputeSourceFingerprint(
+                physicalSource, CancellationToken.None);
+            await AddBookAsync(installation, "second");
+
+            var journal = new AppDataMigrationService.MigrationJournal
+            {
+                Phase = AppDataMigrationService.MigrationPhase.Committed,
+                SourceRoot = physicalSource,
+                TargetRoot = physicalTarget,
+                StageDirectory = AppDataMigrationService.StageDirectoryPrefix + Guid.NewGuid().ToString("N"),
+                ActiveDataRelativePath = "data",
+                PayloadEntries = new[] { "data", "regions", "backups", "plugins", "plugin-data" }
+                    .Where(name => Directory.Exists(Path.Combine(physicalTarget, name)))
+                    .ToList(),
+                CopiedDatabasePaths = ["data/libzora.db"],
+                SourceFingerprint = fingerprint
+            };
+            await File.WriteAllTextAsync(
+                Path.Combine(physicalTarget, AppDataMigrationService.JournalFileName),
+                JsonSerializer.Serialize(journal, AppDataMigrationService.JournalJsonOptions));
+
+            var result = await new AppDataMigrationService(installation, configuration)
+                .MigrateAsync(physicalTarget);
+
+            // The changed source must win: recovery re-copies instead of
+            // adopting the one-book snapshot.
+            Assert.Equal(2, result.BookCount);
+            Assert.Equal(
+                2L,
+                await ScalarInt64Async(
+                    Path.Combine(physicalTarget, "data", "libzora.db"),
+                    "SELECT COUNT(*) FROM Books;"));
         }
         finally
         {

@@ -1126,7 +1126,10 @@ public partial class MainWindow
             .First();
         if (chapterIndex < 0) return;
 
-        _readerChapterIndex = chapterIndex;
+        // Do not move _readerChapterIndex here: NavigateToReaderItemAsync
+        // records the previous chapter for its own rollback, and a failed
+        // bookmark load must leave both the page and the index on the old
+        // chapter.
         _readerPendingBookmarkQuote = bookmark.Quote;
         _readerPendingBookmarkPosition = bookmark.ScrollPosition;
         _readerPendingBookmarkFlowMode = bookmark.FlowMode;
@@ -1138,11 +1141,12 @@ public partial class MainWindow
 
         try
         {
-            await NavigateToReaderItemAsync(
+            var navigated = await NavigateToReaderItemAsync(
                 new EpubReaderNavigationItem(bookmark.Title, target.AbsoluteUri, chapterIndex),
                 ReaderToken,
                 ReaderNavigationIntent.Bookmark);
-            await UpdateReaderBookmarkIndicatorAsync();
+            if (navigated)
+                await UpdateReaderBookmarkIndicatorAsync();
         }
         finally
         {
@@ -1271,6 +1275,26 @@ public partial class MainWindow
     }
 
     private async void ReaderSearchResultButton_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            await OpenReaderSearchResultAsync(sender);
+        }
+        catch (OperationCanceledException)
+        {
+            // Closing the reader or starting another jump cancels the pending
+            // navigation; the newer UI state already reflects that.
+        }
+        catch (Exception exception)
+        {
+            // async void event handlers surface exceptions on the UI
+            // dispatcher, which can terminate the whole application. A failed
+            // search jump must stay a local status message.
+            ShowReaderSearchStatus(T("跳转失败：{0}", UiText.Localize(exception.Message)));
+        }
+    }
+
+    private async Task OpenReaderSearchResultAsync(object? sender)
     {
         if (sender is not Button { Tag: ReaderSearchResultViewModel result }) return;
         if (!ReferenceEquals(_selectedReaderSearchResult, result))

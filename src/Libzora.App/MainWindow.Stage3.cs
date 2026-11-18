@@ -127,6 +127,10 @@ public partial class MainWindow
     private readonly HashSet<Task> _activeDeviceOperations = [];
     private bool _deviceEjectInProgress;
     private bool _isTransferring;
+    // Held from the first check until the transfer's finally block. The
+    // visible _isTransferring flag is set only after device refresh and
+    // confirmation dialogs, which left a window for two sends to enter.
+    private int _transferGate;
     private readonly SemaphoreSlim _deviceBookExportGate = new(1, 1);
     private CancellationTokenSource? _transferCancellation;
     private CancellationTokenSource? _transferPrefetchCancellation;
@@ -2426,7 +2430,14 @@ public partial class MainWindow
             ShowSettingsCapsule(T("已有发送任务正在进行中。"), 2400);
             return [];
         }
+        if (Interlocked.CompareExchange(ref _transferGate, 1, 0) != 0)
+        {
+            ShowSettingsCapsule(T("已有发送任务正在进行中。"), 2400);
+            return [];
+        }
 
+        try
+        {
         await RefreshDevicesAsync(scanBooks: false, _lifetimeCancellation.Token);
         if (CurrentDevice is not { } device)
         {
@@ -2618,6 +2629,11 @@ public partial class MainWindow
             await TryRefreshDeviceBooksAfterTransferAsync(device);
         }
         return failures;
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _transferGate, 0);
+        }
     }
 
     private async Task SendSelectedBooksByEmailAsync()
@@ -2790,7 +2806,14 @@ public partial class MainWindow
             ShowSettingsCapsule(T("已有发送任务正在进行中。"), 2400);
             return;
         }
+        if (Interlocked.CompareExchange(ref _transferGate, 1, 0) != 0)
+        {
+            ShowSettingsCapsule(T("已有发送任务正在进行中。"), 2400);
+            return;
+        }
 
+        try
+        {
         await RefreshDevicesAsync(scanBooks: false, _lifetimeCancellation.Token);
         if (CurrentDevice is not { } device)
         {
@@ -2881,6 +2904,11 @@ public partial class MainWindow
             // example while writing the shelf thumbnail). Refresh from a
             // finally so the device shelf never keeps a stale pre-send view.
             if (transferStarted) await TryRefreshDeviceBooksAfterTransferAsync(device);
+        }
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _transferGate, 0);
         }
     }
 

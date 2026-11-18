@@ -601,6 +601,33 @@ public sealed class LibraryTests
     }
 
     [Fact]
+    public async Task RenamesBookFileAndUpdatesStoredPath()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var source = Path.Combine(root, "原书.epub");
+            CreateEpub(source);
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            var service = new SqliteBookLibraryService(paths, new BookMetadataService());
+            await service.InitializeAsync();
+            await service.ImportAsync([source]);
+            var book = Assert.Single(await service.SearchAsync());
+            var original = Assert.Single(book.Files);
+            var originalPath = service.GetAbsoluteFilePath(original);
+
+            await service.RenameFileAsync(book.Id, original.Id, "renamed.epub");
+
+            var reloaded = await service.GetBookAsync(book.Id);
+            var renamed = Assert.Single(reloaded!.Files);
+            Assert.Equal("renamed.epub", Path.GetFileName(renamed.RelativePath));
+            Assert.True(File.Exists(service.GetAbsoluteFilePath(renamed)));
+            Assert.False(File.Exists(originalPath));
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
     public async Task DeletesOnlySelectedFormatAndRemovesBookAfterLastFormat()
     {
         var root = TestHelpers.CreateTempDirectory();

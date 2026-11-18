@@ -1093,6 +1093,77 @@ public sealed partial class SqliteBookLibraryService : IBookLibraryService
         }
     }
 
+    /// <summary>
+    /// Renames one file inside a book. Generated editions use this after the
+    /// preceding version is retired, so their canonical file name (for
+    /// example a trailing "_pinyin") is restored without a temporary suffix.
+    /// </summary>
+    public async Task RenameFileAsync(
+        Guid bookId,
+        Guid bookFileId,
+        string fileName,
+        CancellationToken cancellationToken = default)
+    {
+        using var processLease = await AppDataProcessLock.AcquireAsync(_paths, cancellationToken);
+        await _databaseGate.WaitAsync(cancellationToken);
+        try
+        {
+            await using var connection = await OpenConnectionAsync(cancellationToken);
+            var book = await ReadBookByIdAsync(connection, bookId, cancellationToken)
+                ?? throw new InvalidOperationException("目标书籍已不存在，请刷新书库后重试。");
+            var file = book.Files.FirstOrDefault(item => item.Id == bookFileId)
+                ?? throw new FileNotFoundException("书籍文件不存在。");
+            var currentPath = ResolveDataPath(file.RelativePath);
+            var directory = Path.GetDirectoryName(currentPath);
+            if (string.IsNullOrWhiteSpace(directory))
+                throw new InvalidOperationException("书籍文件目录无效。");
+            var safeName = SanitizeFileName(fileName);
+            var targetPath = Path.Combine(directory, safeName);
+            if (string.Equals(
+                    Path.GetFullPath(currentPath),
+                    Path.GetFullPath(targetPath),
+                    StringComparison.OrdinalIgnoreCase))
+                return;
+            if (File.Exists(targetPath))
+                throw new IOException($"同名文件已存在：{safeName}");
+
+            File.Move(currentPath, targetPath);
+            try
+            {
+                var update = connection.CreateCommand();
+                update.CommandText = """
+                    UPDATE BookFiles SET RelativePath = $relativePath WHERE Id = $id;
+                    UPDATE Books SET UpdatedAt = $updatedAt WHERE Id = $bookId;
+                    """;
+                update.Parameters.AddWithValue("$relativePath", Path.GetRelativePath(_paths.Data, targetPath));
+                update.Parameters.AddWithValue("$id", bookFileId.ToString());
+                update.Parameters.AddWithValue("$updatedAt", DateTimeOffset.UtcNow.ToString("O"));
+                update.Parameters.AddWithValue("$bookId", bookId.ToString());
+                await update.ExecuteNonQueryAsync(cancellationToken);
+            }
+            catch
+            {
+                TryMoveFileBack(targetPath, currentPath);
+                throw;
+            }
+            NotifyDataChanged();
+        }
+        finally
+        {
+            _databaseGate.Release();
+        }
+    }
+
+    private static void TryMoveFileBack(string from, string to)
+    {
+        try
+        {
+            if (File.Exists(from) && !File.Exists(to)) File.Move(from, to);
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+    }
+
     public async Task<string?> EnsurePdfCoverAsync(Guid bookId, CancellationToken cancellationToken = default)
     {
         using var processLease = await AppDataProcessLock.AcquireAsync(_paths, cancellationToken);

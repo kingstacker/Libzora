@@ -791,6 +791,48 @@ public sealed class LibraryViewModel : ObservableObject, IDisposable
         _ = RefreshViewSafelyAsync(resetPage: false);
     }
 
+    /// <summary>
+    /// Returns the collections that contain at least one book matching the
+    /// current search/filter. The shelf only materializes one page, so the
+    /// caller cannot infer this from <see cref="Books"/> alone.
+    /// </summary>
+    public async Task<HashSet<Guid>> GetMatchingCollectionIdsAsync(
+        IReadOnlySet<Guid> requiredCollectionIds,
+        CancellationToken cancellationToken = default)
+    {
+        var books = Books.ToArray();
+        var matching = new HashSet<Guid>();
+        foreach (var card in books)
+            matching.UnionWith(card.Book.CollectionIds);
+        if (requiredCollectionIds.IsSubsetOf(matching) || books.Length >= FilteredBookCount)
+            return matching;
+
+        const int pageSize = 500;
+        var loaded = 0;
+        for (var pageIndex = 0; loaded < FilteredBookCount; pageIndex++)
+        {
+            var page = await _library.SearchPageAsync(
+                SearchText,
+                AuthorFilter,
+                TagFilter,
+                FormatFilter,
+                CategoryFilter,
+                CollectionFilterId,
+                ReadingStatusFilter,
+                FavoriteFilter,
+                SortMode,
+                pageIndex,
+                pageSize,
+                cancellationToken);
+            if (page.Books.Count == 0) break;
+            foreach (var book in page.Books)
+                matching.UnionWith(book.CollectionIds);
+            loaded += page.Books.Count;
+            if (requiredCollectionIds.IsSubsetOf(matching) || page.Books.Count < pageSize) break;
+        }
+        return matching;
+    }
+
     public void Dispose()
     {
         _viewCancellation?.Cancel();

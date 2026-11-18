@@ -46,13 +46,24 @@ public sealed partial class EpubBookContentService
         if (await _readerData.IsIndexCurrentAsync(file.Id, file.Sha256, cancellationToken))
             return 0;
 
-        return await _readerData.ReplaceBookChunksStreamingAsync(
-            book.Id,
-            file.Id,
-            file.Sha256,
-            EnumerateChunkDraftsAsync(document, cancellationToken),
-            cancellationToken,
-            totalChapters: document.Chapters.Count);
+        // Commit one chapter at a time. The previous streaming path held the
+        // process lock, the database gate and a write transaction for the
+        // whole parse, so a large first index blocked page turns and reading
+        // progress saves. Each chapter is now its own transaction; the index
+        // only becomes current after every chapter has a state row.
+        await _readerData.EnsureBookContentIndexStateAsync(
+            file.Id, file.Sha256, document.Chapters.Count, cancellationToken);
+        var chapterIndexes = Enumerable.Range(0, document.Chapters.Count).ToArray();
+        var count = await IndexBookChaptersCoreAsync(
+            book,
+            file,
+            document,
+            chapterIndexes,
+            onChapterIndexed: null,
+            cancellationToken);
+        await _readerData.MarkBookContentIndexCompleteAsync(
+            file.Id, file.Sha256, document.Chapters.Count, cancellationToken);
+        return count;
     }
 
     /// <summary>

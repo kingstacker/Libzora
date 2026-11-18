@@ -25,7 +25,7 @@ internal static class Program
         {
             StartupErrorReporter.Show(
                 "Libzora 无法启动",
-                exception is AppRootUnavailableException
+                exception is AppRootUnavailableException or AppRootConfigurationException
                     ? exception.Message
                     : $"启动时发生错误：{exception.Message}");
         }

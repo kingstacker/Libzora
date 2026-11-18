@@ -120,6 +120,9 @@ public partial class MainWindow : Window
     // existing card back into the default NotSynced state.
     private readonly ConcurrentDictionary<Guid, BookSyncStatus> _bookSyncStatusCache = new();
     private long _bookSyncStatusRefreshVersion;
+    private int _bookSyncStatusRefreshBusy;
+    private int _collectionSearchVersion;
+    private CancellationTokenSource? _collectionSearchCancellation;
     private readonly UpdateService? _updateService;
     private AppSettings _appSettings = new();
     private KindleEmailSettings _kindleEmailSettings = new();
@@ -1263,29 +1266,113 @@ public partial class MainWindow : Window
             Dispatcher.UIThread.Post(() =>
             {
                 ApplyCollectionSearchFilter();
-                UpdateLibraryUi();            });
+                UpdateLibraryUi();
+                RefreshMissingBookSyncStatusesIfNeeded();
+            });
             return;
         }
         ApplyCollectionSearchFilter();
-        UpdateLibraryUi();    }
+        UpdateLibraryUi();
+        RefreshMissingBookSyncStatusesIfNeeded();
+    }
+
+    private void RefreshMissingBookSyncStatusesIfNeeded()
+    {
+        // The first visit to a page has no cached badge state; without this
+        // the new cards keep their default NotSynced status and clicking the
+        // badge uploads instead of downloading a cloud-only book.
+        if (ViewModel.Books.Any(card => !_bookSyncStatusCache.ContainsKey(card.Book.Id)))
+            _ = RefreshMissingBookSyncStatusesAsync();
+    }
 
     private void ApplyCollectionSearchFilter()
     {
-        var query = ViewModel.SearchText.Trim();
-        var hasSearchScope = query.Length > 0 || ViewModel.HasActiveFilters;
-        var matchingBookCollectionIds = hasSearchScope
-            ? ViewModel.Books
-                .SelectMany(card => card.Book.CollectionIds)
-                .ToHashSet()
-            : null;
+        var version = Interlocked.Increment(ref _collectionSearchVersion);
+        var previousCancellation = _collectionSearchCancellation;
+        _collectionSearchCancellation = null;
+        previousCancellation?.Cancel();
 
+        var query = ViewModel.SearchText.Trim();
+        if (query.Length == 0 && !ViewModel.HasActiveFilters)
+        {
+            ApplyCollectionSearchFilterCore(matchingBookCollectionIds: null, query);
+            return;
+        }
+
+        // The current page is usually the whole result set. Only search beyond
+        // it when the result count proves that later pages exist; otherwise a
+        // folder whose matching book lives on page 2 would disappear unless
+        // its own name happened to match the query.
+        var visibleIds = ViewModel.Books
+            .SelectMany(card => card.Book.CollectionIds)
+            .ToHashSet();
+        if (ViewModel.Books.Count >= ViewModel.FilteredBookCount)
+        {
+            ApplyCollectionSearchFilterCore(visibleIds, query);
+            return;
+        }
+
+        ApplyCollectionSearchFilterCore(visibleIds, query);
+        var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCancellation.Token);
+        _collectionSearchCancellation = cancellation;
+        _ = LoadCollectionSearchMatchesAsync(version, query, cancellation);
+    }
+
+    private async Task LoadCollectionSearchMatchesAsync(
+        int version,
+        string query,
+        CancellationTokenSource cancellation)
+    {
+        var cancellationToken = cancellation.Token;
+        try
+        {
+            var current = ViewModel.Books
+                .SelectMany(card => card.Book.CollectionIds)
+                .ToHashSet();
+            var required = CollectionFolders
+                .Select(folder => folder.Collection.Id)
+                .Where(id => !current.Contains(id))
+                .ToHashSet();
+            if (required.Count == 0) return;
+
+            var matching = await ViewModel.GetMatchingCollectionIdsAsync(required, cancellationToken);
+            if (cancellationToken.IsCancellationRequested
+                || version != Volatile.Read(ref _collectionSearchVersion))
+                return;
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (version != Volatile.Read(ref _collectionSearchVersion)) return;
+                ApplyCollectionSearchFilterCore(matching, query);
+            });
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception exception)
+        {
+            // Keep the folders visible from the current page; a failed
+            // background refinement must not blank the collections view.
+            System.Diagnostics.Debug.WriteLine($"Collection search refinement failed: {exception}");
+        }
+        finally
+        {
+            if (ReferenceEquals(_collectionSearchCancellation, cancellation))
+                _collectionSearchCancellation = null;
+            cancellation.Dispose();
+        }
+    }
+
+    private void ApplyCollectionSearchFilterCore(
+        IReadOnlySet<Guid>? matchingBookCollectionIds,
+        string query)
+    {
         var visible = new List<BookCollectionFolderViewModel>(CollectionFolders.Count);
         foreach (var folder in CollectionFolders)
         {
             var nameMatches = query.Length > 0
                 && folder.Name.Contains(query, StringComparison.CurrentCultureIgnoreCase);
             var booksMatch = matchingBookCollectionIds?.Contains(folder.Collection.Id) == true;
-            if (!hasSearchScope || nameMatches || booksMatch)
+            if (matchingBookCollectionIds is null || nameMatches || booksMatch)
                 visible.Add(folder);
         }
         FilteredCollectionFolders.ReplaceAllIfChanged(visible);
@@ -1881,6 +1968,42 @@ public partial class MainWindow : Window
         await ViewModel.RefreshAsync(cancellationToken);
         await RefreshLibraryMatchRecordsAsync(cancellationToken);
         await RefreshBookSyncStatusesAsync(cancellationToken);
+    }
+
+    private async Task RefreshMissingBookSyncStatusesAsync()
+    {
+        if (Interlocked.CompareExchange(ref _bookSyncStatusRefreshBusy, 1, 0) != 0) return;
+        var retry = false;
+        try
+        {
+            var attempted = ViewModel.Books
+                .Select(card => card.Book.Id)
+                .ToHashSet();
+            // RefreshBookSyncStatusesAsync computes the whole visible page.
+            // If it failed, the next ViewChanged retries for that page.
+            await RefreshBookSyncStatusesAsync(_lifetimeCancellation.Token);
+            if (!Dispatcher.UIThread.CheckAccess())
+                await Dispatcher.UIThread.InvokeAsync(UpdateLibraryUi);
+            else
+                UpdateLibraryUi();
+            // The user may have changed pages while the refresh was running;
+            // those cards were not part of this pass and need their own.
+            retry = ViewModel.Books.Any(card =>
+                !attempted.Contains(card.Book.Id)
+                && !_bookSyncStatusCache.ContainsKey(card.Book.Id));
+        }
+        catch (OperationCanceledException) when (_lifetimeCancellation.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine($"Visible book sync status refresh failed: {exception}");
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _bookSyncStatusRefreshBusy, 0);
+            if (retry) _ = RefreshMissingBookSyncStatusesAsync();
+        }
     }
 
     private async Task RefreshBookSyncStatusesAsync(CancellationToken cancellationToken)

@@ -28,6 +28,11 @@ internal sealed class AppDataProcessLock : IDisposable
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(paths);
+        // A helper process that resolved AppPaths before a migration would
+        // otherwise acquire this lock after the migration released it and
+        // write into the retired library. Fail before creating directories.
+        AppRootConfiguration.ThrowIfMigrated(paths.Root);
+        AppRootConfiguration.ThrowIfMigrated(paths.InstallationRoot);
         paths.EnsureDirectories();
         var dataDirectory = Path.GetFullPath(paths.Data)
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);

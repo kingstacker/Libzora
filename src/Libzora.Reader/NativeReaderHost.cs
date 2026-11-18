@@ -165,6 +165,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
     private PlacedHotZone? _pointerHotZone;
     private string? _hoveredFootnoteHref;
     private IDisposable? _pendingPageClick;
+    private string? _pendingPageClickSide;
     private int _pointerClickCount;
     private string? _loadedFootnoteFragment;
 
@@ -3228,7 +3229,11 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
 
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
-        CancelPendingPageClick();
+        // Only a genuine double-click supersedes the deferred first click.
+        // Cancelling on every press swallowed the first of two independent
+        // single clicks that happened to land within the double-click window.
+        if (e.ClickCount > 1)
+            CancelPendingPageClick();
         if (IsOverScrollBar(e.GetPosition(this)))
         {
             return;
@@ -3359,6 +3364,27 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
     {
         if (IsOverScrollBar(e.GetPosition(this)))
         {
+            if (_pointerDown)
+            {
+                // The press started on the page and the release landed on the
+                // scrollbar. Clear the same state as a normal release so the
+                // capture, selection drag and auto-page-turn timer do not
+                // survive into unrelated later mouse movement.
+                StopSelectionAutoPageTurn();
+                _pointerDown = false;
+                _pointerHotZone = null;
+                _hasLastPointerPosition = false;
+                _selecting = false;
+                _wordSelectionActive = false;
+                _pointerDragStarted = false;
+                _pointerDownOffset = -1;
+                _selectionAnchor = -1;
+                _selectionActiveOffset = -1;
+                _selectionStart = -1;
+                _selectionEnd = -1;
+                e.Pointer.Capture(null);
+                e.Handled = true;
+            }
             return;
         }
 
@@ -3582,7 +3608,17 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
 
     private void EmitPageClick(string side, bool deferForDoubleClick)
     {
-        CancelPendingPageClick();
+        if (_pendingPageClick is not null)
+        {
+            // This click was not cancelled as a double-click (see
+            // OnPointerPressed), so it is a second, independent tap. Publish
+            // the earlier turn before scheduling this one instead of silently
+            // dropping it.
+            var pendingSide = _pendingPageClickSide;
+            CancelPendingPageClick();
+            if (!string.IsNullOrEmpty(pendingSide))
+                Emit(new { type = "pageClick", side = pendingSide });
+        }
         if (!deferForDoubleClick)
         {
             Emit(new { type = "pageClick", side });
@@ -3596,9 +3632,11 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         var page = _pageIndex;
         var interval = this.GetPlatformSettings()?.GetDoubleTapTime(PointerType.Mouse)
             ?? TimeSpan.FromMilliseconds(400);
+        _pendingPageClickSide = side;
         _pendingPageClick = DispatcherTimer.RunOnce(() =>
         {
             _pendingPageClick = null;
+            _pendingPageClickSide = null;
             if (!_disposed && ReferenceEquals(_layout, layout) && _pageIndex == page)
             {
                 Emit(new { type = "pageClick", side });
@@ -3610,6 +3648,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
     {
         _pendingPageClick?.Dispose();
         _pendingPageClick = null;
+        _pendingPageClickSide = null;
     }
 
     private string? GetPageClickSide(Point position)

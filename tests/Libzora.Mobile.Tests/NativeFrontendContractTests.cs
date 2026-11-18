@@ -85,6 +85,27 @@ public sealed class NativeFrontendContractTests
     }
 
     [Fact]
+    public void NativeSeriesAndImportChoicesSerializeWithOnlyGeneratedMetadata()
+    {
+        var book = Data(("id", Guid.NewGuid()), ("series", "Library Series"),
+            ("seriesIndex", IOSNativeBookLibraryPolicy.FiniteSeriesIndex(double.PositiveInfinity)),
+            ("fileTitles", new[] { "Library Series Volume 1", "Library Series Volume 1 PDF" }));
+        var prompt = Data(("id", 1L), ("title", "Same title"), ("message", "Choose an import action"),
+            ("confirm", "Keep Separate"), ("choices", new[]
+            {
+                Data(("id", "keepSeparate"), ("title", "Keep Separate"), ("cancel", false)),
+                Data(("id", "skip"), ("title", "Skip"), ("cancel", true))
+            }));
+        using var document = JsonDocument.Parse(Serialize(Data(("books", new[] { book }), ("prompt", prompt))));
+        var encoded = document.RootElement.GetProperty("books")[0];
+        Assert.Equal(JsonValueKind.Null, encoded.GetProperty("seriesIndex").ValueKind);
+        Assert.Equal("Library Series Volume 1", encoded.GetProperty("fileTitles")[0].GetString());
+        var choices = document.RootElement.GetProperty("prompt").GetProperty("choices");
+        Assert.Equal("keepSeparate", choices[0].GetProperty("id").GetString());
+        Assert.True(choices[1].GetProperty("cancel").GetBoolean());
+    }
+
+    [Fact]
     public void SwiftSettingsFormsKeepMissingServiceDefaults()
     {
         const string sync = """{"provider":1,"enabled":false,"webDavEndpoint":"https://example.invalid/libzora","webDavUsername":"test","webDavPassword":"","prefix":"test"}""";

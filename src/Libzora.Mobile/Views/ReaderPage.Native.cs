@@ -232,31 +232,50 @@ public partial class ReaderPage
         if (_started && !_disposed) RefreshReaderAppearance();
     }
 
-    public Task NativeToggleSpeechAsync() => ToggleListeningAsync();
-    public async Task NativeSpeakSelectionAsync()
+    public Task NativeToggleSpeechAsync(CancellationToken cancellationToken = default) => ToggleListeningAsync(cancellationToken);
+    public async Task NativeSpeakSelectionAsync(CancellationToken cancellationToken = default)
     {
+        if (_disposed) return;
+        cancellationToken.ThrowIfCancellationRequested();
         var text = _selection?.Text.Trim();
         if (string.IsNullOrWhiteSpace(text)) return;
-        await EnsureLayoutCompleteAsync();
-        if (_shell.Services is not { CreateTtsEngine: { } createEngine, CreateTtsPlayer: { } createPlayer })
-            throw new InvalidOperationException(UiText.Get("这台设备不支持朗读"));
-        var document = BuildSpeechDocument()
-            ?? throw new InvalidOperationException(UiText.Get("当前页面没有可朗读的文字。"));
-        _tts ??= CreateSpeech(createEngine(), createPlayer());
-        var settings = await _modules.Reader.TtsSettings.LoadAsync(_lifetime.Token);
-        settings.AudioFormat = "wav";
-        settings.Voice = TtsSelectionVoicePolicy.SelectVoice(text, settings.Voice);
-        var selection = new ReaderTtsDocument(document.Key, text, 0,
-            (_, _) => Task.CompletedTask, () => { },
-            BookKey: document.BookKey, ChapterKey: document.ChapterKey);
-        HideSelectionBar();
-        SetChromeVisible(false);
-        _speechExpanded = true;
-        await _tts.StartSelectionAsync(selection, settings, _lifetime.Token);
+        var request = BeginSpeechPreparation(cancellationToken);
+        var token = request.Token;
+        var started = false;
+        try
+        {
+            await EnsureLayoutCompleteAsync(token);
+            token.ThrowIfCancellationRequested();
+            if (_disposed) return;
+            if (_shell.Services is not { CreateTtsEngine: { } createEngine, CreateTtsPlayer: { } createPlayer })
+                throw new InvalidOperationException(UiText.Get("这台设备不支持朗读"));
+            var settings = await _modules.Reader.TtsSettings.LoadAsync(token);
+            token.ThrowIfCancellationRequested();
+            if (_disposed) return;
+            var document = BuildSpeechDocument()
+                ?? throw new InvalidOperationException(UiText.Get("当前页面没有可朗读的文字。"));
+            _tts ??= CreateSpeech(createEngine(), createPlayer());
+            settings.AudioFormat = "wav";
+            settings.Voice = TtsSelectionVoicePolicy.SelectVoice(text, settings.Voice);
+            var selection = new ReaderTtsDocument(document.Key, text, 0,
+                (_, _) => Task.CompletedTask, () => { },
+                BookKey: document.BookKey, ChapterKey: document.ChapterKey);
+            HideSelectionBar();
+            SetChromeVisible(false);
+            _speechExpanded = true;
+            await _tts.StartSelectionAsync(selection, settings, token);
+            started = true;
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        finally { CompleteSpeechPreparation(request, started); }
     }
 
     public void NativePauseSpeech() => _tts?.PauseOrResume();
-    public Task NativeStopSpeechAsync() => _tts?.StopAsync() ?? Task.CompletedTask;
+    public async Task NativeStopSpeechAsync()
+    {
+        CancelSpeechPreparation();
+        if (_tts is { } speech) await speech.StopAsync();
+    }
     public string NativePageText() => CurrentPageText();
     public void NativeClearSelection() => ClearSelection();
 

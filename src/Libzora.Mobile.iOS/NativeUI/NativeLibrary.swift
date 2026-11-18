@@ -147,6 +147,7 @@ struct NativeBookEditor: View {
     init(store: NativeStore, book: LibraryBook) {
         self.store = store; self.book = book
         _fields = State(initialValue: ["title": book.title, "authors": book.authors, "series": book.series ?? "",
+            "seriesIndex": book.seriesIndex.flatMap { $0.isFinite ? String($0) : nil } ?? "",
             "publisher": book.publisher ?? "", "publishDate": book.publishDate ?? "", "isbn": book.isbn ?? "",
             "pageCount": book.pageCount ?? "", "binding": book.binding ?? "", "tags": book.tags, "category": book.category,
             "description": book.description ?? "", "onlineRating": book.onlineRating.map { String($0) } ?? ""])
@@ -175,6 +176,7 @@ struct NativeBookEditor: View {
                             NativeTextField(title: L("书名"), text: field("title")); NativeTextField(title: L("作者"), text: field("authors"))
                             NativeTextField(title: L("评分（0–10）"), text: field("onlineRating")).keyboardType(.decimalPad); NativeTextField(title: L("标签"), text: field("tags"))
                             NativeTextField(title: L("分类"), text: field("category")); NativeTextField(title: L("丛书"), text: field("series"))
+                            NativeTextField(title: L("系列序号"), text: field("seriesIndex")).keyboardType(.decimalPad)
                             NativeTextField(title: L("出版社"), text: field("publisher")); NativeTextField(title: L("出版日期"), text: field("publishDate"))
                             NativeTextField(title: "ISBN", text: field("isbn")); NativeTextField(title: L("页数"), text: field("pageCount"))
                             NativeTextField(title: L("装帧"), text: field("binding"))
@@ -197,6 +199,11 @@ struct NativeBookEditor: View {
                     }.disabled(busy || (fields["title"] ?? "").isEmpty) }
                 }
         }.navigationViewStyle(.stack).interactiveDismissDisabled(busy)
+            .onChange(of: fields["series"]) { value in
+                let name = (value ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                let original = (book.series ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                if name.caseInsensitiveCompare(original) != .orderedSame { fields["seriesIndex"] = "" }
+            }
     }
 
     /// The cover and the live title/author preview fill the header so the sheet

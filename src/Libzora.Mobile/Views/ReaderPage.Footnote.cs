@@ -31,6 +31,7 @@ public partial class ReaderPage
     private long _footnotePreviewId;
     private CancellationTokenSource? _footnotePreviewCancellation;
     private bool _footnoteProgressSuppressed;
+    private ReaderProgressRow? _footnoteBodyProgress;
     private bool _footnoteNavigationInFlight;
     private bool _footnoteReturnHasBaseline;
     private double _footnoteReturnSettledTop;
@@ -174,7 +175,7 @@ public partial class ReaderPage
     /// <summary>Jumps to the note's definition without moving the reading progress.</summary>
     public async Task NativeJumpFootnoteAsync()
     {
-        if (_isPdf
+        if (!_ready || _isPdf
             || _activeFootnote is not { CanJump: true } footnote
             || _readerHost is not NativeReaderHost host
             || _epubDocument is not { } document)
@@ -195,9 +196,23 @@ public partial class ReaderPage
             host.CaptureContentPosition(),
             (int)Math.Clamp(_epubPosition, 0, int.MaxValue),
             _footnoteJumpBacklink);
+        // A detour must start from a durable body position, including a page
+        // turn that the ordinary progress throttle has not saved yet. Nested
+        // note jumps keep the original body baseline.
+        if (!_footnoteProgressSuppressed)
+        {
+            if (!await SaveProgressSoonAsync(force: true) || _lastSavedProgress is null)
+            {
+                _shell.ShowToast(UiText.Get("无法保存阅读进度，请稍后重试。"));
+                return;
+            }
+            _footnoteBodyProgress = _lastSavedProgress;
+        }
+        if (_disposed || !ReferenceEquals(_readerHost, host)) return;
         NativeDismissFootnote();
         _footnoteReturn.Add(returnPoint);
-        if (_footnoteReturn.Count > MaximumFootnoteReturnDepth) _footnoteReturn.RemoveAt(0);
+        // Keep the outermost body return point when limiting nested notes.
+        if (_footnoteReturn.Count > MaximumFootnoteReturnDepth) _footnoteReturn.RemoveAt(1);
         _footnoteProgressSuppressed = true;
         _footnoteJumpBacklink = backlink;
         _tts?.NotifyManualNavigation();
@@ -211,6 +226,7 @@ public partial class ReaderPage
             {
                 _footnoteReturn.RemoveAt(_footnoteReturn.Count - 1);
                 _footnoteProgressSuppressed = _footnoteReturn.Count > 0;
+                if (!_footnoteProgressSuppressed) _footnoteBodyProgress = null;
                 _footnoteJumpBacklink = returnPoint.Backlink;
                 _shell.ShowToast(UiText.Get("无法定位注释"));
                 NotifyNativeState();
@@ -224,6 +240,7 @@ public partial class ReaderPage
         {
             _footnoteReturn.RemoveAt(_footnoteReturn.Count - 1);
             _footnoteProgressSuppressed = _footnoteReturn.Count > 0;
+            if (!_footnoteProgressSuppressed) _footnoteBodyProgress = null;
             _footnoteJumpBacklink = returnPoint.Backlink;
             NotifyNativeState();
         }
@@ -231,6 +248,7 @@ public partial class ReaderPage
         {
             _footnoteReturn.RemoveAt(_footnoteReturn.Count - 1);
             _footnoteProgressSuppressed = _footnoteReturn.Count > 0;
+            if (!_footnoteProgressSuppressed) _footnoteBodyProgress = null;
             _footnoteJumpBacklink = returnPoint.Backlink;
             _shell.ShowToast(UiText.Localize(exception.Message));
             NotifyNativeState();
@@ -262,14 +280,19 @@ public partial class ReaderPage
         _footnoteNavigationInFlight = true;
         try
         {
-            if (point.ChapterIndex != _chapterIndex)
-                await NavigateToChapterAsync(host, point.ChapterIndex, new Uri(document.Chapters[point.ChapterIndex]));
+            if (point.ChapterIndex != _chapterIndex
+                && !await NavigateToChapterAsync(host, point.ChapterIndex, new Uri(document.Chapters[point.ChapterIndex])))
+                throw new InvalidOperationException(UiText.Get("无法定位注释"));
             var restored = point.ContentPosition is { } contentPosition
                 && host.RestoreContentPosition(contentPosition);
             if (!restored) host.SeekToPixelScroll(point.ScrollPosition);
             UpdateEpubLabels();
             _footnoteJumpBacklink = point.Backlink;
-            if (_footnoteReturn.Count == 0) _footnoteProgressSuppressed = false;
+            if (_footnoteReturn.Count == 0)
+            {
+                _footnoteProgressSuppressed = false;
+                _footnoteBodyProgress = null;
+            }
             MarkFootnoteReturnSettled();
             NotifyNativeState();
             if (_footnoteReturn.Count == 0) _ = SaveProgressSoonAsync(force: true);
@@ -327,6 +350,7 @@ public partial class ReaderPage
     /// <summary>Leaves footnote browsing for an explicit TOC, slider or link jump.</summary>
     private void ClearFootnoteNavigation()
     {
+        _footnoteBodyProgress = null;
         if (_footnoteReturn.Count == 0 && !_footnoteProgressSuppressed) return;
         _footnoteReturn.Clear();
         _footnoteJumpBacklink = null;

@@ -8,9 +8,8 @@ enum NativeAlerts {
         let id: Int64
         let title: String
         let message: String
-        let confirm: String
-        let cancellable: Bool
-        let completion: (Bool) -> Void
+        let choices: [NativePromptChoice]
+        let completion: (String) -> Void
     }
     private static var queue: [Pending] = []
     private static var active: Pending?
@@ -19,13 +18,18 @@ enum NativeAlerts {
     private static var retry: Task<Void, Never>?
 
     static func confirm(_ prompt: NativePrompt, store: NativeStore) {
-        queue.append(Pending(id: prompt.id, title: prompt.title, message: prompt.message, confirm: prompt.confirm,
-            cancellable: true, completion: { [weak store] accepted in store?.answerPrompt(prompt, accepted: accepted) }))
+        let defaults = [NativePromptChoice(id: "confirm", title: prompt.confirm, cancel: false),
+                        NativePromptChoice(id: "cancel", title: L("取消"), cancel: true)]
+        queue.append(Pending(id: prompt.id, title: prompt.title, message: prompt.message,
+            choices: prompt.choices.flatMap { $0.isEmpty ? nil : $0 } ?? defaults,
+            completion: { [weak store] choice in store?.answerPrompt(prompt, choice: choice) }))
         presentNext()
     }
     static func error(_ text: String, dismissed: @escaping () -> Void) {
         errorId -= 1
-        queue.append(Pending(id: errorId, title: L("操作失败"), message: text, confirm: L("好"), cancellable: false, completion: { _ in dismissed() }))
+        queue.append(Pending(id: errorId, title: L("操作失败"), message: text,
+            choices: [NativePromptChoice(id: "confirm", title: L("好"), cancel: false)],
+            completion: { _ in dismissed() }))
         presentNext()
     }
     static func dismissPrompt(_ id: Int64) {
@@ -42,14 +46,17 @@ enum NativeAlerts {
         }
         let value = queue.removeFirst(); active = value
         let alert = UIAlertController(title: value.title, message: value.message, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: value.confirm, style: .default) { _ in finish(value, accepted: true) })
-        if value.cancellable { alert.addAction(UIAlertAction(title: L("取消"), style: .cancel) { _ in finish(value, accepted: false) }) }
+        for choice in value.choices {
+            alert.addAction(UIAlertAction(title: choice.title, style: choice.cancel == true ? .cancel : .default) { _ in
+                finish(value, choice: choice.id)
+            })
+        }
         controller = alert
         presenter.present(alert, animated: true)
     }
-    private static func finish(_ value: Pending, accepted: Bool) {
+    private static func finish(_ value: Pending, choice: String) {
         guard active?.id == value.id else { return }
-        active = nil; controller = nil; value.completion(accepted); scheduleNext()
+        active = nil; controller = nil; value.completion(choice); scheduleNext()
     }
     private static func scheduleNext() {
         retry?.cancel()

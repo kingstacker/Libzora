@@ -49,6 +49,7 @@ public sealed record MobilePreferences
     public bool ShowBookSyncStatus { get; init; }
     /// <summary>Overlay each book's rating on its cover in the library.</summary>
     public bool ShowBookRating { get; init; }
+    public bool StackBookSeries { get; init; }
     public bool CollectionsView { get; init; }
     public double PdfZoom { get; init; } = 1;
     public MobileBookSort Sort { get; init; }

@@ -66,6 +66,29 @@ internal sealed partial class IOSNativeFrontend
                 return Data(("text", translated));
             }
         }
+        // Whole-chapter speech preparation is cancellable session work, not
+        // navigation work. Capture the reader under the gate, then let close,
+        // stop and page commands run while its background layout finishes.
+        if (command is "reader.speech" or "reader.selectionSpeech")
+        {
+            Libzora.Mobile.Views.ReaderPage reader;
+            CancellationTokenSource session;
+            await _readerGate.WaitAsync(token);
+            try
+            {
+                reader = _reader ?? throw new InvalidOperationException(UiText.Get("请先打开一本书。"));
+                session = CancellationTokenSource.CreateLinkedTokenSource(token,
+                    _readerCancellation?.Token ?? CancellationToken.None);
+            }
+            finally { _readerGate.Release(); }
+            using (session)
+            {
+                session.Token.ThrowIfCancellationRequested();
+                if (command == "reader.speech") await reader.NativeToggleSpeechAsync(session.Token);
+                else await reader.NativeSpeakSelectionAsync(session.Token);
+                return Data();
+            }
+        }
         await _readerGate.WaitAsync(token);
         try
         {
@@ -84,8 +107,6 @@ internal sealed partial class IOSNativeFrontend
                 case "reader.search": return await reader.NativeSearchAsync(Text(args, "query"), session.Token);
                 case "reader.searchJump": await reader.NativeJumpToSearchAsync(Number(args, "id"),
                     args.TryGetProperty("searchId", out var searchId) ? searchId.GetString() : null); break;
-                case "reader.speech": await reader.NativeToggleSpeechAsync(); break;
-                case "reader.selectionSpeech": await reader.NativeSpeakSelectionAsync(); break;
                 case "reader.showChrome": reader.SetChromeVisible(true); break;
                 case "reader.speechPause": reader.NativePauseSpeech(); break;
                 case "reader.speechStop": await reader.NativeStopSpeechAsync(); break;

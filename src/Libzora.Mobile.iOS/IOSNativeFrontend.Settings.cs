@@ -100,6 +100,9 @@ internal sealed partial class IOSNativeFrontend
                     await modules.Sync.Service.TestConnectionAsync(settings, token);
                     return Data(("message", UiText.Get("连接成功")));
                 }
+                if (!string.Equals(settings.EncryptionKey, current.Settings.EncryptionKey, StringComparison.Ordinal)
+                    && !Flag(args, "encryptionKeyConfirmed"))
+                    throw new InvalidOperationException(UiText.Get("请先确认同步密钥。"));
                 await modules.Sync.Service.SaveSettingsAsync(current.DeviceId, settings, token);
                 _syncDraft = settings;
                 if (command == "settings.sync.save") return Data();

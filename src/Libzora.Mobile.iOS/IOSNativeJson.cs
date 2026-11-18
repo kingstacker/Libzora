@@ -40,6 +40,7 @@ internal sealed record ReaderFontInstall(string Key, string Path, string Preview
 [JsonSerializable(typeof(Dictionary<string, object?>[]))]
 [JsonSerializable(typeof(object[]))]
 [JsonSerializable(typeof(string))]
+[JsonSerializable(typeof(string[]))]
 [JsonSerializable(typeof(bool))]
 [JsonSerializable(typeof(int))]
 [JsonSerializable(typeof(long))]

@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Globalization;
 using System.IO.Compression;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -99,9 +100,7 @@ public sealed class BookMetadataService : IMetadataService
             var title = metadata.Elements().FirstOrDefault(x => x.Name.LocalName == "title")?.Value?.Trim();
             var creators = metadata.Elements().Where(x => x.Name.LocalName == "creator").Select(x => x.Value.Trim()).Where(x => x.Length > 0).ToList();
             var description = metadata.Elements().FirstOrDefault(x => x.Name.LocalName == "description")?.Value?.Trim();
-            var series = metadata.Elements().FirstOrDefault(x => x.Name.LocalName == "meta" && string.Equals((string?)x.Attribute("name"), "calibre:series", StringComparison.OrdinalIgnoreCase))?.Attribute("content")?.Value;
-            var seriesIndexText = metadata.Elements().FirstOrDefault(x => x.Name.LocalName == "meta" && string.Equals((string?)x.Attribute("name"), "calibre:series_index", StringComparison.OrdinalIgnoreCase))?.Attribute("content")?.Value;
-            _ = double.TryParse(seriesIndexText, out var seriesIndex);
+            var (series, seriesIndex) = ReadEpubSeries(metadata);
 
             var manifest = opf.Descendants().FirstOrDefault(x => x.Name.LocalName == "manifest")?.Elements()
                 .Where(x => x.Name.LocalName == "item")
@@ -143,8 +142,8 @@ public sealed class BookMetadataService : IMetadataService
             {
                 Title = title,
                 Authors = creators.Count == 0 ? "未知作者" : string.Join(", ", creators),
-                Series = string.IsNullOrWhiteSpace(series) ? null : series,
-                SeriesIndex = double.TryParse(seriesIndexText, out _) ? seriesIndex : null,
+                Series = series,
+                SeriesIndex = seriesIndex,
                 Description = description,
                 CoverBytes = coverBytes,
                 CoverExtension = coverExtension
@@ -158,6 +157,39 @@ public sealed class BookMetadataService : IMetadataService
         {
             return await ReadFallbackAsync(path, ".epub", cancellationToken);
         }
+    }
+
+    private static (string? Name, double? Index) ReadEpubSeries(XElement metadata)
+    {
+        var entries = metadata.Elements().Where(element => element.Name.LocalName == "meta").ToArray();
+        string? CalibreValue(string key) => entries.FirstOrDefault(element =>
+            string.Equals((string?)element.Attribute("name"), key, StringComparison.OrdinalIgnoreCase))?.Attribute("content")?.Value.Trim();
+        var calibreName = CalibreValue("calibre:series");
+        var calibreIndex = ParseIndex(CalibreValue("calibre:series_index"));
+
+        foreach (var collection in entries.Where(element => (string?)element.Attribute("property") == "belongs-to-collection"))
+        {
+            var id = (string?)collection.Attribute("id");
+            var name = collection.Value.Trim();
+            if (string.IsNullOrWhiteSpace(id) || name.Length == 0) continue;
+            var refinements = entries.Where(element =>
+                (string?)element.Attribute("refines") is { Length: > 1 } reference
+                && reference[0] == '#'
+                && Uri.UnescapeDataString(reference[1..]) == id).ToArray();
+            if (!refinements.Any(element => (string?)element.Attribute("property") == "collection-type" && element.Value.Trim() == "series"))
+                continue;
+
+            var index = refinements.FirstOrDefault(element => (string?)element.Attribute("property") == "group-position")?.Value;
+            // Only borrow a Calibre position for the same collection. EPUB3
+            // remains authoritative when it provides a valid group-position.
+            return (name, ParseIndex(index)
+                ?? (string.Equals(name, calibreName, StringComparison.OrdinalIgnoreCase) ? calibreIndex : null));
+        }
+
+        return string.IsNullOrWhiteSpace(calibreName) ? (null, null) : (calibreName, calibreIndex);
+
+        static double? ParseIndex(string? value) =>
+            double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var index) && double.IsFinite(index) ? index : null;
     }
 
     private static string CleanFileTitle(string fileName)

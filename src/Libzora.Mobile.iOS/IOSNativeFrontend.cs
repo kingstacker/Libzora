@@ -32,7 +32,7 @@ internal sealed partial class IOSNativeFrontend
     private readonly AvaloniaView _readerSurface;
     private readonly UIWindow _window;
     private readonly Dictionary<long, CancellationTokenSource> _requests = [];
-    private readonly Dictionary<long, TaskCompletionSource<bool>> _prompts = [];
+    private readonly Dictionary<long, TaskCompletionSource<string>> _prompts = [];
     private readonly List<NSObject> _observers = [];
     private readonly SemaphoreSlim _readerGate = new(1, 1);
     private readonly AsyncLocal<CancellationToken> _requestToken = new();
@@ -50,6 +50,11 @@ internal sealed partial class IOSNativeFrontend
         _readerSurface = readerSurface;
         _readerController = readerController;
         _window = window;
+        // Notification callbacks may run as soon as they are registered.
+        // Their snapshot coordinator must already be fully initialized.
+        _widgetSnapshots = new WidgetSnapshotCoordinator(
+            publish: PublishWidgetSnapshotAsync,
+            published: ReloadWidgets);
         shell.NativeToast = message => Publish(Data(("type", "toast"), ("message", message)));
         shell.NativeConfirmation = ConfirmAsync;
         shell.NativeRestartRequired = () => Publish(Data(("type", "restart")));
@@ -78,9 +83,6 @@ internal sealed partial class IOSNativeFrontend
             else _ = PauseReaderAndPublishWidgetsAsync(reader);
         }));
 
-        _widgetSnapshots = new WidgetSnapshotCoordinator(
-            publish: PublishWidgetSnapshotAsync,
-            published: ReloadWidgets);
         shell.Modules.Library.Books.DataChanged += (_, _) => _widgetSnapshots.Schedule();
         shell.Modules.Reader.Data.DataChanged += (_, _) => _widgetSnapshots.Schedule();
         // The shelf is usually initialized after this constructor returns, so
@@ -267,7 +269,8 @@ internal sealed partial class IOSNativeFrontend
         if (command == "ui.confirm")
         {
             if (_prompts.Remove(args.GetProperty("id").GetInt64(), out var decision))
-                decision.TrySetResult(args.GetProperty("accepted").GetBoolean());
+                decision.TrySetResult(args.TryGetProperty("choice", out _) ? Text(args, "choice")
+                    : Flag(args, "accepted") ? "confirm" : "cancel");
             return Data();
         }
         if (MobileDataCoordinator.IsRestartRequired)
@@ -407,16 +410,12 @@ internal sealed partial class IOSNativeFrontend
         IReadOnlyDictionary<Guid, BookSyncStatus>? syncStatuses = null;
         if (_shell.Preferences.Current.ShowBookSyncStatus)
         {
-            try
+            syncStatuses = await IOSNativeBookLibraryPolicy.OptionalSyncStatusesAsync(async badgeToken =>
             {
                 var service = _shell.Modules.Sync.Service;
-                var settings = await service.LoadSettingsAsync(token);
-                syncStatuses = await service.GetBookSyncStatusesAsync(settings.DeviceId, settings.Settings, books, token);
-            }
-            catch (Exception exception) when (exception is not OutOfMemoryException && !token.IsCancellationRequested)
-            {
-                // An unavailable sync baseline must not prevent opening the library.
-            }
+                var settings = await service.LoadSettingsAsync(badgeToken);
+                return await service.GetBookSyncStatusesAsync(settings.DeviceId, settings.Settings, books, badgeToken);
+            }, token);
         }
         _widgetSnapshots.Schedule();
         return Data(
@@ -456,7 +455,10 @@ internal sealed partial class IOSNativeFrontend
         ("progress", progress), ("favorite", book.IsFavorite), ("readingStatus", (int)book.ReadingStatus),
         ("syncStatus", syncStatus is { } status ? (int?)status : null),
         ("collectionIds", book.CollectionIds.ToArray()), ("updatedAt", book.UpdatedAt), ("createdAt", book.CreatedAt),
-        ("description", book.Description), ("series", book.Series), ("publisher", book.Publisher),
+        ("description", book.Description), ("series", book.Series),
+        ("seriesIndex", IOSNativeBookLibraryPolicy.FiniteSeriesIndex(book.SeriesIndex)),
+        ("fileTitles", book.Files.Select(file => Path.GetFileNameWithoutExtension(file.RelativePath)).ToArray()),
+        ("publisher", book.Publisher),
         ("publishDate", book.PublishDate), ("isbn", book.Isbn), ("pageCount", book.PageCount),
         ("binding", book.Binding), ("tags", book.Tags), ("category", book.Category), ("onlineRating", book.OnlineRating));
 
@@ -480,24 +482,74 @@ internal sealed partial class IOSNativeFrontend
             using var operation = BeginOperation();
             await _shell.Modules.Library.Books.InitializeAsync(token);
             var result = await Task.Run(() => _shell.Modules.Library.Books.ImportAsync(files,
-                cancellationToken: token, txtImportRules: rules), token);
+                cancellationToken: token, txtImportRules: rules,
+                conflictResolver: conflict => ChooseImportConflictAsync(conflict, token)), token);
             _shell.ShowToast(result.FailureCount > 0
                 ? UiText.Get("已导入 {0} 本，{1} 个文件失败", result.AddedCount, result.FailureCount)
                 : result.AddedCount == 0 ? UiText.Get("所选书籍已在书库中") : UiText.Get("已导入 {0} 本", result.AddedCount));
-            if (result.Items.FirstOrDefault(item => !item.Succeeded) is { } failed)
+            // Successful items are already committed. A partial failure must
+            // not abort the native button's subsequent library refresh.
+            if (IOSNativeBookLibraryPolicy.ImportFailedCompletely(result)
+                && result.Items.FirstOrDefault(item => !item.Succeeded) is { } failed)
                 throw new InvalidOperationException(failed.Message);
         }
         finally { _shell.Services.ImportSource.ReleaseFiles(files); }
     }
 
+    private async Task<ImportConflictResolution> ChooseImportConflictAsync(ImportBookConflict conflict, CancellationToken token)
+    {
+        long id = 0;
+        var decision = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        // Import runs on a worker. Prompt state and the Swift C ABI belong to
+        // the UI thread, including dismissal after cancellation.
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            token.ThrowIfCancellationRequested();
+            id = ++_promptId;
+            _prompts.Add(id, decision);
+            var choices = new List<Dictionary<string, object?>>
+            {
+                Data(("id", "keepSeparate"), ("title", UiText.Get("独立保存")), ("cancel", false))
+            };
+            // Without a per-file reader picker, attaching a second copy of an
+            // already-present format would make it inaccessible on iOS.
+            if (IOSNativeBookLibraryPolicy.CanAddFormat(conflict))
+                choices.Add(Data(("id", "addFormat"), ("title", UiText.Get("添加格式")), ("cancel", false)));
+            choices.Add(Data(("id", "skip"), ("title", UiText.Get("跳过")), ("cancel", true)));
+            Publish(Data(("type", "confirm"), ("prompt", Data(("id", id),
+                ("title", UiText.Get("同名书籍")),
+                ("message", UiText.Get("书库中已有《{0}》（{1}）。请选择此文件的保存方式：{2}",
+                    conflict.Title, conflict.Authors, Path.GetFileName(conflict.SourcePath))),
+                ("confirm", UiText.Get("独立保存")), ("choices", choices.ToArray())))));
+        });
+        try
+        {
+            var choice = await decision.Task.WaitAsync(token);
+            return choice switch
+            {
+                "keepSeparate" => ImportConflictResolution.KeepSeparate,
+                "addFormat" when IOSNativeBookLibraryPolicy.CanAddFormat(conflict) => ImportConflictResolution.AddAsFormat,
+                _ => ImportConflictResolution.Skip
+            };
+        }
+        finally
+        {
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                _prompts.Remove(id);
+                Publish(Data(("type", "confirmDismissed"), ("id", id)));
+            });
+        }
+    }
+
     private async Task<bool> ConfirmAsync(string title, string message, string confirm)
     {
         var id = ++_promptId;
-        var decision = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var decision = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         _prompts.Add(id, decision);
         Publish(Data(("type", "confirm"), ("prompt", Data(("id", id),
             ("title", UiText.Localize(title)), ("message", UiText.Localize(message)), ("confirm", UiText.Localize(confirm))))));
-        try { return await decision.Task.WaitAsync(_requestToken.Value); }
+        try { return await decision.Task.WaitAsync(_requestToken.Value) == "confirm"; }
         finally
         {
             _prompts.Remove(id);

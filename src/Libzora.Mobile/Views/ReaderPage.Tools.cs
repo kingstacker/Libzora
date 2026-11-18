@@ -21,6 +21,8 @@ public partial class ReaderPage
     private const int MaxContextCharacters = 4000;
 
     private TtsService? _tts;
+    private CancellationTokenSource? _speechCancellation;
+    private bool _speechPreparing;
     private bool _speechExpanded;
     private int _speechDockVersion;
     private IReadOnlyList<PdfPageText>? _pdfText;
@@ -175,12 +177,14 @@ public partial class ReaderPage
 
     private void OnListenClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => _ = ToggleListeningAsync();
 
-    private async Task ToggleListeningAsync()
+    private async Task ToggleListeningAsync(CancellationToken cancellationToken = default)
     {
+        if (_disposed) return;
+        cancellationToken.ThrowIfCancellationRequested();
         HideSelectionBar();
-        if (_tts is { State: not (TtsPlaybackState.Stopped or TtsPlaybackState.Error) } running)
+        if (_speechPreparing || _tts is { State: not (TtsPlaybackState.Stopped or TtsPlaybackState.Error) })
         {
-            await running.StopAsync();
+            await NativeStopSpeechAsync();
             return;
         }
         if (_shell.Services is not { CreateTtsEngine: { } createEngine, CreateTtsPlayer: { } createPlayer })
@@ -189,11 +193,19 @@ public partial class ReaderPage
             return;
         }
 
-        // Speech needs the whole chapter so it can continue past the first
-        // screen that the opening pass composed.
-        await EnsureLayoutCompleteAsync();
+        var request = BeginSpeechPreparation(cancellationToken);
+        var token = request.Token;
+        var started = false;
         try
         {
+            // The native bridge releases its navigation gate before waiting
+            // here. Close/stop cancels this request without waiting for layout.
+            await EnsureLayoutCompleteAsync(token);
+            token.ThrowIfCancellationRequested();
+            if (_disposed) return;
+            var settings = await _modules.Reader.TtsSettings.LoadAsync(token);
+            token.ThrowIfCancellationRequested();
+            if (_disposed) return;
             // Engine construction binds platform speech services and can throw.
             _tts ??= CreateSpeech(createEngine(), createPlayer());
             SetChromeVisible(false);
@@ -202,21 +214,53 @@ public partial class ReaderPage
             SpeechDock.IsVisible = false;
             if (!_usesNativeFrontend) ScheduleSpeechDock();
             SpeechStatusText.Text = UiText.Get("正在准备朗读…");
-            var settings = await _modules.Reader.TtsSettings.LoadAsync(_lifetime.Token);
             settings.AudioFormat = "wav";
-            await _tts.StartAsync(settings, _lifetime.Token);
+            await _tts.StartAsync(settings, token);
+            started = true;
         }
-        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
         }
         catch (Exception exception)
         {
+            if (token.IsCancellationRequested) return;
             _speechDockVersion++;
             _speechExpanded = false;
             SpeechBar.IsVisible = false;
             SpeechDock.IsVisible = false;
             _shell.ShowToast(UiText.Get("朗读失败：{0}", UiText.Localize(exception.Message)));
         }
+        finally { CompleteSpeechPreparation(request, started); }
+    }
+
+    private CancellationTokenSource BeginSpeechPreparation(CancellationToken cancellationToken)
+    {
+        CancelSpeechPreparation();
+        var request = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
+        _speechCancellation = request;
+        _speechPreparing = true;
+        return request;
+    }
+
+    private void CompleteSpeechPreparation(CancellationTokenSource request, bool started)
+    {
+        if (ReferenceEquals(_speechCancellation, request))
+        {
+            _speechPreparing = false;
+            // Keep the lifetime link alive while playback continues.
+            if (started) return;
+            _speechCancellation = null;
+        }
+        request.Dispose();
+    }
+
+    private void CancelSpeechPreparation()
+    {
+        var request = _speechCancellation;
+        _speechCancellation = null;
+        _speechPreparing = false;
+        request?.Cancel();
+        request?.Dispose();
     }
 
     private TtsService CreateSpeech(ITtsEngine engine, ITtsAudioPlayer player)
@@ -389,7 +433,7 @@ public partial class ReaderPage
         ScheduleSpeechDock();
     }
 
-    private void OnSpeechStopClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => _ = _tts?.StopAsync();
+    private void OnSpeechStopClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => _ = NativeStopSpeechAsync();
 
     // ---------- AI and translation
 

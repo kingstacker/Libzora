@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.IO.Compression;
 using System.Text;
 using Libzora.Infrastructure;
 
@@ -41,6 +42,45 @@ public sealed class BookMetadataTests
 
             Assert.Equal("雪的练习生", metadata.Title);
             Assert.Equal("作者甲", metadata.Authors);
+        }
+        finally
+        {
+            TestHelpers.TryDelete(root);
+        }
+    }
+
+    [Theory]
+    [InlineData("<meta name='calibre:series' content='Library Series'/><meta name='calibre:series_index' content='2.5'/>", "Library Series", 2.5)]
+    [InlineData("<meta property='belongs-to-collection' id='s'>Library Series</meta><meta refines='#s' property='collection-type'>series</meta><meta refines='#other' property='group-position'>99</meta><meta refines='#s' property='group-position'>2.5</meta>", "Library Series", 2.5)]
+    [InlineData("<meta property='belongs-to-collection' id='s'>Publisher Set</meta><meta refines='#s' property='collection-type'>set</meta>", null, null)]
+    [InlineData("<meta property='belongs-to-collection' id='s'>Library Series</meta><meta refines='#s' property='collection-type'>series</meta><meta name='calibre:series' content='Library Series'/><meta name='calibre:series_index' content='3.5'/>", "Library Series", 3.5)]
+    [InlineData("<meta property='belongs-to-collection' id='s'>Library Series</meta><meta refines='#s' property='collection-type'>series</meta><meta refines='#s' property='group-position'>2</meta><meta name='calibre:series' content='Library Series'/><meta name='calibre:series_index' content='3.5'/>", "Library Series", 2.0)]
+    [InlineData("<meta property='belongs-to-collection' id='s'>Library Series</meta><meta refines='#s' property='collection-type'>series</meta><meta name='calibre:series' content='Other Series'/><meta name='calibre:series_index' content='3.5'/>", "Library Series", null)]
+    [InlineData("<meta property='belongs-to-collection' id='série'>Library Series</meta><meta refines='#s%C3%A9rie' property='collection-type'>series</meta><meta refines='#s%C3%A9rie' property='group-position'>4.5</meta>", "Library Series", 4.5)]
+    [InlineData("<meta name='calibre:series' content='Library Series'/><meta name='calibre:series_index' content='1e999'/>", "Library Series", null)]
+    [InlineData("<meta property='belongs-to-collection' id='s'>Library Series</meta><meta refines='#s' property='collection-type'>series</meta><meta refines='#s' property='group-position'>NaN</meta><meta name='calibre:series' content='Library Series'/><meta name='calibre:series_index' content='2'/>", "Library Series", 2.0)]
+    public async Task ReadsOnlySeriesCollectionsFromEpub(string properties, string? name, double? index)
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        var path = Path.Combine(root, "series.epub");
+        try
+        {
+            using (var archive = ZipFile.Open(path, ZipArchiveMode.Create))
+            {
+                await WriteEntryAsync("META-INF/container.xml", "<container><rootfiles><rootfile full-path='book.opf'/></rootfiles></container>");
+                await WriteEntryAsync("book.opf", $"<package><metadata><title>Volume</title>{properties}</metadata></package>");
+
+                async Task WriteEntryAsync(string entry, string contents)
+                {
+                    await using var writer = new StreamWriter(archive.CreateEntry(entry).Open());
+                    await writer.WriteAsync(contents);
+                }
+            }
+
+            var metadata = await new BookMetadataService().ReadMetadataAsync(path);
+
+            Assert.Equal(name, metadata.Series);
+            Assert.Equal(index, metadata.SeriesIndex);
         }
         finally
         {

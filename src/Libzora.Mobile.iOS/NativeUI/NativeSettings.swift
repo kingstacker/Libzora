@@ -306,6 +306,10 @@ struct NativeLibrarySettings: View {
                 var value = store.preferences; value.colorfulMode = enabled
                 store.setPreferences(value)
             }))
+            settingToggle(L("按系列叠放"), identifier: "library.settings.stackBookSeries", isOn: Binding(get: { store.preferences.stackBookSeries }, set: { enabled in
+                var value = store.preferences; value.stackBookSeries = enabled
+                store.setPreferences(value)
+            }))
             settingToggle(L("显示书籍评分"), identifier: "library.settings.rating", isOn: Binding(get: { store.preferences.showBookRating }, set: { enabled in
                 var value = store.preferences; value.showBookRating = enabled
                 store.setPreferences(value)
@@ -342,6 +346,7 @@ struct NativeSyncSettings: View {
     @State private var confirmEncryptionKey = ""
     @State private var savedEncryptionKey = ""
     @State private var showEncryptionKeyConfirmation = false
+    @State private var encryptionKeyOperation = "save"
 
     var body: some View {
         NativeForm {
@@ -377,7 +382,9 @@ struct NativeSyncSettings: View {
             .alert(Text(form.encryptionKey.isEmpty ? L("清除同步密钥") : L("确认同步密钥")),
                    isPresented: $showEncryptionKeyConfirmation) {
                 Button(L("取消"), role: .cancel) { }
-                Button(form.encryptionKey.isEmpty ? L("清除密钥") : L("使用此密钥")) { perform("save") }
+                Button(form.encryptionKey.isEmpty ? L("清除密钥") : L("使用此密钥")) {
+                    perform(encryptionKeyOperation, encryptionKeyConfirmed: true)
+                }
             } message: {
                 Text(form.encryptionKey.isEmpty
                      ? L("清除本机保存的同步密钥后，将无法再解密已有加密备份或云端同步数据。确定清除吗？")
@@ -452,29 +459,40 @@ struct NativeSyncSettings: View {
         catch { if !Task.isCancelled { status = error.localizedDescription } }
     }
     private func run(_ operation: String) {
-        if operation == "save" && form.encryptionKey != savedEncryptionKey {
-            if !form.encryptionKey.isEmpty && form.encryptionKey != confirmEncryptionKey {
-                status = L("两次输入的同步密钥不一致，请重新输入。")
-                return
-            }
+        switch NativeSyncKeyConfirmation.decision(operation: operation, key: form.encryptionKey,
+                                                  savedKey: savedEncryptionKey, confirmation: confirmEncryptionKey) {
+        case .mismatch:
+            status = L("两次输入的同步密钥不一致，请重新输入。")
+        case .confirm:
+            encryptionKeyOperation = operation
             showEncryptionKeyConfirmation = true
-            return
+        case .proceed:
+            perform(operation)
         }
-        perform(operation)
     }
-    private func perform(_ operation: String) {
+    private func perform(_ operation: String, encryptionKeyConfirmed: Bool = false) {
         busy = true; status = operation == "run" ? L("正在同步…") : operation == "test" ? L("正在测试连接…") : ""
         actionTask = Task {
             defer { busy = false }
             do {
-                let args = ["settings": try requestObject(form)]
+                let args: [String: Any] = ["settings": try requestObject(form),
+                                           "encryptionKeyConfirmed": encryptionKeyConfirmed]
                 if operation == "import" {
                     let imported: SyncForm = try await store.request("settings.sync.import", args)
                     form = imported; status = L("参数已导入，请检查后点击保存。同步加密密钥保持本机原值。")
                 } else if operation == "test" || operation == "run" {
                     let result: MessageResult = try await store.request("settings.sync.\(operation)", args)
                     status = result.message + (result.warning.map { " " + $0 } ?? "")
-                    if operation == "run" { form.enabled = true; try await store.refreshLibrary(); _ = try? await loadSnapshot() }
+                    if operation == "run" {
+                        form.enabled = true
+                        savedEncryptionKey = form.encryptionKey
+                        confirmEncryptionKey = ""
+                        if let saved = try? await loadSnapshot() {
+                            savedEncryptionKey = saved.encryptionKey
+                            form.encryptionKey = saved.encryptionKey
+                        }
+                        try await store.refreshLibrary()
+                    }
                 } else {
                     try await store.command("settings.sync.\(operation)", args)
                     if operation == "save" {

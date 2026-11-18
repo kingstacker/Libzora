@@ -25,6 +25,7 @@ struct MobilePreferences: Codable, Equatable {
     var colorfulMode = false
     var showBookSyncStatus = false
     var showBookRating = false
+    var stackBookSeries = false
     var collectionsView = false
     var pdfZoom = 1.0
     var sort = 0
@@ -55,32 +56,6 @@ struct MobilePreferences: Codable, Equatable {
     }
 }
 
-struct LibraryBook: Decodable, Identifiable, Equatable {
-    let id: String
-    let title: String
-    let authors: String
-    let formats: String
-    let size: String
-    let coverPath: String?
-    let progress: Double
-    let favorite: Bool
-    let readingStatus: Int
-    let syncStatus: Int?
-    let collectionIds: [String]
-    let updatedAt: String
-    let createdAt: String
-    let description: String?
-    let series: String?
-    let publisher: String?
-    let publishDate: String?
-    let isbn: String?
-    let pageCount: String?
-    let binding: String?
-    let tags: String
-    let category: String
-    let onlineRating: Double?
-}
-
 struct LibraryFolder: Decodable, Identifiable, Equatable {
     let id: String
     let name: String
@@ -95,11 +70,18 @@ struct LibrarySnapshot: Decodable {
     let continueBookId: String?
 }
 
+struct NativePromptChoice: Decodable {
+    let id: String
+    let title: String
+    let cancel: Bool?
+}
+
 struct NativePrompt: Decodable, Identifiable {
     let id: Int64
     let title: String
     let message: String
     let confirm: String
+    let choices: [NativePromptChoice]?
 }
 
 struct ReaderSnapshot: Decodable, Equatable {
@@ -186,7 +168,10 @@ final class NativeStore: ObservableObject {
     let handler: ManagedRequest
     let readerController: UIViewController
     let showsLaunchAnimation: Bool
-    @Published var library: [LibraryBook] = []
+    @Published var library: [LibraryBook] = [] {
+        didSet { librarySeriesCache = nil }
+    }
+    private var librarySeriesCache: [NativeBookSeries.ID: NativeBookSeries]?
     @Published var folders: [LibraryFolder] = []
     @Published private(set) var preparingLibrary = true
     @Published private(set) var libraryLoaded = false
@@ -345,6 +330,11 @@ final class NativeStore: ObservableObject {
         case "closeReader": if readerBook != nil { perform { await self.closeReader() } }
         default: break
         }
+    }
+
+    func seriesSnapshot(for id: NativeBookSeries.ID) -> NativeBookSeries? {
+        if librarySeriesCache == nil { librarySeriesCache = NativeBookSeries.groups(library) }
+        return librarySeriesCache?[id]
     }
 
     /// The root owns startup, rather than waiting for a tab's onAppear. The
@@ -588,9 +578,9 @@ final class NativeStore: ObservableObject {
         }
     }
 
-    func answerPrompt(_ value: NativePrompt, accepted: Bool) {
+    func answerPrompt(_ value: NativePrompt, choice: String) {
         prompt = nil
-        perform { try await self.command("ui.confirm", ["id": value.id, "accepted": accepted]) }
+        perform { try await self.command("ui.confirm", ["id": value.id, "choice": choice]) }
     }
 }
 

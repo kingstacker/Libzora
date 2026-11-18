@@ -130,8 +130,10 @@ Swift 与 C# 通过同一进程内的 C ABI 传递 JSON 请求、结果和状态
 账号页保留注册邮箱验证和忘记密码，通过 8 位邮箱验证码验证或恢复账号；
 限时权益到期前 30、7、1 天的提醒以账号页横幅显示，永久权益无到期提醒。
 会员方案标注当前区域，两区域账号、权益和会话保持独立，客户端不能自行授予或跨区转移权益。
-书签的章节路径、fragment 和 `ReaderContentPosition` 会完整传过原生桥接层。
-关闭阅读会取消当前阅读会话的搜索、AI 和翻译请求。
+书签的 `BookFileId`、章节路径、fragment 和 `ReaderContentPosition` 会完整传过原生桥接层，
+按位置打开时优先使用对应文件，不会把 PDF 的位置应用到 EPUB。跳转原注前会强制保存正文
+返回点；足注浏览仍累计阅读时间，但不把注释章节写为正文进度。零秒保存也会更新书库进度。
+关闭阅读会取消当前阅读会话的搜索、AI、翻译及朗读准备请求。
 界面偏好在点击时立即更新，再异步保存；请求版本检查避免旧回复覆盖新的选择。
 原生开关的 Accessibility 标识位于开关自身，滚动后不会把标签所在的整行当成开关点击区。
 工具栏搜索提交、关闭和重新搜索会取消过期请求；每次查询使用独立标识，旧请求只能取消自身，
@@ -224,6 +226,14 @@ dotnet build src/Libzora.Mobile.iOS/Libzora.Mobile.iOS.csproj \
 
 ```bash
 dotnet test tests/Libzora.Mobile.Tests/Libzora.Mobile.Tests.csproj -c Debug
+```
+
+系列归组与同步密钥确认另有不依赖 UIKit 的 Swift 逻辑回归，直接编译生产模型与策略，
+不启动模拟器、不访问书库或网络。覆盖跨作者系列、成员增减与排序、同名推断的歧义，
+以及“保存”和“立即同步”的密钥双输入与确认规则：
+
+```bash
+bash tests/Libzora.Mobile.iOS.LogicTests/run-tests.sh
 ```
 
 实际触摸测试位于 `tests/Libzora.Mobile.iOS.UITests`。测试启动独立的

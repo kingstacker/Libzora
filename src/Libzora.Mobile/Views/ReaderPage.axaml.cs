@@ -54,6 +54,7 @@ public partial class ReaderPage : UserControl
     private DateTimeOffset _lastProgressSave = DateTimeOffset.MinValue;
     private readonly ReadingActivityClock _activityClock = new(DateTimeOffset.UtcNow);
     private long _unsavedSeconds;
+    private ReaderProgressRow? _lastSavedProgress;
     private Point? _pressPoint;
     private bool _pressMoved;
     private bool _selectionArmed;
@@ -166,7 +167,12 @@ public partial class ReaderPage : UserControl
             ErrorPanel.IsVisible = false;
             LoadingDetailText.Text = UiText.Get("正在读取书籍信息");
 
-            _bookFile = ChooseReadableFile(_book);
+            if (_jump is { } jump && jump.BookId != _book.Id)
+            {
+                ShowError(() => UiText.Get("这条阅读位置不属于当前书籍。"));
+                return;
+            }
+            _bookFile = ChooseReadableFile(_book, _jump?.BookFileId);
             if (_bookFile is null)
             {
                 ShowError(() => UiText.Get("这本书没有可读取的 EPUB 或 PDF 文件。"));
@@ -551,10 +557,14 @@ public partial class ReaderPage : UserControl
     /// background pass normally finishes long before the reader turns a page,
     /// so this usually returns immediately.
     /// </summary>
-    private async Task EnsureLayoutCompleteAsync()
+    private async Task EnsureLayoutCompleteAsync(CancellationToken cancellationToken = default)
     {
+        if (_disposed) throw new OperationCanceledException();
+        using var request = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
+        request.Token.ThrowIfCancellationRequested();
         if (_readerHost is NativeReaderHost host && !host.IsLayoutComplete)
-            await host.EnsureCompleteLayoutAsync();
+            await host.EnsureCompleteLayoutAsync().WaitAsync(request.Token);
+        request.Token.ThrowIfCancellationRequested();
     }
 
     private void UpdatePdfLabels()
@@ -695,42 +705,40 @@ public partial class ReaderPage : UserControl
         if (!_ready || _bookFile is null || _readerHost is null) return true;
         var now = DateTimeOffset.UtcNow;
         CountReadingTime(now);
-        // Browsing a note's definition is a detour, not a new reading
-        // position. Keep recording time, but never persist the notes chapter
-        // as "continue reading"; returning or an explicit TOC/slider jump
-        // lifts this guard.
-        if (_footnoteProgressSuppressed) return true;
         if (!force && now - _lastProgressSave < TimeSpan.FromSeconds(1.2)) return true;
         _lastProgressSave = now;
 
         long seconds = 0;
         try
         {
-            var chapterIndex = _isPdf ? Math.Max(0, _pdfPage - 1) : _chapterIndex;
-            var chapterPath = _isPdf
-                ? $"{PdfPageChapterPrefix}{_pdfPage}"
-                : ChapterPathAt(chapterIndex);
-            var scrollPosition = _isPdf ? 0 : (int)Math.Clamp(_epubPosition, 0, int.MaxValue);
-            var contentPosition = (_readerHost as IReaderPositionHost)?.CaptureContentPosition();
             var token = force ? CancellationToken.None : _lifetime.Token;
-            var percent = Math.Clamp(_overallProgress * 100, 0, 100);
-            await _modules.Reader.Data.SaveProgressAsync(new ReaderProgressRow(
+            // A note detour still counts as reading. Commit its time against
+            // the durable body baseline, never against the notes chapter.
+            var preservingBody = _footnoteProgressSuppressed;
+            var progress = preservingBody ? _footnoteBodyProgress : new ReaderProgressRow(
                 _book.Id,
                 _bookFile.Id,
-                chapterPath,
+                _isPdf ? $"{PdfPageChapterPrefix}{_pdfPage}" : ChapterPathAt(_chapterIndex),
                 null,
-                chapterIndex,
-                scrollPosition,
-                percent,
+                _isPdf ? Math.Max(0, _pdfPage - 1) : _chapterIndex,
+                _isPdf ? 0 : (int)Math.Clamp(_epubPosition, 0, int.MaxValue),
+                Math.Clamp(_overallProgress * 100, 0, 100),
                 1,
                 now)
-            { ContentPosition = contentPosition }, token);
+            { ContentPosition = (_readerHost as IReaderPositionHost)?.CaptureContentPosition() };
+            if (progress is null) return false;
+            if (!preservingBody)
+            {
+                await _modules.Reader.Data.SaveProgressAsync(progress, token);
+                if (_lastSavedProgress is null || _lastSavedProgress.UpdatedAt <= progress.UpdatedAt)
+                    _lastSavedProgress = progress;
+            }
 
             // The dashboard, library grid and continue card read reading stats.
             seconds = Interlocked.Exchange(ref _unsavedSeconds, 0);
             var chapters = _isPdf ? _pdfPageCount : _epubDocument?.Chapters.Count ?? 0;
             await _modules.Reader.Data.AddReadingTimeAsync(
-                _book.Id, _bookFile.Id, seconds, percent, chapterIndex, chapters, token);
+                _book.Id, _bookFile.Id, seconds, progress.ProgressPercent, progress.ChapterIndex, chapters, token);
             return true;
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
@@ -1506,8 +1514,16 @@ public partial class ReaderPage : UserControl
         return line.Length > QuoteLength ? line[..QuoteLength] + "…" : line;
     }
 
-    private static BookFile? ChooseReadableFile(Book book)
+    private static BookFile? ChooseReadableFile(Book book, Guid? preferredFileId = null)
     {
+        if (preferredFileId is { } id)
+        {
+            // A bookmark's position belongs to its exact file, not whichever
+            // format currently wins the ordinary open preference.
+            return book.Files.FirstOrDefault(candidate => candidate.Id == id && candidate.BookId == book.Id
+                && new[] { "epub", "pdf", "azw3", "mobi" }.Contains(
+                    candidate.Format.Trim().TrimStart('.'), StringComparer.OrdinalIgnoreCase));
+        }
         foreach (var format in new[] { "epub", "pdf", "azw3", "mobi" })
         {
             var file = book.Files.FirstOrDefault(candidate =>
@@ -1524,6 +1540,7 @@ public partial class ReaderPage : UserControl
             _disposed = true;
             _shell.ActualThemeVariantChanged -= OnAppThemeVariantChanged;
             _longPress.Stop();
+            CancelSpeechPreparation();
             _tts?.Dispose();
             _shell.Services.SystemBars?.SetEdgeGesturesCaptured(false);
             _shell.ClearPaperSystemBars();

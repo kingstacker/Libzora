@@ -1379,7 +1379,10 @@ public sealed partial class ReaderDataService
         int completedChapters, int totalChapters, DateTimeOffset recordedAt, ReadingTimeCheckpoint? checkpoint,
         CancellationToken cancellationToken)
     {
-        if (activeSeconds <= 0) return;
+        // A position-only save must refresh the dashboard even when the
+        // activity clock has not accumulated another whole second. Recovery
+        // checkpoints still represent positive, idempotently applied time.
+        if (activeSeconds < 0 || checkpoint is not null && activeSeconds == 0) return;
         using var processLease = await AppDataProcessLock.AcquireAsync(_paths, cancellationToken);
         await _databaseGate.WaitAsync(cancellationToken);
         try
@@ -1429,22 +1432,25 @@ public sealed partial class ReaderDataService
             command.Parameters.AddWithValue("$applyMetadata", applyMetadata ? 1 : 0);
             await command.ExecuteNonQueryAsync(cancellationToken);
 
-            var session = connection.CreateCommand();
-            session.Transaction = transaction;
-            session.CommandText = """
-                INSERT INTO ReaderReadingSessions (
-                    BookId, BookFileId, ActiveSeconds, ProgressPercent, RecordedAt)
-                VALUES ($bookId, $bookFileId, $seconds, $progressPercent, $recordedAt);
-                """;
-            session.Parameters.AddWithValue("$bookId", bookId.ToString());
-            session.Parameters.AddWithValue("$bookFileId", bookFileId.ToString());
-            session.Parameters.AddWithValue("$seconds", activeSeconds);
-            session.Parameters.AddWithValue("$progressPercent", progressPercent);
-            session.Parameters.AddWithValue("$recordedAt", recordedAt.ToString("O"));
-            await session.ExecuteNonQueryAsync(cancellationToken);
-            await ReadingTimeSyncTracker.RecordReadingDayAsync(
-                connection, transaction, bookFileId, recordedAt, activeSeconds, cancellationToken);
-            await ReadingTimeSyncTracker.RecordCurrentTotalAsync(connection, transaction, bookFileId, cancellationToken);
+            if (activeSeconds > 0)
+            {
+                using var session = connection.CreateCommand();
+                session.Transaction = transaction;
+                session.CommandText = """
+                    INSERT INTO ReaderReadingSessions (
+                        BookId, BookFileId, ActiveSeconds, ProgressPercent, RecordedAt)
+                    VALUES ($bookId, $bookFileId, $seconds, $progressPercent, $recordedAt);
+                    """;
+                session.Parameters.AddWithValue("$bookId", bookId.ToString());
+                session.Parameters.AddWithValue("$bookFileId", bookFileId.ToString());
+                session.Parameters.AddWithValue("$seconds", activeSeconds);
+                session.Parameters.AddWithValue("$progressPercent", progressPercent);
+                session.Parameters.AddWithValue("$recordedAt", recordedAt.ToString("O"));
+                await session.ExecuteNonQueryAsync(cancellationToken);
+                await ReadingTimeSyncTracker.RecordReadingDayAsync(
+                    connection, transaction, bookFileId, recordedAt, activeSeconds, cancellationToken);
+                await ReadingTimeSyncTracker.RecordCurrentTotalAsync(connection, transaction, bookFileId, cancellationToken);
+            }
             await transaction.CommitAsync(cancellationToken);
             NotifyDataChanged(LocalDataChangeKind.ReadingStats);
         }

@@ -282,6 +282,8 @@
   "画廊视图": "Cover Gallery",
   "炫彩模式": "Colorful Background",
   "显示书籍评分": "Show Book Ratings",
+  "按系列叠放": "Stack Books by Series",
+  "{0} 册": "{0} volumes",
   "显示书籍同步状态": "Show Sync Status",
   "启用同步": "Enable Sync",
   "仅支持自备 S3 / WebDAV，不提供官方云同步。试用与买断同步功能相同。": "Sync requires your own S3 or WebDAV storage; hosted cloud sync is not provided. Trial and Lifetime offer the same sync features.",
@@ -333,5 +335,15 @@
   "正在备份或恢复数据，请稍后重试。": "Data is being backed up or restored. Please try again shortly.",
   "请完全关闭并重新打开应用后继续使用。": "Fully close and reopen the app to continue.",
   "未知操作：{0}": "Unknown action: {0}",
-  "请选择 EPUB、PDF、MOBI、AZW3 或 TXT 文件。": "Select EPUB, PDF, MOBI, AZW3 or TXT files."
+  "请选择 EPUB、PDF、MOBI、AZW3 或 TXT 文件。": "Select EPUB, PDF, MOBI, AZW3 or TXT files.",
+  "系列序号": "Series Position",
+  "请输入有效的系列序号，或留空清除序号。": "Enter a valid series position, or leave it blank to clear it.",
+  "请先确认同步密钥。": "Confirm the sync key before saving or syncing.",
+  "同名书籍": "Book with the Same Title",
+  "书库中已有《{0}》（{1}）。请选择此文件的保存方式：{2}": "Your library already contains {0} by {1}. Choose how to save this file: {2}",
+  "独立保存": "Keep Separate",
+  "添加格式": "Add Format",
+  "跳过": "Skip",
+  "这条阅读位置不属于当前书籍。": "This reading position belongs to a different book.",
+  "无法保存阅读进度，请稍后重试。": "Could not save your reading position. Please try again."
 }

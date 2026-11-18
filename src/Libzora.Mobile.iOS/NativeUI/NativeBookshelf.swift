@@ -254,7 +254,9 @@ struct NativeLibraryPage: View {
                     .foregroundStyle(mutedText).padding(.bottom, 14)
                 if books.isEmpty { emptyView }
                 else {
-                    NativeBookShelf(store: store, books: books, pageWidth: pageWidth, tracksVisibleCovers: true) { book in bookActions(book) }
+                    NativeBookShelf(store: store, books: books, pageWidth: pageWidth, tracksVisibleCovers: true,
+                                    stackSeries: store.preferences.stackBookSeries && query.isEmpty
+                                        && filter == 0 && advancedFilter.count == 0) { book in bookActions(book) }
                 }
             }
         }.padding(.horizontal, 24).padding(.top, 8).padding(.bottom, 28)
@@ -608,12 +610,13 @@ struct NativeBookShelf: View {
     let books: [LibraryBook]
     let pageWidth: CGFloat
     let tracksVisibleCovers: Bool
+    private let stackSeries: Bool
     private let actions: (LibraryBook) -> [NativeBookMenuItem]
 
     init(store: NativeStore, books: [LibraryBook], pageWidth: CGFloat, tracksVisibleCovers: Bool = false,
-         actions: @escaping (LibraryBook) -> [NativeBookMenuItem]) {
+         stackSeries: Bool = false, actions: @escaping (LibraryBook) -> [NativeBookMenuItem]) {
         self.store = store; self.books = books; self.pageWidth = pageWidth
-        self.tracksVisibleCovers = tracksVisibleCovers; self.actions = actions
+        self.tracksVisibleCovers = tracksVisibleCovers; self.stackSeries = stackSeries; self.actions = actions
     }
     static func columnCount(pageWidth: CGFloat) -> Int { max(3, Int((pageWidth - 32) / 136)) }
     static func coverWidth(pageWidth: CGFloat) -> CGFloat {
@@ -632,7 +635,16 @@ struct NativeBookShelf: View {
             } else {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 16, alignment: .top), count: columns),
                           alignment: .leading, spacing: galleryMode ? 18 : 26) {
-                    ForEach(books) { book in bookLink(book) }
+                    if stackSeries {
+                        ForEach(NativeBookSeries.entries(books)) { entry in
+                            switch entry {
+                            case .book(let book): bookLink(book)
+                            case .series(let series): seriesLink(series)
+                            }
+                        }
+                    } else {
+                        ForEach(books) { book in bookLink(book) }
+                    }
                 }
             }
         }.accessibilityElement(children: .contain)
@@ -644,6 +656,22 @@ struct NativeBookShelf: View {
                     .hidden().accessibilityHidden(true)
             }
     }
+    private func seriesLink(_ series: NativeBookSeries) -> some View {
+        NavigationLink {
+            NativeBookSeriesPage(store: store, series: series, actions: actions)
+        } label: {
+            NativeBookSeriesTile(series: series, width: coverWidth, muted: mutedText, galleryMode: galleryMode)
+        }.buttonStyle(.plain)
+            .accessibilityLabel(series.title)
+            .accessibilityValue(L("{0} 册", series.books.count))
+            .accessibilityIdentifier("books.series.\(series.id.name)")
+            .background {
+                if let book = series.books.prefix(3).first(where: { $0.coverPath != nil }) {
+                    coverPosition(book)
+                }
+            }
+    }
+
     private func bookLink(_ book: LibraryBook) -> some View {
         // The app-owned preview draws its own copy, so the source tile hides
         // while it is up, exactly like the system lift used to.
@@ -664,19 +692,21 @@ struct NativeBookShelf: View {
             }
             .accessibilityHint(L("轻点阅读，长按查看更多操作"))
             .accessibilityIdentifier("book.\(book.id)")
-            .background {
-                if tracksVisibleCovers, store.preferences.colorfulMode, let path = book.coverPath {
-                    GeometryReader { proxy in
-                        let tile = proxy.frame(in: .named(NativeLibraryScrollState.space))
-                        let cover = CGRect(x: tile.minX, y: tile.minY + (store.preferences.listView ? 10 : 0),
-                                           width: store.preferences.listView ? 46 : coverWidth,
-                                           height: store.preferences.listView ? 66 : coverWidth * 1.45)
-                        Color.clear.preference(key: NativeCoverPositionKey.self, value: [
-                            NativeCoverPosition(cover: NativeVisibleCover(path: path, version: book.updatedAt), frame: cover)
-                        ])
-                    }
-                }
+            .background { coverPosition(book) }
+    }
+
+    @ViewBuilder private func coverPosition(_ book: LibraryBook) -> some View {
+        if tracksVisibleCovers, store.preferences.colorfulMode, let path = book.coverPath {
+            GeometryReader { proxy in
+                let tile = proxy.frame(in: .named(NativeLibraryScrollState.space))
+                let cover = CGRect(x: tile.minX, y: tile.minY + (store.preferences.listView ? 10 : 0),
+                                   width: store.preferences.listView ? 46 : coverWidth,
+                                   height: store.preferences.listView ? 66 : coverWidth * 1.45)
+                Color.clear.preference(key: NativeCoverPositionKey.self, value: [
+                    NativeCoverPosition(cover: NativeVisibleCover(path: path, version: book.updatedAt), frame: cover)
+                ])
             }
+        }
     }
 
     /// The preview request carries everything the overlay needs to draw the
@@ -864,6 +894,65 @@ struct NativeBookTile: View {
     /// shelf tile stays one compact accessibility element.
     @ViewBuilder private func previewMetadata<Content: View>(_ content: Content, _ identifier: String) -> some View {
         if previewing { content.accessibilityIdentifier(identifier) } else { content }
+    }
+}
+
+private struct NativeBookSeriesTile: View {
+    @Environment(\.locale) private var uiLocale
+    let series: NativeBookSeries
+    let width: CGFloat
+    let muted: Color
+    let galleryMode: Bool
+
+    var body: some View {
+        let _ = uiLocale
+        let count = L("{0} 册", series.books.count)
+        VStack(alignment: .leading, spacing: 0) {
+            ZStack(alignment: .leading) {
+                ForEach(Array(series.books.prefix(3).enumerated()), id: \.element.id) { depth, book in
+                    BookCover(book: book, width: width * 0.84)
+                        .overlay { RoundedRectangle(cornerRadius: 6).strokeBorder(.primary.opacity(0.12)) }
+                        .offset(x: CGFloat(depth) * width * 0.075)
+                        .rotationEffect(.degrees(Double(depth) * 3))
+                        .zIndex(-Double(depth))
+                }
+            }
+            .frame(width: width, height: width * 1.45, alignment: .leading)
+            .overlay(alignment: .bottomTrailing) {
+                if galleryMode {
+                    Text(count).font(NativeTheme.font(10, relativeTo: .caption2))
+                        .padding(.horizontal, 6).padding(.vertical, 3)
+                        .background(.regularMaterial, in: Capsule())
+                }
+            }
+            if !galleryMode {
+                Text(series.title).font(NativeTheme.font(13.5)).lineLimit(2).lineSpacing(3).padding(.top, 8)
+                Text(count).font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(muted)
+                    .lineLimit(1).padding(.top, 2)
+            }
+        }.frame(maxWidth: .infinity, alignment: .topLeading).contentShape(Rectangle())
+    }
+}
+
+private struct NativeBookSeriesPage: View {
+    @ObservedObject var store: NativeStore
+    let series: NativeBookSeries
+    let actions: (LibraryBook) -> [NativeBookMenuItem]
+
+    var body: some View {
+        let current = store.seriesSnapshot(for: series.id)
+        let books = current?.books ?? []
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text(L("{0} 册", books.count)).font(NativeTheme.font(12, relativeTo: .caption))
+                        .foregroundStyle(store.preferences.colorfulMode ? NativeTheme.mutedOnColorful : NativeTheme.muted)
+                    NativeBookShelf(store: store, books: books, pageWidth: geometry.size.width, actions: actions)
+                }.padding(.horizontal, 24).padding(.top, 8).padding(.bottom, 28)
+            }.accessibilityIdentifier("books.series.detail")
+        }.background(NativeAmbientBackground())
+            .navigationTitle(current?.title ?? series.title).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
+            .nativeBackButton().modifier(NativeHideTabBar())
     }
 }
 

@@ -117,7 +117,9 @@ internal sealed partial class IOSNativeFrontend
         string? Optional(string key) => Text(fields, key).Trim() is { Length: > 0 } text ? text : null;
         book.Title = title;
         book.Authors = Optional("authors") ?? "未知作者";
-        book.Series = Optional("series"); book.Publisher = Optional("publisher");
+        IOSNativeBookLibraryPolicy.ApplySeries(book, Optional("series"), Optional("seriesIndex"),
+            fields.TryGetProperty("seriesIndex", out _));
+        book.Publisher = Optional("publisher");
         book.PublishDate = Optional("publishDate"); book.Isbn = Optional("isbn");
         book.PageCount = Optional("pageCount"); book.Binding = Optional("binding");
         book.Tags = Text(fields, "tags").Trim(); book.Category = Text(fields, "category").Trim();

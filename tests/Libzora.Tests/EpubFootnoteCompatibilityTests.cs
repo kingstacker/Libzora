@@ -297,6 +297,125 @@ public sealed class EpubFootnoteCompatibilityTests : IDisposable
         Assert.Contains("大写文件说明", details[EpubFootnoteResolver.NormalizeTargetKey(Target(upper, "note1"))]);
     }
 
+    [Theory]
+    [InlineData("<sup><a epub:type='noteref' href='notes.xhtml#n1'>1</a></sup>", "")]
+    [InlineData("<sup><a href='notes.xhtml#publisher42'>[1]</a></sup>", "")]
+    [InlineData("<span class='raised'><a href='notes.xhtml#publisher42'>[1]</a></span>", ".raised { vertical-align:super; }")]
+    public void LeadingReferencesCannotHideTheirParagraphOrOuterChapter(string reference, string css)
+    {
+        var chapter = WriteChapter("body.xhtml", $"<div><p>{reference}正文</p><p>后文</p></div>", css);
+        var content = new XhtmlChapterLoader().Load(chapter);
+        Assert.Contains(content.Blocks.SelectMany(block => block.Items), item => item.Text == "正文");
+        Assert.Contains(content.Blocks.SelectMany(block => block.Items), item => item.Text == "后文");
+        Assert.Single(content.Blocks.SelectMany(block => block.Items), item => item.Kind == InlineKind.FootnoteMarker);
+    }
+
+    [Fact]
+    public void ConvertedNotesWithInlineWrappedBacklinksStillHideOnlyTheirOwnParagraph()
+    {
+        var chapter = WriteChapter("notes.xhtml", "<div><p id='publisher42'><span><a href='body.xhtml#source'>[1]</a></span>注释正文</p><p>保留正文</p></div>");
+        var content = new XhtmlChapterLoader().Load(chapter);
+        Assert.Contains("注释正文", content.BodyText);
+        Assert.DoesNotContain(content.Blocks.SelectMany(block => block.Items), item => item.Text.Contains("注释正文", StringComparison.Ordinal));
+        Assert.Contains(content.Blocks.SelectMany(block => block.Items), item => item.Text == "保留正文");
+    }
+
+    [Fact]
+    public void HiddenAndRevealedNotesKeepTheSameTextAndFollowingOffsets()
+    {
+        var chapter = WriteChapter("body.xhtml", "<p>正文<a epub:type='noteref' href='#n1'>[1]</a></p>"
+            + "<aside epub:type='footnote' id='n1'><p>注释<span style='display:none'>X</span><span style='visibility:hidden'>Y<span style='visibility:visible'>Z</span></span></p></aside>"
+            + "<p id='after'>后文</p>");
+        var hidden = new XhtmlChapterLoader().Load(chapter);
+        var revealed = new XhtmlChapterLoader(visibleFootnoteFragment: "n1").Load(chapter);
+        Assert.Equal(hidden.BodyText, revealed.BodyText);
+        Assert.DoesNotContain("X", hidden.BodyText);
+        Assert.DoesNotContain("Y", hidden.BodyText);
+        Assert.Contains("Z", hidden.BodyText);
+        Assert.Equal(hidden.FragmentTextOffsets["after"], revealed.FragmentTextOffsets["after"]);
+        Assert.Equal(hidden.BodyText.IndexOf("后文", StringComparison.Ordinal),
+            Assert.Single(revealed.Blocks.SelectMany(block => block.Items), item => item.Text == "后文").TextStart);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void UnstyledCrossDocumentReferencesUseTheTargetsSemanticFootnoteMarkup(bool startsParagraph)
+    {
+        WriteChapter("notes.xhtml", "<aside epub:type='footnote' id='publisher42'><p>注释正文</p></aside><h2 id='chapter2'>第二章</h2>");
+        var chapter = WriteChapter("body.xhtml", "<p>" + (startsParagraph ? "" : "正文") + "<a href='notes.xhtml#publisher42'>[1]</a>"
+            + "<sup><a href='notes.xhtml#chapter2'>2</a></sup>后文</p>");
+        var content = new XhtmlChapterLoader().Load(chapter);
+        var marker = Assert.Single(content.Blocks.SelectMany(block => block.Items), item => item.Kind == InlineKind.FootnoteMarker);
+        Assert.EndsWith("#publisher42", marker.FootnoteHref, StringComparison.Ordinal);
+        Assert.Contains(content.Blocks.SelectMany(block => block.Items), item => item.LinkHref?.EndsWith("#chapter2", StringComparison.Ordinal) == true);
+    }
+
+    [Theory]
+    [InlineData("note-1")]
+    [InlineData("note_1")]
+    [InlineData("note:1")]
+    public void LegacySeparatedIdsKeepNoteBacklinksAsOrdinaryLinks(string referenceId)
+    {
+        var chapter = WriteChapter("body.xhtml", $"<p><a id='{referenceId}' href='#{referenceId}n'>[1]</a>正文</p>"
+            + $"<p>注 <a id='{referenceId}n' href='#{referenceId}'>1</a>说明</p>");
+        var content = new XhtmlChapterLoader().Load(chapter);
+        Assert.Single(content.Blocks.SelectMany(block => block.Items), item => item.Kind == InlineKind.FootnoteMarker);
+        var backlink = Assert.Single(content.Blocks.SelectMany(block => block.Items),
+            item => item.LinkHref is not null && EpubFootnoteResolver.NormalizeTargetKey(item.LinkHref)
+                == EpubFootnoteResolver.NormalizeTargetKey(Target(chapter, referenceId)));
+        Assert.False(backlink.Style.Superscript);
+    }
+
+    [Fact]
+    public async Task StandaloneAnchorIncludesItsFirstParagraphEvenWhenThatParagraphHasAnId()
+    {
+        var chapter = WriteChapter("notes.xhtml", "<a name='n1'></a><p id='paragraph1'><a href='body.xhtml#r1'>[1]</a>注释正文</p>"
+            + "<a name='n2'></a><p id='paragraph2'><a href='body.xhtml#r2'>[2]</a>下一条说明</p>");
+        var detail = await new EpubFootnoteResolver().ResolveDetailAsync(_root, Target(chapter, "n1"));
+        Assert.NotNull(detail);
+        Assert.Contains("注释正文", detail.Text);
+        Assert.DoesNotContain("下一条说明", detail.Text);
+        Assert.Equal(EpubFootnoteResolver.NormalizeTargetKey(Target(Path.Combine(_root, "body.xhtml"), "r1")), detail.Backlink);
+    }
+
+    [Theory]
+    [InlineData("data-footnote-text", "42")]
+    [InlineData("data-footnote-text", "†")]
+    [InlineData("zy-footnote", "①")]
+    [InlineData("data-note", "42")]
+    public void ExplicitImageNotePayloadMayBeANumberOrSymbol(string attribute, string payload)
+    {
+        var chapter = WriteChapter("body.xhtml", $"<p>正文<img class='duokan-footnote' {attribute}='{payload}' alt='1' src='marker.png'/></p>");
+        var content = new XhtmlChapterLoader().Load(chapter);
+        var marker = Assert.Single(content.Blocks.SelectMany(block => block.Items), item => item.Kind == InlineKind.FootnoteMarker);
+        Assert.Equal(payload, marker.FootnoteText);
+    }
+
+    [Fact]
+    public void ConvertedNotesNestedInAnIdentifiedWrapperHideOnlyTheirParagraph()
+    {
+        var chapter = WriteChapter("notes.xhtml",
+            "<div id='content'><p><a href='body.xhtml#s1'>[1]</a>第一条注释。</p><p>第二条普通正文。</p></div>");
+        var content = new XhtmlChapterLoader().Load(chapter);
+        Assert.Contains("第一条注释", content.BodyText);
+        Assert.DoesNotContain(content.Blocks.SelectMany(block => block.Items),
+            item => item.Text.Contains("第一条注释", StringComparison.Ordinal));
+        Assert.Contains(content.Blocks.SelectMany(block => block.Items), item => item.Text == "第二条普通正文。");
+    }
+
+    [Fact]
+    public void ReciprocalNotesWithAnIdOnTheOuterWrapperHideOnlyTheNoteParagraph()
+    {
+        var chapter = WriteChapter("body.xhtml",
+            "<p>正文<a id='s1' href='#n1'>[1]</a></p>"
+            + "<div id='n1'><p><a href='#s1'>[1]</a>注释正文。</p><p>同容器后文。</p></div>");
+        var content = new XhtmlChapterLoader().Load(chapter);
+        Assert.DoesNotContain(content.Blocks.SelectMany(block => block.Items),
+            item => item.Text.Contains("注释正文", StringComparison.Ordinal));
+        Assert.Contains(content.Blocks.SelectMany(block => block.Items), item => item.Text == "同容器后文。");
+    }
+
     private string WriteChapter(string relative, string body, string css = "")
     {
         var path = Path.Combine(_root, relative);

@@ -30,7 +30,8 @@
          profile-less diagnostic app instead. -->
     <EnableWidgets Condition="'$(EnableWidgets)' == ''">true</EnableWidgets>
     <!-- Device profiles must authorize the same iCloud container as macOS.
-         Profile-less diagnostics can disable both iCloud and widgets. -->
+         iCloud and widgets can be disabled independently; profile-less
+         diagnostics disable both. -->
     <EnableICloud Condition="'$(EnableICloud)' == ''">true</EnableICloud>
     <DefineConstants Condition="'$(EnableICloud)' == 'true'">$(DefineConstants);LIBZORA_ICLOUD</DefineConstants>
     <WidgetBundleId Condition="'$(WidgetBundleId)' == ''">com.kingstacker.libzora.widgets</WidgetBundleId>
@@ -42,7 +43,13 @@
     <WidgetGeneratedEntitlements Condition="'$(RuntimeIdentifier)' == 'ios-arm64' And '$(WidgetProvisioningProfile)' != ''">$(WidgetSwiftOutput)/LibzoraWidgets.device.entitlements</WidgetGeneratedEntitlements>
     <WidgetCodesignEntitlements>$(MSBuildProjectDirectory)/../../src/Libzora.Widgets/LibzoraWidgets.iOS.entitlements</WidgetCodesignEntitlements>
     <WidgetCodesignEntitlements Condition="'$(WidgetGeneratedEntitlements)' != ''">$(WidgetGeneratedEntitlements)</WidgetCodesignEntitlements>
-    <CodesignEntitlements Condition="('$(EnableWidgets)' == 'true' Or '$(EnableICloud)' == 'true') And '$(RuntimeIdentifier)' != '' And '$(CodesignEntitlements)' == ''">$(MSBuildProjectDirectory)/Entitlements.plist</CodesignEntitlements>
+    <!-- Select only enabled capabilities and prevent the SDK from falling
+         back to Entitlements.plist when both features are disabled. Explicit
+         caller-provided entitlements always take precedence. -->
+    <EnableDefaultCodesignEntitlements>false</EnableDefaultCodesignEntitlements>
+    <CodesignEntitlements Condition="'$(EnableWidgets)' == 'true' And '$(EnableICloud)' == 'true' And '$(RuntimeIdentifier)' != '' And '$(CodesignEntitlements)' == ''">$(MSBuildProjectDirectory)/Entitlements.plist</CodesignEntitlements>
+    <CodesignEntitlements Condition="'$(EnableWidgets)' == 'true' And '$(EnableICloud)' != 'true' And '$(RuntimeIdentifier)' != '' And '$(CodesignEntitlements)' == ''">$(MSBuildProjectDirectory)/Entitlements.Widgets.plist</CodesignEntitlements>
+    <CodesignEntitlements Condition="'$(EnableICloud)' == 'true' And '$(EnableWidgets)' != 'true' And '$(RuntimeIdentifier)' != '' And '$(CodesignEntitlements)' == ''">$(MSBuildProjectDirectory)/Entitlements.ICloud.plist</CodesignEntitlements>
     <WidgetBuildScript>$(MSBuildProjectDirectory)/../../src/Libzora.Widgets/build-ios-widgets.sh</WidgetBuildScript>
     <WidgetSourceRoot>$(MSBuildProjectDirectory)/../../src/Libzora.Widgets/Shared</WidgetSourceRoot>
   </PropertyGroup>

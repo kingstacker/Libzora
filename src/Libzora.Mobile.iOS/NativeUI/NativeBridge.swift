@@ -37,6 +37,7 @@ struct MobilePreferences: Codable, Equatable {
     var readerParagraphSpacing = 0.0
     var readerBodyPadding = 24.0
     var readerParagraphIndent = false
+    var readerHyphenation = true
     var readerVerticalWriting = false
     var readerPageAnimation = 1
     var readerProgressDisplay = 0

@@ -243,4 +243,3 @@ public sealed partial class MtpKindleDeviceService : IKindleDeviceService, IDevi
         catch (UnauthorizedAccessException) { }
     }
 }
-}

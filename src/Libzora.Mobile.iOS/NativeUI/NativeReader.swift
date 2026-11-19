@@ -767,6 +767,11 @@ struct NativeTypography: View {
                             Text(L("关")).tag(false); Text(L("开")).tag(true)
                         }.pickerStyle(.segmented).accessibilityIdentifier("typography.indent")
                     }
+                    row(L("英文断词")) {
+                        Picker(L("英文断词"), selection: preference(\.readerHyphenation)) {
+                            Text(L("关")).tag(false); Text(L("开")).tag(true)
+                        }.pickerStyle(.segmented).accessibilityIdentifier("typography.hyphenation")
+                    }
                     row(L("排版方向")) {
                         Picker(L("排版方向"), selection: preference(\.readerVerticalWriting)) { Text(L("横排")).tag(false); Text(L("竖排")).tag(true) }
                             .pickerStyle(.segmented).accessibilityIdentifier("typography.direction")

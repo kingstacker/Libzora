@@ -14,9 +14,10 @@ import zipfile
 
 BUNDLE = "com.kingstacker.libzora.readerfootnotepreview"
 FIXTURES = (
-    ("旧式锚点", "<p>原文<span class='math-super'><a id='z1' href='notes.xhtml#bz1'>[1]</a></span>。</p>",
+    ("旧式锚点", "<div><p><span class='math-super'><a id='z1' href='notes.xhtml#bz1'>[1]</a></span>原文正文。</p>"
+     "<p>首段编号不应隐藏整个外层容器，这段后文也必须保留。</p></div>",
      "<p class='zhusi'><a id='bz1' href='body.xhtml#z1'>[1]</a>旧式锚点的完整注释。</p>"),
-    ("跨文件多段", "<p>原文<span epub:type='noteref'><a id='source' href='notes.xhtml#note-label'>[1]</a></span>。</p>",
+    ("跨文件多段", "<p>原文<a id='source' href='notes.xhtml#note-label'>[1]</a>。</p>",
      "<section epub:type='endnotes'><aside epub:type='footnote' id='note1'>"
      "<p><a id='note-label' href='body.xhtml#source' role='doc-backlink'>[1]</a>第一段注释内容。</p>"
      "<p>第二段注释内容。<br/>换行后的内容也应保留。</p></aside>"

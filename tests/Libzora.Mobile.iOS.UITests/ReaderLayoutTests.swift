@@ -11,7 +11,7 @@ final class ReaderLayoutTests: XCTestCase {
         app.launchArguments = ["--libzora-disable-restore"]
         app.launch()
         XCTAssertTrue(app.scrollViews["library.ready"].waitForExistence(timeout: 40), app.debugDescription)
-        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'book.' AND label CONTAINS '排版回归·'")).count, 2)
+        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'book.' AND label CONTAINS '排版回归·'")).count, 5)
     }
 
     override func tearDownWithError() throws { app.terminate() }
@@ -25,6 +25,21 @@ final class ReaderLayoutTests: XCTestCase {
     func testTocListDoesNotGainGeneratedNumbers() {
         openBook("真实目录")
         checkpoint("排版第一批-目录不生成编号")
+    }
+
+    func testHiddenCssOverridesAndTableRowsRender() {
+        openBook("隐藏样式")
+        checkpoint("排版修复-隐藏覆盖与可见表格")
+    }
+
+    func testMarkerlessItemsKeepNumbering() {
+        openBook("列表计数器")
+        checkpoint("排版修复-列表计数器与悬挂缩进")
+    }
+
+    func testEnglishHyphenationBreaksLongWords() {
+        openBook("英文断词")
+        checkpoint("排版修复-英文断词")
     }
 
     private func openBook(_ label: String) {

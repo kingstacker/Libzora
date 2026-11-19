@@ -14,6 +14,7 @@ a particular build may not use every listed package.
 - PDFium and its native subcomponents: ThirdParty/PDFium/LICENSE, NOTICE.md and licenses/.
 - Embedded Inter and math fonts: ThirdParty/Notices/fonts/NOTICE.md and original license texts.
 - Typography code compiled into CSharpMath: ThirdParty/Notices/components/Typography/.
+- English (US) hyphenation patterns from tex-hyphen: ThirdParty/Notices/components/EnglishHyphenation/.
 - Noto fonts and Lucide icons: original license files under Assets/Fonts and Assets/Icons.
 - macOS libmtp/libusb: LGPL texts and the matching source archives, checksums and
   build/replacement instructions under Contents/Resources/CorrespondingSource/MTP/.

@@ -107,6 +107,16 @@
         </Border>
       </c:NativeSegmentGroup>
 
+      <TextBlock Classes="label" Text="英文断词" Margin="0,14,0,0" />
+      <c:NativeSegmentGroup>
+        <Border Classes="segments">
+          <Grid ColumnDefinitions="*,*">
+            <Button Grid.Column="0" Name="HyphenationOff" Classes="seg" Content="关" Click="OnHyphenationClick" />
+            <Button Grid.Column="1" Name="HyphenationOn" Classes="seg" Content="开" Click="OnHyphenationClick" />
+          </Grid>
+        </Border>
+      </c:NativeSegmentGroup>
+
       <TextBlock Classes="label" Text="排版方向" Margin="0,14,0,0" />
       <c:NativeSegmentGroup>
         <Border Classes="segments">

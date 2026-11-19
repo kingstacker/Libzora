@@ -40,7 +40,8 @@ public static class SyncProviderIds
 /// can be enabled for production.
 /// </param>
 /// <param name="ReliableListing">
-/// A successful listing is complete. When false the engine disables remote
+/// A successful listing is complete and only contains published objects. When
+/// false the engine confirms object existence individually and disables remote
 /// snapshot retirement and object garbage collection.
 /// </param>
 /// <param name="ReliableLastModified">

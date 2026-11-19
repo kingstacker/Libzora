@@ -177,6 +177,11 @@ public sealed record ReaderLayoutSettings(
     /// <summary>Use natural word spacing and language-aware rhythm for horizontal Latin prose.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public bool NaturalLatinTypography { get; init; }
+    /// <summary>
+    /// Break long English words at syllable boundaries with a display-only
+    /// hyphen instead of leaving a wide gap at the line end.
+    /// </summary>
+    public bool HyphenateEnglish { get; init; } = true;
     /// <summary>Keep at least two lines together at paragraph page boundaries.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public bool AvoidWidowsAndOrphans { get; init; } = true;

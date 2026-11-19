@@ -154,7 +154,7 @@ public sealed partial class EpubFootnoteResolver
                 attribute.Name.LocalName is "id" or "name"));
             if (next.Name.LocalName is "h1" or "h2" or "h3" or "h4" or "h5" or "h6"
                 || IsIndividualSemanticNote(next)
-                || (hasOwnAnchor && (leading is not null || string.IsNullOrWhiteSpace(next.Value)))
+                || (hasOwnAnchor && string.IsNullOrWhiteSpace(next.Value))
                 || (!needsFollowingBlock && (leading is not null || NoteLabelAtStartRegex().IsMatch(NormalizeText(next.Value)))))
                 break;
             if (string.IsNullOrWhiteSpace(next.Value)) continue;

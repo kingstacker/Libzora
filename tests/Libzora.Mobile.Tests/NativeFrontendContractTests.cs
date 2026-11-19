@@ -121,6 +121,7 @@ public sealed class NativeFrontendContractTests
         var choice = Read(preferencesDocument.RootElement, new MobilePreferences(), IOSNativeJsonContext.Default.MobilePreferences);
         Assert.Equal(ReaderTheme.Ink, choice.ReaderTheme);
         Assert.True(choice.ReaderParagraphIndent);
+        Assert.True(choice.ReaderHyphenation);
         Assert.True(choice.ReaderVerticalWriting);
         Assert.Equal(1.45, choice.ReaderFontScale);
         Assert.Equal(ReaderFontDefaults.DefaultFamily, choice.ReaderFontFamily);

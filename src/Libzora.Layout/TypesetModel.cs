@@ -227,6 +227,12 @@ public sealed class TypesetLayoutOptions
     public bool OverridePublisherParagraphSpacing { get; init; }
     /// <summary>Latin body prose uses a ragged right edge, natural tracking and a calmer line pitch.</summary>
     public bool NaturalLatinTypography { get; init; }
+    /// <summary>
+    /// Break long English words at syllable boundaries when the whole word
+    /// does not fit, adding a display-only hyphen. Off by default so callers
+    /// that need the raw word grid opt in explicitly.
+    /// </summary>
+    public bool HyphenateEnglish { get; init; }
     public bool AvoidWidowsAndOrphans { get; init; } = true;
     public float ViewportWidth { get; init; } = 800f;
     public float ViewportHeight { get; init; } = 600f;
@@ -369,6 +375,8 @@ public sealed record PlacedRun
     public required int TextLength { get; init; }
     /// <summary>Per-glyph offset from <see cref="TextStart"/> into the chapter text.</summary>
     public int[] Clusters { get; init; } = Array.Empty<int>();
+    /// <summary>This run ends with a synthetic hyphen inserted by English hyphenation.</summary>
+    public bool SyntheticHyphen { get; init; }
     public TypesetInlineStyle Style { get; init; }
 }
 

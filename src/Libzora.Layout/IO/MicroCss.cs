@@ -14,8 +14,14 @@ public sealed class CssHints
     /// <summary>Publisher vertical-align; null leaves the element's default unchanged.</summary>
     public bool? Superscript { get; init; }
     public bool? Subscript { get; init; }
-    /// <summary>Publisher display:none or visibility:hidden.</summary>
-    public bool Hidden { get; init; }
+    /// <summary>Publisher display:none; null means unspecified.</summary>
+    public bool? DisplayNone { get; init; }
+    /// <summary>Publisher visibility:hidden/collapse; null means inherited.</summary>
+    public bool? VisibilityHidden { get; init; }
+    /// <summary>Distinguishes explicit visibility:inherit from no declaration.</summary>
+    public bool VisibilitySpecified { get; init; }
+    /// <summary>Whether either independent CSS property hides this element.</summary>
+    public bool Hidden => DisplayNone == true || VisibilityHidden == true;
     /// <summary>text-decoration; null means unspecified.</summary>
     public bool? Underline { get; init; }
     public bool? Strikeout { get; init; }
@@ -140,7 +146,9 @@ public sealed class MicroCss
         var noWrap = false;
         bool? superscript = null;
         bool? subscript = null;
-        var hidden = false;
+        bool? displayNone = null;
+        bool? visibilityHidden = null;
+        var visibilitySpecified = false;
         bool? underline = null;
         bool? strikeout = null;
         var letterSpacing = float.NaN;
@@ -200,10 +208,19 @@ public sealed class MicroCss
                         }
                         break;
                     case "display":
-                        hidden = value is "none";
+                        displayNone = value is "none";
                         break;
                     case "visibility":
-                        hidden = value is "hidden" or "collapse";
+                        if (value is "hidden" or "collapse" or "visible" or "initial" or "inherit" or "unset")
+                        {
+                            visibilitySpecified = true;
+                            visibilityHidden = value switch
+                            {
+                                "hidden" or "collapse" => true,
+                                "visible" or "initial" => false,
+                                _ => null,
+                            };
+                        }
                         break;
                     case "text-decoration":
                     case "text-decoration-line":
@@ -393,7 +410,9 @@ public sealed class MicroCss
                 NoWrap = noWrap,
                 Superscript = superscript,
                 Subscript = subscript,
-                Hidden = hidden,
+                DisplayNone = displayNone,
+                VisibilityHidden = visibilityHidden,
+                VisibilitySpecified = visibilitySpecified,
                 Underline = underline,
                 Strikeout = strikeout,
                 LetterSpacingEm = letterSpacing,

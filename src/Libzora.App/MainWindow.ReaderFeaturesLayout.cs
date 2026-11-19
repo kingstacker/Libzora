@@ -171,6 +171,7 @@ public partial class MainWindow
             ReaderBodyPaddingSlider.Value = _readerLayout.BodyPadding;
             ReaderVerticalWritingCheck.IsChecked = _readerLayout.VerticalWriting;
             ReaderParagraphIndentCheck.IsChecked = _readerLayout.ParagraphIndent;
+            ReaderHyphenationCheck.IsChecked = _readerLayout.HyphenateEnglish;
             SelectReaderFontFamily(_readerLayout.FontFamily);
             SelectReaderFlowMode(_readerLayout.FlowMode, _readerLayout.TwoPageMode);
             SelectReaderPageAnimation(_readerPageAnimation);
@@ -202,7 +203,8 @@ public partial class MainWindow
         && ReaderBodyPaddingSlider is not null
         && ReaderFontFamilyBox is not null
         && ReaderVerticalWritingCheck is not null
-        && ReaderParagraphIndentCheck is not null;
+        && ReaderParagraphIndentCheck is not null
+        && ReaderHyphenationCheck is not null;
 
     private bool _suppressReaderLayoutChange;
     private CancellationTokenSource? _readerLayoutApplyCancellation;
@@ -249,6 +251,12 @@ public partial class MainWindow
         ScheduleReaderLayoutApply();
     }
 
+    private void ReaderHyphenationCheck_IsCheckedChanged(object? sender, RoutedEventArgs e)
+    {
+        if (_suppressReaderLayoutChange || !AreReaderLayoutControlsReady()) return;
+        ScheduleReaderLayoutApply();
+    }
+
     private void ScheduleReaderLayoutApply()
     {
         _readerLayoutApplyCancellation?.Cancel();
@@ -287,7 +295,8 @@ public partial class MainWindow
         ReaderVerticalWritingCheck.IsChecked == true,
         GetSelectedReaderFlowMode().TwoPageMode)
     {
-        ParagraphIndent = ReaderParagraphIndentCheck.IsChecked == true
+        ParagraphIndent = ReaderParagraphIndentCheck.IsChecked == true,
+        HyphenateEnglish = ReaderHyphenationCheck.IsChecked != false
     };
 
     private void ReaderLayoutSettingsCloseButton_Click(object? sender, RoutedEventArgs e)
@@ -321,6 +330,7 @@ public partial class MainWindow
                 ReaderBodyPaddingSlider.Value = _readerLayout.BodyPadding;
                 ReaderVerticalWritingCheck.IsChecked = _readerLayout.VerticalWriting;
                 ReaderParagraphIndentCheck.IsChecked = _readerLayout.ParagraphIndent;
+                ReaderHyphenationCheck.IsChecked = _readerLayout.HyphenateEnglish;
                 SelectReaderFontFamily(_readerLayout.FontFamily);
                 SelectReaderFlowMode(_readerLayout.FlowMode, _readerLayout.TwoPageMode);
             }
@@ -351,6 +361,7 @@ public partial class MainWindow
             ReaderBodyPaddingSlider.Value = ReaderLayoutDefaults.DefaultBodyPadding;
             ReaderVerticalWritingCheck.IsChecked = false;
             ReaderParagraphIndentCheck.IsChecked = false;
+            ReaderHyphenationCheck.IsChecked = true;
             SelectReaderFontFamily(ReaderFontDefaults.DefaultFamily);
             SelectReaderFlowMode(1, false);
             SelectReaderPageAnimation(ReaderAnimationFade);

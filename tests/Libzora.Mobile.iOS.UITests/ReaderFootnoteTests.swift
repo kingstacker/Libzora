@@ -19,7 +19,7 @@ final class ReaderFootnoteTests: XCTestCase {
     func testLegacyCssFootnoteOpensWithoutChangingPosition() {
         checkpoint("脚注回归-真实封面书库")
         let original = openBook("旧式锚点")
-        showFirstFootnote()
+        showFirstFootnote(x: 36)
         XCTAssertTrue(noteText("旧式锚点的完整注释。").waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertEqual(position.label, original)
         checkpoint("脚注回归-CSS上标及旧式锚点")
@@ -79,13 +79,14 @@ final class ReaderFootnoteTests: XCTestCase {
         app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch
     }
 
-    private func showFirstFootnote() {
-        // On the default iPhone 17 the first "原文[1]。" marker occupies
-        // x=67..90, y=94..106 in window points. reader.page's accessibility
+    private func showFirstFootnote(x: CGFloat = 76) {
+        // On the default iPhone 17, "原文[1]。" occupies x=67..90;
+        // the leading-reference fixture starts its marker at x=24 instead.
+        // Both occupy y=94..106 in window points. reader.page's accessibility
         // bounds only describe its native children, not the self-drawn canvas;
         // anchoring a touch to that element can hit the footer instead.
         app.windows.firstMatch.coordinate(withNormalizedOffset: .zero)
-            .withOffset(CGVector(dx: 76, dy: 100)).tap()
+            .withOffset(CGVector(dx: x, dy: 100)).tap()
         let close = app.buttons["reader.footnote.close"]
         if !close.waitForExistence(timeout: 10) {
             checkpoint("脚注回归-识别失败现场")

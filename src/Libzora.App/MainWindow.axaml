@@ -6250,6 +6250,10 @@
                                                       Classes="readerSettingsToggle"
                                                       Content="{DynamicResource Ui.Auto.F7044E3D685ABD03}"
                                                       IsCheckedChanged="ReaderParagraphIndentCheck_IsCheckedChanged" />
+                                            <ToggleSwitch x:Name="ReaderHyphenationCheck"
+                                                      Classes="readerSettingsToggle"
+                                                      Content="{DynamicResource Ui.Reader.Hyphenation}"
+                                                      IsCheckedChanged="ReaderHyphenationCheck_IsCheckedChanged" />
                                         </StackPanel>
                                     </StackPanel>
                                     <TextBlock x:Name="ReaderAppearanceSaveStatus" FontSize="12" TextWrapping="Wrap" IsVisible="False" />

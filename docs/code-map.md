@@ -137,6 +137,13 @@ Large services are split by responsibility so one change opens one file:
 | `MtpKindleDeviceService.*.cs` | books, resources, annotations, scan, session |
 | `LibzoraMcpTools.*.cs` + `McpResults.cs` | library, collections, content, devices, validation, projection, result records |
 | `NativePdfReaderHost.*.cs` | interaction, annotation callouts, search, rendering, pointer |
+| `NativeReaderHost.*.cs` | navigation, configuration, scrolling, annotations, search, content, page counts, layout, rendering, images, pointer, selection, capture |
+| `XhtmlChapterLoader.*.cs` | flow, inline, blocks, footnotes, plain footnotes, targets, links |
+| `S3SyncService.*.cs` | settings, sync entry, versions, state, snapshots, cleanup, download, encryption |
+| `WpdKindleAccess.*.cs` | devices, resources, annotations, books, shell items |
+| `KindleDeviceService.*.cs` | detection, books, transfer, resources, annotations, files, native |
+| `HorizontalComposer.*.cs` | line breaking, images, tables, table layout |
+| `ReaderPage.*.cs` (Mobile) | navigation, position, input, selection, chrome, lifecycle |
 
 ## iOS native frontend
 

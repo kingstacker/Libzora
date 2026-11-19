@@ -291,6 +291,46 @@ public sealed class ICloudSyncTests
         finally { TestHelpers.TryDelete(root); }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RetryMustConfirmListedLocalObjectsBeforePublishingASnapshot(bool encrypted)
+    {
+        using var fileSystem = new FakeICloudFileSystem();
+        var settings = Settings() with { EncryptionKey = encrypted ? "retry-key" : "" };
+        await using var device = await Device.CreateAsync(fileSystem, settings);
+        var book = await device.AddBookAsync();
+        var snapshot = fileSystem.PathFor($"regions/china/libzora/devices/{device.Id}/snapshot.bin");
+        var uploadChecks = 0;
+        fileSystem.BeforeUpload = (path, _) =>
+        {
+            if (path.Replace('\\', '/').Contains("/objects/", StringComparison.Ordinal))
+            {
+                uploadChecks++;
+                throw new IOException("fixture cloud quota exceeded");
+            }
+            return Task.CompletedTask;
+        };
+
+        await Assert.ThrowsAsync<IOException>(() => device.SyncAsync());
+        var localObject = Assert.Single(Directory.EnumerateFiles(fileSystem.Root, "*", SearchOption.AllDirectories),
+            path => path.Replace('\\', '/').Contains("/objects/", StringComparison.Ordinal));
+        Assert.False(File.Exists(snapshot));
+        await Assert.ThrowsAsync<IOException>(() => device.SyncAsync());
+        Assert.Equal(2, uploadChecks);
+        Assert.False(File.Exists(snapshot));
+
+        fileSystem.BeforeUpload = null;
+        Assert.False((await device.SyncAsync()).IsPartial);
+        Assert.True(File.Exists(snapshot));
+        Assert.True(File.Exists(localObject));
+        await using var other = await Device.CreateAsync(fileSystem, settings);
+        Assert.Equal(1, (await other.SyncAsync()).BooksAdded);
+        var imported = Assert.Single(await other.Library.SearchAsync());
+        var downloaded = await other.Service.EnsureBookFileDownloadedAsync(other.Id, other.Settings, Assert.Single(imported.Files));
+        Assert.Equal(book.Bytes, await File.ReadAllBytesAsync(downloaded));
+    }
+
     private static S3SyncSettings Settings() => new()
     {
         Provider = SyncProvider.ICloud, ProviderChosenByUser = true, Enabled = true,
@@ -313,6 +353,7 @@ public sealed class ICloudSyncTests
         public List<ICloudSyncFileAccess> Accesses { get; } = [];
         public IOException? CoordinationFailure { get; set; }
         public Func<string, CancellationToken, Task>? BeforeDownload { get; set; }
+        public Func<string, CancellationToken, Task>? BeforeUpload { get; set; }
         public string PathFor(string key) => Path.Combine(Root, key.Replace('/', Path.DirectorySeparatorChar));
         private static string Placeholder(string path) => Path.Combine(Path.GetDirectoryName(path)!, "." + Path.GetFileName(path) + ".icloud");
         public Task<string> GetContainerDirectoryAsync(CancellationToken cancellationToken) => Task.FromResult(Root);
@@ -334,10 +375,11 @@ public sealed class ICloudSyncTests
             }
             if (!File.Exists(path)) throw new SyncObjectNotFoundException("missing fixture object");
         }
-        public Task EnsureUploadedAsync(string path, CancellationToken cancellationToken)
+        public async Task EnsureUploadedAsync(string path, CancellationToken cancellationToken)
         {
+            if (BeforeUpload is { } before) await before(path, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
-            return ItemExists(path) ? Task.CompletedTask : Task.FromException(new SyncObjectNotFoundException("missing fixture upload"));
+            if (!ItemExists(path)) throw new SyncObjectNotFoundException("missing fixture upload");
         }
         public T Coordinate<T>(string path, ICloudSyncFileAccess access, Func<string, T> accessor, CancellationToken cancellationToken)
         {

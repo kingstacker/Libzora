@@ -21,6 +21,8 @@ internal sealed record LayoutCell
     /// </summary>
     public float[]? GlyphInkShiftX { get; init; }
     public required float Advance { get; init; }
+    /// <summary>Publisher tracking after a horizontal cell, omitted at a line's end.</summary>
+    public float TrailingLetterSpacing { get; init; }
     public float Ascent { get; init; }
     public float Descent { get; init; }
     public required string FontPath { get; init; }
@@ -53,6 +55,8 @@ internal sealed record LayoutCell
     /// <summary>Vertical mode: paint the inline image as a sideways object.</summary>
     public bool ImageSideways { get; init; }
     public bool IsSpace { get; init; }
+    /// <summary>English word split across a line; the trailing hyphen is display-only.</summary>
+    public bool SyntheticHyphen { get; init; }
     public bool IsLineBreak { get; init; }
     /// <summary>Vertical mode: shaped horizontally, painted rotated 90° clockwise.</summary>
     public bool Sideways { get; init; }
@@ -332,7 +336,7 @@ internal sealed class CellFactory
     private readonly Dictionary<(string FontPath, float Size, ushort Glyph), float> _apostropheAdvanceCache = new();
     // A compose has fixed fonts and spacing. Reuse immutable glyph arrays for
     // repeated characters/words, while assigning source offsets per occurrence.
-    private readonly Dictionary<(string Text, float Size, float Spacing, bool Latin), LayoutCell> _cellCache = new();
+    private readonly Dictionary<(string Text, float Size, float Spacing, bool Latin, bool PublisherTracking), LayoutCell> _cellCache = new();
 
     public CellFactory(ComposerContext context)
     {
@@ -384,8 +388,9 @@ internal sealed class CellFactory
                 ? 0f
                 : _context.LetterSpacing * (fontSize / _context.Options.BaseFontSize);
 
+        var publisherTracking = !vertical && !float.IsNaN(style.LetterSpacingEm);
         var cacheable = unitText.Length <= 64;
-        var key = (unitText, fontSize, letterSpacing, naturalLatin);
+        var key = (unitText, fontSize, letterSpacing, naturalLatin, publisherTracking);
         if (cacheable && _cellCache.TryGetValue(key, out var cached))
             return cached with
             {
@@ -430,9 +435,11 @@ internal sealed class CellFactory
             pen += glyphAdvance + letterSpacing;
         }
 
-        // The trailing letter spacing hangs past the last glyph; exclude it so
-        // line fitting matches the visible ink.
+        // Keep internal tracking in the measured ink width. Publisher tracking
+        // after the cell must survive CJK's single-glyph itemization; the line
+        // composer removes that final gap only at an actual line boundary.
         var advance = glyphCount > 0 ? pen - letterSpacing : 0f;
+        var trailingSpacing = publisherTracking && glyphCount > 0 ? letterSpacing : 0f;
 
         // Most CJK faces (including the bundled Song face) ship no `palt` or
         // `halt`, so full-width punctuation keeps its empty half-cell. Squeeze
@@ -469,7 +476,8 @@ internal sealed class CellFactory
             Glyphs = shaped.GlyphIds,
             GlyphX = glyphX,
             GlyphY = glyphY,
-            Advance = advance,
+            Advance = advance + trailingSpacing,
+            TrailingLetterSpacing = trailingSpacing,
             Ascent = ascent,
             Descent = descent,
             FontPath = fontPath,
@@ -571,7 +579,7 @@ internal sealed class CellFactory
         using var font = new SKFont(_context.Fonts.GetTypeface(annotation.FontPath), fontSize);
         _ = font.GetGlyphWidths(annotation.Glyphs.AsSpan(), out var bounds, null);
         var left = 0f;
-        var right = annotation.Advance;
+        var right = annotation.Advance - annotation.TrailingLetterSpacing;
         var ascent = annotation.Ascent;
         var descent = annotation.Descent;
         for (var index = 0; index < bounds.Length; index++)
@@ -587,6 +595,7 @@ internal sealed class CellFactory
         {
             GlyphX = annotation.GlyphX.Select(x => x - left).ToArray(),
             Advance = right - left,
+            TrailingLetterSpacing = 0f,
             Ascent = ascent,
             Descent = descent,
         };
@@ -786,6 +795,14 @@ internal sealed class CellFactory
             }
         }
 
+        // Itemization can split synthetic text into several cells. Advancing
+        // a -1 sentinel by a character offset must never create a body range.
+        if (item.TextStart < 0)
+        {
+            for (var index = 0; index < cells.Count; index++)
+                cells[index] = cells[index] with { TextStart = item.TextStart };
+        }
+
         if (isRuby && cells.Count > 0 && !string.IsNullOrWhiteSpace(item.RubyText))
         {
             var baseCell = cells[0] with { RubyText = item.RubyText };
@@ -793,12 +810,13 @@ internal sealed class CellFactory
             cells[0] = baseCell with
             {
                 RubyAnnotation = annotation,
-                RubyBaseAdvance = baseCell.Advance,
+                RubyBaseAdvance = baseCell.Advance - baseCell.TrailingLetterSpacing,
                 // Line fitting must see the full annotation width before it
                 // wraps or justifies the text. Vertical flow reserves height.
                 Advance = vertical
                     ? baseCell.Advance
-                    : Math.Max(baseCell.Advance, annotation.Advance + 2f * _context.RubyGap),
+                    : Math.Max(baseCell.Advance - baseCell.TrailingLetterSpacing, annotation.Advance + 2f * _context.RubyGap)
+                        + baseCell.TrailingLetterSpacing,
             };
         }
 
@@ -901,6 +919,76 @@ internal sealed class CellFactory
             previousWasSpace = isSpace;
             previousWasLineBreak = false;
         }
+    }
+
+    /// <summary>
+    /// Splits one Latin word at an English typographic break when the prefix
+    /// plus a visible hyphen fits the remaining line width. Source offsets stay
+    /// exact; the hyphen is display-only and never enters the text stream.
+    /// </summary>
+    public bool TrySplitForHyphenation(
+        LayoutCell cell,
+        float availableWidth,
+        out LayoutCell head,
+        out LayoutCell tail)
+    {
+        head = cell;
+        tail = cell;
+        if (!_context.Options.HyphenateEnglish
+            || !cell.IsLatinWord
+            || cell.SyntheticHyphen
+            || cell.TextStart < 0
+            || cell.TextLength < 5
+            || cell.Text.Length != cell.TextLength
+            || !cell.Text.All(char.IsAsciiLetter))
+        {
+            return false;
+        }
+
+        foreach (var breakPoint in EnglishHyphenator.GetBreakpoints(cell.Text).OrderDescending())
+        {
+            var shaped = ShapeCell(
+                cell.Text[..breakPoint] + "-",
+                cell.TextStart,
+                cell.Style,
+                cell.LinkHref,
+                cell.FootnoteHref,
+                vertical: false);
+            if (shaped.Advance > availableWidth + 0.01f)
+            {
+                continue;
+            }
+
+            // The hyphen is synthetic: map its cluster to the last source
+            // letter so hit-testing and selection never address the suffix.
+            var clusters = shaped.Clusters.ToArray();
+            if (clusters.Length > 0 && clusters[^1] >= breakPoint)
+            {
+                clusters[^1] = breakPoint - 1;
+            }
+
+            head = shaped with
+            {
+                Text = cell.Text[..breakPoint] + "-",
+                TextLength = breakPoint,
+                Clusters = clusters,
+                IsLatinWord = true,
+                SyntheticHyphen = true,
+            };
+            tail = ShapeCell(
+                cell.Text[breakPoint..],
+                cell.TextStart + breakPoint,
+                cell.Style,
+                cell.LinkHref,
+                cell.FootnoteHref,
+                vertical: false) with
+            {
+                IsLatinWord = true,
+            };
+            return true;
+        }
+
+        return false;
     }
 
     private List<LayoutCell> SplitOversizedSidewaysCell(

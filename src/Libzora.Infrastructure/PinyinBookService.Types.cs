@@ -190,4 +190,3 @@ public sealed partial class PinyinBookService : IPinyinBookService
         public override Encoding Encoding => new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
     }
 }
-}

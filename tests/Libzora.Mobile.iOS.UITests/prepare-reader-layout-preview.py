@@ -30,6 +30,38 @@ BOOKS = (
       <h2>第一章</h2>
       <p>目录列表不应出现自动编号，正文从这里开始。</p>
     """, ""),
+    ("排版回归·隐藏样式", """
+      <h2>隐藏样式回归</h2>
+      <p class='screen-only' style='display:block'>内联覆盖后，这段正文必须显示。</p>
+      <div style='visibility:hidden'>隐藏父级文字
+        <p style='visibility:visible'>子段恢复可见，这段正文也必须显示。</p>
+        <p>这段仍隐藏，不应显示。</p>
+      </div>
+      <table border='1'>
+        <tr><th>项目</th><th>结果</th></tr>
+        <tr style='display:none'><td>隐藏行</td><td>不应显示</td></tr>
+        <tbody style='display:none'><tr><td>隐藏分组</td><td>不应显示</td></tr></tbody>
+        <tr><td>可见行</td><td>保留正文</td></tr>
+      </table>
+      <p>上面只应保留可见的表格行。</p>
+    """, ".screen-only { display:none; }"),
+    ("排版回归·列表计数器", """
+      <h2>列表编号与缩进</h2>
+      <ol start='3'>
+        <li style='list-style-type:none' value='5'>这一项隐藏序号，但仍占用编号五。</li>
+        <li>下一项必须显示六，而不是一或三。</li>
+        <li>这一项显示七，换行后应准确对齐正文，不能对齐序号或漏掉标记后的空格。</li>
+      </ol>
+      <ul><li>圆点与后面的空格都属于合成标记，换行正文应保持同样的悬挂缩进。</li></ul>
+    """, ""),
+    ("排版回归·英文断词", """
+      <h2>English hyphenation</h2>
+      <p style='text-align:left'>The typography of antidisestablishmentarianism and
+      incomprehensibilities demands careful measurement when the column is narrow.
+      Internationalization and counterrevolutionaries also belong here.</p>
+      <p style='text-align:left'>Short words like table, project and present stay whole
+      because the publisher's exception list marks them unbreakable.</p>
+    """, "p { text-indent:0; margin:0 0 1em; }"),
 )
 
 

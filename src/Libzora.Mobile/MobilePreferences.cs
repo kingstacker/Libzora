@@ -69,6 +69,8 @@ public sealed record MobilePreferences
     public double ReaderBodyPadding { get; init; } = ReaderLayoutDefaults.DefaultBodyPadding;
     /// <summary>Indent the first line of each paragraph by two characters.</summary>
     public bool ReaderParagraphIndent { get; init; }
+    /// <summary>Break long English words at syllable boundaries with a display-only hyphen.</summary>
+    public bool ReaderHyphenation { get; init; } = true;
     /// <summary>Vertical right-to-left typesetting, the traditional CJK layout.</summary>
     public bool ReaderVerticalWriting { get; init; }
     public MobilePageAnimation ReaderPageAnimation { get; init; } = MobilePageAnimation.Fade;

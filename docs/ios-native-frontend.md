@@ -271,7 +271,9 @@ dotnet build src/Libzora.Mobile.iOS/Libzora.Mobile.iOS.csproj \
 
 iCloud 同步默认启用编译支持，真机 profile 还须包含
 `iCloud.com.kingstacker.libzora` 的 CloudDocuments 能力；该容器与 macOS 端共用。
-无描述文件的诊断构建需同时设置 `-p:EnableWidgets=false -p:EnableICloud=false`。
+可单独设置 `-p:EnableICloud=false` 保留小组件，或设置 `-p:EnableWidgets=false` 仅保留 iCloud；
+构建会按开关选择对应的签名权限文件，并保留显式传入的 `CodesignEntitlements`。
+无描述文件的诊断构建需同时设置 `-p:EnableWidgets=false -p:EnableICloud=false`，此时不请求这两项权限。
 容器、签名和双设备验证步骤见 [iCloud 同步](icloud-sync.md)。
 
 ## 回归测试
@@ -324,8 +326,9 @@ python3 -I tests/Libzora.Mobile.iOS.UITests/run-tests.py \
 ```
 
 脚注兼容性使用独立的 `com.kingstacker.libzora.readerfootnotepreview`，不复制或重置现有书库。
-准备脚本生成四本带真实公版书封面的 EPUB，分别覆盖 CSS 上标与旧式锚点、跨文件多段注释、
-空 `alt` 图片的数据属性，以及不应误识别为脚注的普通章节链接。交互测试还检查定位原注和返回原文后的阅读位置：
+准备脚本生成四本带真实公版书封面的 EPUB，分别覆盖以 CSS 上标与旧式锚点开头的正文容器、
+依赖跨文件目标语义识别的多段注释、空 `alt` 图片的数据属性，以及不应误识别为脚注的普通章节链接。
+交互测试还检查定位原注和返回原文后的阅读位置：
 
 ```bash
 python3 -I tests/Libzora.Mobile.iOS.UITests/prepare-reader-footnote-preview.py \
@@ -340,8 +343,9 @@ python3 -I tests/Libzora.Mobile.iOS.UITests/run-tests.py \
 ```
 
 排版兼容性使用独立的 `com.kingstacker.libzora.readerlayoutpreview`，同样不复制用户书库。
-样例覆盖第一批发布方排版：`display:none` 隐藏内容、有序/无序列表与悬挂缩进、目录列表不生成编号、
-CSS 下划线/删除线、下标、字距、大小写转换和小型大写。截图用于人工核对实际字形与版式：
+四本真实封面的样例覆盖发布方排版：隐藏属性的内联覆盖、重新可见的后代、隐藏表格行及分组、
+无标记列表项的计数、有序/无序列表与悬挂缩进、目录列表不生成编号，以及 CSS 下划线/删除线、
+下标、字距、大小写转换和小型大写。截图用于人工核对实际字形与版式：
 
 ```bash
 python3 -I tests/Libzora.Mobile.iOS.UITests/prepare-reader-layout-preview.py \
@@ -350,7 +354,10 @@ python3 -I tests/Libzora.Mobile.iOS.UITests/run-tests.py \
   --simulator "$SIMULATOR_ID" --results /tmp/libzora-reader-layout-results \
   --suite ReaderLayoutTests \
   --only testFirstBatchLayoutRenders \
-  --only testTocListDoesNotGainGeneratedNumbers
+  --only testTocListDoesNotGainGeneratedNumbers \
+  --only testHiddenCssOverridesAndTableRowsRender \
+  --only testMarkerlessItemsKeepNumbering \
+  --only testEnglishHyphenationBreaksLongWords
 ```
 
 `--results` 必须使用尚不存在的路径。运行器使用独立构建目录并对测试宿主做 ad-hoc 签名，

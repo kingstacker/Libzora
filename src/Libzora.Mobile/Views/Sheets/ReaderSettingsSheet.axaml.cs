@@ -63,6 +63,8 @@ public partial class ReaderSettingsSheet : UserControl
         MarginWide.Classes.Set("on", current.ReaderBodyPadding >= WideMargin);
         IndentOff.Classes.Set("on", !current.ReaderParagraphIndent);
         IndentOn.Classes.Set("on", current.ReaderParagraphIndent);
+        HyphenationOff.Classes.Set("on", !current.ReaderHyphenation);
+        HyphenationOn.Classes.Set("on", current.ReaderHyphenation);
     }
 
     private void Change(Func<MobilePreferences, MobilePreferences> change)
@@ -157,6 +159,12 @@ public partial class ReaderSettingsSheet : UserControl
     {
         var indent = sender is Button { Name: nameof(IndentOn) };
         Change(value => value with { ReaderParagraphIndent = indent });
+    }
+
+    private void OnHyphenationClick(object? sender, RoutedEventArgs e)
+    {
+        var hyphenation = sender is Button { Name: nameof(HyphenationOn) };
+        Change(value => value with { ReaderHyphenation = hyphenation });
     }
 
     private void OnLineClick(object? sender, RoutedEventArgs e)

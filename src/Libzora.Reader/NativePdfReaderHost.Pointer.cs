@@ -394,4 +394,3 @@ public sealed partial class NativePdfReaderHost
             bottom = Math.Clamp(placement.Bottom, 0, Bounds.Height) });
     }
 }
-}

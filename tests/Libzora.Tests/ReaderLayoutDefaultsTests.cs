@@ -17,6 +17,7 @@ public sealed class ReaderLayoutDefaultsTests
         Assert.False(defaults.VerticalWriting);
         Assert.False(defaults.TwoPageMode);
         Assert.False(defaults.ParagraphIndent);
+        Assert.True(defaults.HyphenateEnglish);
         Assert.Equal(0, defaults.ParagraphSpacing);
     }
 

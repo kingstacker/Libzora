@@ -1,0 +1,20 @@
+Hyphenation patterns for American English
+Copyright (C) 1990, 2004, 2005 Gerard D.C. Kuiken
+
+Copying and distribution of this file, with or without modification,
+are permitted in any medium without royalty provided the copyright
+notice and this notice are preserved.
+
+This file is part of the hyph-utf8 package.
+See http://www.hyphenation.org/tex for more information.
+
+Language: English, American spelling (en-us)
+Version: 2005-05-30
+Author: Gerard D.C. Kuiken
+
+Original source:
+https://github.com/hyphenation/tex-hyphen/blob/5684c0f51c0b81133db2efbe60a408b4155a3ff5/hyph-utf8/tex/generic/hyph-utf8/patterns/tex/hyph-en-us.tex
+
+The patterns include the Plain TeX hyphenation tables and additions based on
+Gerard D.C. Kuiken's Hyphenation Exception Log (TUGboat, Volume 10, 1989,
+No. 3, pp. 337-341), as described in the original source header.

@@ -1,0 +1,61 @@
+name: AI review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'src/Libzora.App/**'
+      - 'src/Libzora.Application/**'
+      - 'src/Libzora.Core/**'
+      - 'src/Libzora.Infrastructure/**'
+      - 'src/Libzora.Layout/**'
+      - 'src/Libzora.Reader/**'
+      - 'src/Libzora.Mobile.iOS/**'
+      - 'src/Libzora.Mobile/**'
+      - 'tests/**'
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: read
+
+concurrency:
+  group: ai-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out the PR
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Review the diff
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          use_sticky_comment: true
+          prompt: |
+            Review only the changes introduced by this pull request
+            (`git diff origin/${{ github.base_ref }}...HEAD`).
+
+            Focus on correctness defects that would change behaviour:
+            data loss or corruption, sync/backup protocol mistakes,
+            threading and lifetime bugs, Swift/Avalonia memory issues,
+            and broken invariants across the partial `MainWindow` files.
+
+            Do not restate what the diff does. Do not report style,
+            formatting, naming, or comments unless they cause a defect.
+            Skip findings that other linters catch.
+
+            Post at most 10 findings, most severe first. For each one give
+            `file:line`, one sentence describing the failure, and the
+            concrete input or state that triggers it. If the diff has no
+            real defect, say so in one line.
+          claude_args: |
+            --max-turns 30
+            --allowedTools "Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(git show:*)"

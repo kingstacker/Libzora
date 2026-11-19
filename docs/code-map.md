@@ -101,6 +101,7 @@ pattern: `MainWindow.<Area><Aspect>.cs`.
 | `MainWindow.BookInteractions.cs` | Card/grid pointer handling, rubber band, detail actions. |
 | `MainWindow.WindowChrome.cs` | Title bar, window-state animation, accessibility tooltips. |
 | `MainWindow.Settings.cs`, `MainWindow.Plugins.cs` | Settings page shell and plugin UI. |
+| `LibraryViewModel.cs`, `BookCardViewModel.cs`, `BulkObservableCollection.cs`, `BookCollectionFolderViewModel.cs` | Library view models. |
 
 ### Reflection editor
 
@@ -144,6 +145,15 @@ Large services are split by responsibility so one change opens one file:
 | `KindleDeviceService.*.cs` | detection, books, transfer, resources, annotations, files, native |
 | `HorizontalComposer.*.cs` | line breaking, images, tables, table layout |
 | `ReaderPage.*.cs` (Mobile) | navigation, position, input, selection, chrome, lifecycle |
+| `MobileShell.*.cs` | shell state, sheets, bars |
+| `AppDataMigrationService.*.cs` | journal, payload, verification, journal I/O |
+| `AppBackupService.*.cs` | export, snapshot/import, files |
+| `TtsEnvironmentSetupService.*.cs` | edge-tts, install, python, process |
+| `AiServices.cs` + `AiSettingsStore.cs` / `AiChatClient.cs` | AI settings and chat client |
+| `MassStorageKindleDeviceService.*.cs` | detection, books, resources, annotations, device, files |
+| `ComposerCore.cs` + `CellFactory*.cs` | layout core and cell factory |
+| `MicroCss*.cs` | hints, borders, parsing, lengths |
+| `VerticalComposer.*.cs` | text, glyphs, debug, cells, images |
 
 ## iOS native frontend
 

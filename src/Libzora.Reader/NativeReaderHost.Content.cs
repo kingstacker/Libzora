@@ -84,6 +84,10 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
             && options.NaturalLatinTypography == expected.NaturalLatinTypography
             && options.HyphenateEnglish == expected.HyphenateEnglish
             && options.AvoidWidowsAndOrphans == expected.AvoidWidowsAndOrphans
+            && options.AlignLeft == expected.AlignLeft
+            && options.CjkLatinSpacing == expected.CjkLatinSpacing
+            && string.Equals(settings.FontFamily, _settings.FontFamily, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(settings.LatinFontFamily, _settings.LatinFontFamily, StringComparison.OrdinalIgnoreCase)
             && Math.Abs(options.ViewportWidth - expected.ViewportWidth) < 0.5f
             && Math.Abs(options.ViewportHeight - expected.ViewportHeight) < 0.5f
             && Math.Abs(options.InsetHorizontal - expected.InsetHorizontal) < 0.5f

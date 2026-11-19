@@ -152,6 +152,7 @@ public sealed partial class XhtmlChapterLoader
         public bool NoJustify { get; private init; }
         public bool Justify { get; private init; }
         public float TextIndentEm { get; private init; }
+        public bool ExplicitTextIndent { get; private init; }
         public float SpaceBeforeLines { get; private init; }
         public float SpaceAfterLines { get; private init; }
         public float LineHeightFactor { get; private init; }
@@ -188,6 +189,17 @@ public sealed partial class XhtmlChapterLoader
             SpaceAfterLines = 0.78f,
         };
 
+        public FlowContext AsPreformatted() => this with
+        {
+            NoJustify = true,
+            Justify = false,
+            TextIndentEm = 0f,
+            ExplicitTextIndent = true,
+            SpaceBeforeLines = 0.6f,
+            SpaceAfterLines = 0.6f,
+            BaseStyle = BaseStyle with { Monospace = true, PreserveWhitespace = true },
+        };
+
         public FlowContext AsList(string styleType, ListCounter counter, bool indented = true) => this with
         {
             ListLevel = indented ? ListLevel + 1 : ListLevel,
@@ -211,6 +223,8 @@ public sealed partial class XhtmlChapterLoader
                 : hints.LetterSpacingEm,
             Casing = hints.Casing ?? style.Casing,
             SmallCaps = hints.SmallCaps ?? style.SmallCaps,
+            Monospace = hints.Monospace ?? style.Monospace,
+            PreserveWhitespace = hints.PreserveWhitespace ?? style.PreserveWhitespace,
         };
 
         public FlowContext WithElementId(string? elementId) => this with { ElementId = elementId };
@@ -254,19 +268,26 @@ public sealed partial class XhtmlChapterLoader
         public FlowContext ForBlock(BlockKind kind, CssHints hints, string? elementId)
         {
             var isHeading = kind == BlockKind.Heading;
+            var preserveWs = hints.PreserveWhitespace ?? BaseStyle.PreserveWhitespace;
+            var hasExplicitIndent = !float.IsNaN(hints.TextIndentEm) && float.IsFinite(hints.TextIndentEm);
             var indented = !isHeading
                 && !hints.Center
+                && !preserveWs
                 && ParagraphIndentEnabled
                 && kind == BlockKind.Paragraph;
+            var textIndentEm = indented
+                ? hasExplicitIndent ? Math.Clamp(hints.TextIndentEm, 0f, 4f) : 2f
+                : 0f;
             return this with
             {
                 Kind = kind,
                 ElementId = elementId,
                 Center = isHeading || hints.Center,
                 AlignRight = AlignRight || hints.AlignRight,
-                NoJustify = NoJustify || hints.NoJustify,
-                Justify = !isHeading && !hints.Center && !hints.NoJustify && !NoJustify,
-                TextIndentEm = indented ? 2f : 0f,
+                NoJustify = NoJustify || hints.NoJustify || preserveWs,
+                Justify = !isHeading && !hints.Center && !hints.NoJustify && !NoJustify && !preserveWs,
+                TextIndentEm = textIndentEm,
+                ExplicitTextIndent = hasExplicitIndent,
                 SpaceBeforeLines = isHeading ? 1.15f : SpaceBeforeLines,
                 SpaceAfterLines = isHeading ? 1.25f : SpaceAfterLines,
                 LineHeightFactor = float.IsNaN(hints.LineHeightFactor)

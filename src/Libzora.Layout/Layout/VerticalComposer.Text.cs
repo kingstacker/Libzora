@@ -56,6 +56,18 @@ internal sealed partial class VerticalComposer
         }
         _cursorX -= rightInset;
 
+        var listLevelIndent = block.ListLevel > 0
+            ? block.ListLevel * _context.Options.BaseFontSize * 1.4f
+            : 0f;
+        var listHangingIndent = block.ListMarker is null
+            ? 0f
+            : cells.TakeWhile(cell => cell.TextStart < 0).Sum(CellFlowAdvance);
+        // Traditional vertical CJK paragraphs sit flush with the top edge even
+        // when horizontal paragraph indentation is enabled; only list nesting
+        // and list hanging markers indent vertical columns.
+        var firstColumnIndent = listLevelIndent;
+        var continuationIndent = listLevelIndent + listHangingIndent;
+
         var index = 0;
         var firstColumnOfBlock = true;
         while (index < cells.Count)
@@ -68,6 +80,7 @@ internal sealed partial class VerticalComposer
                 _context.PageStartConsumed = true;
             }
             EnsureColumnSpace();
+            var isFirstColumn = firstColumnOfBlock;
             if (firstColumnOfBlock)
             {
                 _pages.RecordFragment(block.ElementId);
@@ -82,12 +95,16 @@ internal sealed partial class VerticalComposer
             _lastColumnFirstHotZone = _pages.Current.HotZones.Count;
             _lastColumnFirstImage = _pages.Current.Images.Count;
             _lastColumnFirstDebugBox = _pages.Current.DebugBoxes.Count;
+            var columnTopIndent = isHeading && !startsAtPageTop
+                ? 0f
+                : Math.Min(ContentHeight * 0.5f, isFirstColumn ? firstColumnIndent : continuationIndent);
             var (placed, flowUsed) = FillColumn(
                 cells,
                 index,
                 colCenter,
                 columnLeft,
-                centerVertically: isHeading && !startsAtPageTop);
+                centerVertically: isHeading && !startsAtPageTop,
+                topIndent: columnTopIndent);
 
             index = placed;
             _cursorX -= ColumnPitch;
@@ -117,9 +134,10 @@ internal sealed partial class VerticalComposer
         int start,
         float colCenter,
         float columnLeft,
-        bool centerVertically)
+        bool centerVertically,
+        float topIndent = 0f)
     {
-        var capacity = ContentHeight;
+        var capacity = Math.Max(CellPitch, ContentHeight - topIndent);
         var placements = new List<ColumnPlacement>();
         var flowUsed = 0f;
         var index = start;
@@ -203,7 +221,7 @@ internal sealed partial class VerticalComposer
             index++;
         }
 
-        var y = ContentTop;
+        var y = ContentTop + topIndent;
         foreach (var placement in placements)
         {
             PlaceCell(

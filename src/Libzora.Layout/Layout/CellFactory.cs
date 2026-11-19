@@ -15,7 +15,7 @@ internal sealed partial class CellFactory
     private readonly Dictionary<(string FontPath, float Size, ushort Glyph), float> _apostropheAdvanceCache = new();
     // A compose has fixed fonts and spacing. Reuse immutable glyph arrays for
     // repeated characters/words, while assigning source offsets per occurrence.
-    private readonly Dictionary<(string Text, float Size, float Spacing, bool Latin, bool PublisherTracking), LayoutCell> _cellCache = new();
+    private readonly Dictionary<(string Text, float Size, float Spacing, bool Latin, bool PublisherTracking, string PreferredFont, bool PreserveWs), LayoutCell> _cellCache = new();
 
     public CellFactory(ComposerContext context)
     {
@@ -34,7 +34,8 @@ internal sealed partial class CellFactory
         bool vertical,
         string? footnoteText = null,
         bool footnoteMarker = false,
-        float? fontSizeOverride = null)
+        float? fontSizeOverride = null,
+        bool preferLatinFont = false)
     {
         _context.CancellationToken.ThrowIfCancellationRequested();
         // Vertical text lives on a fixed 1-em column grid; a publisher font
@@ -63,13 +64,14 @@ internal sealed partial class CellFactory
             && _context.Options.WritingMode == TypesetWritingMode.HorizontalTb;
         var letterSpacing = !float.IsNaN(style.LetterSpacingEm)
             ? style.LetterSpacingEm * fontSize
-            : naturalLatin
+            : naturalLatin || style.Monospace
                 ? 0f
                 : _context.LetterSpacing * (fontSize / _context.Options.BaseFontSize);
 
+        var preferredFont = ResolvePreferredFont(unitText, style, vertical, preferLatinFont);
         var publisherTracking = !vertical && !float.IsNaN(style.LetterSpacingEm);
         var cacheable = unitText.Length <= 64;
-        var key = (unitText, fontSize, letterSpacing, naturalLatin, publisherTracking);
+        var key = (unitText, fontSize, letterSpacing, naturalLatin, publisherTracking, preferredFont, style.PreserveWhitespace);
         if (cacheable && _cellCache.TryGetValue(key, out var cached))
             return cached with
             {
@@ -80,11 +82,16 @@ internal sealed partial class CellFactory
         // HTML collapses ordinary line breaks and runs of whitespace. Keep
         // the original UTF-16 length for offset mapping, but shape whitespace
         // as one regular space so a newline never turns into a .notdef box.
-        var shapeText = unitText.All(TypesetText.IsSpace) ? " " : unitText;
+        var shapeText = !style.PreserveWhitespace && unitText.All(TypesetText.IsSpace)
+            ? " "
+            : unitText == "\t"
+                ? "    "
+                : unitText;
         _ = _context.Shaper.TryShapeWithFallback(
             shapeText,
             fontSize,
             vertical: false,
+            preferredFontPath: preferredFont,
             out var fontPath,
             out var shaped);
 
@@ -185,15 +192,68 @@ internal sealed partial class CellFactory
     /// this, a Latin word containing an emoji or a rare symbol would fall back
     /// as a whole and render the entire word as .notdef boxes.
     /// </summary>
+    private string ResolvePreferredFont(
+        string unitText,
+        TypesetInlineStyle style,
+        bool vertical,
+        bool preferLatinFont)
+    {
+        var baseFont = _context.MainFont;
+        if (style.Monospace && _context.Fonts.EnsureMonospaceFont() is { } mono)
+        {
+            baseFont = mono;
+        }
+        else if (!vertical
+            && _context.Fonts.LatinFontPath is { } latinFont
+            && ShouldUseLatinFont(unitText, preferLatinFont))
+        {
+            baseFont = latinFont;
+        }
+
+        if (style.Bold || style.Italic)
+        {
+            return _context.Fonts.ResolveStyledFont(baseFont, style.Bold, style.Italic);
+        }
+
+        return baseFont;
+    }
+
+    private static bool ShouldUseLatinFont(string unitText, bool inLatinProse)
+    {
+        if (unitText.Length == 0 || unitText.Any(TypesetText.IsCjk))
+        {
+            return false;
+        }
+
+        if (inLatinProse)
+        {
+            return true;
+        }
+
+        // In CJK/mixed prose, route Latin words, digits and pure ASCII
+        // punctuation to the paired Latin face while leaving CJK curly quotes
+        // and fullwidth punctuation on the primary CJK face.
+        foreach (var c in unitText)
+        {
+            if (TypesetText.IsLatinLetter(c) || char.IsAsciiDigit(c) || (c is >= '!' and <= '~'))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public List<LayoutCell> ShapeTextUnit(
         string unitText,
         int globalTextStart,
         TypesetInlineStyle style,
         string? linkHref,
-        string? footnoteHref)
+        string? footnoteHref,
+        bool preferLatinFont = false)
     {
         var whole = ShapeCell(
-            unitText, globalTextStart, style, linkHref, footnoteHref, vertical: false);
+            unitText, globalTextStart, style, linkHref, footnoteHref, vertical: false, preferLatinFont: preferLatinFont);
         if (!whole.Glyphs.Contains((ushort)0))
         {
             return [whole];
@@ -217,7 +277,8 @@ internal sealed partial class CellFactory
                 style,
                 linkHref,
                 footnoteHref,
-                vertical: false));
+                vertical: false,
+                preferLatinFont: preferLatinFont));
         }
 
         return cells;

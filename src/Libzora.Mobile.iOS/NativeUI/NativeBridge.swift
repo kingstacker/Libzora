@@ -33,11 +33,15 @@ struct MobilePreferences: Codable, Equatable {
     var readerThemeFollowsAppearance = true
     var readerFontScale = 1.35
     var readerFontFamily = "京华老宋体"
+    var readerLatinFontFamily = "auto"
     var readerLineHeight = 1.75
     var readerParagraphSpacing = 0.0
     var readerBodyPadding = 24.0
     var readerParagraphIndent = false
     var readerHyphenation = true
+    var readerAlignLeft = false
+    var readerCjkLatinSpacing = true
+    var readerAvoidWidowsAndOrphans = true
     var readerVerticalWriting = false
     var readerPageAnimation = 1
     var readerProgressDisplay = 0

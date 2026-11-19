@@ -492,6 +492,8 @@ internal sealed partial class HorizontalComposer
         public float Indent { get; set; }
         public bool EndsWithForcedBreak { get; set; }
         public bool StartsAnchoredPage { get; set; }
+        /// <summary>True when the final cell is a closing CJK mark intentionally hanging into the trailing margin.</summary>
+        public bool HasHangingPunctuation { get; set; }
 
         public void Add(LayoutCell cell)
         {
@@ -533,12 +535,20 @@ internal sealed partial class HorizontalComposer
         /// </summary>
         public bool TryJustify(float extra, float fontSize, bool naturalLatin = false)
         {
+            var end = Cells.Count;
+            if (HasHangingPunctuation && end > 1)
+            {
+                // Align the body up to the trailing margin while letting the
+                // hanging punctuation sit outside the margin.
+                extra += Cells[end - 1].Advance;
+                end--;
+            }
+
             if (extra <= 0.01f)
             {
                 return true;
             }
 
-            var end = Cells.Count;
             while (end > 0 && Cells[end - 1].IsSpace)
             {
                 end--;
@@ -595,26 +605,58 @@ internal sealed partial class HorizontalComposer
                 }
 
                 var perSpace = extra / spaceCount;
-                var added = 0f;
+                if (naturalLatin)
+                {
+                    // Expand word spaces up to the safe typographic cap (0.65em)
+                    // without ever pulling apart letters inside English words.
+                    // If the remaining unabsorbed slack is still large (e.g. a
+                    // short line before an unbreakable word), leave the line
+                    // cleanly ragged instead of creating loose half-stretched gaps.
+                    var maxSpaceWidth = fontSize * 0.65f;
+                    var maxSpaceGain = 0f;
+                    for (var index = start; index < end; index++)
+                    {
+                        var cell = Cells[index];
+                        if (cell.IsSpace)
+                        {
+                            maxSpaceGain += Math.Max(0f, maxSpaceWidth - cell.Advance);
+                        }
+                    }
+
+                    if (extra - maxSpaceGain > fontSize * 2.5f)
+                    {
+                        return false;
+                    }
+
+                    var added = 0f;
+                    for (var index = start; index < end; index++)
+                    {
+                        var cell = Cells[index];
+                        if (cell.IsSpace)
+                        {
+                            var expansion = Math.Min(perSpace, Math.Max(0f, maxSpaceWidth - cell.Advance));
+                            Cells[index] = cell with { Advance = cell.Advance + expansion };
+                            added += expansion;
+                        }
+                    }
+
+                    _advance += added;
+                    return added >= extra - 0.01f;
+                }
+
+                var legacyAdded = 0f;
                 for (var index = start; index < end; index++)
                 {
                     var cell = Cells[index];
                     if (cell.IsSpace)
                     {
-                        // A space cell contains one glyph; growing its advance
-                        // widens the word gap without touching the letters.
-                        // Short English lines get only the safe part of the
-                        // expansion instead of either huge gaps or none at all.
-                        var expansion = naturalLatin
-                            ? Math.Min(perSpace, Math.Max(0f, cell.FontSize * 0.65f - cell.Advance))
-                            : perSpace;
-                        Cells[index] = cell with { Advance = cell.Advance + expansion };
-                        added += expansion;
+                        Cells[index] = cell with { Advance = cell.Advance + perSpace };
+                        legacyAdded += perSpace;
                     }
                 }
 
-                _advance += added;
-                return added >= extra - 0.01f;
+                _advance += legacyAdded;
+                return legacyAdded >= extra - 0.01f;
             }
 
             var gaps = totalGlyphs - 1;

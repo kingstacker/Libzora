@@ -34,7 +34,10 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         || settings.NaturalLatinTypography != _settings.NaturalLatinTypography
         || settings.HyphenateEnglish != _settings.HyphenateEnglish
         || settings.AvoidWidowsAndOrphans != _settings.AvoidWidowsAndOrphans
+        || settings.AlignLeft != _settings.AlignLeft
+        || settings.CjkLatinSpacing != _settings.CjkLatinSpacing
         || !string.Equals(settings.FontFamily, _settings.FontFamily, StringComparison.OrdinalIgnoreCase)
+        || !string.Equals(settings.LatinFontFamily, _settings.LatinFontFamily, StringComparison.OrdinalIgnoreCase)
         || settings.FlowMode != _settings.FlowMode
         || settings.TwoPageMode != _settings.TwoPageMode
         || Math.Abs(settings.BodyPadding - _settings.BodyPadding) > 0.001
@@ -134,6 +137,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
                     fontUse = fonts.BeginComposition();
                     navigationEngine = new TypesetEngine(fonts, ownsFonts: false);
                     SelectReaderMainFont(navigationEngine, settings.FontFamily);
+                    SelectReaderLatinFont(navigationEngine, settings.LatinFontFamily);
                     var stopAfter = allowPartialCompose
                         ? ResolveInitialComposeStop(content, fragment, readingAnchor, composeTextOffset)
                         : null;
@@ -478,6 +482,35 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         engine.Fonts.TrySetMainFont(selected);
     }
 
+    private static void SelectReaderLatinFont(TypesetEngine engine, string? family)
+    {
+        if (string.IsNullOrWhiteSpace(family)
+            || string.Equals(family.Trim(), "auto", StringComparison.OrdinalIgnoreCase))
+        {
+            engine.Fonts.TrySetLatinFont(null);
+            return;
+        }
+
+        if (TypesetFontLibrary.IsSystemFontKey(family))
+        {
+            var systemFamily = family[ReaderFontDefaults.SystemFamilyPrefix.Length..].Trim();
+            if (engine.Fonts.TryEnsureSystemFont(systemFamily, out var systemKey)
+                && engine.Fonts.TrySetLatinFont(systemKey))
+            {
+                return;
+            }
+        }
+
+        var selected = ResolveReaderFontPath(family);
+        if (selected is not null && engine.Fonts.TryEnsureFont(selected)
+            && engine.Fonts.TrySetLatinFont(selected))
+        {
+            return;
+        }
+
+        engine.Fonts.TrySetLatinFont(null);
+    }
+
     private static TypesetLayoutOptions BuildOptions(
         ReaderLayoutSettings settings,
         double width,
@@ -518,6 +551,8 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
             NaturalLatinTypography = settings.NaturalLatinTypography,
             HyphenateEnglish = settings.HyphenateEnglish,
             AvoidWidowsAndOrphans = settings.AvoidWidowsAndOrphans,
+            AlignLeft = settings.AlignLeft,
+            CjkLatinSpacing = settings.CjkLatinSpacing,
             ViewportWidth = (float)width,
             ViewportHeight = (float)height,
             InsetHorizontal = (float)horizontalInset,

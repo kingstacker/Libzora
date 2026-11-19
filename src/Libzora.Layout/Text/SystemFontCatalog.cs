@@ -14,10 +14,42 @@ public sealed record SystemFontFace(string Family, string DisplayName, string Po
 public static class SystemFontCatalog
 {
     private static readonly Lazy<IReadOnlyList<SystemFontFace>> Cached = new(Load, isThreadSafe: true);
+    private static readonly Lazy<IReadOnlyList<SystemFontFace>> CachedLatin = new(LoadLatin, isThreadSafe: true);
 
     // The first four simplified characters are enough to reject Korean Hanja
     // and Japanese-only faces while keeping every Chinese body face.
     private const string CjkProbe = "永国书这";
+    private const string LatinProbe = "AgQ&’";
+
+    // Curated Latin reading faces commonly available on iOS / macOS / desktop.
+    private static readonly string[] PreferredLatinFamilies =
+    [
+        "New York",
+        "Charter",
+        "Iowan Old Style",
+        "Georgia",
+        "Palatino",
+        "Baskerville",
+        "Hoefler Text",
+        "Times New Roman",
+        "Avenir Next",
+        "Helvetica Neue",
+        "SF Pro",
+        "Cambria",
+        "Garamond",
+        "Liberation Serif",
+        "DejaVu Serif",
+    ];
+
+    public static readonly string[] PreferredMonospaceFamilies =
+    [
+        "Menlo",
+        "SF Mono",
+        "Courier New",
+        "Consolas",
+        "DejaVu Sans Mono",
+        "Liberation Mono",
+    ];
 
     // Prefer the canonical family names so an alias such as Heiti SC does not
     // hide PingFang SC when both resolve to the same PostScript face.
@@ -39,6 +71,37 @@ public static class SystemFontCatalog
     ];
 
     public static IReadOnlyList<SystemFontFace> CjkFonts => Cached.Value;
+
+    /// <summary>Curated Latin body-text faces exposed by the platform font manager.</summary>
+    public static IReadOnlyList<SystemFontFace> LatinFonts => CachedLatin.Value;
+
+    private static IReadOnlyList<SystemFontFace> LoadLatin()
+    {
+        var manager = SKFontManager.Default;
+        var faces = new List<SystemFontFace>();
+        var seenPostScript = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var family in PreferredLatinFamilies)
+        {
+            using var typeface = manager.MatchFamily(family);
+            if (typeface is null
+                || !string.Equals(typeface.FamilyName, family, StringComparison.OrdinalIgnoreCase)
+                    && !typeface.FamilyName.Contains(family, StringComparison.OrdinalIgnoreCase)
+                    && !family.Contains(typeface.FamilyName, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (!typeface.ContainsGlyphs(LatinProbe)
+                || !seenPostScript.Add(typeface.PostScriptName))
+            {
+                continue;
+            }
+
+            faces.Add(new SystemFontFace(family, family, typeface.PostScriptName));
+        }
+
+        return faces.ToArray();
+    }
 
     private static IReadOnlyList<SystemFontFace> Load()
     {

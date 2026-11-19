@@ -682,6 +682,7 @@ struct NativeTypography: View {
     @ObservedObject var store: NativeStore
     let isPdf: Bool
     @State private var fontPicker = false
+    @State private var latinFontPicker = false
     @State private var fontOptions: [ReaderFontOption] = []
     private var currentFontName: String {
         let key = store.preferences.readerFontFamily
@@ -689,6 +690,13 @@ struct NativeTypography: View {
         if key.hasPrefix("system:") { return String(key.dropFirst("system:".count)) }
         if key.hasPrefix("catalog:") { return L("已下载字体") }
         return "京华老宋体"
+    }
+    private var currentLatinFontName: String {
+        let key = store.preferences.readerLatinFontFamily
+        if key.isEmpty || key == "auto" { return L("跟随正文") }
+        if let option = fontOptions.first(where: { $0.kind == "latin" && $0.key == key }) { return option.name }
+        if key.hasPrefix("system:") { return String(key.dropFirst("system:".count)) }
+        return L("跟随正文")
     }
     private func preference<Value>(_ key: WritableKeyPath<MobilePreferences, Value>) -> Binding<Value> {
         Binding(get: { store.preferences[keyPath: key] }, set: { newValue in
@@ -741,6 +749,21 @@ struct NativeTypography: View {
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("typography.fontFamily")
                     }
+                    row(L("英文字体")) {
+                        Button { latinFontPicker = true } label: {
+                            HStack(spacing: 8) {
+                                Text(currentLatinFontName).lineLimit(1)
+                                Spacer(minLength: 8)
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 12, weight: .regular))
+                                    .foregroundStyle(NativeTheme.muted)
+                            }
+                            .frame(minHeight: 44)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("typography.latinFontFamily")
+                    }
                     row(L("字号")) {
                         HStack(spacing: 0) {
                             Button { changeFont(-0.1) } label: { Text("A−").frame(width: 44, height: 44) }
@@ -762,6 +785,11 @@ struct NativeTypography: View {
                     row(L("页边距")) {
                         Picker(L("页边距"), selection: preference(\.readerBodyPadding)) { Text(L("窄")).tag(16.0); Text(L("标准")).tag(24.0); Text(L("宽")).tag(36.0) }.pickerStyle(.segmented)
                     }
+                    row(L("对齐方式")) {
+                        Picker(L("对齐方式"), selection: preference(\.readerAlignLeft)) {
+                            Text(L("两端")).tag(false); Text(L("左对齐")).tag(true)
+                        }.pickerStyle(.segmented).accessibilityIdentifier("typography.alignment")
+                    }
                     row(L("首行缩进")) {
                         Picker(L("首行缩进"), selection: preference(\.readerParagraphIndent)) {
                             Text(L("关")).tag(false); Text(L("开")).tag(true)
@@ -771,6 +799,16 @@ struct NativeTypography: View {
                         Picker(L("英文断词"), selection: preference(\.readerHyphenation)) {
                             Text(L("关")).tag(false); Text(L("开")).tag(true)
                         }.pickerStyle(.segmented).accessibilityIdentifier("typography.hyphenation")
+                    }
+                    row(L("中西间距")) {
+                        Picker(L("中西间距"), selection: preference(\.readerCjkLatinSpacing)) {
+                            Text(L("关")).tag(false); Text(L("开")).tag(true)
+                        }.pickerStyle(.segmented).accessibilityIdentifier("typography.cjkLatinSpacing")
+                    }
+                    row(L("孤行保护")) {
+                        Picker(L("孤行保护"), selection: preference(\.readerAvoidWidowsAndOrphans)) {
+                            Text(L("关")).tag(false); Text(L("开")).tag(true)
+                        }.pickerStyle(.segmented).accessibilityIdentifier("typography.widowsOrphans")
                     }
                     row(L("排版方向")) {
                         Picker(L("排版方向"), selection: preference(\.readerVerticalWriting)) { Text(L("横排")).tag(false); Text(L("竖排")).tag(true) }
@@ -782,6 +820,9 @@ struct NativeTypography: View {
             .task { await loadFonts() }
             .sheet(isPresented: $fontPicker, onDismiss: { Task { await loadFonts() } }) {
                 NativeReaderFontPicker(store: store, close: { fontPicker = false })
+            }
+            .sheet(isPresented: $latinFontPicker, onDismiss: { Task { await loadFonts() } }) {
+                NativeReaderLatinFontPicker(store: store, close: { latinFontPicker = false })
             }
     }
     private func loadFonts() async {

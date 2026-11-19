@@ -9,6 +9,10 @@ public sealed class CssHints
     /// <summary>The publisher asked for ragged-right text (`text-align: left`).</summary>
     public bool NoJustify { get; init; }
     public bool NoWrap { get; init; }
+    /// <summary>Publisher requested preformatted whitespace (`white-space: pre` / `pre-wrap`).</summary>
+    public bool? PreserveWhitespace { get; init; }
+    /// <summary>Publisher requested a monospace family (`font-family: monospace`).</summary>
+    public bool? Monospace { get; init; }
     /// <summary>Publisher vertical-align; null leaves the element's default unchanged.</summary>
     public bool? Superscript { get; init; }
     public bool? Subscript { get; init; }
@@ -149,6 +153,8 @@ public sealed partial class MicroCss
         var visibilitySpecified = false;
         bool? underline = null;
         bool? strikeout = null;
+        bool? preserveWhitespace = null;
+        bool? monospace = null;
         var letterSpacing = float.NaN;
         TypesetTextCasing? casing = null;
         bool? smallCaps = null;
@@ -197,6 +203,23 @@ public sealed partial class MicroCss
                         break;
                     case "white-space":
                         noWrap = value == "nowrap" || value == "pre";
+                        if (value is "pre" or "pre-wrap" or "break-spaces")
+                        {
+                            preserveWhitespace = true;
+                        }
+                        else if (value is "normal" or "nowrap")
+                        {
+                            preserveWhitespace = false;
+                        }
+                        break;
+                    case "font-family":
+                        if (value.Contains("monospace", StringComparison.OrdinalIgnoreCase)
+                            || value.Contains("courier", StringComparison.OrdinalIgnoreCase)
+                            || value.Contains("menlo", StringComparison.OrdinalIgnoreCase)
+                            || value.Contains("consolas", StringComparison.OrdinalIgnoreCase))
+                        {
+                            monospace = true;
+                        }
                         break;
                     case "vertical-align":
                         if (value is "super" or "sub" or "baseline")
@@ -406,6 +429,8 @@ public sealed partial class MicroCss
                 AlignRight = alignRight,
                 NoJustify = noJustify,
                 NoWrap = noWrap,
+                PreserveWhitespace = preserveWhitespace,
+                Monospace = monospace,
                 Superscript = superscript,
                 Subscript = subscript,
                 DisplayNone = displayNone,

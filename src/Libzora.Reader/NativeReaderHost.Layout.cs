@@ -71,6 +71,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
                 fontUse = fonts.BeginComposition();
                 workerEngine = new TypesetEngine(fonts, ownsFonts: false);
                 SelectReaderMainFont(workerEngine, settings.FontFamily);
+                SelectReaderLatinFont(workerEngine, settings.LatinFontFamily);
                 return workerEngine.Compose(content, options, token,
                     anchorPageStart ? viewportAnchor?.TextOffset : null);
             }, token);

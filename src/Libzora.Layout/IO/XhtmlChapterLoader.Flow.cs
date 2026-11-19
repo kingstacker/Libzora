@@ -87,6 +87,11 @@ public sealed partial class XhtmlChapterLoader
                 TrackId(element);
                 WalkBlockParagraph(element, BlockKind.Paragraph, ctx);
                 break;
+            case "pre":
+                FlushParagraph(ctx);
+                TrackId(element);
+                WalkBlockParagraph(element, BlockKind.Paragraph, ctx.AsPreformatted());
+                break;
             case "blockquote":
                 FlushParagraph(ctx);
                 TrackId(element);

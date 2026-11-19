@@ -63,6 +63,11 @@ public sealed record MobilePreferences
     /// <c>catalog:id</c> for a downloaded reader font.
     /// </summary>
     public string ReaderFontFamily { get; init; } = ReaderFontDefaults.DefaultFamily;
+    /// <summary>
+    /// Optional paired Latin reading font (<c>auto</c> follows <see cref="ReaderFontFamily"/>,
+    /// or <c>system:Family</c> for a platform Latin face such as Georgia or Charter).
+    /// </summary>
+    public string ReaderLatinFontFamily { get; init; } = "auto";
     public double ReaderLineHeight { get; init; } = 1.75;
     public double ReaderParagraphSpacing { get; init; } = ReaderLayoutDefaults.DefaultParagraphSpacing;
     /// <summary>Side margin of the reading column, in device-independent pixels.</summary>
@@ -71,6 +76,12 @@ public sealed record MobilePreferences
     public bool ReaderParagraphIndent { get; init; }
     /// <summary>Break long English words at syllable boundaries with a display-only hyphen.</summary>
     public bool ReaderHyphenation { get; init; } = true;
+    /// <summary>Left-align horizontal body prose instead of justifying both edges.</summary>
+    public bool ReaderAlignLeft { get; init; }
+    /// <summary>Insert a subtle visual gap between adjacent CJK and Latin/numeric runs.</summary>
+    public bool ReaderCjkLatinSpacing { get; init; } = true;
+    /// <summary>Keep at least two lines together at paragraph page boundaries.</summary>
+    public bool ReaderAvoidWidowsAndOrphans { get; init; } = true;
     /// <summary>Vertical right-to-left typesetting, the traditional CJK layout.</summary>
     public bool ReaderVerticalWriting { get; init; }
     public MobilePageAnimation ReaderPageAnimation { get; init; } = MobilePageAnimation.Fade;

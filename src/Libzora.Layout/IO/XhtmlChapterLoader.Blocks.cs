@@ -51,6 +51,7 @@ public sealed partial class XhtmlChapterLoader
             AlignRight = ctx.AlignRight,
             Justify = ctx.Justify,
             TextIndentEm = ctx.TextIndentEm,
+            ExplicitTextIndent = ctx.ExplicitTextIndent,
             SpaceBeforeLines = ctx.SpaceBeforeLines,
             SpaceAfterLines = ctx.SpaceAfterLines,
             ListMarker = ctx.ListMarker,

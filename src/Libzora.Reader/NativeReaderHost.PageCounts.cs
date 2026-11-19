@@ -44,12 +44,15 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         hash.Add(settings.NaturalLatinTypography);
         hash.Add(settings.HyphenateEnglish);
         hash.Add(settings.AvoidWidowsAndOrphans);
+        hash.Add(settings.AlignLeft);
+        hash.Add(settings.CjkLatinSpacing);
         hash.Add(settings.FontScale);
         hash.Add(settings.LineHeight);
         hash.Add(settings.MaxWidth);
         hash.Add(settings.BodyPadding);
         hash.Add(settings.BodyBottomPadding);
         hash.Add(settings.FontFamily, StringComparer.Ordinal);
+        hash.Add(settings.LatinFontFamily, StringComparer.Ordinal);
         hash.Add(knownChapter?.ChapterPath, StringComparer.Ordinal);
         hash.Add(knownChapter?.PageCount ?? -1);
         foreach (var path in chapterPaths)
@@ -79,6 +82,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         {
         using var engine = new TypesetEngine(fonts, ownsFonts: sharedFonts is null);
         SelectReaderMainFont(engine, settings.FontFamily);
+        SelectReaderLatinFont(engine, settings.LatinFontFamily);
         var options = BuildOptions(settings, width, height);
         var counts = new int[chapterPaths.Count];
         for (var index = 0; index < chapterPaths.Count; index++)

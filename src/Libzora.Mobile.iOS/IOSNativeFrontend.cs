@@ -579,11 +579,30 @@ internal sealed partial class IOSNativeFrontend
         ReaderFontScale = double.IsFinite(value.ReaderFontScale)
             ? Math.Clamp(value.ReaderFontScale, ReaderLayoutDefaults.MinFontScale, ReaderLayoutDefaults.MaxFontScale) : 1.35,
         ReaderFontFamily = NormalizeReaderFontFamily(value.ReaderFontFamily),
+        ReaderLatinFontFamily = NormalizeReaderLatinFontFamily(value.ReaderLatinFontFamily),
         ReaderLineHeight = double.IsFinite(value.ReaderLineHeight) ? Math.Clamp(value.ReaderLineHeight, 1.2, 3) : 1.75,
         ReaderParagraphSpacing = double.IsFinite(value.ReaderParagraphSpacing)
             ? Math.Clamp(value.ReaderParagraphSpacing, 0, ReaderLayoutDefaults.MaxParagraphSpacing) : ReaderLayoutDefaults.DefaultParagraphSpacing,
         ReaderBodyPadding = double.IsFinite(value.ReaderBodyPadding) ? Math.Clamp(value.ReaderBodyPadding, 16, 64) : 24
     };
+
+    private static string NormalizeReaderLatinFontFamily(string? value)
+    {
+        var family = value?.Trim();
+        if (string.IsNullOrEmpty(family)
+            || string.Equals(family, "auto", StringComparison.OrdinalIgnoreCase))
+        {
+            return "auto";
+        }
+
+        if (family.StartsWith(ReaderFontDefaults.SystemFamilyPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            var name = family[ReaderFontDefaults.SystemFamilyPrefix.Length..].Trim();
+            return name.Length == 0 ? "auto" : ReaderFontDefaults.SystemFamilyPrefix + name;
+        }
+
+        return "auto";
+    }
 
     private static string NormalizeReaderFontFamily(string? value)
     {

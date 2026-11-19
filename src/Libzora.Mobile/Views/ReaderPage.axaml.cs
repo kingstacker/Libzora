@@ -145,7 +145,13 @@ public partial class ReaderPage : UserControl
             OverridePublisherParagraphSpacing = true,
             NaturalLatinTypography = true,
             HyphenateEnglish = preferences.ReaderHyphenation,
-            AvoidWidowsAndOrphans = false,
+            AvoidWidowsAndOrphans = preferences.ReaderAvoidWidowsAndOrphans,
+            AlignLeft = preferences.ReaderAlignLeft,
+            CjkLatinSpacing = preferences.ReaderCjkLatinSpacing,
+            LatinFontFamily = string.IsNullOrWhiteSpace(preferences.ReaderLatinFontFamily)
+                || string.Equals(preferences.ReaderLatinFontFamily, "auto", StringComparison.OrdinalIgnoreCase)
+                ? null
+                : preferences.ReaderLatinFontFamily,
             ParagraphIndent = preferences.ReaderParagraphIndent,
             BodyPadding = Math.Clamp(preferences.ReaderBodyPadding, 16, 64),
             // The footer shares the normal bottom paper margin. When hidden,

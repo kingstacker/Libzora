@@ -10,7 +10,7 @@ namespace Libzora.Layout;
 /// glyph indices HarfBuzz reports are valid for Skia because both libraries
 /// read the same font file.
 /// </summary>
-public sealed class TypesetFontLibrary : IDisposable
+public sealed partial class TypesetFontLibrary : IDisposable
 {
     private sealed class FontFaceEntry : IDisposable
     {
@@ -39,6 +39,12 @@ public sealed class TypesetFontLibrary : IDisposable
     private bool _disposed;
 
     public string MainFontPath { get; private set; }
+    /// <summary>Optional paired Latin face for horizontal Latin/numeric runs.</summary>
+    public string? LatinFontPath { get; private set; }
+    /// <summary>Lazily resolved platform monospace face for code/preformatted runs.</summary>
+    public string? MonospaceFontPath { get; private set; }
+    private bool _monospaceProbed;
+    private readonly Dictionary<(string BaseKey, bool Bold, bool Italic), string?> _styledFontCache = new();
 
     /// <summary>
     /// System families currently held in memory. Exposed for diagnostics and
@@ -177,7 +183,7 @@ public sealed class TypesetFontLibrary : IDisposable
         {
             var key = _order[index];
             if (!IsSystemFontKey(key)
-                || string.Equals(key, keep, StringComparison.OrdinalIgnoreCase)
+                || IsProtectedSystemKey(key, keep)
                 || _retainedFontPaths.Contains(key)
                 || (onlyKeys is not null && !onlyKeys.Contains(key)))
             {
@@ -190,6 +196,7 @@ public sealed class TypesetFontLibrary : IDisposable
                 released.Add(entry);
             }
         }
+        PurgeMissingStyledCacheLocked();
     }
 
     /// <summary>
@@ -362,9 +369,12 @@ public sealed class TypesetFontLibrary : IDisposable
         };
     }
 
-    private static FontFaceEntry? CreateSystemEntry(string family)
+    private static FontFaceEntry? CreateSystemEntry(string family, SKFontStyle? style = null, string? explicitKey = null)
     {
-        var typeface = SKFontManager.Default.MatchFamily(family.Trim());
+        var trimmed = family.Trim();
+        var typeface = style is null
+            ? SKFontManager.Default.MatchFamily(trimmed)
+            : SKFontManager.Default.MatchFamily(trimmed, style);
         if (typeface is null)
         {
             return null;
@@ -405,7 +415,7 @@ public sealed class TypesetFontLibrary : IDisposable
                 font.SetScale(upem, upem);
                 return new FontFaceEntry
                 {
-                    Path = SystemFontKey(family),
+                    Path = explicitKey ?? SystemFontKey(trimmed),
                     Blob = blob,
                     Face = face,
                     Font = font,
@@ -510,6 +520,9 @@ public sealed class TypesetFontLibrary : IDisposable
             entries = _faces.Values.ToList();
             _deferredReleaseKeys = null;
             _retainedFontPaths.Clear();
+            _styledFontCache.Clear();
+            LatinFontPath = null;
+            MonospaceFontPath = null;
             _faces.Clear();
             _order.Clear();
         }
@@ -571,19 +584,53 @@ public sealed class GlyphShaper
         float fontSize,
         bool vertical,
         out string fontPath,
+        out ShapedText shaped) =>
+        TryShapeWithFallback(text, fontSize, vertical, preferredFontPath: null, out fontPath, out shaped);
+
+    /// <summary>
+    /// Shapes <paramref name="text"/> starting from <paramref name="preferredFontPath"/>
+    /// (when supplied), then falling back through the main face and fallback faces.
+    /// </summary>
+    public bool TryShapeWithFallback(
+        string text,
+        float fontSize,
+        bool vertical,
+        string? preferredFontPath,
+        out string fontPath,
         out ShapedText shaped)
     {
-        var main = _library.MainFontPath;
-        shaped = Shape(text, 0, text.Length, main, fontSize, vertical);
+        var primary = !string.IsNullOrWhiteSpace(preferredFontPath) && _library.HasRegisteredFace(preferredFontPath)
+            ? preferredFontPath
+            : _library.MainFontPath;
+        shaped = Shape(text, 0, text.Length, primary, fontSize, vertical);
         if (!shaped.ContainsNotdef)
         {
-            fontPath = main;
+            fontPath = primary;
             return true;
+        }
+
+        if (!string.Equals(primary, _library.MainFontPath, StringComparison.OrdinalIgnoreCase))
+        {
+            var mainRetry = Shape(text, 0, text.Length, _library.MainFontPath, fontSize, vertical);
+            if (!mainRetry.ContainsNotdef)
+            {
+                fontPath = _library.MainFontPath;
+                shaped = mainRetry;
+                return true;
+            }
         }
 
         foreach (var fallback in _library.FontPaths)
         {
-            if (string.Equals(fallback, main, StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(fallback, primary, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(fallback, _library.MainFontPath, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            // Styled variants (bold/italic) are chosen explicitly, not as generic
+            // glyph fallbacks for unrelated regular characters.
+            if (TypesetFontLibrary.IsStyledVariantKey(fallback))
             {
                 continue;
             }
@@ -613,7 +660,7 @@ public sealed class GlyphShaper
             }
         }
 
-        fontPath = main;
+        fontPath = primary;
         return false;
     }
 

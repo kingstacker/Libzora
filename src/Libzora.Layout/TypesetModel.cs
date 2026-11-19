@@ -88,6 +88,12 @@ public readonly record struct TypesetInlineStyle(
 
     /// <summary>Small-caps renders lowercase letters as smaller capitals.</summary>
     public bool SmallCaps { get; init; }
+
+    /// <summary>Use a monospace typeface for code/preformatted spans.</summary>
+    public bool Monospace { get; init; }
+
+    /// <summary>Preserve spaces and explicit line breaks (preformatted blocks).</summary>
+    public bool PreserveWhitespace { get; init; }
 }
 
 /// <summary>
@@ -136,6 +142,8 @@ public sealed class ContentBlock
     public bool AlignRight { get; init; }
     public bool Justify { get; init; }
     public float TextIndentEm { get; init; }
+    /// <summary>True when publisher CSS explicitly specified text-indent on this block.</summary>
+    public bool ExplicitTextIndent { get; init; }
     public float SpaceBeforeLines { get; init; }
     public float SpaceAfterLines { get; init; }
     /// <summary>Visible marker generated from list-style-type, e.g. "1." or "•".</summary>
@@ -234,6 +242,12 @@ public sealed class TypesetLayoutOptions
     /// </summary>
     public bool HyphenateEnglish { get; init; }
     public bool AvoidWidowsAndOrphans { get; init; } = true;
+    /// <summary>Left-align horizontal body prose instead of justifying both edges.</summary>
+    public bool AlignLeft { get; init; }
+    /// <summary>Insert a subtle visual gap between adjacent CJK and Latin/numeric runs.</summary>
+    public bool CjkLatinSpacing { get; init; } = true;
+    /// <summary>Allow eligible closing CJK punctuation to hang slightly into the trailing margin.</summary>
+    public bool HangingPunctuation { get; init; } = true;
     public float ViewportWidth { get; init; } = 800f;
     public float ViewportHeight { get; init; } = 600f;
     public float InsetHorizontal { get; init; } = 24f;

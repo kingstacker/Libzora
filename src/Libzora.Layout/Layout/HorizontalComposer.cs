@@ -127,7 +127,7 @@ internal sealed partial class HorizontalComposer
         var cells = new List<LayoutCell>();
         foreach (var item in block.Items)
         {
-            cells.AddRange(_cells.BuildCells(item, vertical: false, maxWordWidth: availWidth));
+            cells.AddRange(_cells.BuildCells(item, vertical: false, maxWordWidth: availWidth, preferLatinFont: naturalLatin));
         }
         CellFactory.CollapseWhitespace(cells);
         if (naturalLatin)
@@ -137,53 +137,17 @@ internal sealed partial class HorizontalComposer
             for (var index = 0; index < cells.Count; index++)
             {
                 var cell = cells[index];
-                if (cell.IsSpace)
+                if (cell.IsSpace && !cell.Style.PreserveWhitespace)
                     cells[index] = cell with { Advance = Math.Min(cell.Advance, cell.FontSize * 0.32f) };
             }
         }
+        ApplyHorizontalMicroTypography(cells, naturalLatin);
         // Measure after Latin whitespace normalization so the continuation
         // aligns under the actual first-line body, including marker spacing.
         var hangingIndent = block.ListMarker is null ? 0f : cells
             .TakeWhile(cell => cell.TextStart < 0)
             .Sum(cell => cell.Advance);
-        // A publisher line-height replaces the reader default for this block,
-        // but never below the glyphs' own ink extent (or they would overlap).
-        // Publisher font-size scales the pitch so an enlarged span or heading
-        // keeps its proportion.
-        var fontScale = Math.Clamp(
-            cells.Select(cell => cell.Style.FontSizeFactor > 0f ? cell.Style.FontSizeFactor : 1f)
-                .DefaultIfEmpty(1f)
-                .Max(),
-            0.5f,
-            3f);
-        var inkExtent = cells
-            .Select(cell => cell.Ascent + cell.Descent)
-            .DefaultIfEmpty(0f)
-            .Max();
-        var lineHeight = block.LineHeightFactor > 0f
-            && !(_context.Options.OverridePublisherLineHeight && !isHeading)
-            ? Math.Max(BaseFontSize * fontScale * block.LineHeightFactor, inkExtent + 1f)
-            : isHeading
-                ? Math.Max(BaseFontSize * fontScale * 1.35f, inkExtent + 1f)
-                : Math.Max(bodyLineHeight * fontScale, inkExtent);
-        lineHeight = Math.Max(lineHeight, cells
-            .Where(cell => cell.ImagePath is not null)
-            .Select(cell => cell.ImageHeight)
-            .DefaultIfEmpty(0f)
-            .Max());
         var rubyGap = _context.RubyGap;
-        var rubyShelf = cells
-            .Where(cell => cell.RubyAnnotation is not null)
-            .Select(cell => cell.RubyAnnotation!.Ascent + cell.RubyAnnotation.Descent + rubyGap)
-            .DefaultIfEmpty(0f)
-            .Max();
-        if (rubyShelf > 0f)
-        {
-            // Move the base line down by the full annotation shelf. Merely
-            // increasing lineHeight leaves the baseline centered in the old
-            // position, which makes the larger ruby overlap the base text.
-            lineHeight += rubyShelf;
-        }
 
         if (startsAtPageTop)
         {
@@ -201,9 +165,29 @@ internal sealed partial class HorizontalComposer
                 + block.MarginTopEm * BaseFontSize;
         }
 
-        var lines = BreakLines(cells, availWidth, block.TextIndentEm * BaseFontSize,
-            allowPageAnchor: true, continuationIndent: hangingIndent);
+        // Adapt default CJK 2em indentation for Latin prose: keep the first
+        // paragraph after a heading flush left, and use a calmer 1.25em indent
+        // on subsequent paragraphs unless publisher CSS explicitly set one.
+        var effectiveIndentEm = block.TextIndentEm;
+        if (naturalLatin && !block.ExplicitTextIndent && effectiveIndentEm > 0f)
+        {
+            effectiveIndentEm = followsHeading ? 0f : Math.Min(effectiveIndentEm, 1.25f);
+        }
+
+        var lines = BreakLines(cells, availWidth, effectiveIndentEm * BaseFontSize,
+            allowPageAnchor: true, continuationIndent: hangingIndent, preferLatinFont: naturalLatin);
         var anchorLineIndex = lines.FindIndex(line => line.StartsAnchoredPage);
+
+        // Compute line height per line rather than taking the paragraph maximum:
+        // a single drop-cap, ruby annotation or inline graphic only expands the
+        // line it sits on instead of blowing up every line in the paragraph.
+        var lineHeights = new float[lines.Count];
+        var lineRubyShelves = new float[lines.Count];
+        for (var i = 0; i < lines.Count; i++)
+        {
+            (lineHeights[i], lineRubyShelves[i]) = ComputeLineMetrics(
+                lines[i], block, isHeading, bodyLineHeight, rubyGap);
+        }
 
         var lineIndex = 0;
         while (lineIndex < lines.Count)
@@ -214,20 +198,18 @@ internal sealed partial class HorizontalComposer
                 _pages.NextIfUsed();
                 _cursorY = InsetV;
             }
-            if (_cursorY + lineHeight > ContentBottom + 0.01f)
+            if (_cursorY + lineHeights[lineIndex] > ContentBottom + 0.01f)
             {
                 _pages.NextIfUsed();
                 _cursorY = InsetV;
             }
 
-            var capacity = (int)Math.Floor((ContentBottom + 0.01f - _cursorY) / lineHeight);
+            var capacity = CountFittingLines(lineHeights, lineIndex, _cursorY, ContentBottom);
             if (capacity <= 0)
             {
                 _pages.NextIfUsed();
                 _cursorY = InsetV;
-                capacity = Math.Max(
-                    1,
-                    (int)Math.Floor((ContentBottom + 0.01f - _cursorY) / lineHeight));
+                capacity = Math.Max(1, CountFittingLines(lineHeights, lineIndex, _cursorY, ContentBottom));
             }
 
             var remaining = lines.Count - lineIndex;
@@ -261,6 +243,8 @@ internal sealed partial class HorizontalComposer
             for (var placed = 0; placed < capacity; placed++, lineIndex++)
             {
                 var line = lines[lineIndex];
+                var lineHeight = lineHeights[lineIndex];
+                var rubyShelf = lineRubyShelves[lineIndex];
                 if (lineIndex == 0)
                 {
                     _pages.RecordFragment(block.ElementId);
@@ -282,10 +266,10 @@ internal sealed partial class HorizontalComposer
                 {
                     startX = blockLeft + Math.Max(0f, availWidth - line.Used);
                 }
-                else if (block.Justify && !isLastLine)
+                else if (block.Justify && !_context.Options.AlignLeft && !isLastLine)
                 {
                     var extra = availWidth - line.Indent - line.Used;
-                    if (extra > 0f)
+                    if (extra > 0f || line.HasHangingPunctuation)
                     {
                         line.TryJustify(extra, BaseFontSize, naturalLatin);
                     }
@@ -478,5 +462,149 @@ internal sealed partial class HorizontalComposer
             Clusters = Array.Empty<int>(),
             Style = annotation.Style,
         });
+    }
+
+    private (float LineHeight, float RubyShelf) ComputeLineMetrics(
+        LineBox line,
+        ContentBlock block,
+        bool isHeading,
+        float bodyLineHeight,
+        float rubyGap)
+    {
+        var fontScale = 1f;
+        var inkExtent = 0f;
+        var maxImageHeight = 0f;
+        var rubyShelf = 0f;
+        foreach (var cell in line.Cells)
+        {
+            var scale = cell.Style.FontSizeFactor > 0f ? cell.Style.FontSizeFactor : 1f;
+            if (scale > fontScale) fontScale = scale;
+            var extent = cell.Ascent + cell.Descent;
+            if (extent > inkExtent) inkExtent = extent;
+            if (cell.ImagePath is not null && cell.ImageHeight > maxImageHeight)
+            {
+                maxImageHeight = cell.ImageHeight;
+            }
+            if (cell.RubyAnnotation is { } ruby)
+            {
+                var shelf = ruby.Ascent + ruby.Descent + rubyGap;
+                if (shelf > rubyShelf) rubyShelf = shelf;
+            }
+        }
+
+        fontScale = Math.Clamp(fontScale, 0.5f, 3f);
+        var lineHeight = block.LineHeightFactor > 0f
+            && !(_context.Options.OverridePublisherLineHeight && !isHeading)
+            ? Math.Max(BaseFontSize * fontScale * block.LineHeightFactor, inkExtent + 1f)
+            : isHeading
+                ? Math.Max(BaseFontSize * fontScale * 1.35f, inkExtent + 1f)
+                : Math.Max(bodyLineHeight * fontScale, inkExtent);
+        if (maxImageHeight > lineHeight)
+        {
+            lineHeight = maxImageHeight;
+        }
+        if (rubyShelf > 0f)
+        {
+            // Move the base line down by the full annotation shelf so larger
+            // ruby annotations never collide with the base glyphs.
+            lineHeight += rubyShelf;
+        }
+
+        return (lineHeight, rubyShelf);
+    }
+
+    private static int CountFittingLines(float[] lineHeights, int startIndex, float cursorY, float contentBottom)
+    {
+        var y = cursorY;
+        var count = 0;
+        for (var i = startIndex; i < lineHeights.Length; i++)
+        {
+            if (y + lineHeights[i] > contentBottom + 0.01f)
+            {
+                break;
+            }
+            y += lineHeights[i];
+            count++;
+        }
+        return count;
+    }
+
+    private void ApplyHorizontalMicroTypography(List<LayoutCell> cells, bool naturalLatin)
+    {
+        if (cells.Count < 2)
+        {
+            return;
+        }
+
+        var cjkLatinGap = _context.Options.CjkLatinSpacing && !naturalLatin;
+        for (var i = 0; i < cells.Count - 1; i++)
+        {
+            var current = cells[i];
+            var next = cells[i + 1];
+            if (current.IsLineBreak || next.IsLineBreak
+                || current.IsSpace || next.IsSpace
+                || current.Style.PreserveWhitespace || next.Style.PreserveWhitespace
+                || current.ImagePath is not null || next.ImagePath is not null
+                || current.FootnoteMarker || next.FootnoteMarker)
+            {
+                continue;
+            }
+
+            // Give an inline opening fullwidth mark (already squeezed by 0.5em)
+            // a slight breathing gap after a plain Han character, while keeping
+            // adjacent punctuation pairs ("，“", "。“") tightly kerned.
+            if (next.GlyphInkShiftX is not null
+                && IsCjkIdeographCell(current)
+                && TypesetText.IsCompressibleOpeningPunctuation(next.Text))
+            {
+                var breath = Math.Min(current.FontSize, next.FontSize) * 0.12f;
+                cells[i] = current with
+                {
+                    Advance = current.Advance + breath,
+                    TrailingLetterSpacing = current.TrailingLetterSpacing + breath,
+                };
+                continue;
+            }
+
+            // Automatic CJK-Latin/numeric spacing (approx 1/6 em) stored in
+            // TrailingLetterSpacing so a line break between them never leaves
+            // trailing whitespace at the right margin.
+            if (cjkLatinGap
+                && ((IsCjkIdeographCell(current) && IsLatinOrDigitCell(next))
+                    || (IsLatinOrDigitCell(current) && IsCjkIdeographCell(next))))
+            {
+                var gap = Math.Min(current.FontSize, next.FontSize) * 0.16f;
+                cells[i] = current with
+                {
+                    Advance = current.Advance + gap,
+                    TrailingLetterSpacing = current.TrailingLetterSpacing + gap,
+                };
+            }
+        }
+    }
+
+    private static bool IsCjkIdeographCell(LayoutCell cell)
+    {
+        if (cell.Text.Length == 0 || cell.IsLatinWord)
+        {
+            return false;
+        }
+
+        if (!TypesetText.TryGetFirstScalar(cell.Text, out var scalar))
+        {
+            return false;
+        }
+
+        return TypesetText.IsCjk(scalar) && !TypesetText.IsPunctuation(cell.Text);
+    }
+
+    private static bool IsLatinOrDigitCell(LayoutCell cell)
+    {
+        if (cell.IsLatinWord)
+        {
+            return true;
+        }
+
+        return cell.Character is { } c && (TypesetText.IsLatinLetter(c) || char.IsAsciiDigit(c));
     }
 }

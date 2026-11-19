@@ -229,6 +229,11 @@ public sealed partial class XhtmlChapterLoader
             case "sub":
                 style = style with { Subscript = true, Superscript = false };
                 break;
+            case "code":
+            case "kbd":
+            case "samp":
+                style = style with { Monospace = true };
+                break;
         }
 
         var hints = ResolveHints(element);
@@ -245,6 +250,16 @@ public sealed partial class XhtmlChapterLoader
         if (hints.NoWrap)
         {
             style = style with { NoWrap = true };
+        }
+
+        if (hints.Monospace is { } monospace)
+        {
+            style = style with { Monospace = monospace };
+        }
+
+        if (hints.PreserveWhitespace is { } preserveWs)
+        {
+            style = style with { PreserveWhitespace = preserveWs };
         }
 
         if (hints.Superscript is { } superscript)

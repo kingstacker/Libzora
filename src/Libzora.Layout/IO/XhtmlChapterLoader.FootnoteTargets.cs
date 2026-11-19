@@ -275,6 +275,8 @@ public sealed partial class XhtmlChapterLoader
             AlignRight = hints.AlignRight || inline.AlignRight,
             NoJustify = hints.NoJustify || inline.NoJustify,
             NoWrap = hints.NoWrap || inline.NoWrap,
+            PreserveWhitespace = inline.PreserveWhitespace ?? hints.PreserveWhitespace,
+            Monospace = inline.Monospace ?? hints.Monospace,
             Superscript = inline.Superscript ?? hints.Superscript,
             Subscript = inline.Subscript ?? hints.Subscript,
             DisplayNone = inline.DisplayNone ?? hints.DisplayNone,

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 
 namespace Libzora.Layout;
@@ -46,6 +47,136 @@ public static class EnglishHyphenator
         for (var point = LeftMinimum; point <= word.Length - RightMinimum; point++)
             if ((scores[point + 1] & 1) != 0) result.Add(point);
         return result.ToArray();
+    }
+
+    /// <summary>
+    /// Extended hyphenation breakpoints for real prose tokens: supports
+    /// accented Latin letters (e.g. "coöperation"), trailing hyphen prefixes
+    /// ("extra-"), and possessive/contraction stems ("government’s") while
+    /// keeping the stem boundary safe.
+    /// </summary>
+    public static int[] GetBreakpointsForToken(string token)
+    {
+        ArgumentNullException.ThrowIfNull(token);
+        if (token.Length < LeftMinimum + RightMinimum || token.Length > MaximumWordLength)
+        {
+            return [];
+        }
+
+        if (token.All(char.IsAsciiLetter))
+        {
+            return GetBreakpoints(token);
+        }
+
+        // Trim a trailing hyphen emitted by Itemize for compound prefixes
+        // ("extra-" -> stem "extra"), or an English possessive/contraction
+        // suffix ("government's" -> stem "government", "wouldn’t" -> "wouldn").
+        var stemEnd = token.Length;
+        var hasTrailingSuffix = false;
+        if (token[^1] is '-' or '–' or '—')
+        {
+            stemEnd = token.Length - 1;
+            hasTrailingSuffix = true;
+        }
+        else
+        {
+            var apostrophe = token.LastIndexOfAny(['\'', '’']);
+            if (apostrophe > 0 && apostrophe < token.Length - 1)
+            {
+                var suffixLen = token.Length - apostrophe - 1;
+                if (suffixLen <= 2 && token.AsSpan(apostrophe + 1).ToString().All(char.IsAsciiLetter))
+                {
+                    stemEnd = apostrophe;
+                    hasTrailingSuffix = true;
+                }
+            }
+        }
+
+        if (stemEnd < LeftMinimum + RightMinimum)
+        {
+            return [];
+        }
+
+        // Map each text element in the stem to an ASCII letter when possible
+        // (stripping combining diacritics via FormD) so "coöperation" or
+        // "résumé" can match the English pattern trie and map back to exact
+        // UTF-16 offsets.
+        var asciiLetters = new StringBuilder(stemEnd);
+        var indexMap = new List<int>(stemEnd + 1);
+        var allUpper = true;
+        var offset = 0;
+        while (offset < stemEnd)
+        {
+            var element = StringInfo.GetNextTextElement(token, offset);
+            var mapped = MapToAsciiLetter(element);
+            if (mapped == '\0')
+            {
+                return [];
+            }
+
+            if (!char.IsAsciiLetterUpper(mapped))
+            {
+                allUpper = false;
+            }
+
+            indexMap.Add(offset);
+            asciiLetters.Append(mapped);
+            offset += element.Length;
+        }
+
+        indexMap.Add(stemEnd);
+        if (allUpper || asciiLetters.Length < LeftMinimum + RightMinimum)
+        {
+            return [];
+        }
+
+        var stemPoints = GetBreakpoints(asciiLetters.ToString());
+        if (stemPoints.Length == 0)
+        {
+            return [];
+        }
+
+        // When a trailing hyphen or apostrophe suffix follows the stem, keep
+        // at least 2 stem letters after the break so a line never starts with
+        // only "s" or "-".
+        var maxLetterIndex = hasTrailingSuffix
+            ? asciiLetters.Length - 2
+            : asciiLetters.Length - RightMinimum;
+        var mappedPoints = new List<int>(stemPoints.Length);
+        foreach (var point in stemPoints)
+        {
+            if (point >= LeftMinimum && point <= maxLetterIndex && point < indexMap.Count)
+            {
+                mappedPoints.Add(indexMap[point]);
+            }
+        }
+
+        return mappedPoints.ToArray();
+    }
+
+    private static char MapToAsciiLetter(string element)
+    {
+        if (element.Length == 1 && char.IsAsciiLetter(element[0]))
+        {
+            return element[0];
+        }
+
+        var decomposed = element.Normalize(NormalizationForm.FormD);
+        char letter = '\0';
+        foreach (var c in decomposed)
+        {
+            if (char.IsAsciiLetter(c))
+            {
+                if (letter != '\0') return '\0';
+                letter = c;
+            }
+            else if (CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark)
+            {
+                return '\0';
+            }
+        }
+
+        return letter;
     }
 
     private static PatternData LoadData()

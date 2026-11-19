@@ -16,7 +16,8 @@ internal sealed partial class CellFactory
     public List<LayoutCell> BuildCells(
         InlineItem item,
         bool vertical,
-        float maxWordWidth = float.MaxValue)
+        float maxWordWidth = float.MaxValue,
+        bool preferLatinFont = false)
     {
         var cells = new List<LayoutCell>();
 
@@ -151,6 +152,10 @@ internal sealed partial class CellFactory
         {
             AppendVerticalCells(cells, item);
         }
+        else if (item.Style.PreserveWhitespace)
+        {
+            AppendPreformattedCells(cells, item, maxWordWidth, preferLatinFont);
+        }
         else
         {
             var units = TypesetText.Itemize(item.Text, 0, item.Text.Length);
@@ -168,7 +173,8 @@ internal sealed partial class CellFactory
                     item.TextStart + unit.Start,
                     item.Style,
                     item.LinkHref,
-                    item.FootnoteHref);
+                    item.FootnoteHref,
+                    preferLatinFont);
                 var wordLimit = Math.Min(_context.Options.ContentWidth, maxWordWidth);
                 if (unit.Kind == TextUnitKind.LatinWord
                     && unitText.Length > 1
@@ -188,7 +194,8 @@ internal sealed partial class CellFactory
                             item.Style,
                             item.LinkHref,
                             item.FootnoteHref,
-                            vertical: false));
+                            vertical: false,
+                            preferLatinFont: preferLatinFont));
                         offset += element.Length;
                     }
                 }
@@ -242,11 +249,128 @@ internal sealed partial class CellFactory
         for (var read = 0; read < cells.Count; read++)
         {
             var cell = cells[read];
+            if (cell.Style.PreserveWhitespace)
+            {
+                previousWasSpace = false;
+                cells[write++] = cell;
+                continue;
+            }
             if (cell.IsSpace && !cell.IsLineBreak && previousWasSpace) continue;
             previousWasSpace = cell.IsSpace && !cell.IsLineBreak;
             cells[write++] = cell;
         }
         if (write < cells.Count) cells.RemoveRange(write, cells.Count - write);
+    }
+
+    private void AppendPreformattedCells(
+        List<LayoutCell> cells,
+        InlineItem item,
+        float maxWordWidth,
+        bool preferLatinFont)
+    {
+        var text = item.Text;
+        var index = 0;
+        var wordLimit = Math.Min(_context.Options.ContentWidth, maxWordWidth);
+        while (index < text.Length)
+        {
+            _context.CancellationToken.ThrowIfCancellationRequested();
+            var c = text[index];
+            if (c == '\r')
+            {
+                var step = index + 1 < text.Length && text[index + 1] == '\n' ? 2 : 1;
+                cells.Add(new LayoutCell
+                {
+                    Glyphs = Array.Empty<ushort>(),
+                    GlyphX = Array.Empty<float>(),
+                    GlyphY = Array.Empty<float>(),
+                    Advance = 0f,
+                    FontPath = _context.MainFont,
+                    FontSize = _context.Options.BaseFontSize,
+                    TextStart = item.TextStart + index,
+                    TextLength = step,
+                    Style = item.Style,
+                    LinkHref = item.LinkHref,
+                    FootnoteHref = item.FootnoteHref,
+                    IsLineBreak = true,
+                });
+                index += step;
+                continue;
+            }
+
+            if (c == '\n')
+            {
+                cells.Add(new LayoutCell
+                {
+                    Glyphs = Array.Empty<ushort>(),
+                    GlyphX = Array.Empty<float>(),
+                    GlyphY = Array.Empty<float>(),
+                    Advance = 0f,
+                    FontPath = _context.MainFont,
+                    FontSize = _context.Options.BaseFontSize,
+                    TextStart = item.TextStart + index,
+                    TextLength = 1,
+                    Style = item.Style,
+                    LinkHref = item.LinkHref,
+                    FootnoteHref = item.FootnoteHref,
+                    IsLineBreak = true,
+                });
+                index++;
+                continue;
+            }
+
+            if (c is ' ' or '\t' or ' ')
+            {
+                var cell = ShapeCell(
+                    text.Substring(index, 1),
+                    item.TextStart + index,
+                    item.Style,
+                    item.LinkHref,
+                    item.FootnoteHref,
+                    vertical: false,
+                    preferLatinFont: preferLatinFont);
+                cells.Add(cell with { IsSpace = false }); // preserve leading/consecutive spaces
+                index++;
+                continue;
+            }
+
+            // Collect contiguous non-whitespace run on this preformatted line
+            var end = index + 1;
+            while (end < text.Length && text[end] is not ('\r' or '\n' or ' ' or '\t' or ' '))
+            {
+                end++;
+            }
+
+            var runText = text[index..end];
+            var produced = ShapeTextUnit(
+                runText,
+                item.TextStart + index,
+                item.Style,
+                item.LinkHref,
+                item.FootnoteHref,
+                preferLatinFont);
+            if (runText.Length > 1 && produced.Count == 1 && produced[0].Advance > wordLimit + 0.01f)
+            {
+                for (var offset = 0; offset < runText.Length;)
+                {
+                    var element = StringInfo.GetNextTextElement(runText, offset);
+                    cells.Add(ShapeCell(
+                        element,
+                        item.TextStart + index + offset,
+                        item.Style,
+                        item.LinkHref,
+                        item.FootnoteHref,
+                        vertical: false,
+                        preferLatinFont: preferLatinFont));
+                    offset += element.Length;
+                }
+            }
+            else
+            {
+                cells.AddRange(produced);
+            }
+
+            index = end;
+        }
     }
 
     private void AppendVerticalCells(List<LayoutCell> cells, InlineItem item)
@@ -337,7 +461,8 @@ internal sealed partial class CellFactory
         LayoutCell cell,
         float availableWidth,
         out LayoutCell head,
-        out LayoutCell tail)
+        out LayoutCell tail,
+        bool preferLatinFont = false)
     {
         head = cell;
         tail = cell;
@@ -346,13 +471,18 @@ internal sealed partial class CellFactory
             || cell.SyntheticHyphen
             || cell.TextStart < 0
             || cell.TextLength < 5
-            || cell.Text.Length != cell.TextLength
-            || !cell.Text.All(char.IsAsciiLetter))
+            || cell.Text.Length != cell.TextLength)
         {
             return false;
         }
 
-        foreach (var breakPoint in EnglishHyphenator.GetBreakpoints(cell.Text).OrderDescending())
+        var breakpoints = EnglishHyphenator.GetBreakpointsForToken(cell.Text);
+        if (breakpoints.Length == 0)
+        {
+            return false;
+        }
+
+        foreach (var breakPoint in breakpoints.OrderDescending())
         {
             var shaped = ShapeCell(
                 cell.Text[..breakPoint] + "-",
@@ -360,7 +490,8 @@ internal sealed partial class CellFactory
                 cell.Style,
                 cell.LinkHref,
                 cell.FootnoteHref,
-                vertical: false);
+                vertical: false,
+                preferLatinFont: preferLatinFont);
             if (shaped.Advance > availableWidth + 0.01f)
             {
                 continue;
@@ -388,7 +519,8 @@ internal sealed partial class CellFactory
                 cell.Style,
                 cell.LinkHref,
                 cell.FootnoteHref,
-                vertical: false) with
+                vertical: false,
+                preferLatinFont: preferLatinFont) with
             {
                 IsLatinWord = true,
             };

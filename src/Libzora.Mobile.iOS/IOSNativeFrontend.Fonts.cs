@@ -60,6 +60,21 @@ internal sealed partial class IOSNativeFrontend
                 null));
         }
 
+        var latinFonts = await Task.Run(() => SystemFontCatalog.LatinFonts, token);
+        foreach (var face in latinFonts)
+        {
+            options.Add(new ReaderFontOption(
+                ReaderFontDefaults.SystemFamilyPrefix + face.Family,
+                face.DisplayName,
+                UiText.Get("西文 · {0}", face.Family),
+                "latin",
+                true,
+                0,
+                null,
+                face.PostScriptName,
+                null));
+        }
+
         foreach (var entry in ReaderFontCatalog.Entries)
         {
             var installedFont = installed.FirstOrDefault(font =>

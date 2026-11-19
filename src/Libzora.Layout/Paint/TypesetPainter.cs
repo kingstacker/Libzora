@@ -250,8 +250,11 @@ public sealed class TypesetPainter
                 continue;
             }
 
-            var syntheticBold = run.SyntheticBold || run.Style.Bold;
-            DrawPlacedBlob(canvas, run, blob, textFill, syntheticBold, run.FontSize * run.Scale);
+            var hasRealBold = typeface.FontWeight >= 600;
+            var hasRealItalic = typeface.FontSlant != SKFontStyleSlant.Upright;
+            var syntheticBold = run.SyntheticBold || (run.Style.Bold && !hasRealBold);
+            var syntheticItalic = run.Style.Italic && !hasRealItalic;
+            DrawPlacedBlob(canvas, run, blob, textFill, syntheticBold, syntheticItalic, run.FontSize * run.Scale);
 
             // Paint only selected or marker-covered glyphs in the inverted
             // color. The old implementation inverted every run on a page as
@@ -279,7 +282,7 @@ public sealed class TypesetPainter
                     using var glyphBlob = glyphBuilder.Build();
                     if (glyphBlob is not null)
                     {
-                        DrawPlacedBlob(canvas, run, glyphBlob, textInverted, syntheticBold, run.FontSize * run.Scale);
+                        DrawPlacedBlob(canvas, run, glyphBlob, textInverted, syntheticBold, syntheticItalic, run.FontSize * run.Scale);
                     }
                 }
             }
@@ -629,6 +632,7 @@ public sealed class TypesetPainter
         SKTextBlob blob,
         SKPaint fill,
         bool syntheticBold,
+        bool syntheticItalic,
         float fontSize)
     {
         if (run.Sideways)
@@ -636,7 +640,7 @@ public sealed class TypesetPainter
             canvas.Save();
             canvas.Translate(run.OriginX, run.OriginY);
             canvas.RotateDegrees(90);
-            if (run.Style.Italic)
+            if (syntheticItalic)
             {
                 canvas.Skew(-0.22f, 0f);
             }
@@ -650,7 +654,7 @@ public sealed class TypesetPainter
         {
             canvas.Save();
             canvas.Translate(run.OriginX, run.OriginY);
-            if (run.Style.Italic)
+            if (syntheticItalic)
             {
                 canvas.Skew(-0.22f, 0f);
             }
@@ -660,7 +664,7 @@ public sealed class TypesetPainter
             return;
         }
 
-        if (run.Style.Italic)
+        if (syntheticItalic)
         {
             canvas.Save();
             canvas.Skew(-0.22f, 0f);

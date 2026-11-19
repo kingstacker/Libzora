@@ -185,6 +185,12 @@ public sealed record ReaderLayoutSettings(
     /// <summary>Keep at least two lines together at paragraph page boundaries.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public bool AvoidWidowsAndOrphans { get; init; } = true;
+    /// <summary>Optional paired Latin reading font (<c>system:Georgia</c>, etc.); null follows <see cref="FontFamily"/>.</summary>
+    public string? LatinFontFamily { get; init; }
+    /// <summary>Left-align body prose instead of justifying both edges.</summary>
+    public bool AlignLeft { get; init; }
+    /// <summary>Insert a subtle visual gap between adjacent CJK and Latin/numeric runs.</summary>
+    public bool CjkLatinSpacing { get; init; } = true;
 }
 
 /// <summary>
@@ -270,6 +276,10 @@ public static class ReaderLayoutDefaults
         var fontFamily = string.IsNullOrWhiteSpace(settings.FontFamily)
             ? ReaderFontDefaults.DefaultFamily
             : settings.FontFamily.Trim();
+        var latinFontFamily = string.IsNullOrWhiteSpace(settings.LatinFontFamily)
+            || string.Equals(settings.LatinFontFamily.Trim(), "auto", StringComparison.OrdinalIgnoreCase)
+            ? null
+            : settings.LatinFontFamily.Trim();
         var verticalWriting = settings.VerticalWriting;
         return settings with
         {
@@ -282,6 +292,7 @@ public static class ReaderLayoutDefaults
                 : null,
             ParagraphSpacing = paragraphSpacing,
             FontFamily = fontFamily,
+            LatinFontFamily = latinFontFamily,
             // Vertical text is deliberately a single-page-only layout. Keep
             // the invariant here rather than relying on individual controls:
             // persisted legacy rows and programmatic callers must not be able

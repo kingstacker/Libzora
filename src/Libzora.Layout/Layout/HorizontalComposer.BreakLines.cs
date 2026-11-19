@@ -9,20 +9,21 @@ namespace Libzora.Layout;
 internal sealed partial class HorizontalComposer
 {
     /// <summary>
-    /// Greedy line fitting. A closing mark that does not fit hangs into the
-    /// trailing margin; an opening mark never ends a line — it moves down
-    /// together with the character that follows it.
+    /// Greedy line fitting. Eligible closing CJK marks hang cleanly into the
+    /// trailing margin; opening marks never end a line; CJK numeric clusters
+    /// stay together; and long Latin words before trailing punctuation still
+    /// get a hyphenation opportunity.
     /// </summary>
     private List<LineBox> BreakLines(List<LayoutCell> cells, float availWidth, float firstLineIndent,
-        bool allowPageAnchor = false, float continuationIndent = 0f)
+        bool allowPageAnchor = false, float continuationIndent = 0f, bool preferLatinFont = false)
     {
         var lines = new List<LineBox>();
         var line = new LineBox();
         var indentApplied = false;
 
-        foreach (var sourceCell in cells)
+        for (var cellIndex = 0; cellIndex < cells.Count; cellIndex++)
         {
-            var cell = sourceCell;
+            var cell = cells[cellIndex];
             _context.CancellationToken.ThrowIfCancellationRequested();
             if (allowPageAnchor && _context.StartsAnchoredPage(cell))
             {
@@ -45,7 +46,7 @@ internal sealed partial class HorizontalComposer
                 continue;
             }
 
-            if (cell.IsSpace && line.Cells.Count == 0)
+            if (cell.IsSpace && !cell.Style.PreserveWhitespace && line.Cells.Count == 0)
             {
                 continue; // no leading whitespace
             }
@@ -59,7 +60,7 @@ internal sealed partial class HorizontalComposer
             var fits = line.Indent + line.WidthWith(cell) <= availWidth + 0.01f;
             while (!fits
                 && _cells.TrySplitForHyphenation(
-                    cell, availWidth - line.Indent - line.Used - 0.01f, out var head, out var tail))
+                    cell, availWidth - line.Indent - line.Used - 0.01f, out var head, out var tail, preferLatinFont))
             {
                 // Break the word at an English syllable boundary rather than
                 // leaving a conspicuous gap. The source offsets stay contiguous.
@@ -72,6 +73,28 @@ internal sealed partial class HorizontalComposer
 
             if (!fits)
             {
+                // Horizontal hanging punctuation: let one closing CJK mark
+                // sit in the trailing margin instead of pulling a whole
+                // character down and stretching the entire line. Skip when
+                // another closing mark follows (e.g. "。”") so the second
+                // mark cannot be orphaned at the start of the next line.
+                var nextIsClosing = cellIndex + 1 < cells.Count && IsClosingMark(cells[cellIndex + 1]);
+                var maxHang = Math.Min(InsetH * 0.72f, BaseFontSize * 0.72f);
+                if (_context.Options.HangingPunctuation
+                    && !line.HasHangingPunctuation
+                    && line.Cells.Count > 0
+                    && !nextIsClosing
+                    && TypesetText.IsHangablePunctuation(cell.Text)
+                    && cell.Advance <= maxHang + 0.01f
+                    && line.Indent + line.Used <= availWidth + 0.01f)
+                {
+                    line.Add(cell);
+                    line.HasHangingPunctuation = true;
+                    lines.Add(line);
+                    line = new LineBox { Indent = continuationIndent };
+                    continue;
+                }
+
                 var pulled = new List<LayoutCell>();
 
                 if (IsClosingMark(cell))
@@ -90,12 +113,53 @@ internal sealed partial class HorizontalComposer
                         pulled.Insert(0, line.Cells[^1]);
                         line.RemoveLast();
                     }
+
+                    // If a long English word was pulled solely because its
+                    // trailing punctuation did not fit (e.g. "internationalization,"),
+                    // still try hyphenating that word so the line stays balanced.
+                    if (pulled.Count > 0 && pulled[0].IsLatinWord)
+                    {
+                        var room = availWidth - line.Indent - line.Used - 0.01f;
+                        if (room > BaseFontSize * 1.5f
+                            && _cells.TrySplitForHyphenation(
+                                pulled[0], room, out var head, out var tail, preferLatinFont))
+                        {
+                            line.Add(head);
+                            pulled[0] = tail;
+                        }
+                    }
                 }
 
-                if (line.Cells.Count > 0 && IsOpeningMark(line.Cells[^1]))
+                // Keep numeric clusters (e.g. "第12章", "2026年") together
+                // across horizontal line breaks, matching vertical typesetting.
+                var keepGuard = 0;
+                while (line.Cells.Count > 1 && keepGuard < 3)
                 {
-                    // An opening mark must not end the line.
+                    var rightText = pulled.Count > 0 ? pulled[0].Text : cell.Text;
+                    var leftCell = line.Cells[^1];
+                    if (leftCell.IsSpace || !TypesetText.ShouldKeepTogether(leftCell.Text, rightText))
+                    {
+                        break;
+                    }
+
+                    pulled.Insert(0, leftCell);
+                    line.RemoveLast();
+                    keepGuard++;
+                }
+
+                // Opening marks (including nested ones like “《 or （“) must
+                // never end a line.
+                var openGuard = 0;
+                while (line.Cells.Count > 1 && IsOpeningMark(line.Cells[^1]) && openGuard < 4)
+                {
                     pulled.Insert(0, line.Cells[^1]);
+                    line.RemoveLast();
+                    openGuard++;
+                }
+
+                if (line.Cells.Count == 1 && IsOpeningMark(line.Cells[0]) && !line.StartsAnchoredPage)
+                {
+                    pulled.Insert(0, line.Cells[0]);
                     line.RemoveLast();
                 }
 
@@ -112,7 +176,7 @@ internal sealed partial class HorizontalComposer
                 }
             }
 
-            if (cell.IsSpace && line.Cells.Count == 0)
+            if (cell.IsSpace && !cell.Style.PreserveWhitespace && line.Cells.Count == 0)
             {
                 continue;
             }

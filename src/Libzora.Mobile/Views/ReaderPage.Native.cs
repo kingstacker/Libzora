@@ -13,6 +13,8 @@ public sealed record NativeReaderState(
     bool FootnoteReturnVisible = false)
 {
     public NativeReaderSelectionBounds? SelectionBounds { get; init; }
+    /// <summary>Changes only for ordinary navigation, never for a search-result jump or reflow.</summary>
+    public long NavigationRevision { get; init; }
 }
 
 public sealed record NativeReaderSelectionBounds(double X, double Y, double Bottom,
@@ -61,6 +63,7 @@ public partial class ReaderPage
     private bool? _nativeAppAppearanceDark;
     private int _nativeAppAppearanceRevision = -1;
     private bool _nativeChromeVisible = false;
+    private long _nativeNavigationRevision;
     private string? _nativeError;
     private Func<string>? _nativeErrorText;
     private readonly object _nativeSearchLock = new();
@@ -68,6 +71,7 @@ public partial class ReaderPage
     private readonly List<NativeSearchEntry> _nativeSearchEntries = [];
     private readonly Dictionary<int, NativeSearchEntry> _nativeSearchEntriesById = [];
     private CancellationTokenSource? _nativeSearchCancellation;
+    private CancellationTokenSource? _nativeSearchJumpCancellation;
     private int _nativeSearchGeneration;
     private int _nativeSearchNextId;
     private string _nativeSearchQuery = string.Empty;
@@ -163,6 +167,7 @@ public partial class ReaderPage
         _tts?.State ?? TtsPlaybackState.Stopped, SpeechStatusText.Text ?? string.Empty,
         _selection?.Text, _footnoteReturn.Count > 0)
     {
+        NavigationRevision = _nativeNavigationRevision,
         SelectionBounds = _selection is { X: { } x, Y: { } y } selected
             ? new(x, y, selected.Bottom ?? y, ReaderPaper.Bounds.Width, ReaderPaper.Bounds.Height)
             : null
@@ -203,21 +208,46 @@ public partial class ReaderPage
             new NativeReaderTocItem(index, item.DisplayTitle, item.Level, index == selected)).ToArray();
     }
 
+    private void CancelNativeSearchJump()
+    {
+        var pending = Interlocked.Exchange(ref _nativeSearchJumpCancellation, null);
+        try { pending?.Cancel(); }
+        catch (ObjectDisposedException) { }
+    }
+
+    public void NativeClearSearchHighlight()
+    {
+        if (_readerHost is NativeReaderHost epub) epub.SetSearchHighlights(null, null);
+        else if (_readerHost is NativePdfReaderHost pdf) pdf.ClearSearch();
+    }
+
+    private void MarkNativeNavigation()
+    {
+        if (!_usesNativeFrontend || _disposed) return;
+        CancelNativeSearchJump();
+        NativeClearSearchHighlight();
+        _nativeNavigationRevision++;
+        NotifyNativeState();
+    }
+
     public Task NativeJumpToTocAsync(int index)
     {
+        if (index < 0 || index >= _tocEntries.Count) return Task.CompletedTask;
+        MarkNativeNavigation();
         ClearFootnoteNavigation();
-        return index >= 0 && index < _tocEntries.Count
-            ? JumpToAsync(_tocEntries[index]) : Task.CompletedTask;
+        return JumpToAsync(_tocEntries[index]);
     }
 
     public Task NativeSeekAsync(double percent)
     {
+        MarkNativeNavigation();
         ClearFootnoteNavigation();
         return SeekAsync(Math.Clamp(percent, 0, 100));
     }
 
     public Task NativeMoveChapterAsync(int direction)
     {
+        MarkNativeNavigation();
         ClearFootnoteNavigation();
         return MoveChapterAsync(Math.Sign(direction));
     }
@@ -359,6 +389,7 @@ public partial class ReaderPage
             Interlocked.Increment(ref _nativeSearchGeneration);
             cancellation = Interlocked.Exchange(ref _nativeSearchCancellation, null);
         }
+        CancelNativeSearchJump();
         if (cancellation is null) return;
         try { cancellation.Cancel(); }
         catch (ObjectDisposedException) { }
@@ -813,25 +844,27 @@ public partial class ReaderPage
         }
     }
 
-    public async Task NativeJumpToSearchAsync(int id, string? searchId = null)
+    public async Task<bool> NativeJumpToSearchAsync(int id, string? searchId = null, CancellationToken token = default)
     {
         NativeSearchEntry? entry;
         lock (_nativeSearchLock)
         {
-            if (searchId is not null && searchId != _nativeSearchId) return;
+            if (searchId is not null && searchId != _nativeSearchId) return false;
             _nativeSearchEntriesById.TryGetValue(id, out entry);
         }
-        if (entry is null) return;
+        if (entry is null || _turning) return false;
+        using var jump = CancellationTokenSource.CreateLinkedTokenSource(token, _lifetime.Token);
+        _nativeSearchJumpCancellation = jump;
         try
         {
-            await JumpToSearchHitAsync(entry.Hit);
+            var jumped = await JumpToSearchHitAsync(entry.Hit, jump.Token);
+            if (!jumped || jump.IsCancellationRequested) return false;
+            SetChromeVisible(false);
+            return true;
         }
         finally
         {
-            // The shared search sheet hides chrome before jumping. Native search
-            // closes inline, so bring the toolbar back once the target page is
-            // ready and the user lands in the text.
-            SetChromeVisible(true);
+            Interlocked.CompareExchange(ref _nativeSearchJumpCancellation, null, jump);
         }
     }
 

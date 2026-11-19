@@ -90,6 +90,7 @@ public partial class ReaderPage : UserControl
         _shell = shell;
         _layout = BuildLayout(shell.Preferences.Current);
         InitializeComponent();
+        ReaderFooter.IsVisible = shell.Preferences.Current.ReaderProgressDisplay != MobileReaderProgressDisplay.Off;
         TitleText.Text = book.Title;
         LoadingTitleText.Text = book.Title;
         if (shell.Services.CreateTtsEngine is null || shell.Services.CreateTtsPlayer is null)
@@ -141,9 +142,13 @@ public partial class ReaderPage : UserControl
             ParagraphSpacingMatchesLineHeight = normalized.ParagraphSpacing <= 0,
             OverridePublisherLineHeight = true,
             OverridePublisherParagraphSpacing = true,
+            NaturalLatinTypography = true,
             AvoidWidowsAndOrphans = false,
             ParagraphIndent = preferences.ReaderParagraphIndent,
-            BodyPadding = Math.Clamp(preferences.ReaderBodyPadding, 16, 64)
+            BodyPadding = Math.Clamp(preferences.ReaderBodyPadding, 16, 64),
+            // The footer shares the normal bottom paper margin. When hidden,
+            // let text use that strip, retaining a small inset inside the safe area.
+            BodyBottomPadding = preferences.ReaderProgressDisplay == MobileReaderProgressDisplay.Off ? 8 : null
         };
     }
 
@@ -939,6 +944,7 @@ public partial class ReaderPage : UserControl
     {
         HideSelectionBar();
         if (_turning) return;
+        MarkNativeNavigation();
         _tts?.NotifyManualNavigation();
         _turning = true;
         try
@@ -1401,6 +1407,8 @@ public partial class ReaderPage : UserControl
     private void RefreshReaderAppearance()
     {
         ApplyTheme();
+        ReaderFooter.IsVisible = !_usesNativeFrontend
+            && _shell.Preferences.Current.ReaderProgressDisplay != MobileReaderProgressDisplay.Off;
         (_readerHost as IReaderAppearanceHost)?.SetAppearance(new ReaderAppearanceSettings { Theme = CurrentTheme });
         // Preserve the sheet's scroll position while the page updates live.
         _shell.SetSheetTheme(ThemeScope.RequestedThemeVariant);
@@ -1421,7 +1429,11 @@ public partial class ReaderPage : UserControl
         }
         _tts?.NotifyManualNavigation();
         _layout = layout;
-        if (_readerHost is not IReaderConfiguredHost configured) return;
+        if (_readerHost is not IReaderConfiguredHost configured)
+        {
+            RefreshPositionLabels();
+            return;
+        }
         try
         {
             // The host owns the live position, including while an earlier reflow is pending.

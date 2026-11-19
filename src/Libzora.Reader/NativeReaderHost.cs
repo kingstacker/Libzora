@@ -1349,11 +1349,13 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
             && options.ParagraphSpacingMatchesLineHeight == expected.ParagraphSpacingMatchesLineHeight
             && options.OverridePublisherLineHeight == expected.OverridePublisherLineHeight
             && options.OverridePublisherParagraphSpacing == expected.OverridePublisherParagraphSpacing
+            && options.NaturalLatinTypography == expected.NaturalLatinTypography
             && options.AvoidWidowsAndOrphans == expected.AvoidWidowsAndOrphans
             && Math.Abs(options.ViewportWidth - expected.ViewportWidth) < 0.5f
             && Math.Abs(options.ViewportHeight - expected.ViewportHeight) < 0.5f
             && Math.Abs(options.InsetHorizontal - expected.InsetHorizontal) < 0.5f
             && Math.Abs(options.InsetVertical - expected.InsetVertical) < 0.5f
+            && Math.Abs(options.EffectiveInsetBottom - expected.EffectiveInsetBottom) < 0.5f
                 ? (content.ChapterPath, layout.Pages.Count)
                 : null;
     }
@@ -1528,11 +1530,13 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         || settings.ParagraphSpacingMatchesLineHeight != _settings.ParagraphSpacingMatchesLineHeight
         || settings.OverridePublisherLineHeight != _settings.OverridePublisherLineHeight
         || settings.OverridePublisherParagraphSpacing != _settings.OverridePublisherParagraphSpacing
+        || settings.NaturalLatinTypography != _settings.NaturalLatinTypography
         || settings.AvoidWidowsAndOrphans != _settings.AvoidWidowsAndOrphans
         || !string.Equals(settings.FontFamily, _settings.FontFamily, StringComparison.OrdinalIgnoreCase)
         || settings.FlowMode != _settings.FlowMode
         || settings.TwoPageMode != _settings.TwoPageMode
-        || Math.Abs(settings.BodyPadding - _settings.BodyPadding) > 0.001;
+        || Math.Abs(settings.BodyPadding - _settings.BodyPadding) > 0.001
+        || settings.BodyBottomPadding != _settings.BodyBottomPadding;
 
     private static int? ResolveInitialComposeStop(
         ChapterContent content,
@@ -2009,11 +2013,13 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
             ParagraphSpacingMatchesLineHeight = settings.ParagraphSpacingMatchesLineHeight,
             OverridePublisherLineHeight = settings.OverridePublisherLineHeight,
             OverridePublisherParagraphSpacing = settings.OverridePublisherParagraphSpacing,
+            NaturalLatinTypography = settings.NaturalLatinTypography,
             AvoidWidowsAndOrphans = settings.AvoidWidowsAndOrphans,
             ViewportWidth = (float)width,
             ViewportHeight = (float)height,
             InsetHorizontal = (float)horizontalInset,
             InsetVertical = (float)verticalInset,
+            InsetBottom = (float?)settings.BodyBottomPadding,
             CollectDebugBoxes = collectDebugBoxes,
         };
     }
@@ -2093,11 +2099,13 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         hash.Add(settings.ParagraphSpacingMatchesLineHeight);
         hash.Add(settings.OverridePublisherLineHeight);
         hash.Add(settings.OverridePublisherParagraphSpacing);
+        hash.Add(settings.NaturalLatinTypography);
         hash.Add(settings.AvoidWidowsAndOrphans);
         hash.Add(settings.FontScale);
         hash.Add(settings.LineHeight);
         hash.Add(settings.MaxWidth);
         hash.Add(settings.BodyPadding);
+        hash.Add(settings.BodyBottomPadding);
         hash.Add(settings.FontFamily, StringComparer.Ordinal);
         hash.Add(knownChapter?.ChapterPath, StringComparer.Ordinal);
         hash.Add(knownChapter?.PageCount ?? -1);

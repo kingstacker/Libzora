@@ -16,6 +16,7 @@ struct NativeProfilePage: View {
     @ObservedObject var store: NativeStore
     @State private var summary: ProfileSummary?
     @State private var membership: AccountMembership?
+    @State private var preferenceMenu: NativePreferenceMenuRequest?
 
     private var account: AccountStatus? { store.account ?? summary?.account }
     private var secondaryColor: Color { store.preferences.colorfulMode ? NativeTheme.secondaryOnColorful : NativeTheme.secondary }
@@ -80,6 +81,12 @@ struct NativeProfilePage: View {
             }.padding(.horizontal, 24).padding(.top, 20).padding(.bottom, 120).buttonStyle(.plain)
         }.background(NativeAmbientBackground()).navigationBarHidden(true)
             .overlay(alignment: .top) { NativeStatusBarGlass() }
+            .overlay {
+                if let preferenceMenu {
+                    NativePreferenceMenuOverlay(request: preferenceMenu) { self.preferenceMenu = nil }
+                        .zIndex(10)
+                }
+            }
             .task(id: store.uiLanguage) {
                 do {
                     let result: ProfileSummary = try await store.request("settings.profile")
@@ -128,50 +135,44 @@ struct NativeProfilePage: View {
 
     private var themeRow: some View {
         let follow = store.uiLanguage == "en-US" ? L("系统") : L("跟随系统")
-        let choice = store.preferences.themeMode == 1 ? L("浅色")
-            : store.preferences.themeMode == 2 ? L("深色") : follow
-        return preferenceMenuRow(title: L("外观"), value: choice, identifier: "profile.theme",
-            selection: Binding(get: { store.preferences.themeMode }, set: { mode in
-                var value = store.preferences; value.themeMode = mode
-                store.setPreferences(value)
-            })) {
-                Text(follow).tag(0)
-                Text(L("浅色")).tag(1)
-                Text(L("深色")).tag(2)
-            }
+        return preferenceMenuRow(title: L("外观"), identifier: "profile.theme",
+                                 selection: store.preferences.themeMode,
+                                 options: [(0, follow), (1, L("浅色")), (2, L("深色"))]) { mode in
+            var value = store.preferences
+            value.themeMode = mode
+            store.setPreferences(value)
+        }
     }
 
     private var languageRow: some View {
-        let choice = store.preferences.uiLanguage == "en-US" ? "English"
-            : store.preferences.uiLanguage == "zh-CN" ? "简体中文" : L("跟随系统")
-        return preferenceMenuRow(title: L("语言"), value: choice, identifier: "profile.language",
-            selection: Binding(get: { store.preferences.uiLanguage }, set: { language in
-                var value = store.preferences; value.uiLanguage = language
-                store.setPreferences(value)
-            })) {
-                Text(L("跟随系统")).tag("auto")
-                Text("简体中文").tag("zh-CN")
-                Text("English").tag("en-US")
-            }
+        preferenceMenuRow(title: L("语言"), identifier: "profile.language",
+                          selection: store.preferences.uiLanguage,
+                          options: [("auto", L("跟随系统")), ("zh-CN", "简体中文"), ("en-US", "English")]) { language in
+            var value = store.preferences
+            value.uiLanguage = language
+            store.setPreferences(value)
+        }
     }
 
-    private func preferenceMenuRow<Selection: Hashable, Options: View>(
-        title: String, value: String, identifier: String, selection: Binding<Selection>,
-        @ViewBuilder options: @escaping () -> Options
+    private func preferenceMenuRow<Selection: Equatable>(
+        title: String, identifier: String, selection: Selection,
+        options: [(id: Selection, title: String)], select: @escaping (Selection) -> Void
     ) -> some View {
-        // The system lifts and hides a Menu's source label while it is open.
-        // Keep the visible row outside that source so it remains on the page.
-        profileRow(title: title, value: value)
+        let value = options.first { $0.id == selection }?.title ?? options.first?.title ?? ""
+        let menuOptions = options.map { option in
+            NativePreferenceMenuOption(
+                id: String(describing: option.id),
+                identifier: "\(identifier).option.\(option.id)",
+                title: option.title,
+                selected: option.id == selection,
+                select: { if option.id != selection { select(option.id) } })
+        }
+        return profileRow(title: title, value: value)
             .accessibilityHidden(true)
             .overlay {
-                Menu {
-                    Picker(title, selection: selection, content: options)
-                } label: {
-                    Color.clear.contentShape(Rectangle())
+                NativeTrailingPreferenceMenu(title: title, value: value, identifier: identifier) { frame in
+                    preferenceMenu = NativePreferenceMenuRequest(identifier: identifier, sourceFrame: frame, options: menuOptions)
                 }
-                .accessibilityLabel(title)
-                .accessibilityValue(value)
-                .accessibilityIdentifier(identifier)
             }
     }
 
@@ -216,6 +217,153 @@ struct NativeProfilePage: View {
         guard store.account?.isLoggedIn == true else { membership = nil; return }
         let value: DeviceFeatureStatus? = try? await store.request("settings.membership.get")
         if !Task.isCancelled { membership = value?.membership }
+    }
+}
+
+private struct NativePreferenceMenuOption: Identifiable {
+    let id: String
+    let identifier: String
+    let title: String
+    let selected: Bool
+    let select: () -> Void
+}
+
+private struct NativePreferenceMenuRequest {
+    let identifier: String
+    let sourceFrame: CGRect
+    let options: [NativePreferenceMenuOption]
+}
+
+/// Keep the full row tappable while letting the profile page draw its own glass menu.
+private struct NativeTrailingPreferenceMenu: UIViewRepresentable {
+    var title: String
+    var value: String
+    var identifier: String
+    var present: (CGRect) -> Void
+
+    final class Coordinator: NSObject {
+        var present: ((CGRect) -> Void)?
+
+        @objc func open(_ sender: UIButton) {
+            guard let window = sender.window else { return }
+            present?(sender.convert(sender.bounds, to: window))
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> UIButton {
+        let button = UIButton(type: .custom)
+        button.backgroundColor = .clear
+        button.addTarget(context.coordinator, action: #selector(Coordinator.open(_:)), for: .touchUpInside)
+        return button
+    }
+
+    func updateUIView(_ button: UIButton, context: Context) {
+        context.coordinator.present = present
+        button.accessibilityLabel = title
+        button.accessibilityValue = value
+        button.accessibilityIdentifier = identifier
+    }
+}
+
+private struct NativePreferenceMenuOverlay: View {
+    let request: NativePreferenceMenuRequest
+    let dismiss: () -> Void
+
+    private static let menuWidth: CGFloat = 250
+    private static let rowHeight: CGFloat = 46
+    private static let tabBarClearance: CGFloat = 96
+
+    var body: some View {
+        GeometryReader { safeArea in
+            menu(in: safeArea.frame(in: .global)).ignoresSafeArea()
+        }
+        .transition(.opacity)
+    }
+
+    private func menu(in safeArea: CGRect) -> some View {
+        GeometryReader { proxy in
+            let origin = proxy.frame(in: .global).origin
+            let anchor = CGRect(x: request.sourceFrame.minX - origin.x,
+                                y: request.sourceFrame.minY - origin.y,
+                                width: request.sourceFrame.width,
+                                height: request.sourceFrame.height)
+            let width = min(Self.menuWidth, max(0, proxy.size.width - 24))
+            let naturalHeight = CGFloat(request.options.count) * Self.rowHeight + 10
+            let topLimit = max(12, safeArea.minY - origin.y + 8)
+            let bottomLimit = max(topLimit, proxy.size.height - Self.tabBarClearance)
+            let height = min(naturalHeight, max(0, bottomLimit - topLimit))
+            let selectedIndex = request.options.firstIndex(where: \.selected) ?? 0
+            let preferredTop = anchor.midY - CGFloat(selectedIndex) * Self.rowHeight - Self.rowHeight / 2 - 5
+            let top = min(max(preferredTop, topLimit), max(topLimit, bottomLimit - height))
+            let centerX = min(max(anchor.maxX - width / 2, width / 2 + 12),
+                              proxy.size.width - width / 2 - 12)
+
+            ZStack(alignment: .topLeading) {
+                Color.black.opacity(0.001)
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture(perform: dismiss)
+                    .accessibilityHidden(true)
+
+                NativePreferenceMenuPanel(options: request.options) { option in
+                    dismiss()
+                    option.select()
+                }
+                .frame(width: width, height: height)
+                .accessibilityIdentifier(request.identifier + ".menu")
+                .position(x: centerX, y: top + height / 2)
+            }
+        }
+    }
+}
+
+private struct NativePreferenceMenuPanel: View {
+    let options: [NativePreferenceMenuOption]
+    let choose: (NativePreferenceMenuOption) -> Void
+
+    private var rows: some View {
+        VStack(spacing: 0) {
+            ForEach(options) { option in
+                Button { choose(option) } label: {
+                    HStack(spacing: 12) {
+                        Group {
+                            if option.selected {
+                                Image(systemName: "checkmark").font(.system(size: 13, weight: .semibold))
+                            } else {
+                                Color.clear
+                            }
+                        }
+                        .frame(width: 16, height: 16)
+                        Text(option.title)
+                            .font(NativeTheme.font(16))
+                            .foregroundStyle(NativeTheme.ink)
+                            .lineLimit(1)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 46, alignment: .leading)
+                    .padding(.horizontal, 20)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(option.title)
+                .accessibilityIdentifier(option.identifier)
+            }
+        }
+        .padding(.vertical, 5)
+    }
+
+    @ViewBuilder var body: some View {
+        if #available(iOS 26.0, *) {
+            rows
+                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+                .shadow(color: .black.opacity(0.10), radius: 18, y: 8)
+        } else {
+            rows
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .shadow(color: .black.opacity(0.16), radius: 22, y: 9)
+        }
     }
 }
 

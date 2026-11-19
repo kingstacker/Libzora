@@ -298,10 +298,19 @@ struct NativeScrollDismissesKeyboard: ViewModifier {
 
 struct NativeFloatingSurface: ViewModifier {
     @Environment(\.colorScheme) private var scheme
+    var backgroundOpacity = 0.97
+    var shadowStrength = 1.0
+    var verticalInset: CGFloat = 0
+
     func body(content: Content) -> some View {
-        content.background(NativeTheme.surface.opacity(0.97), in: RoundedRectangle(cornerRadius: 16))
-            .overlay(RoundedRectangle(cornerRadius: 16).stroke(NativeTheme.divider, lineWidth: 0.5))
-            .shadow(color: .black.opacity(scheme == .dark ? 0.25 : 0.10), radius: 10, y: 4)
+        let shape = RoundedRectangle(cornerRadius: 16)
+        content.background {
+            shape.fill(NativeTheme.surface.opacity(backgroundOpacity))
+                .overlay { shape.stroke(NativeTheme.divider, lineWidth: 0.5) }
+                .shadow(color: .black.opacity((scheme == .dark ? 0.25 : 0.10) * shadowStrength), radius: 10, y: 4)
+                .padding(.vertical, verticalInset)
+                .allowsHitTesting(false)
+        }
     }
 }
 

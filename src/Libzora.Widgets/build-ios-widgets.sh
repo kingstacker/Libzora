@@ -2,14 +2,15 @@
 set -euo pipefail
 
 # Build a self-contained WidgetKit app extension. The .NET iOS app embeds and
-# signs it through AdditionalAppExtensions; this script only produces the
-# bundle layout and executable.
+# signs it through AdditionalAppExtensions; this script produces the bundle
+# and, for provisioned devices, the complete signing entitlements.
 native_rid="$1"
 native_output="$2"
 native_configuration="$3"
 bundle_id="${4:-com.kingstacker.libzora.widgets}"
 short_version="${5:-1.1.3}"
 build_version="${6:-1}"
+provisioning_profile="${7:-}"
 source_dir="${0:A:h}/Shared"
 font_dir="${0:A:h}/../Libzora.App/Assets/Fonts"
 appex="$native_output/LibzoraWidgets.appex"
@@ -38,6 +39,35 @@ fi
 
 rm -rf "$appex"
 mkdir -p "$appex"
+if [[ "$native_rid" == ios-arm64 && -n "$provisioning_profile" ]]; then
+  # AdditionalAppExtensions signs the supplied file directly. Unlike the app
+  # head, it does not inject application/team identifiers from the profile.
+  python3 -I - "$provisioning_profile" "$entitlements_path" "$bundle_id" "$native_output/LibzoraWidgets.device.entitlements" <<'PY'
+import fnmatch
+import plistlib
+import subprocess
+import sys
+from pathlib import Path
+
+profile_path, source_path, bundle_id, output_path = sys.argv[1:]
+profile = plistlib.loads(subprocess.check_output(
+    ["security", "cms", "-D", "-i", profile_path], stderr=subprocess.DEVNULL))
+allowed = profile["Entitlements"]
+entitlements = plistlib.loads(Path(source_path).read_bytes())
+prefix = profile["ApplicationIdentifierPrefix"][0]
+application_id = prefix + "." + bundle_id
+if not fnmatch.fnmatchcase(application_id, allowed["application-identifier"]):
+    raise SystemExit("Widget provisioning profile does not match its bundle identifier.")
+for group in entitlements.get("com.apple.security.application-groups", []):
+    if not any(fnmatch.fnmatchcase(group, pattern)
+               for pattern in allowed.get("com.apple.security.application-groups", [])):
+        raise SystemExit("Widget provisioning profile does not authorize its App Group.")
+entitlements["application-identifier"] = application_id
+entitlements["com.apple.developer.team-identifier"] = allowed["com.apple.developer.team-identifier"]
+entitlements["get-task-allow"] = allowed.get("get-task-allow", False)
+Path(output_path).write_bytes(plistlib.dumps(entitlements))
+PY
+fi
 native_sdk_path="$(xcrun --sdk "$native_sdk" --show-sdk-path)"
 
 # App extensions enter through Foundation's NSExtensionMain. Without this the

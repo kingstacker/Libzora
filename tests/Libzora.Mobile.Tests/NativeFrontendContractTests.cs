@@ -143,12 +143,22 @@ public sealed class NativeFrontendContractTests
         Assert.Equal(MobileReaderProgressDisplay.BookTimeRemaining, timed.ReaderProgressDisplay);
         Assert.Equal(spaced.ReaderParagraphSpacing, timed.ReaderParagraphSpacing);
         Assert.True(timed.GalleryMode);
+
+        using var offDocument = JsonDocument.Parse("""{"readerProgressDisplay":4}""");
+        var hidden = Read(offDocument.RootElement, timed, IOSNativeJsonContext.Default.MobilePreferences);
+        Assert.Equal(MobileReaderProgressDisplay.Off, hidden.ReaderProgressDisplay);
+        Assert.Equal(hidden.ReaderProgressDisplay, MobilePreferences.NormalizeProgressDisplay(hidden.ReaderProgressDisplay));
+        Assert.Equal(timed.ReaderParagraphSpacing, hidden.ReaderParagraphSpacing);
+        Assert.True(hidden.GalleryMode);
+        using var encoded = JsonDocument.Parse(Serialize(hidden));
+        Assert.Equal(4, encoded.RootElement.GetProperty("readerProgressDisplay").GetInt32());
     }
 
     [Theory]
     [InlineData(MobileReaderProgressDisplay.Pages)]
     [InlineData(MobileReaderProgressDisplay.Chapters)]
     [InlineData(MobileReaderProgressDisplay.BookTimeRemaining)]
+    [InlineData(MobileReaderProgressDisplay.Off)]
     public void ProgressDisplaySurvivesRestartWithoutChangingOtherPreferences(MobileReaderProgressDisplay display)
     {
         var root = Path.Combine(Path.GetTempPath(), "libzora-progress-preferences", Guid.NewGuid().ToString("N"));
@@ -165,6 +175,28 @@ public sealed class NativeFrontendContractTests
             Assert.True(restored.Current.ReaderVerticalWriting);
         }
         finally { Directory.Delete(root, recursive: true); }
+    }
+
+    [Theory]
+    [InlineData(16)]
+    [InlineData(24)]
+    [InlineData(36)]
+    public void FooterOffReclaimsTheBottomMarginWithoutChangingOtherLayoutSettings(double padding)
+    {
+        var preferences = new MobilePreferences { ReaderBodyPadding = padding, ReaderFontScale = 1.45 };
+        var build = typeof(ReaderPage).GetMethod("BuildLayout",
+            System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!;
+        ReaderLayoutSettings Layout(MobilePreferences value) =>
+            (ReaderLayoutSettings)build.Invoke(null, [value])!;
+        var visible = Layout(preferences);
+        var hidden = Layout(preferences with { ReaderProgressDisplay = MobileReaderProgressDisplay.Off });
+        Assert.True(visible.NaturalLatinTypography);
+        Assert.True(hidden.NaturalLatinTypography);
+        Assert.Null(visible.BodyBottomPadding);
+        Assert.Equal(8d, hidden.BodyBottomPadding);
+        Assert.Equal(padding, hidden.BodyPadding);
+        Assert.Equal(visible with { BodyBottomPadding = 8 }, hidden);
+        Assert.Equal(visible, Layout(preferences));
     }
 
     [Fact]

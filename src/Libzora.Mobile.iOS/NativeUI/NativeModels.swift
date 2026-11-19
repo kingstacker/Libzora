@@ -240,6 +240,7 @@ struct TrashRecord: Decodable, Identifiable { let id: String; let title: String;
 
 struct ReaderToc: Decodable, Identifiable { let id: Int; let title: String; let level: Int; let selected: Bool }
 struct ReaderSearchHit: Decodable, Identifiable, Equatable { let id: Int; let title: String; let excerpt: String }
+struct ReaderSearchJumpReply: Decodable { let jumped: Bool }
 /// A cumulative progressive-search update. Ids stay stable across batches so
 /// results already on screen remain tappable while later chapters load.
 struct ReaderSearchBatch: Decodable, Equatable {

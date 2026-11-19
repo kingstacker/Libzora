@@ -45,6 +45,7 @@ public partial class ReaderSettingsSheet : UserControl
         ProgressPages.Classes.Set("on", current.ReaderProgressDisplay == MobileReaderProgressDisplay.Pages);
         ProgressChapters.Classes.Set("on", current.ReaderProgressDisplay == MobileReaderProgressDisplay.Chapters);
         ProgressBookTime.Classes.Set("on", current.ReaderProgressDisplay == MobileReaderProgressDisplay.BookTimeRemaining);
+        ProgressOff.Classes.Set("on", current.ReaderProgressDisplay == MobileReaderProgressDisplay.Off);
         ZoomPage.Classes.Set("on", current.PdfZoom <= 1);
         ZoomMedium.Classes.Set("on", current.PdfZoom is > 1 and < 2);
         ZoomLarge.Classes.Set("on", current.PdfZoom >= 2);
@@ -129,6 +130,7 @@ public partial class ReaderSettingsSheet : UserControl
         {
             Button { Name: nameof(ProgressChapters) } => MobileReaderProgressDisplay.Chapters,
             Button { Name: nameof(ProgressBookTime) } => MobileReaderProgressDisplay.BookTimeRemaining,
+            Button { Name: nameof(ProgressOff) } => MobileReaderProgressDisplay.Off,
             _ => MobileReaderProgressDisplay.Pages
         };
         Change(value => value with { ReaderProgressDisplay = display });

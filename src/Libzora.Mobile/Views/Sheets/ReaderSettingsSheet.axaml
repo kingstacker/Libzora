@@ -31,10 +31,11 @@
     <TextBlock Classes="label" Text="底部进度" Margin="0,14,0,0" />
     <c:NativeSegmentGroup>
       <Border Classes="segments">
-        <Grid ColumnDefinitions="*,*,*">
+        <Grid ColumnDefinitions="*,*,*,*">
           <Button Grid.Column="0" Name="ProgressPages" Classes="seg" Content="页码" Click="OnProgressClick" />
           <Button Grid.Column="1" Name="ProgressChapters" Classes="seg" Content="章节" Click="OnProgressClick" />
           <Button Grid.Column="2" Name="ProgressBookTime" Classes="seg" Content="剩余时间" Click="OnProgressClick" />
+          <Button Grid.Column="3" Name="ProgressOff" Classes="seg" Content="关" Click="OnProgressClick" />
         </Grid>
       </Border>
     </c:NativeSegmentGroup>

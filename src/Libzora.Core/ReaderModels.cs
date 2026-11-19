@@ -160,6 +160,9 @@ public sealed record ReaderLayoutSettings(
     // constructor parameter. Older JSON settings do not contain the field;
     // the initializer therefore gives new settings the current default.
     public bool ParagraphIndent { get; init; } = false;
+    /// <summary>Host-only bottom inset override; null keeps the normal symmetric body margins.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public double? BodyBottomPadding { get; init; }
     /// <summary>Extra gap after body paragraphs, in multiples of the body font size.</summary>
     public double ParagraphSpacing { get; init; } = ReaderLayoutDefaults.DefaultParagraphSpacing;
     /// <summary>Keep consecutive paragraph lines at the normal line pitch.</summary>
@@ -171,6 +174,9 @@ public sealed record ReaderLayoutSettings(
     /// <summary>Use the reader's paragraph gap instead of adjacent paragraph CSS margins.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public bool OverridePublisherParagraphSpacing { get; init; }
+    /// <summary>Use natural word spacing and language-aware rhythm for horizontal Latin prose.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool NaturalLatinTypography { get; init; }
     /// <summary>Keep at least two lines together at paragraph page boundaries.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public bool AvoidWidowsAndOrphans { get; init; } = true;
@@ -266,6 +272,9 @@ public static class ReaderLayoutDefaults
             LineHeight = lineHeight,
             MaxWidth = maxWidth,
             BodyPadding = bodyPadding,
+            BodyBottomPadding = settings.BodyBottomPadding is { } bottom && double.IsFinite(bottom)
+                ? Math.Clamp(bottom, 0, MaxBodyPadding)
+                : null,
             ParagraphSpacing = paragraphSpacing,
             FontFamily = fontFamily,
             // Vertical text is deliberately a single-page-only layout. Keep

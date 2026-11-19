@@ -1,3 +1,4 @@
+using System.Text;
 using SkiaSharp;
 
 namespace Libzora.Layout;
@@ -5,8 +6,8 @@ namespace Libzora.Layout;
 /// <summary>
 /// Lays a chapter out as horizontally flowing, vertically stacked pages:
 /// blocks advance downward, lines wrap left-to-right, page breaks fall
-/// between line boxes. Justification stretches inter-glyph gaps
-/// (inter-character), matching the typography the WebKit reader enforced.
+/// between line boxes. CJK justification expands inter-character gaps,
+/// while embedded Latin words retain their shaped internal spacing.
 /// Closing punctuation hangs into the trailing margin; opening punctuation
 /// never ends a line.
 /// </summary>
@@ -68,9 +69,38 @@ internal sealed class HorizontalComposer
         }
     }
 
+    private static bool IsLatinProse(ContentBlock block)
+    {
+        var latin = 0;
+        var cjk = 0;
+        foreach (var item in block.Items)
+        {
+            if (item.Ghost || item.Kind is not (InlineKind.Text or InlineKind.Ruby)) continue;
+            foreach (var rune in item.Text.EnumerateRunes())
+            {
+                if (rune.Value <= char.MaxValue && TypesetText.IsLatinLetter((char)rune.Value)) latin++;
+                else if (TypesetText.IsCjk(rune.Value) && Rune.IsLetter(rune)) cjk++;
+            }
+        }
+        // Proper names in an English paragraph do not change its rhythm;
+        // a Chinese paragraph containing an English name remains CJK prose.
+        return latin >= 4 && latin >= cjk * 4;
+    }
+
     private void PlaceTextBlock(ContentBlock block, bool followsHeading, bool followsParagraph = false, bool precedesParagraph = false)
     {
         var isHeading = block.Kind == BlockKind.Heading;
+        var naturalLatin = _context.Options.NaturalLatinTypography
+            && (block.Kind is BlockKind.Paragraph or BlockKind.Blockquote or BlockKind.ListItem)
+            && !block.Center && !block.AlignRight && IsLatinProse(block);
+        var bodyLineHeight = naturalLatin
+            ? BaseFontSize * Math.Max(1.4f, _context.Options.LineHeight - 0.2f)
+            : BodyLineHeight;
+        // A small paragraph gap distinguishes unindented English prose even
+        // in compact mode; larger user-selected gaps and indentation remain.
+        var paragraphSpacing = naturalLatin && !_context.Options.ParagraphIndent && block.TextIndentEm <= 0f
+            ? Math.Max(0.35f, _context.Options.ParagraphSpacingEm)
+            : _context.Options.ParagraphSpacingEm;
         var startsAtPageTop = isHeading
             && !followsHeading
             && (!string.IsNullOrWhiteSpace(block.ElementId)
@@ -94,9 +124,20 @@ internal sealed class HorizontalComposer
         var cells = new List<LayoutCell>();
         foreach (var item in block.Items)
         {
-            cells.AddRange(_cells.BuildCells(item, vertical: false));
+            cells.AddRange(_cells.BuildCells(item, vertical: false, maxWordWidth: availWidth));
         }
         CellFactory.CollapseWhitespace(cells);
+        if (naturalLatin)
+        {
+            // Some CJK faces use a half-em space even in English. Start with
+            // a proportional gap, then share modest expansion across the line.
+            for (var index = 0; index < cells.Count; index++)
+            {
+                var cell = cells[index];
+                if (cell.IsSpace)
+                    cells[index] = cell with { Advance = Math.Min(cell.Advance, cell.FontSize * 0.32f) };
+            }
+        }
         // A publisher line-height replaces the reader default for this block,
         // but never below the glyphs' own ink extent (or they would overlap).
         // Publisher font-size scales the pitch so an enlarged span or heading
@@ -116,7 +157,7 @@ internal sealed class HorizontalComposer
             ? Math.Max(BaseFontSize * fontScale * block.LineHeightFactor, inkExtent + 1f)
             : isHeading
                 ? Math.Max(BaseFontSize * fontScale * 1.35f, inkExtent + 1f)
-                : Math.Max(BodyLineHeight * fontScale, inkExtent);
+                : Math.Max(bodyLineHeight * fontScale, inkExtent);
         lineHeight = Math.Max(lineHeight, cells
             .Where(cell => cell.ImagePath is not null)
             .Select(cell => cell.ImageHeight)
@@ -228,12 +269,16 @@ internal sealed class HorizontalComposer
                 {
                     startX = blockLeft + Math.Max(0f, (availWidth - line.Used) / 2f);
                 }
+                else if (block.AlignRight)
+                {
+                    startX = blockLeft + Math.Max(0f, availWidth - line.Used);
+                }
                 else if (block.Justify && !isLastLine)
                 {
                     var extra = availWidth - line.Indent - line.Used;
                     if (extra > 0f)
                     {
-                        line.TryJustify(extra, BaseFontSize);
+                        line.TryJustify(extra, BaseFontSize, naturalLatin);
                     }
                 }
 
@@ -253,7 +298,7 @@ internal sealed class HorizontalComposer
         if (block.Kind == BlockKind.Paragraph && precedesParagraph
             && _context.Options.OverridePublisherParagraphSpacing)
         {
-            _cursorY += _context.Options.ParagraphSpacingEm * BaseFontSize;
+            _cursorY += paragraphSpacing * BaseFontSize;
         }
         else if (!(block.Kind == BlockKind.Paragraph && precedesParagraph
             && _context.Options.ParagraphSpacingMatchesLineHeight))
@@ -261,7 +306,7 @@ internal sealed class HorizontalComposer
             _cursorY += block.SpaceAfterLines * BodyLineHeight
                 + block.MarginBottomEm * BaseFontSize;
             if (block.Kind == BlockKind.Paragraph)
-                _cursorY += _context.Options.ParagraphSpacingEm * BaseFontSize;
+                _cursorY += paragraphSpacing * BaseFontSize;
         }
     }
 
@@ -1298,13 +1343,14 @@ internal sealed class HorizontalComposer
         /// Distributes <paramref name="extra"/> pixels. Latin-majority lines
         /// only expand their word spaces: expanding every glyph gap (the old
         /// behavior) pulled English words apart and produced the tell-tale
-        /// "loose line" when a long word wrapped. When even the word spaces
-        /// would need more than a readable amount, the line is left ragged.
+        /// "loose line" when a long word wrapped. Mobile prose starts with
+        /// proportional spaces and fills only as far as the spacing cap permits;
+        /// legacy layouts leave a line ragged when full justification is too loose.
         /// CJK and mixed lines keep inter-character justification, where the
-        /// per-gap amount is spread across enough characters to stay subtle
-        /// even inside an embedded Latin word.
+        /// per-gap amount is shared by CJK characters and gaps around intact
+        /// Latin words, never by the letters inside those words.
         /// </summary>
-        public bool TryJustify(float extra, float fontSize)
+        public bool TryJustify(float extra, float fontSize, bool naturalLatin = false)
         {
             if (extra <= 0.01f)
             {
@@ -1328,17 +1374,15 @@ internal sealed class HorizontalComposer
             for (var index = 0; index < end; index++)
             {
                 var cell = Cells[index];
-                var glyphCount = cell.JustifyAsUnit
-                    ? 1
-                    : Math.Max(1, cell.Glyphs.Length);
-                totalGlyphs += glyphCount;
+                var glyphCount = Math.Max(1, cell.Glyphs.Length);
+                totalGlyphs += cell.JustifyAsUnit ? 1 : glyphCount;
                 if (cell.IsSpace)
                 {
                     continue;
                 }
 
                 inkGlyphs += glyphCount;
-                if (cell.Text.Length > 1 && cell.Text.Any(char.IsAsciiLetter))
+                if (cell.IsLatinWord)
                 {
                     latinGlyphs += glyphCount;
                 }
@@ -1348,7 +1392,7 @@ internal sealed class HorizontalComposer
             // space-only path. A Chinese sentence with an English name or an
             // acronym is still justified between characters, which keeps the
             // right edge flush instead of leaving it conspicuously ragged.
-            if (latinGlyphs > 0 && latinGlyphs * 2 >= inkGlyphs)
+            if (naturalLatin || (latinGlyphs > 0 && latinGlyphs * 2 >= inkGlyphs))
             {
                 var spaceCount = 0;
                 for (var index = 0; index < end; index++)
@@ -1360,12 +1404,13 @@ internal sealed class HorizontalComposer
                 }
 
                 if (spaceCount == 0
-                    || extra / spaceCount > fontSize * 1.2f)
+                    || (!naturalLatin && extra / spaceCount > fontSize * 0.2f))
                 {
                     return false;
                 }
 
                 var perSpace = extra / spaceCount;
+                var added = 0f;
                 for (var index = 0; index < end; index++)
                 {
                     var cell = Cells[index];
@@ -1373,12 +1418,18 @@ internal sealed class HorizontalComposer
                     {
                         // A space cell contains one glyph; growing its advance
                         // widens the word gap without touching the letters.
-                        Cells[index] = cell with { Advance = cell.Advance + perSpace };
+                        // Short English lines get only the safe part of the
+                        // expansion instead of either huge gaps or none at all.
+                        var expansion = naturalLatin
+                            ? Math.Min(perSpace, Math.Max(0f, cell.FontSize * 0.65f - cell.Advance))
+                            : perSpace;
+                        Cells[index] = cell with { Advance = cell.Advance + expansion };
+                        added += expansion;
                     }
                 }
 
-                Used += extra;
-                return true;
+                Used += added;
+                return added >= extra - 0.01f;
             }
 
             var gaps = totalGlyphs - 1;

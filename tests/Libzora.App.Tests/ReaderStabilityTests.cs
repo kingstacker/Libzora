@@ -175,9 +175,13 @@ public sealed class ReaderStabilityTests(SettingsUiSession session) : IDisposabl
     [InlineData(false, 0)]
     [InlineData(false, 1)]
     [InlineData(false, 2)]
+    [InlineData(false, 3)]
+    [InlineData(false, 4)]
     [InlineData(true, 0)]
     [InlineData(true, 1)]
     [InlineData(true, 2)]
+    [InlineData(true, 3)]
+    [InlineData(true, 4)]
     public Task MobileSettingsKeepThePageStart(bool vertical, int change) => Run(async () =>
     {
         var settings = new ReaderLayoutSettings(FlowMode: 1, VerticalWriting: vertical)
@@ -186,16 +190,33 @@ public sealed class ReaderStabilityTests(SettingsUiSession session) : IDisposabl
         host.PreservePageStartOnSettingsChange = true;
         MoveToMiddle(host);
         var anchor = Layout(host).Pages[host.CurrentPage].TextStartOffset;
+        var previousOptions = Layout(host).Options;
         var changed = change switch
         {
             0 => settings with { FontScale = 1.45 },
             1 => settings with { ParagraphIndent = true },
-            _ => settings with { ParagraphSpacingMatchesLineHeight = true },
+            2 => settings with { ParagraphSpacingMatchesLineHeight = true },
+            3 => settings with { BodyBottomPadding = 8 },
+            _ => settings with { NaturalLatinTypography = true },
         };
+        if (change is 3 or 4)
+            Assert.Null(host.GetCurrentChapterPageCountFor(changed, previousOptions.ViewportWidth, previousOptions.ViewportHeight));
 
         await host.Configure(changed, 0, null, false, false);
         Assert.Equal(anchor, Layout(host).Pages[host.CurrentPage].TextStartOffset);
         if (change == 2) Assert.True(Layout(host).Options.ParagraphSpacingMatchesLineHeight);
+        if (change == 3)
+        {
+            Assert.Equal(8f, Layout(host).Options.EffectiveInsetBottom);
+            Assert.Equal(previousOptions.InsetVertical, Layout(host).Options.InsetVertical);
+            Assert.True(Layout(host).Options.ContentHeight > previousOptions.ContentHeight);
+        }
+        if (change == 4) Assert.True(Layout(host).Options.NaturalLatinTypography);
+        if (change is 3 or 4)
+        {
+            Assert.NotNull(host.GetCurrentChapterPageCountFor(changed, previousOptions.ViewportWidth, previousOptions.ViewportHeight));
+            Assert.Null(host.GetCurrentChapterPageCountFor(settings, previousOptions.ViewportWidth, previousOptions.ViewportHeight));
+        }
         Assert.True(host.TurnPage(-1));
         Assert.True(Layout(host).Pages[host.CurrentPage].TextEndOffset <= anchor);
         Assert.True(host.TurnPage(1));
@@ -204,9 +225,11 @@ public sealed class ReaderStabilityTests(SettingsUiSession session) : IDisposabl
     });
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public Task SettingsReflowKeepsTextVisibleWithoutAddingArtificialPageBreaks(bool vertical) => Run(async () =>
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public Task SettingsReflowKeepsTextVisibleWithoutAddingArtificialPageBreaks(bool vertical, bool bottomInset) => Run(async () =>
     {
         var settings = new ReaderLayoutSettings(FlowMode: 1, VerticalWriting: vertical)
         {
@@ -216,7 +239,9 @@ public sealed class ReaderStabilityTests(SettingsUiSession session) : IDisposabl
         };
         using var host = await LoadChapter(settings, inlineAnchors: true);
         var offset = MoveToMiddle(host);
-        await host.Configure(settings with { FontScale = 1.45, LineHeight = 1.75 }, 0, null, false, false);
+        var changed = bottomInset ? settings with { BodyBottomPadding = 8 }
+            : settings with { FontScale = 1.45, LineHeight = 1.75 };
+        await host.Configure(changed, 0, null, false, false);
         AssertTextIsVisible(host, offset);
         var actual = Layout(host);
         var ordinary = Field<TypesetEngine>(host, "_engine").Compose(Content(host), actual.Options);

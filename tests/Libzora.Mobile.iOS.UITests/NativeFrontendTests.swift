@@ -25,6 +25,45 @@ final class NativeFrontendTests: XCTestCase {
         }
     }
 
+    func testReaderBackButtonAcceptsTransparentPadding() {
+        // Use an existing local book; this regression needs no reseeded library
+        // and does not change appearance or library preferences.
+        let books = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'book.'"))
+        for _ in 0..<8 {
+            if books.allElementsBoundByIndex.contains(where: { $0.isHittable }) { break }
+            app.swipeUp()
+        }
+        guard let book = books.allElementsBoundByIndex.first(where: { $0.isHittable }) else {
+            XCTFail("Expected a visible local book in the preserved library.")
+            return
+        }
+        book.tap()
+        XCTAssertTrue(app.staticTexts["reader.position"].waitForExistence(timeout: 40))
+        let search = app.buttons["reader.search"]
+        XCTAssertTrue(toggleReaderChrome(until: search))
+        XCTAssertTrue(waitUntil { search.isHittable })
+        search.tap()
+        let query = app.textFields["reader.search.query"]
+        XCTAssertTrue(query.waitForExistence(timeout: 10))
+        let back = app.buttons["reader.close"]
+        XCTAssertTrue(waitUntil { back.isHittable })
+        XCTAssertGreaterThanOrEqual(back.frame.width, 44)
+        XCTAssertGreaterThanOrEqual(back.frame.height, 44)
+        attachScreenshot("返回按钮-搜索状态透明留白")
+        // At x=15% the tap lands well outside the centered chevron glyph.
+        back.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5)).tap()
+        XCTAssertTrue(waitUntil { !query.exists && !self.app.keyboards.firstMatch.exists })
+        XCTAssertTrue(waitUntil { self.app.buttons["reader.search"].isHittable && back.isHittable },
+                      "The first back tap must close search and keep the reader toolbar visible.")
+        // The underlying library remains in the accessibility tree while the
+        // reader cover is up. Hittability, not existence, proves which is shown.
+        XCTAssertFalse(app.buttons["library.display"].isHittable)
+        // Also cover the empty area below the glyph in ordinary reading.
+        back.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.88)).tap()
+        XCTAssertTrue(waitUntil { self.app.buttons["library.display"].isHittable && !back.isHittable })
+        attachScreenshot("返回按钮-底部留白返回书库")
+    }
+
     func testBookTapReadsDirectlyAndLongPressOpensDetails() {
         showLibrary()
         let book = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'book.' AND label CONTAINS 'Native UI EPUB'")).firstMatch
@@ -57,7 +96,7 @@ final class NativeFrontendTests: XCTestCase {
     func testLongPressLiftsBookCoverAboveMenuAndTabBar() {
         showLibrary()
         selectLibraryLayout("网格视图")
-        let book = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'book.' AND label CONTAINS 'Native UI EPUB'")).firstMatch
+        let book = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'book.'")).firstMatch
         for _ in 0..<8 {
             if book.exists && book.isHittable { break }
             app.swipeUp()
@@ -67,8 +106,8 @@ final class NativeFrontendTests: XCTestCase {
         let sourceFrame = book.frame
         book.press(forDuration: 0.9)
         assertEnlargedBookPreview(identifier: identifier, sourceFrame: sourceFrame,
-                                  capture: "书籍-封面书名作者整体放大")
-        XCTAssertEqual(app.staticTexts["book.preview.title"].label, "Native UI EPUB")
+                                  capture: "书籍-菜单下弹贴近书卡", menuAbove: false)
+        XCTAssertFalse(app.staticTexts["book.preview.title"].label.isEmpty)
         app.buttons["书籍详情"].tap()
         XCTAssertTrue(app.buttons["book.read"].waitForExistence(timeout: 10))
     }
@@ -100,7 +139,7 @@ final class NativeFrontendTests: XCTestCase {
             book.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)).press(forDuration: 0.9)
             assertEnlargedBookPreview(identifier: identifier, sourceFrame: sourceFrame,
                                       capture: "书籍-靠近底栏整体放大-\(attempt)",
-                                      assertCentered: attempt == 1)
+                                      assertCentered: attempt == 1, menuAbove: true)
             let myTab = app.tabBars.buttons["我的"]
             XCTAssertFalse(myTab.isHittable, "The tab bar must be behind the preview overlay.")
             app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.1)).tap()
@@ -1205,6 +1244,45 @@ final class NativeFrontendTests: XCTestCase {
         app.buttons["typography.done"].tap()
     }
 
+    func testReaderLiveSearchNavigatesMatchesUntilPageTurn() throws {
+        try openBook(containing: "Walden", revealControls: false)
+        let search = app.buttons["reader.search"]
+        XCTAssertTrue(toggleReaderChrome(until: search))
+        XCTAssertTrue(waitUntil { search.isHittable && search.isEnabled })
+        XCTAssertGreaterThanOrEqual(search.frame.width, 44)
+        XCTAssertGreaterThanOrEqual(search.frame.height, 44)
+        // The empty padding around the icon must open search, not reach the page.
+        search.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5)).tap()
+        let input = app.textFields["reader.search.query"]
+        XCTAssertTrue(input.waitForExistence(timeout: 10))
+        input.typeText("pond")
+        let hits = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'reader.search.hit.'"))
+        XCTAssertTrue(hits.firstMatch.waitForExistence(timeout: 30), "Results should appear without a return key.")
+        XCTAssertTrue(waitUntil { hits.count >= 2 })
+        hits.firstMatch.tap()
+        let position = app.buttons["reader.search.cursor"]
+        XCTAssertTrue(position.waitForExistence(timeout: 30))
+        XCTAssertTrue(waitUntil { !input.exists && !self.app.keyboards.firstMatch.exists })
+        let next = app.buttons["reader.search.next"]
+        let previous = app.buttons["reader.search.previous"]
+        XCTAssertTrue(waitUntil { next.isEnabled && next.isHittable })
+        next.tap()
+        XCTAssertTrue(waitUntil { previous.isEnabled && previous.isHittable && next.isHittable })
+        previous.tap()
+        XCTAssertTrue(waitUntil { next.isHittable && next.isEnabled })
+        attachScreenshot("实时搜索-正文条目导航")
+
+        let window = app.windows.firstMatch
+        window.coordinate(withNormalizedOffset: CGVector(dx: 0.78, dy: 0.55))
+            .press(forDuration: 0.05, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.55)))
+        XCTAssertTrue(waitUntil { !position.exists })
+        XCTAssertTrue(toggleReaderChrome(until: search))
+        search.tap()
+        XCTAssertTrue(input.waitForExistence(timeout: 10))
+        XCTAssertEqual(input.value as? String, "pond")
+        XCTAssertTrue(hits.firstMatch.waitForExistence(timeout: 5))
+    }
+
     func testReaderSearchExpandsInToolbarAndJumpsToText() throws {
         try openBook(containing: "Native UI EPUB")
         let search = app.buttons["reader.search"]
@@ -1253,14 +1331,12 @@ final class NativeFrontendTests: XCTestCase {
         let destination = results.allElementsBoundByIndex.last ?? result
         destination.tap()
         XCTAssertTrue(waitUntil { !input.exists && !self.app.keyboards.firstMatch.exists })
-        XCTAssertTrue(progress.waitForExistence(timeout: 10))
-        XCTAssertNotEqual(progress.value as? String, beforeSearch)
+        XCTAssertTrue(app.buttons["reader.search.cursor"].waitForExistence(timeout: 10))
         attachScreenshot("搜索结果跳转正文")
 
+        XCTAssertTrue(toggleReaderChrome(until: search))
         let jumpedPosition = progress.value as? String
-        let center = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45))
-        if !search.exists { center.tap() }
-        XCTAssertTrue(search.waitForExistence(timeout: 10))
+        XCTAssertNotEqual(jumpedPosition, beforeSearch)
         search.tap()
         XCTAssertTrue(input.waitForExistence(timeout: 10))
         XCTAssertEqual(input.value as? String, "田鼠")
@@ -1358,35 +1434,116 @@ final class NativeFrontendTests: XCTestCase {
         app.buttons["reader.close"].tap()
     }
 
+    func testProseTypographyPreservesChoicesAndPageNavigation() throws {
+        for (title, language) in [("Walden", "英文"), ("银河系漫游指南", "中文")] {
+            try openBook(containing: title, revealControls: false)
+            let typography = app.buttons["reader.排版"]
+            let footer = app.segmentedControls["typography.progressDisplay"]
+            let direction = app.segmentedControls["typography.direction"]
+            let font = app.buttons["typography.fontFamily"]
+            let scale = app.staticTexts["typography.fontScale"]
+            let position = app.staticTexts["reader.position"]
+            XCTAssertTrue(toggleReaderChrome(until: typography))
+            typography.tap()
+            reveal(footer)
+            let originalFooter = footer.buttons.allElementsBoundByIndex.first(where: { $0.isSelected })?.label ?? "页码"
+            footer.buttons["关"].tap()
+            reveal(direction)
+            let originalDirection = direction.buttons["竖排"].isSelected ? "竖排" : "横排"
+            direction.buttons["横排"].tap()
+            let originalFont = font.label
+            let originalScale = scale.label
+            app.buttons["typography.done"].tap()
+            XCTAssertTrue(typography.waitForExistence(timeout: 10))
+            app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)).tap()
+            XCTAssertTrue(waitUntil { !typography.exists && !position.exists })
+            attachScreenshot(language == "英文" ? "英文正文-适度两端对齐" : "中文正文-舒适排版")
+
+            if language == "英文" {
+                XCTAssertTrue(toggleReaderChrome(until: typography))
+                typography.tap()
+                reveal(footer)
+                footer.buttons["页码"].tap()
+                app.buttons["typography.done"].tap()
+                XCTAssertTrue(toggleReaderChrome(until: position))
+                func pageNumber() -> Int {
+                    Int(position.label.components(separatedBy: "/")[0].trimmingCharacters(in: .whitespaces)) ?? -1
+                }
+                let before = pageNumber()
+                XCTAssertGreaterThan(before, 0)
+                let window = app.windows.firstMatch
+                window.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
+                XCTAssertTrue(waitUntil { pageNumber() == before + 1 }, "English prose must advance by a complete page.")
+                attachScreenshot("英文正文-连续下一页")
+                window.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.5)).tap()
+                XCTAssertTrue(waitUntil { pageNumber() == before }, "Returning must keep the same reading location.")
+            }
+
+            XCTAssertTrue(toggleReaderChrome(until: typography))
+            typography.tap()
+            reveal(footer)
+            XCTAssertEqual(font.label, originalFont, "Language-aware typography must not replace the chosen font.")
+            XCTAssertEqual(scale.label, originalScale, "Language-aware typography must not reset the chosen size.")
+            footer.buttons[originalFooter].tap()
+            reveal(direction)
+            direction.buttons[originalDirection].tap()
+            app.buttons["typography.done"].tap()
+            app.buttons["reader.close"].tap()
+            let backToLibrary = app.buttons["book.back"]
+            XCTAssertTrue(backToLibrary.waitForExistence(timeout: 10))
+            XCTAssertTrue(waitUntil {
+                backToLibrary.isHittable && !self.app.descendants(matching: .any)["reader.page"].exists
+            })
+            XCTAssertGreaterThanOrEqual(backToLibrary.frame.width, 44)
+            XCTAssertGreaterThanOrEqual(backToLibrary.frame.height, 44)
+            backToLibrary.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5)).tap()
+            // Returning keeps the shelf's scroll position; the header may be offscreen.
+            let library = app.scrollViews["library.ready"]
+            let returnedBook = app.buttons.matching(NSPredicate(
+                format: "identifier BEGINSWITH 'book.' AND label CONTAINS %@", title)).firstMatch
+            XCTAssertTrue(waitUntil { !backToLibrary.exists && library.exists && returnedBook.isHittable },
+                          app.debugDescription)
+        }
+    }
+
     func testReaderProgressDisplayModesPersist() throws {
-        try openBook(containing: "银河系漫游指南")
+        try openBook(containing: "Walden", revealControls: false)
         let typography = app.buttons["reader.排版"]
         let picker = app.segmentedControls["typography.progressDisplay"]
         let position = app.staticTexts["reader.position"]
+        let footer = app.otherElements["reader.footer"]
+        XCTAssertTrue(toggleReaderChrome(until: typography))
         typography.tap()
         reveal(picker)
         let original = picker.buttons.allElementsBoundByIndex.first(where: { $0.isSelected })?.label ?? "页码"
-        for mode in ["页码", "章节", "剩余时间"] {
+        for mode in ["页码", "章节", "剩余时间", "关"] {
             XCTAssertTrue(picker.buttons[mode].isHittable)
             picker.buttons[mode].tap()
             XCTAssertTrue(picker.buttons[mode].isSelected)
             app.buttons["typography.done"].tap()
             XCTAssertTrue(typography.waitForExistence(timeout: 5))
-            XCTAssertTrue(toggleReaderChrome(until: position),
-                          "Chrome must hide over the resumed page.\n\(app.debugDescription)")
-            XCTAssertTrue(waitUntil {
-                let text = position.label
-                guard text.contains("%") else { return false }
-                switch mode {
-                case "章节": return text.hasPrefix("第 ") && text.contains(" 章")
-                // The footer learns the reader's own pace; until enough time
-                // has been recorded it must say so instead of guessing.
-                case "剩余时间":
-                    return text.hasPrefix("剩余约 ") || text.hasPrefix("阅读速度估计中")
-                default: return text.range(of: "^[0-9]+ / [0-9]+", options: .regularExpression) != nil
-                }
-            }, "Footer must apply \(mode) immediately: \(position.label)")
-            XCTAssertGreaterThan(position.frame.minY, app.frame.maxY - 100)
+            if mode == "关" {
+                app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)).tap()
+                XCTAssertTrue(waitUntil { !typography.exists && !position.exists && !footer.exists },
+                              "Off must remove the whole footer while leaving the page visible.")
+            } else {
+                XCTAssertTrue(toggleReaderChrome(until: position),
+                              "Chrome must hide over the resumed page.\n\(app.debugDescription)")
+                XCTAssertTrue(footer.exists)
+                XCTAssertTrue(waitUntil {
+                    let text = position.label
+                    guard text.contains("%") else { return false }
+                    switch mode {
+                    case "章节": return text.hasPrefix("第 ") && text.contains(" 章")
+                    // The footer learns the reader's own pace; until enough time
+                    // has been recorded it must say so instead of guessing.
+                    case "剩余时间":
+                        return text.hasPrefix("剩余约 ") || text.hasPrefix("阅读速度估计中")
+                    default: return text.range(of: "^[0-9]+ / [0-9]+", options: .regularExpression) != nil
+                    }
+                }, "Footer must apply \(mode) immediately: \(position.label)")
+                XCTAssertGreaterThan(position.frame.minY, app.frame.maxY - 100)
+            }
             attachScreenshot("底部进度-\(mode)")
             XCTAssertTrue(toggleReaderChrome(until: typography),
                           "Chrome must return after the footer check.\n\(app.debugDescription)")
@@ -1398,12 +1555,52 @@ final class NativeFrontendTests: XCTestCase {
         app.terminate()
         app.launch()
         XCTAssertTrue(app.tabBars.buttons["书库"].waitForExistence(timeout: 30))
-        try openBook(containing: "银河系漫游指南")
+        try openBook(containing: "Walden", revealControls: false)
+        XCTAssertTrue(toggleReaderChrome(until: typography))
         typography.tap()
         reveal(picker)
-        XCTAssertTrue(picker.buttons["剩余时间"].isSelected, "Progress display must survive an app restart.")
+        XCTAssertTrue(picker.buttons["关"].isSelected, "Off must survive an app restart.")
         picker.buttons[original].tap()
         app.buttons["typography.done"].tap()
+        app.buttons["reader.close"].tap()
+    }
+
+    func testPdfFooterCanBeTurnedOffAndRestored() throws {
+        try openBook(containing: "Native UI PDF", revealControls: false)
+        let typography = app.buttons["reader.显示"]
+        let picker = app.segmentedControls["typography.progressDisplay"]
+        let position = app.staticTexts["reader.position"]
+        let footer = app.otherElements["reader.footer"]
+        XCTAssertTrue(toggleReaderChrome(until: typography))
+        typography.tap()
+        reveal(picker)
+        let original = picker.buttons.allElementsBoundByIndex.first(where: { $0.isSelected })?.label ?? "页码"
+        picker.buttons["页码"].tap()
+        app.buttons["typography.done"].tap()
+        XCTAssertTrue(toggleReaderChrome(until: position))
+        XCTAssertTrue(footer.exists)
+        attachScreenshot("PDF底部进度-开启")
+        XCTAssertTrue(toggleReaderChrome(until: typography))
+        typography.tap()
+        reveal(picker)
+        picker.buttons["关"].tap()
+        XCTAssertTrue(picker.buttons["关"].isSelected)
+        attachScreenshot("底部进度-关闭选项")
+        app.buttons["typography.done"].tap()
+        XCTAssertTrue(typography.waitForExistence(timeout: 5))
+        app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)).tap()
+        XCTAssertTrue(waitUntil { !typography.exists && !position.exists && !footer.exists })
+        attachScreenshot("PDF底部进度-关")
+        XCTAssertTrue(toggleReaderChrome(until: typography))
+        typography.tap()
+        reveal(picker)
+        picker.buttons[original].tap()
+        app.buttons["typography.done"].tap()
+        if original != "关" {
+            XCTAssertTrue(toggleReaderChrome(until: position))
+            XCTAssertTrue(footer.exists, "Re-enabling the footer must restore its information and reserved space.")
+        }
+        XCTAssertTrue(toggleReaderChrome(until: typography))
         app.buttons["reader.close"].tap()
     }
 
@@ -2116,7 +2313,7 @@ final class NativeFrontendTests: XCTestCase {
     private func assertEnlargedBookPreview(identifier: String, sourceFrame: CGRect,
                                            expectsCaptions: Bool = true, capture: String,
                                            assertCentered: Bool = true,
-                                           sourceIsColumn: Bool = true) {
+                                           sourceIsColumn: Bool = true, menuAbove: Bool? = nil) {
         let details = app.buttons["书籍详情"]
         XCTAssertTrue(details.waitForExistence(timeout: 5), app.debugDescription)
         attachScreenshot(capture)
@@ -2154,6 +2351,12 @@ final class NativeFrontendTests: XCTestCase {
                 XCTAssertLessThanOrEqual(author.frame.maxY, preview.frame.maxY + 1)
                 print("BOOK_PREVIEW_GEOMETRY: card=\(preview.frame); title=\(title.frame); author=\(author.frame)")
             }
+        }
+        if let menuAbove {
+            let menu = app.descendants(matching: .any)["book.preview.menu"].firstMatch
+            XCTAssertTrue(menu.exists)
+            let gap = menuAbove ? preview.frame.minY - menu.frame.maxY : menu.frame.minY - preview.frame.maxY
+            XCTAssertEqual(gap, 6, accuracy: 2, "The menu should sit just outside the enlarged card.")
         }
         // The overlay lives above the tab bar rather than inside the scroll
         // view, so no part of the card is clipped by the bar. The bar must be
@@ -2194,6 +2397,10 @@ final class NativeFrontendTests: XCTestCase {
         XCTAssertTrue(app.buttons["book.read"].waitForExistence(timeout: 10))
         attachScreenshot("书籍详情")
         app.buttons["book.read"].tap()
+        let page = app.descendants(matching: .any)["reader.page"]
+        let loading = app.descendants(matching: .any)["reader.loading"]
+        XCTAssertTrue(waitUntil(timeout: 40) { page.exists && !loading.exists },
+                      "The reader must finish opening before interacting with its chrome.\n\(app.debugDescription)")
         if revealControls {
             XCTAssertTrue(app.staticTexts["reader.position"].waitForExistence(timeout: 40))
             let window = app.windows.firstMatch
@@ -2357,9 +2564,9 @@ final class NativeFrontendTests: XCTestCase {
         XCTAssertTrue(waitUntil { theme.value as? String == label })
     }
 
-    private func waitUntil(_ predicate: @escaping () -> Bool) -> Bool {
+    private func waitUntil(timeout: TimeInterval = 10, _ predicate: @escaping () -> Bool) -> Bool {
         let expectation = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in predicate() }, object: nil)
-        return XCTWaiter.wait(for: [expectation], timeout: 10) == .completed
+        return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
     }
 }
 

@@ -120,6 +120,24 @@ printf '%s\n' "$BUNDLE_ID"
 构建成功时命令以 `0` 退出。项目存在既有编译和裁剪警告，数量会随前端配置变化；
 判断是否成功应以退出码和错误数为准。
 
+### Release 优化与小组件签名
+
+2026-11-19 已验证 Release 真机优化构建、保数据覆盖安装与启动。使用 `-c Release`，
+保留静态 Registrar 与签名参数，并启用 `-p:Optimize=true -p:MtouchUseLlvm=true`，
+关闭 `-p:MtouchDebug=false -p:DebugSymbols=false -p:DebugType=none`；Swift 前端和
+小组件编译脚本在 Release 下使用 `-O`。首次真机构建前需 `dotnet restore -r ios-arm64`，
+不能复用只恢复过模拟器 RID 的 `project.assets.json`。
+
+启用小组件的真机构建还需传入
+`-p:WidgetProvisioningProfile="<小组件描述文件的绝对路径>"`。构建脚本从该描述文件
+生成完整设备签名权限，包含小组件自己的应用标识、团队标识、调试许可与 App Group，
+并由 `AdditionalAppExtensions` 选用；仅把描述文件复制到扩展中、只签 App Group 模板
+不足以保证小组件可以安装和启动。不要把本机团队或描述文件标识写进仓库。
+
+安装前除验证外层 `.app`，还应对包内每个 Mach-O 执行 `codesign --verify --strict`，
+尤其检查顶层 `libpdfium.dylib`；只用 `--deep` 可能漏掉顶层未签名动态库。开发签名的
+Release 包仍受描述文件有效期限制，不等同于 App Store 发行包。
+
 ## 安装、启动和查看日志
 
 安装：

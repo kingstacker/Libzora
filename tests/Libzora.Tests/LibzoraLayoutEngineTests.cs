@@ -96,6 +96,37 @@ public sealed class LibzoraLayoutEngineTests : IDisposable
     };
 
     [Theory]
+    [InlineData(TypesetWritingMode.HorizontalTb)]
+    [InlineData(TypesetWritingMode.VerticalRl)]
+    public void SmallerBottomInsetFillsTheReleasedSpaceWithoutMovingTheTop(TypesetWritingMode mode)
+    {
+        var text = string.Concat(Enumerable.Repeat("春风吹过山林读书文字", 200));
+        var content = new XhtmlChapterLoader().Load(WriteChapter($"<p style=\"margin:0;text-indent:0\">{text}</p>"));
+        TypesetLayoutOptions OptionsWithBottom(float? bottom) => new()
+        {
+            WritingMode = mode, ViewportWidth = 240, ViewportHeight = 280,
+            InsetHorizontal = 24, InsetVertical = 24, InsetBottom = bottom,
+            BaseFontSize = 16, LineHeight = 1.5f, LetterSpacingEm = 0,
+            ParagraphIndent = false, ParagraphSpacingMatchesLineHeight = true,
+            OverridePublisherLineHeight = true, OverridePublisherParagraphSpacing = true,
+            AvoidWidowsAndOrphans = false,
+        };
+        using var engine = CreateEngine();
+        var ordinary = engine.Compose(content, OptionsWithBottom(null));
+        var expanded = engine.Compose(content, OptionsWithBottom(8));
+        Assert.Equal(16f, expanded.Options.ContentHeight - ordinary.Options.ContentHeight);
+        Assert.Equal(ordinary.Pages[0].Runs[0].OriginY, expanded.Pages[0].Runs[0].OriginY);
+        Assert.True(expanded.Pages[0].TextEndOffset > ordinary.Pages[0].TextEndOffset);
+        Assert.True(expanded.Pages.Count <= ordinary.Pages.Count);
+        Assert.All(expanded.Pages.SelectMany(page => page.Runs), run =>
+            Assert.True(MeasureRunInk(engine.Fonts, run).Bottom <= expanded.Options.ViewportHeight - 8 + 0.5f));
+        static IEnumerable<int> TextOffsets(ChapterLayout layout) => layout.Pages.SelectMany(page => page.Runs)
+            .Where(run => run.TextStart >= 0 && run.TextLength > 0)
+            .SelectMany(run => Enumerable.Range(run.TextStart, run.TextLength));
+        Assert.Equal(TextOffsets(ordinary), TextOffsets(expanded));
+    }
+
+    [Theory]
     [InlineData(TypesetWritingMode.HorizontalTb, false)]
     [InlineData(TypesetWritingMode.HorizontalTb, true)]
     [InlineData(TypesetWritingMode.VerticalRl, false)]
@@ -1955,6 +1986,186 @@ public sealed class LibzoraLayoutEngineTests : IDisposable
     }
 
     [Fact]
+    public void NaturalLatinProseUsesBalancedWordSpacingAndAComfortableLinePitch()
+    {
+        var text = string.Join(" ", Enumerable.Repeat(
+            "As I sit at my window this summer afternoon, hawks are circling about my clearing.", 12));
+        var justified = new XhtmlChapterLoader().Load(WriteChapter($"<p style=\"text-align:justify\">{text}</p>"));
+        var ragged = new XhtmlChapterLoader().Load(WriteChapter($"<p style=\"text-align:left\">{text}</p>"));
+        TypesetLayoutOptions ProseOptions(bool natural) => new()
+        {
+            BaseFontSize = 20, LineHeight = 1.75f,
+            LetterSpacingEm = natural ? 0.07f : 0,
+            NaturalLatinTypography = true, ParagraphIndent = false,
+            OverridePublisherLineHeight = true, OverridePublisherParagraphSpacing = true,
+            AvoidWidowsAndOrphans = false,
+            ViewportWidth = 400, ViewportHeight = 800, InsetHorizontal = 24, InsetVertical = 24,
+        };
+        using var engine = CreateEngine();
+        var actual = engine.Compose(justified, ProseOptions(true));
+        var expected = engine.Compose(ragged, ProseOptions(false));
+        Assert.Equal(expected.Pages.Select(page => (page.TextStartOffset, page.TextEndOffset)),
+            actual.Pages.Select(page => (page.TextStartOffset, page.TextEndOffset)));
+        var expectedSpaces = CollectSpaceGaps(expected, ragged.BodyText);
+        var actualSpaces = CollectSpaceGaps(actual, justified.BodyText);
+        Assert.True(actualSpaces.Count > 20);
+        foreach (var (offset, gap) in actualSpaces)
+            Assert.InRange(gap, expectedSpaces[offset] - 0.01f, 20f * 0.65f + 0.01f);
+        Assert.Contains(actualSpaces, pair => pair.Value > expectedSpaces[pair.Key] + 0.25f);
+        var actualLines = actual.Pages.SelectMany(page => page.Runs).ToArray();
+        var expectedLines = expected.Pages.SelectMany(page => page.Runs).ToArray();
+        var rightEdge = actual.Options.ViewportWidth - actual.Options.InsetHorizontal;
+        var actualSlack = actualLines.SkipLast(1).Sum(run => Math.Max(0f, rightEdge - run.OriginX - run.FlowAdvance));
+        var raggedSlack = expectedLines.SkipLast(1).Sum(run => Math.Max(0f, rightEdge - run.OriginX - run.FlowAdvance));
+        Assert.True(actualSlack < raggedSlack * 0.5f,
+            $"Balanced English should reclaim the ragged right edge: {actualSlack} vs {raggedSlack}.");
+        Assert.Contains(actualLines.SkipLast(1), run => Math.Abs(rightEdge - run.OriginX - run.FlowAdvance) < 0.05f);
+        Assert.InRange(Math.Abs(actualLines[^1].FlowAdvance - expectedLines[^1].FlowAdvance), 0, 0.01f);
+        var expectedLetters = CollectWordInteriorGaps(expected, ragged.BodyText);
+        foreach (var (offset, gap) in CollectWordInteriorGaps(actual, justified.BodyText))
+            Assert.InRange(Math.Abs(gap - expectedLetters[offset]), 0, 0.01f);
+        var baselines = BaselineY(actual);
+        Assert.InRange(Math.Abs(baselines[1] - baselines[0] - 31f), 0, 0.05f);
+        Assert.All(actual.Pages.SelectMany(page => page.Runs), run => Assert.Equal(20f, run.FontSize));
+    }
+
+    [Theory]
+    [InlineData("man’s", 3)]
+    [InlineData("don’t", 3)]
+    [InlineData("l’été", 1)]
+    public void NaturalLatinApostrophesKeepTheirGlyphWithoutAFullWidthGap(string text, int apostropheOffset)
+    {
+        var chapter = new XhtmlChapterLoader().Load(WriteChapter(
+            $"<p style=\"margin:0;text-indent:0;text-align:left\">{text}</p>"));
+        TypesetLayoutOptions ProseOptions(bool natural) => new()
+        {
+            BaseFontSize = 20, LineHeight = 1.75f, LetterSpacingEm = 0,
+            NaturalLatinTypography = natural, ParagraphIndent = false,
+            ViewportWidth = 400, ViewportHeight = 600,
+        };
+        using var engine = CreateEngine();
+        var layout = engine.Compose(chapter, ProseOptions(true));
+        var natural = Assert.Single(Assert.Single(layout.Pages).Runs);
+        var ordinary = Assert.Single(Assert.Single(engine.Compose(chapter, ProseOptions(false)).Pages).Runs);
+        Assert.Equal(ordinary.Glyphs, natural.Glyphs);
+        Assert.Equal(ordinary.Clusters, natural.Clusters);
+        Assert.Equal(text, chapter.BodyText.Substring(natural.TextStart, natural.TextLength));
+        var index = Array.IndexOf(natural.Clusters, apostropheOffset);
+        Assert.InRange(index, 0, natural.Glyphs.Length - 2);
+        Assert.InRange(ordinary.X[index + 1] - ordinary.X[index], 19f, 21f);
+        Assert.InRange(natural.X[index + 1] - natural.X[index], 0.1f, 8f);
+        var quoteRect = layout.GetCharRect(0, natural.TextStart + apostropheOffset);
+        Assert.True(quoteRect.HasValue);
+        Assert.InRange(quoteRect.GetValueOrDefault().Width, 0.1f, 8f);
+        using var font = new SKFont(engine.Fonts.GetTypeface(natural.FontPath), natural.FontSize);
+        _ = font.GetGlyphWidths(natural.Glyphs.AsSpan(), out var bounds, null);
+        Assert.True(natural.X[index] + bounds[index].Right <= natural.X[index + 1] + bounds[index + 1].Left,
+            "The apostrophe's original ink must not overlap the following letter.");
+        for (var before = 0; before <= index; before++)
+            Assert.InRange(Math.Abs(natural.X[before] - ordinary.X[before]), 0, 0.01f);
+    }
+
+    [Theory]
+    [InlineData(TypesetWritingMode.HorizontalTb)]
+    [InlineData(TypesetWritingMode.VerticalRl)]
+    public void NaturalLatinPolicyKeepsChineseAndVerticalPageRhythm(TypesetWritingMode mode)
+    {
+        var text = string.Concat(Enumerable.Repeat("春风吹过山林，正文排版应当保持平静清晰。", 40));
+        var chapter = new XhtmlChapterLoader().Load(WriteChapter($"<p>{text}</p><p>{text}</p>"));
+        TypesetLayoutOptions ProseOptions(bool natural) => new()
+        {
+            WritingMode = mode, BaseFontSize = 17, LineHeight = 1.75f,
+            NaturalLatinTypography = natural, ParagraphIndent = false,
+            ParagraphSpacingMatchesLineHeight = true,
+            OverridePublisherLineHeight = true, OverridePublisherParagraphSpacing = true,
+            ViewportWidth = 300, ViewportHeight = 600,
+        };
+        using var engine = CreateEngine();
+        var ordinary = engine.Compose(chapter, ProseOptions(false));
+        var natural = engine.Compose(chapter, ProseOptions(true));
+        Assert.Equal(ordinary.Pages.Select(page => (page.TextStartOffset, page.TextEndOffset)),
+            natural.Pages.Select(page => (page.TextStartOffset, page.TextEndOffset)));
+        Assert.Equal(ordinary.Pages.SelectMany(page => page.Runs).Select(run => (run.OriginX, run.OriginY, run.FontSize)),
+            natural.Pages.SelectMany(page => page.Runs).Select(run => (run.OriginX, run.OriginY, run.FontSize)));
+    }
+
+    [Theory]
+    [InlineData(false, 0f)]
+    [InlineData(false, 0.5f)]
+    [InlineData(false, 1f)]
+    [InlineData(true, 0f)]
+    [InlineData(true, 0.5f)]
+    [InlineData(true, 1f)]
+    public void NaturalEnglishParagraphsStayDistinctAndRespectLargerSpacing(bool indent, float spacing)
+    {
+        var chapter = new XhtmlChapterLoader(indent).Load(WriteChapter(
+            "<p>First line<br/>Second line</p><p>Next paragraph</p>"));
+        using var engine = CreateEngine();
+        var layout = engine.Compose(chapter, new TypesetLayoutOptions
+        {
+            BaseFontSize = 20, LineHeight = 1.75f, NaturalLatinTypography = true,
+            ParagraphIndent = indent, ParagraphSpacingEm = spacing, ParagraphSpacingMatchesLineHeight = spacing == 0,
+            OverridePublisherLineHeight = true, OverridePublisherParagraphSpacing = true,
+            ViewportWidth = 400, ViewportHeight = 800,
+        });
+        var baselines = BaselineY(layout);
+        Assert.Equal(3, baselines.Count);
+        Assert.InRange(Math.Abs(baselines[1] - baselines[0] - 31f), 0, 0.05f);
+        var gap = indent ? spacing : Math.Max(0.35f, spacing);
+        Assert.InRange(Math.Abs(baselines[2] - baselines[1] - 31f - gap * 20), 0, 0.05f);
+    }
+
+    [Fact]
+    public void AccentedLatinWordsAndCombiningMarksStayInTheirSpellingUnits()
+    {
+        const string text = "éclair Café naïve résumé Café coöperate state-of-the-art";
+        var units = TypesetText.Itemize(text, 0, text.Length).Where(unit => unit.Kind != TextUnitKind.Space).ToArray();
+        Assert.All(units, unit => Assert.Equal(TextUnitKind.LatinWord, unit.Kind));
+        Assert.Equal(new[] { "éclair", "Café", "naïve", "résumé", "Café", "coöperate", "state-", "of-", "the-", "art" },
+            units.Select(unit => text.Substring(unit.Start, unit.Length)));
+    }
+
+    [Fact]
+    public void NarrowProseColumnsWrapLongWordsAtWholeGraphemesWithoutDroppingOffsets()
+    {
+        var word = string.Concat(Enumerable.Repeat("Café", 4));
+        var chapter = new XhtmlChapterLoader().Load(WriteChapter(
+            $"<p style=\"margin-left:4em;margin-right:4em\">{word} continued text</p>"));
+        using var engine = CreateEngine();
+        var options = new TypesetLayoutOptions
+        {
+            BaseFontSize = 17, LineHeight = 1.75f, NaturalLatinTypography = true,
+            ParagraphIndent = false, ViewportWidth = 300, ViewportHeight = 600,
+        };
+        var shaper = new GlyphShaper(engine.Fonts);
+        shaper.TryShapeWithFallback(word, 17, false, out _, out var shaped);
+        var columnLeft = options.InsetHorizontal + 4 * options.BaseFontSize;
+        var columnRight = options.ViewportWidth - options.InsetHorizontal - 4 * options.BaseFontSize;
+        Assert.InRange(shaped.TotalAdvance, columnRight - columnLeft + 1, options.ContentWidth);
+        var layout = engine.Compose(chapter, options);
+        var runs = layout.Pages.SelectMany(page => page.Runs).ToArray();
+        Assert.True(runs.Select(run => run.OriginY).Distinct().Count() > 1);
+        Assert.All(runs, run => Assert.True(MeasureRunInk(engine.Fonts, run).Right <= columnRight + 0.5f));
+        var start = chapter.BodyText.IndexOf(word, StringComparison.Ordinal);
+        var offsets = runs.SelectMany(run => Enumerable.Range(run.TextStart, run.TextLength)).ToHashSet();
+        Assert.All(Enumerable.Range(start, word.Length), offset => Assert.Contains(offset, offsets));
+        Assert.DoesNotContain(runs, run => run.TextStart >= 0 && chapter.BodyText[run.TextStart] == '́');
+    }
+
+    [Fact]
+    public void RightAlignedProseKeepsItsPublisherAlignment()
+    {
+        var chapter = new XhtmlChapterLoader().Load(WriteChapter(
+            "<p style=\"text-align:right\">Signed by the author.</p>"));
+        Assert.True(Assert.Single(chapter.Blocks).AlignRight);
+        using var engine = CreateEngine();
+        var options = new TypesetLayoutOptions { NaturalLatinTypography = true, ViewportWidth = 400, ViewportHeight = 600 };
+        var layout = engine.Compose(chapter, options);
+        var run = Assert.Single(Assert.Single(layout.Pages).Runs);
+        Assert.InRange(Math.Abs(run.OriginX + run.FlowAdvance - (options.ViewportWidth - options.InsetHorizontal)), 0, 0.02f);
+    }
+
+    [Fact]
     public void JustificationExpandsWordSpacesWithoutStretchingLetters()
     {
         var paragraph = string.Join(
@@ -1983,6 +2194,11 @@ public sealed class LibzoraLayoutEngineTests : IDisposable
         // one inter-word gap has to be wider than in the ragged layout.
         var justifiedSpaces = CollectSpaceGaps(justifiedLayout, justified.BodyText);
         var raggedSpaces = CollectSpaceGaps(raggedLayout, ragged.BodyText);
+        foreach (var (offset, gap) in justifiedSpaces)
+        {
+            if (raggedSpaces.TryGetValue(offset, out var original))
+                Assert.InRange(gap - original, -0.01f, options.BaseFontSize * 0.2f + 0.01f);
+        }
         Assert.True(
             justifiedSpaces.Any(pair =>
                 raggedSpaces.TryGetValue(pair.Key, out var raggedGap)
@@ -2015,6 +2231,11 @@ public sealed class LibzoraLayoutEngineTests : IDisposable
                 raggedGaps.TryGetValue(pair.Key, out var raggedGap)
                 && pair.Value > raggedGap + 0.2f),
             "expected a mixed line to widen its inter-character gaps");
+        var justifiedWords = CollectWordInteriorGaps(justifiedLayout, justified.BodyText);
+        var raggedWords = CollectWordInteriorGaps(raggedLayout, ragged.BodyText);
+        Assert.True(justifiedWords.Count > 20);
+        foreach (var (offset, gap) in justifiedWords)
+            Assert.InRange(Math.Abs(gap - raggedWords[offset]), 0, 0.01f);
     }
 
     [Theory]

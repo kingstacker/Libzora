@@ -99,6 +99,7 @@ struct ReaderSnapshot: Decodable, Equatable {
     var selectedText: String?
     var selectionBounds: NativeSelectionBounds?
     var footnoteReturnVisible = false
+    var navigationRevision: Int64?
 }
 
 struct ReaderFootnoteAnchor: Decodable, Equatable {
@@ -172,6 +173,8 @@ final class NativeStore: ObservableObject {
         didSet { librarySeriesCache = nil }
     }
     private var librarySeriesCache: [NativeBookSeries.ID: NativeBookSeries]?
+    private static let bookOpenOrderKey = "libzora.reader.bookOpenOrder"
+    @Published private var bookOpenOrder = UserDefaults.standard.dictionary(forKey: bookOpenOrderKey) as? [String: Int] ?? [:]
     @Published var folders: [LibraryFolder] = []
     @Published private(set) var preparingLibrary = true
     @Published private(set) var libraryLoaded = false
@@ -330,6 +333,12 @@ final class NativeStore: ObservableObject {
         case "closeReader": if readerBook != nil { perform { await self.closeReader() } }
         default: break
         }
+    }
+
+    func booksInDisplayOrder(for series: NativeBookSeries) -> [LibraryBook] {
+        let mostRecentlyOpened = series.books.max { (bookOpenOrder[$0.id] ?? 0) < (bookOpenOrder[$1.id] ?? 0) }
+        let leadingID = mostRecentlyOpened.flatMap { bookOpenOrder[$0.id] == nil ? nil : $0.id }
+        return series.booksByPromoting(leadingID)
     }
 
     func seriesSnapshot(for id: NativeBookSeries.ID) -> NativeBookSeries? {
@@ -535,6 +544,9 @@ final class NativeStore: ObservableObject {
                 return
             }
             UserDefaults.standard.set(book.id, forKey: Self.lastReaderKey)
+            let nextOrder = (bookOpenOrder.values.max() ?? 0) + 1
+            bookOpenOrder[book.id] = nextOrder
+            UserDefaults.standard.set(bookOpenOrder, forKey: Self.bookOpenOrderKey)
         } catch {
             if generation == readerOpenGeneration {
                 readerBook = nil

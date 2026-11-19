@@ -105,8 +105,9 @@ internal sealed partial class IOSNativeFrontend
                 case "reader.seek": await reader.NativeSeekAsync(args.GetProperty("progress").GetDouble()); break;
                 case "reader.bookmark": await reader.ToggleBookmarkAsync(); break;
                 case "reader.search": return await reader.NativeSearchAsync(Text(args, "query"), session.Token);
-                case "reader.searchJump": await reader.NativeJumpToSearchAsync(Number(args, "id"),
-                    args.TryGetProperty("searchId", out var searchId) ? searchId.GetString() : null); break;
+                case "reader.searchJump": return Data(("jumped", await reader.NativeJumpToSearchAsync(Number(args, "id"),
+                    args.TryGetProperty("searchId", out var searchId) ? searchId.GetString() : null, session.Token)));
+                case "reader.searchClearHighlight": reader.NativeClearSearchHighlight(); break;
                 case "reader.showChrome": reader.SetChromeVisible(true); break;
                 case "reader.speechPause": reader.NativePauseSpeech(); break;
                 case "reader.speechStop": await reader.NativeStopSpeechAsync(); break;

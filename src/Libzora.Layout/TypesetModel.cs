@@ -200,11 +200,15 @@ public sealed class TypesetLayoutOptions
     public bool ParagraphSpacingMatchesLineHeight { get; init; }
     public bool OverridePublisherLineHeight { get; init; }
     public bool OverridePublisherParagraphSpacing { get; init; }
+    /// <summary>Latin body prose uses a ragged right edge, natural tracking and a calmer line pitch.</summary>
+    public bool NaturalLatinTypography { get; init; }
     public bool AvoidWidowsAndOrphans { get; init; } = true;
     public float ViewportWidth { get; init; } = 800f;
     public float ViewportHeight { get; init; } = 600f;
     public float InsetHorizontal { get; init; } = 24f;
     public float InsetVertical { get; init; } = 24f;
+    /// <summary>Optional bottom-only override; the top inset remains InsetVertical.</summary>
+    public float? InsetBottom { get; init; }
     /// <summary>
     /// Collect per-cell diagnostic frames. Off by default: a vertical chapter
     /// otherwise allocates a debug box for every glyph even though the user
@@ -213,8 +217,9 @@ public sealed class TypesetLayoutOptions
     public bool CollectDebugBoxes { get; init; }
 
     public float BodyLineHeight => BaseFontSize * LineHeight;
+    public float EffectiveInsetBottom => InsetBottom ?? InsetVertical;
     public float ContentWidth => Math.Max(1f, ViewportWidth - InsetHorizontal * 2f);
-    public float ContentHeight => Math.Max(1f, ViewportHeight - InsetVertical * 2f);
+    public float ContentHeight => Math.Max(1f, ViewportHeight - (InsetVertical + EffectiveInsetBottom));
 }
 
 public enum DecorationKind

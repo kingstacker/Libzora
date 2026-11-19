@@ -931,6 +931,7 @@ public sealed class XhtmlChapterLoader
             ElementId = ctx.ElementId,
             Style = ctx.BaseStyle,
             Center = ctx.Center,
+            AlignRight = ctx.AlignRight,
             Justify = ctx.Justify,
             TextIndentEm = ctx.TextIndentEm,
             SpaceBeforeLines = ctx.SpaceBeforeLines,

@@ -8,7 +8,10 @@ import UIKit
 /// This overlay renders only the book card, scales it about its own centre,
 /// and lives above the tab bar in the root view.
 struct NativeBookPreviewRequest: Identifiable {
+    enum Source { case shelf, seriesStack, seriesVolume }
+
     let book: LibraryBook
+    var source: Source = .shelf
     /// The source card's frame in window coordinates.
     let sourceFrame: CGRect
     let coverWidth: CGFloat
@@ -44,32 +47,47 @@ struct NativeBookPreviewOverlay: View {
     let request: NativeBookPreviewRequest
     @ObservedObject var center: NativeBookPreviewCenter
     @State private var expanded = false
-    @State private var cardFrame: CGRect = .zero
+    @State private var cardHeight: CGFloat = 0
+    @State private var measuredMenuHeight: CGFloat = 0
 
     private static let scale: CGFloat = 1.1
-    private static let gap: CGFloat = 12
+    private static let gap: CGFloat = 6
     private static let menuWidth: CGFloat = 250
     private static let rowHeight: CGFloat = 46
     private static let tabBarClearance: CGFloat = 96
 
-    private var menuHeight: CGFloat {
-        CGFloat(request.actions.count) * Self.rowHeight + 10
-    }
-
     var body: some View {
         let _ = uiLocale
 
+        GeometryReader { safeArea in
+            preview(in: safeArea.frame(in: .global))
+                .ignoresSafeArea()
+        }
+        .transition(.opacity)
+    }
+
+    private func preview(in safeArea: CGRect) -> some View {
         GeometryReader { proxy in
             let origin = proxy.frame(in: .global).origin
-            let centerPoint = CGPoint(x: request.sourceFrame.midX - origin.x,
-                                      y: request.sourceFrame.midY - origin.y)
-            let cardHeight = (cardFrame.height > 0 ? cardFrame.height : request.coverWidth * 1.45) * Self.scale
-            let below = centerPoint.y + cardHeight / 2 + Self.gap + menuHeight / 2
-            let above = centerPoint.y - cardHeight / 2 - Self.gap - menuHeight / 2
-            let menuCenter = below + menuHeight / 2 <= proxy.size.height - Self.tabBarClearance
-                ? below : max(above, menuHeight / 2 + 12)
-            let menuX = min(max(centerPoint.x, Self.menuWidth / 2 + 12),
-                            proxy.size.width - Self.menuWidth / 2 - 12)
+            let sourceX = request.sourceFrame.midX - origin.x
+            let halfCover = request.coverWidth * Self.scale / 2
+            let centerX = request.source == .seriesVolume
+                ? min(max(sourceX, halfCover), proxy.size.width - halfCover) : sourceX
+            let centerPoint = CGPoint(x: centerX, y: request.sourceFrame.midY - origin.y)
+            // The local size is measured before scaleEffect.
+            let height = (cardHeight > 0 ? cardHeight : request.coverWidth * 1.45) * Self.scale
+            let below = centerPoint.y + height / 2 + Self.gap
+            let above = centerPoint.y - height / 2 - Self.gap
+            let top = max(12, safeArea.minY - origin.y + 8)
+            let bottom = proxy.size.height - Self.tabBarClearance
+            let roomBelow = max(0, bottom - below)
+            let roomAbove = max(0, above - top)
+            let naturalHeight = measuredMenuHeight > 0 ? measuredMenuHeight : CGFloat(request.actions.count) * Self.rowHeight + 10
+            let opensBelow = roomBelow >= naturalHeight || (roomAbove < naturalHeight && roomBelow >= roomAbove)
+            let menuHeight = min(naturalHeight, opensBelow ? roomBelow : roomAbove)
+            let menuCenter = opensBelow ? below + menuHeight / 2 : above - menuHeight / 2
+            let menuWidth = min(Self.menuWidth, max(0, proxy.size.width - 24))
+            let menuX = min(max(centerPoint.x, menuWidth / 2 + 12), proxy.size.width - menuWidth / 2 - 12)
 
             ZStack(alignment: .topLeading) {
                 Color.black.opacity(expanded ? 0.25 : 0)
@@ -80,14 +98,14 @@ struct NativeBookPreviewOverlay: View {
                     .accessibilityLabel(L("关闭预览"))
 
                 NativeBookTile(book: request.book, width: request.coverWidth, muted: request.muted,
+                               galleryMode: request.source == .seriesStack,
                                showRating: request.showRating, showSyncStatus: request.showSyncStatus,
                                previewing: true)
                     .frame(width: request.coverWidth)
                     .foregroundStyle(NativeTheme.ink)
                     .background {
                         GeometryReader { card in
-                            Color.clear.preference(key: NativeBookPreviewFrameKey.self,
-                                                   value: card.frame(in: .named("book.preview")))
+                            Color.clear.preference(key: NativeBookPreviewHeightKey.self, value: card.size.height)
                         }
                     }
                     .contentShape(Rectangle())
@@ -97,40 +115,46 @@ struct NativeBookPreviewOverlay: View {
                     .scaleEffect(expanded ? Self.scale : 1)
                     .position(x: centerPoint.x, y: centerPoint.y)
 
-                NativeBookPreviewMenu(actions: request.actions, width: Self.menuWidth) { action in
+                NativeBookPreviewMenu(actions: request.actions, width: menuWidth, height: menuHeight) { action in
                     center.dismiss()
                     action()
                 }
-                .frame(width: Self.menuWidth)
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("book.preview.menu")
                 .position(x: menuX, y: menuCenter)
             }
-            .coordinateSpace(name: "book.preview")
-            .onPreferenceChange(NativeBookPreviewFrameKey.self) { frame in
-                if abs(frame.height - cardFrame.height) > 0.5 { cardFrame = frame }
+            .onPreferenceChange(NativeBookPreviewHeightKey.self) { height in
+                if height > 0 && abs(height - cardHeight) > 0.5 { cardHeight = height }
+            }
+            .onPreferenceChange(NativeBookPreviewMenuHeightKey.self) { height in
+                if height > 0 && abs(height - measuredMenuHeight) > 0.5 { measuredMenuHeight = height }
             }
             .onAppear { withAnimation(.easeOut(duration: 0.18)) { expanded = true } }
         }
-        .ignoresSafeArea()
-        .transition(.opacity)
     }
 }
 
-private struct NativeBookPreviewFrameKey: PreferenceKey {
-    static var defaultValue: CGRect { .zero }
-    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
-        let next = nextValue()
-        if next != .zero { value = next }
+private struct NativeBookPreviewHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat { 0 }
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+private struct NativeBookPreviewMenuHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat { 0 }
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }
 
 private struct NativeBookPreviewMenu: View {
     let actions: [NativeBookMenuItem]
     let width: CGFloat
+    let height: CGFloat
     let perform: (() -> Void) -> Void
 
-    private var panel: some View {
+    private var rows: some View {
         VStack(spacing: 0) {
             ForEach(Array(actions.enumerated()), id: \.offset) { index, item in
                 Button { perform(item.action) } label: {
@@ -146,7 +170,17 @@ private struct NativeBookPreviewMenu: View {
             }
         }
         .padding(.vertical, 5)
-        .frame(width: width)
+        .background {
+            GeometryReader { rows in
+                Color.clear.preference(key: NativeBookPreviewMenuHeightKey.self, value: rows.size.height)
+            }
+        }
+    }
+
+    private var panel: some View {
+        ScrollView { rows }
+            .frame(width: width, height: height)
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     var body: some View {

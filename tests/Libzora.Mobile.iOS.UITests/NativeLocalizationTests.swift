@@ -27,19 +27,24 @@ final class NativeLocalizationTests: XCTestCase {
         settle()
     }
 
-    func testLanguageMenuPresentationPreservesTheSettingRow() throws {
+    func testLanguageMenuIsAnchoredToTheRight() throws {
         let before = try currentChoice()
-        capture("language-row-before-menu")
-        app.buttons["profile.language"].tap()
-        XCTAssertTrue(app.buttons["English"].waitForExistence(timeout: 5))
-        capture("language-row-menu-expanded")
-        app.staticTexts["page.profile"].tap()
-        XCTAssertTrue(waitUntil { !self.app.buttons["English"].exists })
+        let language = app.buttons["profile.language"]
+        let midpoint = language.frame.midX
+        language.tap()
+        let english = app.buttons["English"]
+        XCTAssertTrue(english.waitForExistence(timeout: 5))
+        XCTAssertGreaterThan(english.frame.midX, midpoint + 20)
+        capture("language-menu-right")
+        // UIKit prevents accessibility interaction with the underlying page
+        // while the menu is open. Tap a window coordinate outside the menu.
+        app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.13, dy: 0.14)).tap()
+        XCTAssertTrue(waitUntil { !english.exists })
         XCTAssertEqual(try currentChoice(), before)
-        capture("language-row-menu-dismissed")
+        select(before == "en-US" ? "zh-CN" : "en-US")
     }
 
-    func testAppearanceMenuSwitchesAndKeepsTheSettingRow() throws {
+    func testAppearanceMenuIsAnchoredToTheRightAndApplies() throws {
         let theme = app.buttons["profile.theme"]
         XCTAssertTrue(theme.waitForExistence(timeout: 10))
         let original = try XCTUnwrap(theme.value as? String)
@@ -51,12 +56,14 @@ final class NativeLocalizationTests: XCTestCase {
             }
         }
         capture("appearance-row-before-menu")
+        let midpoint = theme.frame.midX
         theme.tap()
         let dark = chinese ? "深色" : "Dark"
         XCTAssertTrue(app.buttons[dark].waitForExistence(timeout: 5))
-        capture("appearance-row-menu-expanded")
+        XCTAssertGreaterThan(app.buttons[dark].frame.midX, midpoint + 20)
+        capture("appearance-menu-right")
         app.buttons[dark].tap()
-        XCTAssertTrue(waitUntil { theme.value as? String == dark })
+        XCTAssertTrue(waitUntil { theme.value as? String == dark && !self.app.buttons[dark].exists })
         capture("appearance-row-dark")
         let light = chinese ? "浅色" : "Light"
         theme.tap()

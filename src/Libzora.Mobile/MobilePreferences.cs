@@ -32,7 +32,8 @@ public enum MobileReaderProgressDisplay
 {
     Pages = 0,
     Chapters = 1,
-    BookTimeRemaining = 3
+    BookTimeRemaining = 3,
+    Off = 4
 }
 
 /// <summary>Phone-only interface choices; shared library data stays in the database.</summary>

@@ -41,7 +41,9 @@ internal sealed record LayoutCell
     public LayoutCell? RubyAnnotation { get; init; }
     /// <summary>Measured base width before reserving room for its annotation.</summary>
     public float RubyBaseAdvance { get; init; }
-    public bool JustifyAsUnit => FootnoteMarker || RubyAnnotation is not null;
+    /// <summary>Latin letters are shaped as a word, never spread apart to justify a mixed line.</summary>
+    public bool IsLatinWord { get; init; }
+    public bool JustifyAsUnit => FootnoteMarker || RubyAnnotation is not null || IsLatinWord;
     /// <summary>Resolved raster for an inline image; null for text cells.</summary>
     public string? ImagePath { get; init; }
     /// <summary>Physical width of the unrotated inline image.</summary>
@@ -325,6 +327,7 @@ internal sealed class CellFactory
 {
     private readonly ComposerContext _context;
     private readonly Dictionary<(string FontPath, float Size), (float Ascent, float Descent)> _metricsCache = new();
+    private readonly Dictionary<(string FontPath, float Size, ushort Glyph), float> _apostropheAdvanceCache = new();
     // A compose has fixed fonts and spacing. Reuse immutable glyph arrays for
     // repeated characters/words, while assigning source offsets per occurrence.
     private readonly Dictionary<(string Text, float Size), LayoutCell> _cellCache = new();
@@ -387,7 +390,14 @@ internal sealed class CellFactory
             out var shaped);
 
         var (ascent, descent) = GetMetrics(fontPath, fontSize);
-        var letterSpacing = _context.LetterSpacing * (fontSize / _context.Options.BaseFontSize);
+        var latinWord = unitText.Any(TypesetText.IsLatinLetter) && !unitText.Any(TypesetText.IsCjk);
+        // Preserve the font's kerning and ligatures in horizontal Latin text;
+        // the CJK tracking preference must not widen every English letter.
+        var naturalLatin = latinWord && !vertical && _context.Options.NaturalLatinTypography
+            && _context.Options.WritingMode == TypesetWritingMode.HorizontalTb;
+        var letterSpacing = naturalLatin
+            ? 0f
+            : _context.LetterSpacing * (fontSize / _context.Options.BaseFontSize);
 
         var glyphCount = shaped.GlyphIds.Length;
         var glyphX = new float[glyphCount];
@@ -397,7 +407,18 @@ internal sealed class CellFactory
         {
             glyphX[i] = pen + shaped.OffsetsX[i];
             glyphY[i] = shaped.OffsetsY[i];
-            pen += shaped.Advances[i] + letterSpacing;
+            var glyphAdvance = shaped.Advances[i];
+            // CJK faces can give a word's curly apostrophe a full-em box.
+            // Keep the original glyph and cluster; remove only its trailing
+            // blank, leaving already-proportional fonts and vertical text alone.
+            var cluster = shaped.Clusters[i];
+            if (naturalLatin && glyphAdvance >= fontSize * 0.8f
+                && (uint)cluster < (uint)unitText.Length && unitText[cluster] == '’')
+            {
+                glyphAdvance = Math.Min(glyphAdvance,
+                    GetApostropheAdvance(fontPath, fontSize, shaped.GlyphIds[i]) + Math.Max(0f, shaped.OffsetsX[i]));
+            }
+            pen += glyphAdvance + letterSpacing;
         }
 
         // The trailing letter spacing hangs past the last glyph; exclude it so
@@ -447,6 +468,7 @@ internal sealed class CellFactory
             TextStart = globalTextStart,
             TextLength = unitText.Length,
             Text = unitText,
+            IsLatinWord = latinWord,
             Clusters = shaped.Clusters,
             GlyphInkShiftX = glyphInkShiftX,
             Style = style,
@@ -734,19 +756,15 @@ internal sealed class CellFactory
                     // one cell can never force a line past the right edge.
                     for (var offset = 0; offset < unitText.Length;)
                     {
-                        var length = char.IsHighSurrogate(unitText[offset])
-                            && offset + 1 < unitText.Length
-                            && char.IsLowSurrogate(unitText[offset + 1])
-                            ? 2
-                            : 1;
+                        var element = StringInfo.GetNextTextElement(unitText, offset);
                         cells.Add(ShapeCell(
-                            unitText.Substring(offset, length),
+                            element,
                             item.TextStart + unit.Start + offset,
                             item.Style,
                             item.LinkHref,
                             item.FootnoteHref,
                             vertical: false));
-                        offset += length;
+                        offset += element.Length;
                     }
                 }
                 else
@@ -960,6 +978,19 @@ internal sealed class CellFactory
         }
 
         return result;
+    }
+
+    private float GetApostropheAdvance(string fontPath, float fontSize, ushort glyph)
+    {
+        var key = (fontPath, fontSize, glyph);
+        if (_apostropheAdvanceCache.TryGetValue(key, out var cached)) return cached;
+        using var font = new SKFont(_context.Fonts.GetTypeface(fontPath), fontSize);
+        Span<ushort> glyphs = stackalloc ushort[1];
+        glyphs[0] = glyph;
+        _ = font.GetGlyphWidths(glyphs, out var bounds, null);
+        var advance = Math.Max(fontSize * 0.3f, bounds[0].Right + fontSize * 0.06f);
+        _apostropheAdvanceCache[key] = advance;
+        return advance;
     }
 
     private (float Ascent, float Descent) GetMetrics(string fontPath, float fontSize)

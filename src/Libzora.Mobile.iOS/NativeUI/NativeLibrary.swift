@@ -56,7 +56,9 @@ struct NativeBookDetailPage: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
-                Button { dismiss() } label: { Image(systemName: "chevron.left").frame(width: 44, height: 44) }
+                Button { dismiss() } label: {
+                    Image(systemName: "chevron.left").frame(width: 44, height: 44).contentShape(Rectangle())
+                }
                     .buttonStyle(.plain).accessibilityLabel(L("返回书库")).accessibilityIdentifier("book.back")
                 Spacer()
                 if let book {

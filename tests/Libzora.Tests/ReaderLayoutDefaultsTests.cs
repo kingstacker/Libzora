@@ -64,6 +64,26 @@ public sealed class ReaderLayoutDefaultsTests
         Assert.Equal(ReaderLayoutDefaults.DefaultParagraphSpacing, normalized.ParagraphSpacing);
     }
 
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData(8d, 8d)]
+    [InlineData(-1d, 0d)]
+    [InlineData(1000d, 160d)]
+    [InlineData(double.NaN, null)]
+    [InlineData(double.PositiveInfinity, null)]
+    public void BottomInsetOverrideIsNormalizedButNeverStored(double? padding, double? expected)
+    {
+        var settings = new ReaderLayoutSettings { BodyBottomPadding = padding, NaturalLatinTypography = true };
+        var normalized = ReaderLayoutDefaults.Normalize(settings);
+        Assert.True(normalized.NaturalLatinTypography);
+        Assert.Equal(expected, normalized.BodyBottomPadding);
+        Assert.Equal(24, normalized.BodyPadding);
+        var json = System.Text.Json.JsonSerializer.Serialize(settings);
+        var restored = System.Text.Json.JsonSerializer.Deserialize<ReaderLayoutSettings>(json)!;
+        Assert.Null(restored.BodyBottomPadding);
+        Assert.False(restored.NaturalLatinTypography);
+    }
+
     [Fact]
     public void NormalizeForcesVerticalWritingToSinglePageMode()
     {

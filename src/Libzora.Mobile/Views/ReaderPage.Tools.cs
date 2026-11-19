@@ -120,30 +120,35 @@ public partial class ReaderPage
         return (start > 0 ? "…" : string.Empty) + content.Substring(start, length).ReplaceLineEndings(" ").Trim();
     }
 
-    private async Task JumpToSearchHitAsync(SearchHit hit)
+    private async Task<bool> JumpToSearchHitAsync(SearchHit hit, CancellationToken token = default)
     {
+        token.ThrowIfCancellationRequested();
         _tts?.NotifyManualNavigation();
         _shell.HideSheet();
-        SetChromeVisible(false);
+        if (!_usesNativeFrontend) SetChromeVisible(false);
         try
         {
             if (hit.Source is PdfSearchResult pdfHit)
             {
                 await GoToPdfPageAsync(pdfHit.PageNumber);
-                (_readerHost as IPdfSearchHost)?.Find(hit.Query, pdfHit.MatchIndex);
-                return;
+                token.ThrowIfCancellationRequested();
+                if (_pdfPage != pdfHit.PageNumber || _readerHost is not IPdfSearchHost pdf) return false;
+                pdf.Find(hit.Query, pdfHit.MatchIndex);
+                return true;
             }
 
             if (hit.Source is not BookContentChunk chunk
                 || _readerHost is not NativeReaderHost host
-                || _epubDocument is not { } document)
+                || _epubDocument is not { Chapters.Count: > 0 } document)
             {
-                return;
+                return false;
             }
 
             var chapter = Math.Clamp(chunk.ChapterIndex, 0, document.Chapters.Count - 1);
-            if (chapter != _chapterIndex) await GoToChapterAsync(host, chapter, fromEnd: false, direction: 1);
-            await EnsureLayoutCompleteAsync();
+            if (chapter != _chapterIndex
+                && !await NavigateToChapterAsync(host, chapter, new Uri(document.Chapters[chapter]))) return false;
+            await EnsureLayoutCompleteAsync(token);
+            token.ThrowIfCancellationRequested();
 
             // Index offsets come from plain text, the host's from its own layout;
             // the nearest rendered match to the indexed one is the hit.
@@ -163,13 +168,16 @@ public partial class ReaderPage
             }
             UpdateEpubLabels();
             _ = SaveProgressSoonAsync(force: true);
+            return true;
         }
-        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested || token.IsCancellationRequested)
         {
+            return false;
         }
         catch (Exception exception) when (exception is InvalidOperationException or TimeoutException)
         {
             _shell.ShowToast(UiText.Localize(exception.Message));
+            return false;
         }
     }
 

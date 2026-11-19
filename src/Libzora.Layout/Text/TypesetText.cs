@@ -62,9 +62,16 @@ public static class TypesetText
     /// whole, mirroring the inline-run policy the sanitizer and the previous
     /// vertical tokenizer used.
     /// </summary>
+    // Latin-1/Extended A+B, Extended Additional and combining accents. Keep
+    // café, naïve and decomposed accents in the same unbroken spelling unit.
+    private const string LatinWordCharacters =
+        @"A-Za-z0-9\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u024F\u1E00-\u1EFF\u0300-\u036F";
     private static readonly Regex LatinWordPattern = new(
-        """[A-Za-z0-9]+(?:['’&.,:/+\-–—][A-Za-z0-9]+|%|°[CF])*""",
+        $"""[{LatinWordCharacters}]+(?:['’&.,:/+\-–—][{LatinWordCharacters}]+|%|°[CF])*""",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    public static bool IsLatinLetter(char c) => char.IsAsciiLetter(c)
+        || ((c is >= 'À' and <= 'ɏ' or >= 'Ḁ' and <= 'ỿ') && char.IsLetter(c));
 
     public static bool IsProhibitedAtLineStart(char c) => ProhibitedAtLineStart.IndexOf(c) >= 0;
 
@@ -416,7 +423,7 @@ public static class TypesetText
                 continue;
             }
 
-            if (char.IsAsciiLetterOrDigit(c))
+            if (IsLatinLetter(c) || char.IsAsciiDigit(c))
             {
                 var match = LatinWordPattern.Match(text, i);
                 var wordEnd = match.Success && match.Index == i

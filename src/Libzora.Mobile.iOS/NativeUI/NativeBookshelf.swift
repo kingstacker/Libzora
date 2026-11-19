@@ -17,6 +17,8 @@ struct NativeLibraryPage: View {
     @State private var creatingFolder = false
     @State private var renamingFolder: LibraryFolder?
     @State private var folderBusy = false
+    @State private var expandedSeriesID: NativeBookSeries.ID?
+    @StateObject private var bookDestinations = NativeShelfBookDestinations()
     @StateObject private var scrollState = NativeLibraryScrollState()
     @State private var pageVisible = false
     @State private var visibleCovers: [NativeVisibleCover] = []
@@ -54,6 +56,7 @@ struct NativeLibraryPage: View {
     }
 
     var body: some View {
+        let expandedSeries = expandedSeriesID.flatMap { store.seriesSnapshot(for: $0) }
         GeometryReader { geometry in
             ScrollView {
                 VStack(spacing: 0) {
@@ -116,6 +119,19 @@ struct NativeLibraryPage: View {
         .overlay(alignment: .top) {
             if !floatingMasthead { NativeLibraryStatusBarGlass(scroll: scrollState) }
         }
+        .accessibilityHidden(expandedSeries != nil)
+        .overlayPreferenceValue(NativeSeriesAnchorKey.self) { anchors in
+            if let expandedSeries {
+                NativeBookSeriesOverlay(series: expandedSeries, anchor: anchors[expandedSeries.id],
+                                        store: store, close: closeSeries) { book, frame, width in
+                    bookDestinations.showPreview(book, source: .seriesVolume, frame: frame, width: width,
+                                                 store: store, actions: bookActions(book, beforeReading: closeSeries),
+                                                 beforeNavigation: closeSeries)
+                }
+                .transition(.opacity)
+            }
+        }
+        .onChange(of: isActive) { active in if !active { closeSeries() } }
         .sheet(isPresented: $creatingFolder) {
             NativeNameSheet(store: store, title: L("新建收藏夹"), initial: "", button: L("创建")) { name in
                 let _: CreatedFolder = try await store.request("collection.create", ["name": name]); try await store.refreshLibrary()
@@ -256,11 +272,17 @@ struct NativeLibraryPage: View {
                 else {
                     NativeBookShelf(store: store, books: books, pageWidth: pageWidth, tracksVisibleCovers: true,
                                     stackSeries: store.preferences.stackBookSeries && query.isEmpty
-                                        && filter == 0 && advancedFilter.count == 0) { book in bookActions(book) }
+                                        && filter == 0 && advancedFilter.count == 0,
+                                    expandSeries: { id in withAnimation(.easeOut(duration: 0.2)) { expandedSeriesID = id } },
+                                    destinations: bookDestinations, actions: { bookActions($0) })
                 }
             }
         }.padding(.horizontal, 24).padding(.top, 8).padding(.bottom, 28)
     }
+    private func closeSeries() {
+        withAnimation(.easeOut(duration: 0.2)) { expandedSeriesID = nil }
+    }
+
     private func libraryFailure(_ message: String) -> some View {
         VStack(spacing: 12) {
             Image(systemName: "exclamationmark.circle").font(.system(size: 32, weight: .ultraLight))
@@ -352,9 +374,12 @@ struct NativeLibraryPage: View {
                 .font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(mutedText)
         }.padding(.horizontal, 24).padding(.top, 14).padding(.bottom, 28).disabled(folderBusy)
     }
-    private func bookActions(_ book: LibraryBook) -> [NativeBookMenuItem] {
+    private func bookActions(_ book: LibraryBook, beforeReading: @escaping () -> Void = {}) -> [NativeBookMenuItem] {
         [
-            NativeBookMenuItem(L("阅读")) { store.perform { try await store.openReader(book) } },
+            NativeBookMenuItem(L("阅读")) {
+                beforeReading()
+                store.perform { try await store.openReader(book) }
+            },
             NativeBookMenuItem(book.favorite ? L("取消收藏") : L("收藏")) {
                 store.perform { try await store.command("book.favorite", ["bookId": book.id, "favorite": !book.favorite]); try await store.refreshLibrary() }
             }
@@ -605,23 +630,30 @@ struct NativeBookMenuItem {
 struct NativeBookShelf: View {
     @ObservedObject var store: NativeStore
     @ObservedObject private var previewCenter = NativeBookPreviewCenter.shared
-    @State private var detailBookID: String?
-    @State private var showingDetail = false
+    @StateObject private var destinations: NativeShelfBookDestinations
     let books: [LibraryBook]
     let pageWidth: CGFloat
     let tracksVisibleCovers: Bool
     private let stackSeries: Bool
+    private let expandSeries: (NativeBookSeries.ID) -> Void
     private let actions: (LibraryBook) -> [NativeBookMenuItem]
 
     init(store: NativeStore, books: [LibraryBook], pageWidth: CGFloat, tracksVisibleCovers: Bool = false,
-         stackSeries: Bool = false, actions: @escaping (LibraryBook) -> [NativeBookMenuItem]) {
+         stackSeries: Bool = false, expandSeries: @escaping (NativeBookSeries.ID) -> Void = { _ in },
+         destinations: NativeShelfBookDestinations? = nil,
+         actions: @escaping (LibraryBook) -> [NativeBookMenuItem]) {
         self.store = store; self.books = books; self.pageWidth = pageWidth
         self.tracksVisibleCovers = tracksVisibleCovers; self.stackSeries = stackSeries; self.actions = actions
+        self.expandSeries = expandSeries
+        _destinations = StateObject(wrappedValue: destinations ?? NativeShelfBookDestinations())
     }
+    private static let columnSpacing: CGFloat = 16
+    private static let seriesEdgeWidth: CGFloat = 14
+
     static func columnCount(pageWidth: CGFloat) -> Int { max(3, Int((pageWidth - 32) / 136)) }
     static func coverWidth(pageWidth: CGFloat) -> CGFloat {
         let columns = columnCount(pageWidth: pageWidth)
-        return max(1, (pageWidth - 48 - CGFloat(columns - 1) * 16) / CGFloat(columns))
+        return max(1, (pageWidth - 48 - CGFloat(columns - 1) * columnSpacing) / CGFloat(columns))
     }
     private var columns: Int { Self.columnCount(pageWidth: pageWidth) }
     private var coverWidth: CGFloat { Self.coverWidth(pageWidth: pageWidth) }
@@ -633,12 +665,15 @@ struct NativeBookShelf: View {
             if store.preferences.listView {
                 LazyVStack(spacing: 0) { ForEach(books) { book in bookLink(book) } }
             } else {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 16, alignment: .top), count: columns),
+                let edgeWidth = stackSeries ? Self.seriesEdgeWidth : 0
+                let column = GridItem(.fixed(coverWidth + edgeWidth),
+                                      spacing: Self.columnSpacing - edgeWidth, alignment: .topLeading)
+                LazyVGrid(columns: Array(repeating: column, count: columns),
                           alignment: .leading, spacing: galleryMode ? 18 : 26) {
                     if stackSeries {
                         ForEach(NativeBookSeries.entries(books)) { entry in
                             switch entry {
-                            case .book(let book): bookLink(book)
+                            case .book(let book): bookLink(book).frame(width: coverWidth)
                             case .series(let series): seriesLink(series)
                             }
                         }
@@ -646,36 +681,41 @@ struct NativeBookShelf: View {
                         ForEach(books) { book in bookLink(book) }
                     }
                 }
+                .padding(.trailing, -edgeWidth)
             }
         }.accessibilityElement(children: .contain)
             .accessibilityIdentifier(store.preferences.listView ? "books.list" : "books.grid")
             .background {
-                NavigationLink(isActive: $showingDetail) {
-                    if let detailBookID { NativeBookDetailPage(store: store, bookId: detailBookID) }
+                NavigationLink(isActive: $destinations.showingDetail) {
+                    if let id = destinations.detailBookID { NativeBookDetailPage(store: store, bookId: id) }
                 } label: { EmptyView() }
                     .hidden().accessibilityHidden(true)
             }
-    }
-    private func seriesLink(_ series: NativeBookSeries) -> some View {
-        NavigationLink {
-            NativeBookSeriesPage(store: store, series: series, actions: actions)
-        } label: {
-            NativeBookSeriesTile(series: series, width: coverWidth, muted: mutedText, galleryMode: galleryMode)
-        }.buttonStyle(.plain)
-            .accessibilityLabel(series.title)
-            .accessibilityValue(L("{0} 册", series.books.count))
-            .accessibilityIdentifier("books.series.\(series.id.name)")
-            .background {
-                if let book = series.books.prefix(3).first(where: { $0.coverPath != nil }) {
-                    coverPosition(book)
-                }
+            .sheet(item: $destinations.collectionBook) { book in
+                NativeBookCollections(store: store, bookId: book.id)
             }
+    }
+    @ViewBuilder private func seriesLink(_ series: NativeBookSeries) -> some View {
+        let volumes = store.booksInDisplayOrder(for: series)
+        if let front = volumes.first {
+            NativeBookSeriesTile(title: series.title, seriesID: series.id, volumes: volumes, front: front,
+                                 width: coverWidth, edgeHitWidth: Self.seriesEdgeWidth, muted: mutedText,
+                                 galleryMode: galleryMode, enabled: !store.openingReader,
+                                 lifted: previewCenter.request?.source == .seriesStack && previewCenter.request?.id == front.id,
+                                 open: { store.perform { try await store.openReader(front) } },
+                                 expand: { expandSeries(series.id) }, longPress: { frame in
+                destinations.showPreview(front, source: .seriesStack, frame: frame, width: coverWidth,
+                                         store: store, actions: actions(front))
+            })
+                .disabled(store.openingReader)
+                .background { coverPosition(front) }
+        }
     }
 
     private func bookLink(_ book: LibraryBook) -> some View {
         // The app-owned preview draws its own copy, so the source tile hides
         // while it is up, exactly like the system lift used to.
-        let lifted = previewCenter.request?.id == book.id
+        let lifted = previewCenter.request?.source == .shelf && previewCenter.request?.id == book.id
         return Button { store.perform { try await store.openReader(book) } } label: {
             Group {
                 if store.preferences.listView { BookRow(book: book, showRating: store.preferences.showBookRating, showSyncStatus: store.preferences.showBookSyncStatus, muted: mutedText) }
@@ -687,7 +727,10 @@ struct NativeBookShelf: View {
             .overlay {
                 NativeBookLink(enabled: !store.openingReader,
                                tap: { store.perform { try await store.openReader(book) } },
-                               longPress: { frame in showPreview(book, sourceFrame: frame) })
+                               longPress: { frame in
+                    destinations.showPreview(book, source: .shelf, frame: frame, width: coverWidth,
+                                             store: store, actions: actions(book))
+                })
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .accessibilityHint(L("轻点阅读，长按查看更多操作"))
@@ -708,19 +751,41 @@ struct NativeBookShelf: View {
             }
         }
     }
+}
 
-    /// The preview request carries everything the overlay needs to draw the
-    /// same card, plus the source's window frame so it scales about its own
-    /// centre instead of following UIKit's menu placement.
-    private func showPreview(_ book: LibraryBook, sourceFrame: CGRect) {
+@MainActor
+final class NativeShelfBookDestinations: ObservableObject {
+    @Published var detailBookID: String?
+    @Published var showingDetail = false
+    @Published var collectionBook: LibraryBook?
+
+    func showPreview(_ book: LibraryBook, source: NativeBookPreviewRequest.Source, frame: CGRect, width: CGFloat,
+                     store: NativeStore, actions: [NativeBookMenuItem], beforeNavigation: @escaping () -> Void = {}) {
         NativeBookPreviewCenter.shared.show(NativeBookPreviewRequest(
             book: book,
-            sourceFrame: sourceFrame,
-            coverWidth: coverWidth,
-            muted: mutedText,
-            showRating: store.preferences.showBookRating,
-            showSyncStatus: store.preferences.showBookSyncStatus,
-            actions: actions(book) + [NativeBookMenuItem(L("书籍详情"), identifier: "book.action.details") { detailBookID = book.id; showingDetail = true }]))
+            source: source,
+            sourceFrame: frame,
+            coverWidth: width,
+            muted: store.preferences.colorfulMode && source != .seriesVolume ? NativeTheme.mutedOnColorful : NativeTheme.muted,
+            showRating: source != .seriesStack && store.preferences.showBookRating,
+            showSyncStatus: source != .seriesStack && store.preferences.showBookSyncStatus,
+            actions: actions + [
+                NativeBookMenuItem(L("加入收藏夹"), identifier: "book.action.collections") {
+                    beforeNavigation()
+                    self.collectionBook = book
+                },
+                NativeBookMenuItem(L("书籍详情"), identifier: "book.action.details") {
+                    beforeNavigation()
+                    self.detailBookID = book.id
+                    self.showingDetail = true
+                },
+                NativeBookMenuItem(L("移到回收站"), destructive: true, identifier: "book.action.delete") {
+                    store.perform {
+                        try await store.command("book.delete", ["bookId": book.id])
+                        try await store.refreshLibrary()
+                    }
+                }
+            ]))
     }
 }
 
@@ -899,60 +964,193 @@ struct NativeBookTile: View {
 
 private struct NativeBookSeriesTile: View {
     @Environment(\.locale) private var uiLocale
-    let series: NativeBookSeries
+    let title: String
+    let seriesID: NativeBookSeries.ID
+    let volumes: [LibraryBook]
+    let front: LibraryBook
     let width: CGFloat
+    let edgeHitWidth: CGFloat
     let muted: Color
     let galleryMode: Bool
+    let enabled: Bool
+    let lifted: Bool
+    let open: () -> Void
+    let expand: () -> Void
+    let longPress: (CGRect) -> Void
 
     var body: some View {
         let _ = uiLocale
-        let count = L("{0} 册", series.books.count)
+        let count = L("{0} 册", volumes.count)
+        let coverHeight = width * 1.45
+        let visibleBooks = volumes.prefix(3)
+        // Share the same exposed width across the rear covers, regardless of the layer count.
+        let layerSpacing: CGFloat = 6 / CGFloat(max(1, visibleBooks.count - 1))
         VStack(alignment: .leading, spacing: 0) {
             ZStack(alignment: .leading) {
-                ForEach(Array(series.books.prefix(3).enumerated()), id: \.element.id) { depth, book in
-                    BookCover(book: book, width: width * 0.84)
+                ForEach(Array(visibleBooks.enumerated()), id: \.element.id) { depth, book in
+                    BookCover(book: book, width: width)
                         .overlay { RoundedRectangle(cornerRadius: 6).strokeBorder(.primary.opacity(0.12)) }
-                        .offset(x: CGFloat(depth) * width * 0.075)
-                        .rotationEffect(.degrees(Double(depth) * 3))
+                        .offset(x: CGFloat(depth) * layerSpacing)
                         .zIndex(-Double(depth))
                 }
             }
-            .frame(width: width, height: width * 1.45, alignment: .leading)
+            .accessibilityHidden(true)
+            .allowsHitTesting(false)
+            .frame(width: width, height: coverHeight, alignment: .leading)
             .overlay(alignment: .bottomTrailing) {
                 if galleryMode {
                     Text(count).font(NativeTheme.font(10, relativeTo: .caption2))
                         .padding(.horizontal, 6).padding(.vertical, 3)
                         .background(.regularMaterial, in: Capsule())
+                        .accessibilityHidden(true)
+                        .allowsHitTesting(false)
                 }
             }
+            .opacity(lifted ? 0 : 1)
+            .frame(width: width + edgeHitWidth, alignment: .leading)
+            .overlay(alignment: .leading) {
+                HStack(spacing: 0) {
+                    Button(action: open) {
+                        Color.clear.frame(width: width, height: coverHeight).contentShape(Rectangle())
+                    }
+                    .overlay { NativeBookLink(enabled: enabled, tap: open, longPress: longPress) }
+                    .accessibilityLabel(front.title)
+                    .accessibilityHint(L("轻点阅读，长按查看更多操作"))
+                    .accessibilityIdentifier("books.series.front.\(front.id)")
+                    Button(action: expand) {
+                        Color.clear.frame(width: edgeHitWidth, height: coverHeight).contentShape(Rectangle())
+                    }
+                    .accessibilityLabel(L("展开系列：{0}", title))
+                    .accessibilityValue(count)
+                    .accessibilityIdentifier("books.series.\(seriesID.name)")
+                }.buttonStyle(.plain)
+            }
             if !galleryMode {
-                Text(series.title).font(NativeTheme.font(13.5)).lineLimit(2).lineSpacing(3).padding(.top, 8)
+                Text(title).font(NativeTheme.font(13.5)).lineLimit(2).lineSpacing(3).padding(.top, 8)
                 Text(count).font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(muted)
                     .lineLimit(1).padding(.top, 2)
             }
         }.frame(maxWidth: .infinity, alignment: .topLeading).contentShape(Rectangle())
+            .anchorPreference(key: NativeSeriesAnchorKey.self, value: .bounds) { [seriesID: $0] }
     }
 }
 
-private struct NativeBookSeriesPage: View {
-    @ObservedObject var store: NativeStore
+private struct NativeSeriesAnchorKey: PreferenceKey {
+    static var defaultValue: [NativeBookSeries.ID: Anchor<CGRect>] { [:] }
+
+    static func reduce(value: inout [NativeBookSeries.ID: Anchor<CGRect>],
+                       nextValue: () -> [NativeBookSeries.ID: Anchor<CGRect>]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, latest in latest })
+    }
+}
+
+private struct NativeBookSeriesOverlay: View {
+    @ScaledMetric(relativeTo: .body) private var metadataHeight: CGFloat = 62
+    @ScaledMetric(relativeTo: .headline) private var scaledHeaderHeight: CGFloat = 44
+    @ObservedObject private var previewCenter = NativeBookPreviewCenter.shared
     let series: NativeBookSeries
-    let actions: (LibraryBook) -> [NativeBookMenuItem]
+    let anchor: Anchor<CGRect>?
+    @ObservedObject var store: NativeStore
+    let close: () -> Void
+    let preview: (LibraryBook, CGRect, CGFloat) -> Void
 
     var body: some View {
-        let current = store.seriesSnapshot(for: series.id)
-        let books = current?.books ?? []
         GeometryReader { geometry in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    Text(L("{0} 册", books.count)).font(NativeTheme.font(12, relativeTo: .caption))
-                        .foregroundStyle(store.preferences.colorfulMode ? NativeTheme.mutedOnColorful : NativeTheme.muted)
-                    NativeBookShelf(store: store, books: books, pageWidth: geometry.size.width, actions: actions)
-                }.padding(.horizontal, 24).padding(.top, 8).padding(.bottom, 28)
-            }.accessibilityIdentifier("books.series.detail")
-        }.background(NativeAmbientBackground())
-            .navigationTitle(current?.title ?? series.title).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
-            .nativeBackButton().modifier(NativeHideTabBar())
+            let margin: CGFloat = 16
+            let gap: CGFloat = 8
+            let panelWidth = min(520, max(0, geometry.size.width - 2 * margin))
+            let coverWidth = NativeBookShelf.coverWidth(pageWidth: geometry.size.width)
+            let headerHeight = max(44, scaledHeaderHeight)
+            let rowHeight = coverWidth * 1.45 + metadataHeight + 14
+            let panelHeight = headerHeight + rowHeight + 12
+            let source = anchor.map { geometry[$0] }
+            let bottom = geometry.size.height - margin
+            let x = min(max(source?.midX ?? geometry.size.width / 2, margin + panelWidth / 2),
+                        geometry.size.width - margin - panelWidth / 2)
+            let below = (source?.maxY ?? bottom) + gap
+            let above = (source?.minY ?? bottom) - gap
+            let preferredTop = below + panelHeight <= bottom || bottom - below >= above - margin
+                ? below : above - panelHeight
+            let top = max(margin, min(preferredTop, bottom - panelHeight))
+            ZStack {
+                Color.black.opacity(0.18)
+                    .ignoresSafeArea(edges: .top)
+                    .onTapGesture(perform: close)
+                    .accessibilityHidden(true)
+                panel(coverWidth: coverWidth, headerHeight: headerHeight, rowHeight: rowHeight)
+                    .frame(width: panelWidth)
+                    .modifier(NativeBookSeriesGlass())
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("books.series.detail")
+                    .accessibilityAction(.escape, close)
+                    .position(x: x, y: top + panelHeight / 2)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private func panel(coverWidth: CGFloat, headerHeight: CGFloat, rowHeight: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Text(series.title).font(NativeTheme.font(18, relativeTo: .headline)).lineLimit(1)
+                    .accessibilityAddTraits(.isHeader)
+                Text(L("{0} 册", series.books.count)).font(NativeTheme.font(12, relativeTo: .caption))
+                    .foregroundStyle(NativeTheme.secondary)
+                Spacer(minLength: 0)
+                Button(action: close) {
+                    Image(systemName: "xmark").font(.system(size: 14, weight: .semibold))
+                        .frame(width: 44, height: 44).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(L("关闭预览"))
+                .accessibilityIdentifier("books.series.close")
+            }
+            .frame(height: headerHeight)
+            .padding(.leading, 18).padding(.trailing, 6)
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(alignment: .top, spacing: 14) {
+                    ForEach(store.booksInDisplayOrder(for: series)) { book in
+                        let lifted = previewCenter.request?.source == .seriesVolume && previewCenter.request?.id == book.id
+                        Button { open(book) } label: {
+                            NativeBookTile(book: book, width: coverWidth,
+                                           showRating: store.preferences.showBookRating,
+                                           showSyncStatus: store.preferences.showBookSyncStatus)
+                                .frame(width: coverWidth)
+                                .opacity(lifted ? 0 : 1)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(store.openingReader)
+                        .overlay {
+                            NativeBookLink(enabled: !store.openingReader, tap: { open(book) },
+                                           longPress: { frame in preview(book, frame, coverWidth) })
+                        }
+                        .accessibilityHint(L("轻点阅读，长按查看更多操作"))
+                        .accessibilityIdentifier("books.series.volume.\(book.id)")
+                    }
+                }
+                .padding(.horizontal, 18).padding(.bottom, 14)
+            }
+            .frame(height: rowHeight)
+            .accessibilityIdentifier("books.series.volumes")
+        }
+        .padding(.top, 4)
+        .foregroundStyle(NativeTheme.ink)
+    }
+
+    private func open(_ book: LibraryBook) {
+        close()
+        store.perform { try await store.openReader(book) }
+    }
+}
+
+private struct NativeBookSeriesGlass: ViewModifier {
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 26, style: .continuous)
+        if #available(iOS 26.0, *) {
+            content.glassEffect(.regular, in: shape)
+        } else {
+            content.background(.regularMaterial, in: shape)
+        }
     }
 }
 

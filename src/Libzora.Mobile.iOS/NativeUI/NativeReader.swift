@@ -51,6 +51,9 @@ struct NativeReaderPage: View {
     @State private var searchId = ""
     @State private var showingSearchResults = false
     @State private var jumpingToSearch = false
+    @State private var searchComposing = false
+    @State private var pendingSearch: Task<Void, Never>?
+    @State private var searchCursor = NativeReaderSearchCursor()
     @State private var speechExpanded = true
     @State private var footnoteCardHeight: CGFloat = 140
     /// PostScript name of the body font, so the reading footer matches the page.
@@ -64,12 +67,14 @@ struct NativeReaderPage: View {
             ? NativeTheme.font(11.5, relativeTo: .caption2)
             : .custom(bodyFontName, size: 11.5, relativeTo: .caption2)
     }
+    private var footerVisible: Bool { store.preferences.readerProgressDisplay != 4 }
     /// The footer is drawn over the bottom of the reader surface. The page
     /// already keeps its own bottom margin, so only the part of the footer
     /// strip that the margin does not cover has to be reserved. Reserving the
     /// whole footer height again left a blank band under the last line and
     /// pushed lines that would otherwise fit onto the next page.
     private var readerBottomInset: CGFloat {
+        guard footerVisible else { return 0 }
         guard !reader.isPdf else { return footerHeight }
         let bodyInset = min(64, max(16, store.preferences.readerBodyPadding))
         return max(0, footerHeight - CGFloat(bodyInset))
@@ -103,14 +108,19 @@ struct NativeReaderPage: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            readerContent.allowsHitTesting(!showingSearchResults).accessibilityHidden(showingSearchResults)
+            readerContent.allowsHitTesting(!showingSearchResults && !jumpingToSearch).accessibilityHidden(showingSearchResults)
             if showingSearchResults {
                 Button(action: dismissSearchResults) { Color.black.opacity(0.08).ignoresSafeArea() }
                     .buttonStyle(.plain).accessibilityLabel(L("收起搜索结果"))
                     .accessibilityIdentifier("reader.search.dismiss")
             }
             VStack(spacing: 8) {
-                if reader.chromeVisible || !reader.ready { topBar }
+                if reader.chromeVisible || !reader.ready || searching { topBar }
+                if let id = searchCursor.hitId, !searching, let index = searchHits.firstIndex(where: { $0.id == id }) {
+                    searchNavigationBar(index: index)
+                        .padding(.top, reader.chromeVisible ? 0 : 8)
+                        .transition(.opacity)
+                }
                 if reader.footnoteReturnVisible {
                     Button(action: returnFromFootnote) {
                         HStack(spacing: 6) {
@@ -136,7 +146,6 @@ struct NativeReaderPage: View {
                 }
                 Spacer(minLength: 0)
             }
-
         }
         .ignoresSafeArea(.keyboard)
         .font(NativeTheme.font()).foregroundStyle(NativeTheme.ink).tint(NativeTheme.ink)
@@ -194,7 +203,20 @@ struct NativeReaderPage: View {
             keyboardHeight = 0
         }
         .onChange(of: reader.progress) { if !dragging { seekProgress = $0 } }
-        .onChange(of: reader.chromeVisible) { if !$0 && searching { closeSearch() } }
+        .onChange(of: reader.chromeVisible) { if !$0 && searching && !jumpingToSearch { closeSearch() } }
+        .onChange(of: reader.navigationRevision) { revision in
+            _ = searchCursor.navigated(to: revision)
+        }
+        .onChange(of: searchQuery) { _ in
+            if searching && !searchComposing { scheduleLiveSearch() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UITextField.textDidChangeNotification)) { note in
+            guard searching, searchFocused, let field = note.object as? UITextField, field.isFirstResponder else { return }
+            searchComposing = field.markedTextRange != nil
+            if searchComposing { pendingSearch?.cancel() }
+            else { scheduleLiveSearch() }
+        }
+        .onDisappear { pendingSearch?.cancel() }
         .onChange(of: session.dialog) { value in
             guard let value else { return }
             if searching { closeSearch() }
@@ -285,6 +307,7 @@ struct NativeReaderPage: View {
                     if let error = reader.error { Text(error).foregroundStyle(NativeTheme.secondary).multilineTextAlignment(.center) }
                     else { ProgressView(L("正在打开书籍…")) }
                 }.padding(32).frame(maxWidth: .infinity, maxHeight: .infinity).background(paper)
+                    .accessibilityElement(children: .contain).accessibilityIdentifier("reader.loading")
             }
             VStack(spacing: 0) {
                 Spacer(minLength: 0)
@@ -296,7 +319,7 @@ struct NativeReaderPage: View {
                         settings: { panel = .speech }, pause: { run("speechPause") }, stop: { run("speechStop") })
                 }
                 if reader.chromeVisible && reader.ready { bottomBar }
-                else {
+                else if footerVisible && reader.ready {
                     HStack {
                         Text(reader.chapter).lineLimit(1)
                         Spacer(minLength: 12)
@@ -307,9 +330,11 @@ struct NativeReaderPage: View {
                         // transparent so the continuous ambient wash remains
                         // visible instead of ending at an opaque paper strip.
                         .allowsHitTesting(false)
+                        .accessibilityElement(children: .contain).accessibilityIdentifier("reader.footer")
                 }
             }
         }
+        .accessibilityElement(children: .contain).accessibilityIdentifier("reader.page")
         .overlay {
             GeometryReader { geometry in
                 if let text = reader.selectedText, panel == nil, noteRequest == nil, !showingSearchResults {
@@ -392,47 +417,129 @@ struct NativeReaderPage: View {
     private func returnFromFootnote() {
         store.perform { try await store.command("reader.footnoteReturn") }
     }
-    private func closeSearch() {
-        searchFocused = false
-        dismissSearchResults()
-        withAnimation(.easeOut(duration: 0.2)) { searching = false }
-    }
-    private func dismissSearchResults() {
+    private func cancelSearchRequest() {
         let requestId = searchId
-        showingSearchResults = false; searchSubmitted = ""; searchBusy = false; searchFinal = false
-        searchScanned = 0; searchTotal = 0; searchGeneration += 1; searchId = ""
-        store.perform { try? await store.command("reader.searchCancel", ["searchId": requestId]) }
-    }
-    private func submitSearch() {
-        guard !jumpingToSearch else { return }
-        let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return }
-        searchFocused = false; searchSubmitted = query
-        searchHits = []; searchError = nil; searchBusy = true; searchFinal = false
-        searchScanned = 0; searchTotal = 0
-        showingSearchResults = true; searchId = UUID().uuidString; searchGeneration += 1
-    }
-    private func jumpToSearch(_ hit: ReaderSearchHit) {
-        guard !jumpingToSearch else { return }
-        jumpingToSearch = true
-        let requestId = searchId
-        store.perform {
-            defer { jumpingToSearch = false }
-            try await store.command("reader.searchJump", ["id": hit.id, "searchId": requestId]); closeSearch()
+        searchId = ""
+        searchGeneration += 1
+        if !requestId.isEmpty {
+            store.perform { try? await store.command("reader.searchCancel", ["searchId": requestId]) }
         }
     }
+    private func closeSearch() {
+        pendingSearch?.cancel(); pendingSearch = nil
+        searchFocused = false; searchComposing = false; showingSearchResults = false
+        withAnimation(.easeOut(duration: 0.2)) { searching = false }
+    }
+    private func dismissSearchResults() { closeSearch() }
+
+    private var trimmedSearchQuery: String {
+        searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    private func scheduleLiveSearch() {
+        guard searching, !searchComposing else { return }
+        pendingSearch?.cancel(); pendingSearch = nil
+        let query = trimmedSearchQuery
+        showingSearchResults = !query.isEmpty
+        if query == searchSubmitted, !searchId.isEmpty { return }
+
+        cancelSearchRequest()
+        exitSearchNavigation()
+        searchSubmitted = query; searchHits = []; searchError = nil
+        searchScanned = 0; searchTotal = 0; searchFinal = false
+        searchBusy = !query.isEmpty
+        guard !query.isEmpty else { return }
+        pendingSearch = Task {
+            do { try await Task.sleep(nanoseconds: 250_000_000) }
+            catch { return }
+            guard !Task.isCancelled, searching, !searchComposing, query == trimmedSearchQuery else { return }
+            startSearchRequest()
+        }
+    }
+    private func startSearchRequest() {
+        searchId = UUID().uuidString
+        searchGeneration += 1
+    }
+    private func submitSearch() {
+        guard !jumpingToSearch, !searchComposing, !trimmedSearchQuery.isEmpty else { return }
+        scheduleLiveSearch()
+        searchFocused = false
+        pendingSearch?.cancel(); pendingSearch = nil
+        if searchId.isEmpty { startSearchRequest() }
+    }
+    private func openSearchResults(focus: Bool) {
+        withAnimation(.easeOut(duration: 0.2)) { searching = true }
+        searchFocused = focus; searchComposing = false
+        scheduleLiveSearch()
+    }
+    private func exitSearchNavigation() {
+        guard searchCursor.hitId != nil else { return }
+        searchCursor.clear()
+        run("searchClearHighlight")
+    }
+    private func jumpToSearch(_ hit: ReaderSearchHit) {
+        guard !jumpingToSearch, !searchId.isEmpty else { return }
+        searchFocused = false
+        jumpingToSearch = true
+        let requestId = searchId
+        let revision = reader.navigationRevision
+        store.perform {
+            defer { jumpingToSearch = false }
+            let reply: ReaderSearchJumpReply = try await store.request(
+                "reader.searchJump", ["id": hit.id, "searchId": requestId])
+            guard reply.jumped, requestId == searchId, revision == reader.navigationRevision else { return }
+            searchCursor.select(hit.id, navigationRevision: revision)
+            closeSearch()
+        }
+    }
+    private func moveSearchHit(_ direction: Int) {
+        guard let id = searchCursor.neighbor(direction, in: searchHits.map(\.id)),
+              let hit = searchHits.first(where: { $0.id == id }) else { return }
+        jumpToSearch(hit)
+    }
+    private func searchNavigationBar(index: Int) -> some View {
+        HStack(spacing: 0) {
+            Button { moveSearchHit(-1) } label: {
+                Image(systemName: "chevron.left").frame(width: 44, height: 44).contentShape(Rectangle())
+            }.disabled(index == 0 || jumpingToSearch)
+                .accessibilityLabel(L("上一条搜索结果")).accessibilityIdentifier("reader.search.previous")
+            Button { openSearchResults(focus: false) } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "magnifyingglass").font(.system(size: 11))
+                    Text("\(index + 1)/\(searchHits.count)\(searchFinal ? "" : "+")")
+                        .monospacedDigit().font(NativeTheme.font(13)).lineLimit(1)
+                }.frame(minWidth: 76, minHeight: 44).contentShape(Rectangle())
+            }.accessibilityLabel(L("第 {0} 条，共 {1} 条搜索结果", index + 1, searchHits.count))
+                .accessibilityIdentifier("reader.search.cursor")
+            Button { moveSearchHit(1) } label: {
+                Image(systemName: "chevron.right").frame(width: 44, height: 44).contentShape(Rectangle())
+            }.disabled(index + 1 >= searchHits.count || jumpingToSearch)
+                .accessibilityLabel(L("下一条搜索结果")).accessibilityIdentifier("reader.search.next")
+            Button(action: exitSearchNavigation) {
+                Image(systemName: "xmark").font(.system(size: 14))
+                    .frame(width: 44, height: 44).contentShape(Rectangle())
+            }.disabled(jumpingToSearch).accessibilityLabel(L("退出搜索条目导航")).accessibilityIdentifier("reader.search.navigation.close")
+        }.font(.system(size: 17)).buttonStyle(.plain)
+            .modifier(NativeFloatingSurface(backgroundOpacity: 0.58, shadowStrength: 0.35, verticalInset: 4))
+            .accessibilityElement(children: .contain).accessibilityIdentifier("reader.search.navigation")
+    }
+
     private var topBar: some View {
         HStack(spacing: 0) {
             Button {
                 if searching { closeSearch(); return }
                 closing = true
                 Task { await store.closeReader(); closing = false }
-            } label: { Group { if closing { ProgressView() } else { Image(systemName: "chevron.left") } }.frame(width: 44, height: 44) }
-                .disabled(closing).accessibilityLabel(L("退出阅读")).accessibilityIdentifier("reader.close")
+            } label: {
+                Group { if closing { ProgressView() } else { Image(systemName: "chevron.left") } }
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+                .disabled(closing || jumpingToSearch).accessibilityLabel(searching ? L("关闭搜索") : L("退出阅读")).accessibilityIdentifier("reader.close")
             ZStack(alignment: .trailing) {
                 if searching {
                     NativeSearchField(text: $searchQuery, prompt: L("搜索全书"), focused: $searchFocused,
                                       identifier: "reader.search.query", submit: submitSearch)
+                        .disabled(jumpingToSearch)
                         .transition(.move(edge: .trailing).combined(with: .opacity))
                 } else {
                     Text(book.title).font(NativeTheme.font(14)).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
@@ -440,13 +547,13 @@ struct NativeReaderPage: View {
             }.frame(maxWidth: .infinity, minHeight: 44).padding(.horizontal, 2).clipped()
             if searching {
                 Button(action: closeSearch) { Image(systemName: "xmark").font(.system(size: 15)).frame(width: 44, height: 44) }
-                    .accessibilityLabel(L("关闭搜索")).accessibilityIdentifier("reader.search.close")
+                    .disabled(jumpingToSearch).accessibilityLabel(L("关闭搜索")).accessibilityIdentifier("reader.search.close")
             } else {
                 Button {
-                    withAnimation(.easeOut(duration: 0.2)) { searching = true }
-                    searchFocused = true
+                    openSearchResults(focus: true)
                 } label: {
                     Image(systemName: "magnifyingglass").frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }.disabled(!reader.ready).accessibilityLabel(L("搜索全书")).accessibilityIdentifier("reader.search")
             }
             Button { run("bookmark") } label: { Image(systemName: reader.bookmark ? "bookmark.fill" : "bookmark").frame(width: 44, height: 44) }
@@ -595,7 +702,7 @@ struct NativeTypography: View {
                 row(L("底部进度")) {
                     Picker(L("底部进度"), selection: preference(\.readerProgressDisplay)) {
                         Text(L("页码")).tag(0); Text(L("章节")).tag(1)
-                        Text(L("剩余时间")).tag(3)
+                        Text(L("剩余时间")).tag(3); Text(L("关")).tag(4)
                     }.pickerStyle(.segmented).accessibilityIdentifier("typography.progressDisplay")
                 }
                 if isPdf {

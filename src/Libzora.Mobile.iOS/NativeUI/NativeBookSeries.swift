@@ -11,6 +11,14 @@ struct NativeBookSeries: Identifiable {
     let books: [LibraryBook]
     private let stackable: Bool
 
+    func booksByPromoting(_ bookID: String?) -> [LibraryBook] {
+        guard let bookID, let index = books.firstIndex(where: { $0.id == bookID }), index > 0 else { return books }
+        var ordered = books
+        let front = ordered.remove(at: index)
+        ordered.insert(front, at: 0)
+        return ordered
+    }
+
     enum Entry: Identifiable {
         enum ID: Hashable {
             case book(String)

@@ -33,6 +33,9 @@
          the app installs but widget discovery cannot open the extension. -->
     <WidgetProvisioningProfile Condition="'$(WidgetProvisioningProfile)' == ''"></WidgetProvisioningProfile>
     <WidgetSwiftOutput>$(NativeSwiftOutput)-widgets</WidgetSwiftOutput>
+    <WidgetGeneratedEntitlements Condition="'$(RuntimeIdentifier)' == 'ios-arm64' And '$(WidgetProvisioningProfile)' != ''">$(WidgetSwiftOutput)/LibzoraWidgets.device.entitlements</WidgetGeneratedEntitlements>
+    <WidgetCodesignEntitlements>$(MSBuildProjectDirectory)/../../src/Libzora.Widgets/LibzoraWidgets.iOS.entitlements</WidgetCodesignEntitlements>
+    <WidgetCodesignEntitlements Condition="'$(WidgetGeneratedEntitlements)' != ''">$(WidgetGeneratedEntitlements)</WidgetCodesignEntitlements>
     <CodesignEntitlements Condition="'$(EnableWidgets)' == 'true' And '$(RuntimeIdentifier)' != '' And '$(CodesignEntitlements)' == ''">$(MSBuildProjectDirectory)/Entitlements.plist</CodesignEntitlements>
     <WidgetBuildScript>$(MSBuildProjectDirectory)/../../src/Libzora.Widgets/build-ios-widgets.sh</WidgetBuildScript>
     <WidgetSourceRoot>$(MSBuildProjectDirectory)/../../src/Libzora.Widgets/Shared</WidgetSourceRoot>
@@ -124,7 +127,7 @@
     <AdditionalAppExtensions Include="$(WidgetSwiftOutput)">
       <BuildOutput>.</BuildOutput>
       <Name>LibzoraWidgets</Name>
-      <CodesignEntitlements>$(MSBuildProjectDirectory)/../../src/Libzora.Widgets/LibzoraWidgets.iOS.entitlements</CodesignEntitlements>
+      <CodesignEntitlements>$(WidgetCodesignEntitlements)</CodesignEntitlements>
     </AdditionalAppExtensions>
   </ItemGroup>
 
@@ -137,9 +140,9 @@
 
   <Target Name="BuildSwiftWidgets" BeforeTargets="_ExtendAppExtensionReferences"
           Condition="'$(EnableWidgets)' == 'true' And '$(RuntimeIdentifier)' != ''"
-          Inputs="@(SwiftWidgetSource);@(WidgetFontResource);$(WidgetBuildScript)"
-          Outputs="$(WidgetSwiftOutput)/LibzoraWidgets.appex/LibzoraWidgets">
-    <Exec Command="/bin/zsh &quot;$(WidgetBuildScript)&quot; &quot;$(RuntimeIdentifier)&quot; &quot;$(WidgetSwiftOutput)&quot; &quot;$(Configuration)&quot; &quot;$(WidgetBundleId)&quot; &quot;$(ApplicationDisplayVersion)&quot; &quot;$(ApplicationVersion)&quot;" />
+          Inputs="@(SwiftWidgetSource);@(WidgetFontResource);$(WidgetBuildScript);$(MSBuildProjectDirectory)/../../src/Libzora.Widgets/LibzoraWidgets.iOS.entitlements;$(WidgetProvisioningProfile)"
+          Outputs="$(WidgetSwiftOutput)/LibzoraWidgets.appex/LibzoraWidgets;$(WidgetGeneratedEntitlements)">
+    <Exec Command="/bin/zsh &quot;$(WidgetBuildScript)&quot; &quot;$(RuntimeIdentifier)&quot; &quot;$(WidgetSwiftOutput)&quot; &quot;$(Configuration)&quot; &quot;$(WidgetBundleId)&quot; &quot;$(ApplicationDisplayVersion)&quot; &quot;$(ApplicationVersion)&quot; &quot;$(WidgetProvisioningProfile)&quot;" />
   </Target>
 
   <Target Name="EmbedWidgetProvisioningProfile" DependsOnTargets="BuildSwiftWidgets"

@@ -7,8 +7,6 @@ using Microsoft.Data.Sqlite;
 
 namespace Libzora.Infrastructure;
 
-/// <summary>The failed import could not be rolled back; startup recovery must run before more writes.</summary>
-
 /// <summary>
 /// Snapshot creation, replacement, manifests and import.
 /// </summary>

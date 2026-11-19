@@ -88,11 +88,4 @@ internal sealed partial class VerticalComposer
 
         _pages.AddDebugBox(new TypesetDebugBox(rect, TypesetDebugBoxKind.Glyph));
     }
-
-    /// <summary>
-    /// Returns the painted ink bounds relative to the cell's glyph origin.
-    /// HarfBuzz's horizontal cell metrics are not enough after a vertical
-    /// glyph substitution: U+3007 is a useful example because its outline is
-    /// slightly taller and sits differently from the font-wide ascent box.
-    /// </summary>
 }

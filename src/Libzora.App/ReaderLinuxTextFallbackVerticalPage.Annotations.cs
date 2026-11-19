@@ -1,8 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Input;
 using Avalonia.Media;
-using Libzora.Core;
 
 namespace Libzora;
 
@@ -138,6 +136,4 @@ public sealed partial class ReaderLinuxTextFallbackVerticalPage : Control
         var endPhase = (bottom - top) / wavelength * Math.PI * 2;
         context.DrawLine(pen, previous, new Point(x + Math.Sin(endPhase) * amplitude, bottom));
     }
-
-    /// <summary>Maps a point in control coordinates to a character offset.</summary>
 }

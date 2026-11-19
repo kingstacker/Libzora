@@ -42,12 +42,6 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
     private ChapterContent? _preparedSearchContent;
 
     /// <summary>
-    /// Search over the current chapter. The normalized text and its raw-offset
-    /// table are built once per loaded chapter; each keystroke only normalizes
-    /// the query. Previously every search rebuilt a multi-megabyte string on
-    /// the UI thread.
-    /// </summary>
-    /// <summary>
     /// Page count of the chapter currently composed in this host, used by the
     /// book-wide estimate so the visible chapter is not parsed and laid out
     /// a second time.

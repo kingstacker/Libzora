@@ -1,8 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
-using Avalonia.Media;
-using Libzora.Core;
 
 namespace Libzora;
 
@@ -11,6 +9,7 @@ namespace Libzora;
 /// </summary>
 public sealed partial class ReaderLinuxTextFallbackVerticalPage : Control
 {
+    /// <summary>Maps a point in control coordinates to a character offset.</summary>
     public int HitTestOffset(Point point)
     {
         _cells ??= BuildCells();

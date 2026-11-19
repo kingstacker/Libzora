@@ -1,32 +1,6 @@
-using System.Collections.ObjectModel;
-using System.ComponentModel;
-using System.Diagnostics;
-using System.Globalization;
-using System.IO;
-using System.Net;
 using System.Text;
-using System.Text.Json;
-using System.Threading;
-using System.Runtime.InteropServices;
-using System.Xml.Linq;
-using System.Xml;
-using Avalonia;
-using Avalonia.Animation;
-using Avalonia.Automation;
-using Avalonia.Controls;
-using Avalonia.Controls.Documents;
-using Avalonia.Controls.Primitives;
-using Avalonia.Input;
-using Avalonia.Interactivity;
-using Avalonia.Layout;
 using Avalonia.Media;
-using Avalonia.Media.Imaging;
 using Avalonia.Media.TextFormatting;
-using Avalonia.Platform.Storage;
-using Avalonia.Threading;
-using Avalonia.VisualTree;
-using Libzora.Core;
-using Libzora.Infrastructure;
 
 namespace Libzora;
 

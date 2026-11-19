@@ -1,22 +1,14 @@
-using System.Collections.ObjectModel;
-using System.Collections.Specialized;
-using System.ComponentModel;
 using System.Text.RegularExpressions;
 using Avalonia.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Libzora.Core;
-using Libzora.Infrastructure;
 
 namespace Libzora;
 
 /// <summary>
-/// ObservableCollection with a single-notification bulk replace. A library
-/// refresh used to raise one Remove/Insert/Move per card, and every event made
-/// the virtualizing panel tear down its realized containers.
-/// </summary>
-
-/// <summary>
-/// Library book card view model.
+/// Presentation data for one local-library book. The domain model remains
+/// untouched; this class only turns paths and enum values into UI labels and a
+/// loadable Avalonia bitmap.
 /// </summary>
 public sealed class BookCardViewModel : ObservableObject, IDisposable
 {

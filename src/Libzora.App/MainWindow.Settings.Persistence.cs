@@ -1,20 +1,5 @@
 using System.Globalization;
-using System.Text;
-using System.Text.RegularExpressions;
-using Avalonia.Automation;
-using Avalonia;
-using Avalonia.Controls;
-using Avalonia.Controls.Primitives;
-using Avalonia.Input;
-using Avalonia.Input.Platform;
-using Avalonia.Interactivity;
-using Avalonia.LogicalTree;
-using Avalonia.Platform;
-using Avalonia.Threading;
-using Avalonia.VisualTree;
-using Libzora.Core;
 using Libzora.Infrastructure;
-using System.Xml.Linq;
 
 namespace Libzora;
 

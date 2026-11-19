@@ -8,12 +8,6 @@ using Libzora.Platform.MacOS.Mtp;
 namespace Libzora.Platform.MacOS;
 
 /// <summary>
-/// Kindle devices that expose MTP instead of USB mass storage. macOS has no
-/// MTP stack of its own, so this service talks to libmtp (the same library
-/// calibre uses on macOS).
-/// </summary>
-
-/// <summary>
 /// Detection and book scanning internals.
 /// </summary>
 public sealed partial class MtpKindleDeviceService : IKindleDeviceService, IDeviceAttachmentProbe

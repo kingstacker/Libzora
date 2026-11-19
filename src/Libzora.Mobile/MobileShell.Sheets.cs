@@ -1,19 +1,13 @@
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Controls.Platform;
-using Avalonia.Input;
-using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
-using Libzora.ApplicationServices;
 using Libzora.Core;
-using Libzora.Infrastructure;
 using Libzora.Mobile.Views;
 using Libzora.Mobile.Views.Sheets;
 using Libzora.Mobile.Controls;
-using Libzora.Mobile.Localization;
 
 namespace Libzora.Mobile;
 

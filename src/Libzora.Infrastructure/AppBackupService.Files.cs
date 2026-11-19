@@ -1,13 +1,8 @@
-using System.Diagnostics;
 using System.IO.Compression;
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using Libzora.Core;
-using Microsoft.Data.Sqlite;
 
 namespace Libzora.Infrastructure;
-
-/// <summary>The failed import could not be rolled back; startup recovery must run before more writes.</summary>
 
 /// <summary>
 /// Rollback, entry enumeration and path helpers.

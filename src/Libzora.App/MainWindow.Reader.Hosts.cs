@@ -1,6 +1,3 @@
-using Avalonia.Controls;
-using Avalonia.Interactivity;
-using Avalonia.Threading;
 using Libzora.Core;
 using Libzora.Infrastructure;
 using System.Diagnostics;

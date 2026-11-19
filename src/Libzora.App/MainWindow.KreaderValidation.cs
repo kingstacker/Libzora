@@ -288,9 +288,6 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// Page-compose state probe: container counts, fit, and a text sample.
-    /// </summary>
-    /// <summary>
     /// Samples the reader scroll position every 150 ms so an interaction test
     /// can tell "turned late" from "never turned".
     /// </summary>

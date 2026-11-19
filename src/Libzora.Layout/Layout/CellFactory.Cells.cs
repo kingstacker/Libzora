@@ -4,12 +4,6 @@ using SkiaSharp;
 namespace Libzora.Layout;
 
 /// <summary>
-/// One unbreakable laid-out unit: a shaped CJK character, a Latin word, a
-/// space, or an atomic vertical run. Produced once per block and consumed by
-/// both the horizontal and the vertical composer.
-/// </summary>
-
-/// <summary>
 /// Cell building, vertical cells and hyphenation splits.
 /// </summary>
 internal sealed partial class CellFactory

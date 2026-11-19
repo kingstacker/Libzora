@@ -1,26 +1,7 @@
-using System.Collections.Concurrent;
-using System.Collections.ObjectModel;
-using System.Diagnostics;
 using Avalonia;
-using Avalonia.Animation;
-using Avalonia.Animation.Easings;
-using Avalonia.Automation;
 using Avalonia.Controls;
-using Avalonia.Controls.Primitives;
-using Avalonia.Controls.Templates;
-using Avalonia.Data;
 using Avalonia.Input;
-using Avalonia.Interactivity;
-using Avalonia.Media;
-using Avalonia.Media.Imaging;
-using Avalonia.Platform;
-using Avalonia.Platform.Storage;
 using Avalonia.Styling;
-using Avalonia.Threading;
-using Avalonia.VisualTree;
-using Libzora.Core;
-using Libzora.Infrastructure;
-using Libzora.Infrastructure.Plugins;
 
 namespace Libzora;
 

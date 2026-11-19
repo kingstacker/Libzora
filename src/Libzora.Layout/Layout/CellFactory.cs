@@ -4,13 +4,9 @@ using SkiaSharp;
 namespace Libzora.Layout;
 
 /// <summary>
-/// One unbreakable laid-out unit: a shaped CJK character, a Latin word, a
-/// space, or an atomic vertical run. Produced once per block and consumed by
-/// both the horizontal and the vertical composer.
-/// </summary>
-
-/// <summary>
-/// Cell shaping and cell lists.
+/// Shapes inline items into layout cells. Font fallback: when the main font
+/// produces a .notdef glyph for a unit, the unit is reshaped with the first
+/// registered fallback that covers it.
 /// </summary>
 internal sealed partial class CellFactory
 {

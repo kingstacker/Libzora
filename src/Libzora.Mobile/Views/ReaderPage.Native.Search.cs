@@ -1,6 +1,4 @@
-using System.Text.Json;
 using Libzora.Core;
-using Libzora.ApplicationServices.Tts;
 using Libzora.Infrastructure;
 using Libzora.Mobile.Views.Sheets;
 
@@ -11,6 +9,12 @@ namespace Libzora.Mobile.Views;
 /// </summary>
 public partial class ReaderPage
 {
+    /// <summary>
+    /// Starts a chapter-prioritised search without holding the reader
+    /// navigation gate. The visible page is published synchronously, the
+    /// current chapter follows on a worker, and the remaining chapters arrive
+    /// in reading order as they are found or indexed.
+    /// </summary>
     public int NativeStartSearch(string query, string? searchId = null)
     {
         var operation = MobileDataCoordinator.TryBeginOperation()

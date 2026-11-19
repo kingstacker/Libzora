@@ -7,6 +7,12 @@ namespace Libzora.Layout;
 /// </summary>
 internal sealed partial class VerticalComposer
 {
+    /// <summary>
+    /// Returns the painted ink bounds relative to the cell's glyph origin.
+    /// HarfBuzz's horizontal cell metrics are not enough after a vertical
+    /// glyph substitution: U+3007 is a useful example because its outline is
+    /// slightly taller and sits differently from the font-wide ascent box.
+    /// </summary>
     private SKRect? GetUprightGlyphInkBounds(LayoutCell cell)
     {
         if (cell.Glyphs.Length == 0)

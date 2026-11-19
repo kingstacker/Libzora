@@ -1,15 +1,8 @@
-using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using Avalonia;
-using Avalonia.Controls;
-using Avalonia.Controls.Primitives;
-using Avalonia.Input;
-using Avalonia.Layout;
-using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
-using Avalonia.Threading;
 using Libzora.Core;
 using Libzora.Infrastructure;
 

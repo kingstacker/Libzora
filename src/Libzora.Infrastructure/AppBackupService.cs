@@ -1,7 +1,5 @@
-using System.Diagnostics;
 using System.IO.Compression;
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using Libzora.Core;
 using Microsoft.Data.Sqlite;
 
@@ -9,6 +7,9 @@ namespace Libzora.Infrastructure;
 
 /// <summary>The failed import could not be rolled back; startup recovery must run before more writes.</summary>
 public sealed class AppBackupRollbackException(string message, Exception innerException) : IOException(message, innerException);
+
+/// <summary>Coarse backup progress for a progress bar; fraction is 0..1.</summary>
+public sealed record AppBackupProgress(double Fraction, string Message);
 
 /// <summary>
 /// Creates and restores a portable Libzora backup package, encrypted with the local sync key.
@@ -18,8 +19,6 @@ public sealed class AppBackupRollbackException(string message, Exception innerEx
 /// protected by the platform on the current machine and are never written to an
 /// export file.
 /// </summary>
-/// <summary>Coarse backup progress for a progress bar; fraction is 0..1.</summary>
-public sealed record AppBackupProgress(double Fraction, string Message);
 public sealed partial class AppBackupService
 {
     public const string FileExtension = ".libzora";

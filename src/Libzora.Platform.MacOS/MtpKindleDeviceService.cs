@@ -12,10 +12,6 @@ namespace Libzora.Platform.MacOS;
 /// MTP stack of its own, so this service talks to libmtp (the same library
 /// calibre uses on macOS).
 /// </summary>
-
-/// <summary>
-/// Constants, fields, construction, detection and caches.
-/// </summary>
 public sealed partial class MtpKindleDeviceService : IKindleDeviceService, IDeviceAttachmentProbe
 {
     private const ushort AmazonVendorId = 0x1949;

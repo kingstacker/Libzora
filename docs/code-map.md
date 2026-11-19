@@ -41,14 +41,14 @@ pattern: `MainWindow.<Area><Aspect>.cs`.
 
 | File | Responsibility |
 | --- | --- |
-| `MainWindow.Reader.cs` | Reader window assembly and shared lifecycle. |
+| `MainWindow.Reader.cs`, `MainWindow.Reader.*.cs` | Reader window assembly, chapters, hosts and shared lifecycle. |
 | `MainWindow.ReaderInteraction.cs` | Reader state, records, small shared helpers. |
-| `MainWindow.ReaderScripts.cs` | JavaScript injected into the reader document. |
+| `MainWindow.ReaderScripts*.cs` | JavaScript injected into the reader document (core, vertical, debug). |
 | `MainWindow.ReaderHostSetup.cs` | Host/surface configuration, bundled fonts. |
 | `MainWindow.ReaderContentExtraction.cs` | Static XHTML walking, footnotes, plain text. |
 | `MainWindow.ReaderLayout.cs` | Layout application, scroll state, diagnostics. |
-| `MainWindow.ReaderTocNavigation.cs` | TOC navigation, locations, annotations, in-page search. |
-| `MainWindow.ReaderToc.cs` | TOC panel. |
+| `MainWindow.ReaderTocNavigation*.cs` | TOC navigation, locations, annotations, in-page search. |
+| `MainWindow.ReaderToc.cs`, `MainWindow.ReaderToc.*.cs` | TOC panel (layout, rows, compact mode, markers, scroll bar). |
 | `MainWindow.ReaderPaging.cs` | Page turns, continuous scroll, transitions. |
 | `MainWindow.ReaderPageStats.cs` | Page counts, position, progress. |
 | `MainWindow.ReaderToolbar.cs` | Toolbar menus (flow, animation, bookmarks). |
@@ -60,7 +60,7 @@ pattern: `MainWindow.<Area><Aspect>.cs`.
 | `MainWindow.ReaderAi*.cs` | Embedding models, assistant panel, provider settings, chat and context building. |
 | `MainWindow.ReaderTts*.cs` | TTS navigation, controls, floating panel, model management and playback. |
 | `MainWindow.KreaderValidation*.cs` | Debug-only Kreader validation and layout diagnostics. |
-| `MainWindow.ReaderLinuxTextFallback*.cs` | Linux plain-text fallback surface (render, content, input). |
+| `MainWindow.ReaderLinuxTextFallback*.cs`, `ReaderLinuxTextFallbackVerticalPage*.cs` | Linux plain-text fallback surface (render, paging, content, vertical page, input). |
 | `MainWindow.ReaderNavigation.cs` | Return-to-library navigation and native menus. |
 
 ### Stage 3 (devices, dashboard, settings)
@@ -70,13 +70,13 @@ pattern: `MainWindow.<Area><Aspect>.cs`.
 | `MainWindow.Stage3.cs` | Page switching, task spinners, toasts. |
 | `MainWindow.Stage3Devices.cs` | Device discovery, connection state, caches. |
 | `MainWindow.Stage3DeviceBooks.cs` | Device book list, selection, filtering, paging. |
-| `MainWindow.Stage3DeviceTransfer.cs` | Send books to Kindle over USB or email. |
+| `MainWindow.Stage3DeviceTransfer*.cs` | Send books to Kindle over USB or email. |
 | `MainWindow.Stage3DeviceExport.cs` | Export and delete device books. |
 | `MainWindow.Stage3ReadingMaterials.cs` | Collected highlights and notes. |
 | `MainWindow.Stage3DeviceResources.cs` | Device fonts and dictionaries. |
 | `MainWindow.Stage3Dashboard.cs` | Reading dashboard, diagnostics, library trash. |
 | `MainWindow.Stage3ReaderAiSettings.cs` | Reader AI settings. |
-| `MainWindow.Stage3SettingsS3.cs` | S3 settings, local change tracking, sync lifecycle. |
+| `MainWindow.Stage3SettingsS3*.cs` | S3 settings, connection profiles, local change tracking, sync runs. |
 | `MainWindow.Stage3SettingsApp.cs` | Language, Calibre detection, autosave. |
 | `MainWindow.Stage3SettingsResources.cs` | Local font/dictionary management. |
 | `MainWindow.Stage3SettingsPersist.cs` | Settings read/save and data-root migration. |
@@ -98,9 +98,9 @@ pattern: `MainWindow.<Area><Aspect>.cs`.
 | `MainWindow.BookMutations.cs` | Favourite, reading status, collections, conversion. |
 | `MainWindow.LibraryDialogs.cs` | Confirmation, message and collection overlays. |
 | `MainWindow.LibraryFiltering.cs` | Search, filters, view mode, pagination. |
-| `MainWindow.BookInteractions.cs` | Card/grid pointer handling, rubber band, detail actions. |
+| `MainWindow.BookInteractions*.cs` | Card/grid pointer handling, rubber band, collection drag, detail actions. |
 | `MainWindow.WindowChrome.cs` | Title bar, window-state animation, accessibility tooltips. |
-| `MainWindow.Settings.cs`, `MainWindow.Plugins.cs` | Settings page shell and plugin UI. |
+| `MainWindow.Settings*.cs`, `MainWindow.Plugins.cs` | Settings page shell (expanders, search, persistence, Kindle email) and plugin UI. |
 | `LibraryViewModel.cs`, `BookCardViewModel.cs`, `BulkObservableCollection.cs`, `BookCollectionFolderViewModel.cs` | Library view models. |
 
 ### Reflection editor
@@ -137,19 +137,19 @@ Large services are split by responsibility so one change opens one file:
 | `TtsService.*.cs` | startup, control, run, pipeline, lifecycle |
 | `MtpKindleDeviceService.*.cs` | books, resources, annotations, scan, session |
 | `LibzoraMcpTools.*.cs` + `McpResults.cs` | library, collections, content, devices, validation, projection, result records |
-| `NativePdfReaderHost.*.cs` | interaction, annotation callouts, search, rendering, pointer |
+| `NativePdfReaderHost.*.cs` | interaction, annotation callouts, search, rendering, pointer, layout, view |
 | `NativeReaderHost.*.cs` | navigation, configuration, scrolling, annotations, search, content, page counts, layout, rendering, images, pointer, selection, capture |
 | `XhtmlChapterLoader.*.cs` | flow, inline, blocks, footnotes, plain footnotes, targets, links |
 | `S3SyncService.*.cs` | settings, sync entry, versions, state, snapshots, cleanup, download, encryption |
 | `WpdKindleAccess.*.cs` | devices, resources, annotations, books, shell items |
 | `KindleDeviceService.*.cs` | detection, books, transfer, resources, annotations, files, native |
 | `HorizontalComposer.*.cs` | line breaking, images, tables, table layout |
-| `ReaderPage.*.cs` (Mobile) | navigation, position, input, selection, chrome, lifecycle |
+| `ReaderPage.*.cs` (Mobile) | navigation, position, input, selection, chrome, lifecycle, native (actions, search) |
 | `MobileShell.*.cs` | shell state, sheets, bars |
-| `AppDataMigrationService.*.cs` | journal, payload, verification, journal I/O |
+| `AppDataMigrationService.*.cs` | journal, journal I/O, payload, verification, types |
 | `AppBackupService.*.cs` | export, snapshot/import, files |
-| `TtsEnvironmentSetupService.*.cs` | edge-tts, install, python, process |
-| `AiServices.cs` + `AiSettingsStore.cs` / `AiChatClient.cs` | AI settings and chat client |
+| `TtsEnvironmentSetupService.*.cs` | edge-tts, install, python, process, types |
+| `AiServices.cs` + `AiSettingsStore.cs` / `AiChatClient.cs` / `AiConversationModels.cs` | AI settings, conversation models and chat client |
 | `MassStorageKindleDeviceService.*.cs` | detection, books, resources, annotations, device, files |
 | `ComposerCore.cs` + `CellFactory*.cs` | layout core and cell factory |
 | `MicroCss*.cs` | hints, borders, parsing, lengths |

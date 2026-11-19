@@ -1,4 +1,3 @@
-using System.Globalization;
 using SkiaSharp;
 
 namespace Libzora.Layout;
@@ -323,6 +322,3 @@ internal sealed class CompositionTruncatedException : Exception
     {
     }
 }
-
-/// <summary>
-/// Shapes inline items into layout cells. Font fallback: when the main font

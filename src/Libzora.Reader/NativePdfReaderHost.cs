@@ -1,14 +1,8 @@
-using System.Globalization;
-using System.Runtime.InteropServices;
-using System.Text.Json;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
-using Avalonia.Input;
 using Avalonia.Layout;
-using Avalonia.Media;
 using Avalonia.Media.Imaging;
-using Avalonia.Platform;
 using Avalonia.Threading;
 using Libzora.Core;
 using Libzora.Infrastructure;
@@ -293,11 +287,4 @@ public sealed partial class NativePdfReaderHost : Control, IReaderHost, IReaderP
             return false;
         }
     }
-
-    /// <summary>
-    /// Outline/document metadata parsed while the document was opened. Reading
-    /// it through <see cref="ReadDocumentInfoAsync"/> would queue behind page
-    /// rasterisation because PDFium is serialised process-wide, so callers take
-    /// this snapshot whenever it is already available.
-    /// </summary>
 }

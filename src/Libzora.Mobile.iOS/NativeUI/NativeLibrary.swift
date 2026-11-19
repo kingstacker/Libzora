@@ -26,7 +26,9 @@ struct NativeNameSheet: View {
                     .accessibilityIdentifier("name.input")
                 if let error { Text(error).font(NativeTheme.font(13)).foregroundStyle(NativeTheme.muted) }
                 Spacer()
-            }.padding(24).background(NativeAmbientBackground())
+            }.padding(24)
+                .frame(maxWidth: .infinity)
+                .background(NativeAmbientBackground())
                 .navigationTitle(title).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
                 .modifier(NativeKeyboardDone())
                 .toolbar {
@@ -54,64 +56,56 @@ struct NativeBookDetailPage: View {
     private var book: LibraryBook? { store.library.first { $0.id == bookId } }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                Button { dismiss() } label: {
-                    Image(systemName: "chevron.left").frame(width: 44, height: 44).contentShape(Rectangle())
-                }
-                    .buttonStyle(.plain).accessibilityLabel(L("返回书库")).accessibilityIdentifier("book.back")
-                Spacer()
-                if let book {
-                    Button { action("favorite", ["favorite": !book.favorite]) } label: {
-                        Image(systemName: book.favorite ? "star.fill" : "star").frame(width: 44, height: 44)
-                    }.buttonStyle(.plain).disabled(busy).accessibilityLabel(book.favorite ? L("取消收藏") : L("收藏"))
-                    Menu {
-                        Button(L("编辑书籍信息")) { editor = true }; Button(L("加入收藏夹")) { folders = true }
-                        Button(L("重命名")) { rename = true }; Button(L("发送到 Kindle")) { action("kindle") }
-                        Button(L("移到回收站"), role: .destructive) { action("delete") }
-                    } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }
-                        .buttonStyle(.plain).disabled(busy).accessibilityLabel(L("书籍选项"))
-                }
-            }.font(.system(size: 20, weight: .regular)).padding(.horizontal, 8).padding(.top, 6)
-            ScrollView {
-                if let book {
-                    VStack(alignment: .leading, spacing: 0) {
-                        BookCover(book: book, width: 148, height: 214).frame(maxWidth: .infinity)
-                        Text(book.title).font(NativeTheme.font(21, relativeTo: .title2)).lineLimit(3).lineSpacing(5)
-                            .multilineTextAlignment(.center).frame(maxWidth: .infinity).padding(.top, 28)
-                        Text(book.authors).font(NativeTheme.font(14)).foregroundStyle(NativeTheme.secondary)
-                            .multilineTextAlignment(.center).frame(maxWidth: .infinity).padding(.top, 6)
-                        Text(L("{0} · {1} · 已读 {2}%", book.formats, book.size, String(format: "%.0f", locale: NativeLocalization.locale, book.progress)))
-                            .font(NativeTheme.font(12.5, relativeTo: .caption)).foregroundStyle(NativeTheme.muted)
-                            .frame(maxWidth: .infinity).padding(.top, 8)
-                        if let description = book.description, !description.isEmpty {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text(description).font(NativeTheme.font(14)).foregroundStyle(NativeTheme.secondary)
-                                    .lineLimit(expanded ? nil : 5).lineSpacing(7).textSelection(.enabled)
-                                Button(expanded ? L("收起") : L("展开全部")) { expanded.toggle() }
-                                    .font(NativeTheme.font(14)).foregroundStyle(NativeTheme.muted).buttonStyle(.plain)
-                            }.padding(.top, 32)
+        GeometryReader { geometry in
+            let wide = geometry.size.width >= 760
+            VStack(spacing: 0) {
+                HStack(spacing: 0) {
+                    Button { dismiss() } label: {
+                        Image(systemName: "chevron.left").frame(width: 44, height: 44).contentShape(Rectangle())
+                    }
+                        .buttonStyle(.plain).accessibilityLabel(L("返回书库")).accessibilityIdentifier("book.back")
+                    Spacer()
+                    if let book {
+                        Button { action("favorite", ["favorite": !book.favorite]) } label: {
+                            Image(systemName: book.favorite ? "star.fill" : "star").frame(width: 44, height: 44)
+                        }.buttonStyle(.plain).disabled(busy).accessibilityLabel(book.favorite ? L("取消收藏") : L("收藏"))
+                        Menu {
+                            Button(L("编辑书籍信息")) { editor = true }; Button(L("加入收藏夹")) { folders = true }
+                            Button(L("重命名")) { rename = true }; Button(L("发送到 Kindle")) { action("kindle") }
+                            Button(L("移到回收站"), role: .destructive) { action("delete") }
+                        } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }
+                            .buttonStyle(.plain).disabled(busy).accessibilityLabel(L("书籍选项"))
+                    }
+                }.font(.system(size: 20, weight: .regular)).padding(.horizontal, 8).padding(.top, 6)
+                ScrollView {
+                    if let book {
+                        Group {
+                            if wide {
+                                HStack(alignment: .top, spacing: 36) {
+                                    bookHeader(book, coverWidth: 196).frame(width: 240)
+                                    bookInformation(book, wide: true)
+                                }
+                            } else {
+                                VStack(alignment: .leading, spacing: 0) {
+                                    bookHeader(book, coverWidth: 148)
+                                    bookInformation(book, wide: false)
+                                }
+                            }
                         }
-                        HStack {
-                            Text(L("书籍信息")).font(NativeTheme.font(13)).foregroundStyle(NativeTheme.muted)
-                            Spacer()
-                            Button(L("编辑")) { editor = true }.font(NativeTheme.font(14)).foregroundStyle(NativeTheme.muted).buttonStyle(.plain)
-                        }.padding(.top, 24).padding(.bottom, 4)
-                        VStack(spacing: 14) {
-                            fact(L("评分"), book.onlineRating.map { String(format: "%.1f", $0) })
-                            fact(L("丛书"), book.series); fact(L("出版社"), book.publisher); fact(L("出版日期"), book.publishDate)
-                            fact("ISBN", book.isbn); fact(L("页数"), book.pageCount); fact(L("装帧"), book.binding)
-                            fact(L("标签"), book.tags); fact(L("分类"), book.category); fact(L("文件"), book.formats)
-                            fact(L("添加时间"), String(book.createdAt.prefix(10)).replacingOccurrences(of: "-", with: "/"))
-                        }.font(NativeTheme.font(14)).padding(.top, 7)
-                    }.padding(.horizontal, 28).padding(.top, 12).padding(.bottom, 24)
+                        .padding(.horizontal, NativeAdaptiveLayout.pageInset)
+                        .padding(.top, wide ? 32 : 12).padding(.bottom, 24)
+                        .accessibilityElement(children: .contain).accessibilityIdentifier("book.detail.content")
+                        .frame(maxWidth: .infinity)
+                    }
                 }
-            }
-            if let book {
-                Button { store.perform { try await store.openReader(book) } } label: {
-                    Text(book.progress > 0 ? L("继续阅读 · {0}%", String(format: "%.0f", locale: NativeLocalization.locale, book.progress)) : L("开始阅读"))
-                }.buttonStyle(NativeLiquidGlassButtonStyle()).disabled(store.openingReader).accessibilityIdentifier("book.read")
-                    .padding(.horizontal, 28).padding(.top, 8).padding(.bottom, 14)
+                if let book {
+                    Button { store.perform { try await store.openReader(book) } } label: {
+                        Text(book.progress > 0 ? L("继续阅读 · {0}%", String(format: "%.0f", locale: NativeLocalization.locale, book.progress)) : L("开始阅读"))
+                    }.buttonStyle(NativeLiquidGlassButtonStyle()).disabled(store.openingReader).accessibilityIdentifier("book.read")
+                        .frame(maxWidth: 420)
+                        .padding(.horizontal, NativeAdaptiveLayout.pageInset).padding(.top, 8).padding(.bottom, 14)
+                        .frame(maxWidth: .infinity)
+                }
             }
         }.background(NativeAmbientBackground()).navigationBarHidden(true).modifier(NativeHideTabBar())
             .sheet(isPresented: $editor) { if let book { NativeBookEditor(store: store, book: book) } }
@@ -121,6 +115,46 @@ struct NativeBookDetailPage: View {
                     try await store.command("book.rename", ["bookId": bookId, "title": title]); try await store.refreshLibrary()
                 }
             }
+    }
+
+    private func bookHeader(_ book: LibraryBook, coverWidth: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            BookCover(book: book, width: coverWidth, height: coverWidth * 214 / 148).frame(maxWidth: .infinity)
+            Text(book.title).font(NativeTheme.font(21, relativeTo: .title2)).lineLimit(3).lineSpacing(5)
+                .multilineTextAlignment(.center).frame(maxWidth: .infinity).padding(.top, 28)
+            Text(book.authors).font(NativeTheme.font(14)).foregroundStyle(NativeTheme.secondary)
+                .multilineTextAlignment(.center).frame(maxWidth: .infinity).padding(.top, 6)
+            Text(L("{0} · {1} · 已读 {2}%", book.formats, book.size, String(format: "%.0f", locale: NativeLocalization.locale, book.progress)))
+                .font(NativeTheme.font(12.5, relativeTo: .caption)).foregroundStyle(NativeTheme.muted)
+                .frame(maxWidth: .infinity).padding(.top, 8)
+        }.accessibilityElement(children: .contain).accessibilityIdentifier("book.detail.header")
+    }
+
+    private func bookInformation(_ book: LibraryBook, wide: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if let description = book.description, !description.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(description).font(NativeTheme.font(14)).foregroundStyle(NativeTheme.secondary)
+                        .lineLimit(expanded ? nil : 5).lineSpacing(7).textSelection(.enabled)
+                    Button(expanded ? L("收起") : L("展开全部")) { expanded.toggle() }
+                        .font(NativeTheme.font(14)).foregroundStyle(NativeTheme.muted).buttonStyle(.plain)
+                }.padding(.top, wide ? 0 : 32)
+            }
+            HStack {
+                Text(L("书籍信息")).font(NativeTheme.font(13)).foregroundStyle(NativeTheme.muted)
+                Spacer()
+                Button(L("编辑")) { editor = true }.font(NativeTheme.font(14)).foregroundStyle(NativeTheme.muted).buttonStyle(.plain)
+            }.padding(.top, 24).padding(.bottom, 4)
+            VStack(spacing: 14) {
+                fact(L("评分"), book.onlineRating.map { String(format: "%.1f", $0) })
+                fact(L("丛书"), book.series); fact(L("出版社"), book.publisher); fact(L("出版日期"), book.publishDate)
+                fact("ISBN", book.isbn); fact(L("页数"), book.pageCount); fact(L("装帧"), book.binding)
+                fact(L("标签"), book.tags); fact(L("分类"), book.category); fact(L("文件"), book.formats)
+                fact(L("添加时间"), String(book.createdAt.prefix(10)).replacingOccurrences(of: "-", with: "/"))
+            }.font(NativeTheme.font(14)).padding(.top, 7)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .contain).accessibilityIdentifier("book.detail.information")
     }
     @ViewBuilder private func fact(_ name: String, _ value: String?) -> some View {
         if let value, !value.isEmpty {
@@ -189,6 +223,7 @@ struct NativeBookEditor: View {
                             .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 4)
                     }
                 }.padding(.horizontal, 24).padding(.top, 12).padding(.bottom, 32).disabled(busy)
+                    .frame(maxWidth: .infinity)
             }
             .modifier(NativeScrollDismissesKeyboard())
             .background(NativeAmbientBackground())
@@ -329,6 +364,7 @@ struct NativeCollectionPage: View {
                 }
             }.font(.system(size: 20, weight: .regular)).buttonStyle(.plain).padding(.horizontal, 8).padding(.top, 16)
             GeometryReader { geometry in
+                let pageWidth = NativeAdaptiveLayout.pageWidth(viewportWidth: geometry.size.width)
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
                         HStack(spacing: 0) {
@@ -346,7 +382,7 @@ struct NativeCollectionPage: View {
                                 }
                             }.frame(maxWidth: .infinity).padding(.top, 96)
                         } else {
-                            NativeBookShelf(store: store, books: books, pageWidth: geometry.size.width) { book in
+                            NativeBookShelf(store: store, books: books, pageWidth: pageWidth) { book in
                                 var items = [
                                     NativeBookMenuItem(L("阅读")) { store.perform { try await store.openReader(book) } },
                                     NativeBookMenuItem(book.favorite ? L("取消收藏") : L("收藏")) {
@@ -362,6 +398,8 @@ struct NativeCollectionPage: View {
                             }
                         }
                     }.padding(.horizontal, 24).padding(.top, 8).padding(.bottom, 28)
+                        .frame(width: pageWidth)
+                        .frame(maxWidth: .infinity)
                 }.refreshable {
                     do { try await store.refreshLibrary() }
                     catch { if !Task.isCancelled { store.failure = error.localizedDescription } }

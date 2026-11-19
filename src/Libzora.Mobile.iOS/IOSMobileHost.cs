@@ -2,6 +2,7 @@ using Foundation;
 using Libzora.ApplicationServices;
 using Libzora.Infrastructure;
 using Libzora.Mobile;
+using Libzora.Platform.Common;
 
 namespace Libzora.iOSHead;
 
@@ -30,6 +31,16 @@ internal static class IOSMobileHost
             TabBar: tabBar,
             BackgroundWork: new IOSBackgroundWork(),
             FileShare: new IOSFileShare(),
-            PreferredLanguages: () => NSLocale.PreferredLanguages);
+            PreferredLanguages: () => NSLocale.PreferredLanguages,
+            SyncProviders: CreateSyncProviders());
+    }
+
+    private static SyncProviderRegistry CreateSyncProviders()
+    {
+        var providers = SyncProviderRegistry.CreateDefault();
+#if LIBZORA_ICLOUD
+        providers.Register(new ICloudSyncProviderFactory(new AppleICloudSyncFileSystem()));
+#endif
+        return providers;
     }
 }

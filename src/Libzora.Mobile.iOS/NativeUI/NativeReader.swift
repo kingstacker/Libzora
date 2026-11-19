@@ -107,44 +107,52 @@ struct NativeReaderPage: View {
     }
 
     var body: some View {
-        ZStack(alignment: .top) {
-            readerContent.allowsHitTesting(!showingSearchResults && !jumpingToSearch).accessibilityHidden(showingSearchResults)
-            if showingSearchResults {
-                Button(action: dismissSearchResults) { Color.black.opacity(0.08).ignoresSafeArea() }
-                    .buttonStyle(.plain).accessibilityLabel(L("收起搜索结果"))
-                    .accessibilityIdentifier("reader.search.dismiss")
-            }
-            VStack(spacing: 8) {
-                if reader.chromeVisible || !reader.ready || searching { topBar }
-                if let id = searchCursor.hitId, !searching, let index = searchHits.firstIndex(where: { $0.id == id }) {
-                    searchNavigationBar(index: index)
-                        .padding(.top, reader.chromeVisible ? 0 : 8)
-                        .transition(.opacity)
-                }
-                if reader.footnoteReturnVisible {
-                    Button(action: returnFromFootnote) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "arrow.uturn.backward")
-                                .font(.system(size: 12, weight: .semibold))
-                            Text(L("返回原文")).font(NativeTheme.font(13))
-                        }
-                        .padding(.horizontal, 14)
-                        .frame(height: 34)
-                    }
-                    .buttonStyle(.plain)
-                    .modifier(NativeFloatingSurface())
-                    .accessibilityIdentifier("reader.footnote.return")
-                    .transition(.opacity)
-                }
+        GeometryReader { geometry in
+            ZStack(alignment: .top) {
+                paper.ignoresSafeArea()
+                readerContent(viewportWidth: geometry.size.width)
+                    .frame(width: NativeAdaptiveLayout.readerWidth(viewportWidth: geometry.size.width, isPdf: reader.isPdf))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .allowsHitTesting(!showingSearchResults && !jumpingToSearch).accessibilityHidden(showingSearchResults)
                 if showingSearchResults {
-                    NativeReaderSearchResults(hits: searchHits, query: searchSubmitted, busy: searchBusy,
-                                              final: searchFinal, scanned: searchScanned, total: searchTotal,
-                                              error: searchError,
-                                              jumping: jumpingToSearch, pick: jumpToSearch, close: dismissSearchResults)
-                        .frame(height: searchHits.isEmpty ? 58 : min(300, CGFloat(searchHits.count) * 96 + 38))
-                        .modifier(NativeFloatingSurface()).padding(.horizontal, 12)
+                    Button(action: dismissSearchResults) { Color.black.opacity(0.08).ignoresSafeArea() }
+                        .buttonStyle(.plain).accessibilityLabel(L("收起搜索结果"))
+                        .accessibilityIdentifier("reader.search.dismiss")
                 }
-                Spacer(minLength: 0)
+                VStack(spacing: 8) {
+                    if reader.chromeVisible || !reader.ready || searching { topBar }
+                    if let id = searchCursor.hitId, !searching, let index = searchHits.firstIndex(where: { $0.id == id }) {
+                        searchNavigationBar(index: index)
+                            .padding(.top, reader.chromeVisible ? 0 : 8)
+                            .transition(.opacity)
+                    }
+                    if reader.footnoteReturnVisible {
+                        Button(action: returnFromFootnote) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "arrow.uturn.backward")
+                                    .font(.system(size: 12, weight: .semibold))
+                                Text(L("返回原文")).font(NativeTheme.font(13))
+                            }
+                            .padding(.horizontal, 14)
+                            .frame(height: 34)
+                        }
+                        .buttonStyle(.plain)
+                        .modifier(NativeFloatingSurface())
+                        .accessibilityIdentifier("reader.footnote.return")
+                        .transition(.opacity)
+                    }
+                    if showingSearchResults {
+                        NativeReaderSearchResults(hits: searchHits, query: searchSubmitted, busy: searchBusy,
+                                                  final: searchFinal, scanned: searchScanned, total: searchTotal,
+                                                  error: searchError,
+                                                  jumping: jumpingToSearch, pick: jumpToSearch, close: dismissSearchResults)
+                            .frame(height: searchHits.isEmpty ? 58 : min(300, CGFloat(searchHits.count) * 96 + 38))
+                            .modifier(NativeFloatingSurface()).padding(.horizontal, 12)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: NativeAdaptiveLayout.readerToolsMaxWidth)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
         }
         .ignoresSafeArea(.keyboard)
@@ -193,11 +201,13 @@ struct NativeReaderPage: View {
         .onChange(of: scenePhase) { if $0 == .active { resyncAppAppearance() } }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
             guard let frame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
-            let screen = UIScreen.main.bounds
-            // A floating or split keyboard must not reserve the whole bottom
-            // of the reader; only a docked keyboard moves the note card.
-            keyboardHeight = frame.width >= screen.width * 0.8
-                ? max(0, screen.maxY - frame.minY) : 0
+            guard let window = store.readerController.viewIfLoaded?.window else {
+                keyboardHeight = 0
+                return
+            }
+            let localFrame = window.convert(frame, from: window.screen.coordinateSpace)
+            let overlap = NativeAdaptiveLayout.keyboardOverlap(windowBounds: window.bounds, keyboardFrame: localFrame)
+            keyboardHeight = max(0, overlap - window.safeAreaInsets.bottom)
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
             keyboardHeight = 0
@@ -289,18 +299,20 @@ struct NativeReaderPage: View {
         let name = list.fonts.first(where: { $0.key == store.preferences.readerFontFamily })?.previewName ?? ""
         bodyFontName = name.isEmpty ? "KingHwaOldSong" : name
     }
-    private var readerContent: some View {
+    private func readerContent(viewportWidth: CGFloat) -> some View {
         ZStack {
             paper.ignoresSafeArea()
             ReaderSurface(controller: store.readerController).padding(.bottom, readerBottomInset)
-            if store.preferences.readerThemeFollowsAppearance && store.preferences.colorfulMode {
-                // One continuous wash covers both the rendered page and the
-                // progress/footer paper, so following appearance never leaves
-                // a seam. It stays below the toolbars: an overlay here used to
-                // cover the bottom bar and swallow its touches.
-                NativeAmbientWash().opacity(appColorScheme == .dark ? 0.14 : 0.10)
-                    .ignoresSafeArea().allowsHitTesting(false).accessibilityHidden(true)
-            }
+                .overlay {
+                    if store.preferences.readerThemeFollowsAppearance && store.preferences.colorfulMode {
+                        // The wash spans the entire window, including the side
+                        // paper around an iPad's narrower text column. An overlay
+                        // does not enlarge the reader's pagination/touch viewport.
+                        NativeAmbientWash().opacity(appColorScheme == .dark ? 0.14 : 0.10)
+                            .frame(width: viewportWidth)
+                            .ignoresSafeArea().allowsHitTesting(false).accessibilityHidden(true)
+                    }
+                }
             if !reader.ready {
                 VStack(spacing: 16) {
                     Text(book.title).font(NativeTheme.font(21, relativeTo: .title2)).multilineTextAlignment(.center)
@@ -317,6 +329,8 @@ struct NativeReaderPage: View {
                     NativeReaderSpeechControls(state: reader.speechState, status: reader.speechStatus,
                         suspended: panel != nil || showingSearchResults, expanded: $speechExpanded,
                         settings: { panel = .speech }, pause: { run("speechPause") }, stop: { run("speechStop") })
+                        .frame(maxWidth: NativeAdaptiveLayout.readerToolsMaxWidth)
+                        .frame(maxWidth: .infinity)
                 }
                 if reader.chromeVisible && reader.ready { bottomBar }
                 else if footerVisible && reader.ready {
@@ -358,7 +372,7 @@ struct NativeReaderPage: View {
                         }
                         // Match the reader chrome's side inset so the floating
                         // note card lines up with the top and bottom bars.
-                        .frame(width: max(0, geometry.size.width - chromeSideInset * 2))
+                        .frame(width: NativeAdaptiveLayout.noteWidth(viewportWidth: geometry.size.width))
                         .padding(.horizontal, chromeSideInset)
                         .padding(.bottom, keyboardHeight + 12)
                     }
@@ -586,6 +600,8 @@ struct NativeReaderPage: View {
             .modifier(NativeFloatingSurface())
             .accessibilityElement(children: .contain).accessibilityIdentifier("reader.toolbar")
             .padding(.horizontal, chromeSideInset)
+            .frame(maxWidth: NativeAdaptiveLayout.readerToolsMaxWidth)
+            .frame(maxWidth: .infinity)
     }
     private func selectionBar(_ text: String) -> some View {
         GeometryReader { proxy in
@@ -953,12 +969,18 @@ private struct NativeTypographyPanel: View {
 
 @available(iOS 16.0, *)
 private struct NativeTypographyDetent: CustomPresentationDetent {
-    static func height(in context: Context) -> CGFloat? { min(340, context.maxDetentValue * 0.42) }
+    static func height(in context: Context) -> CGFloat? {
+        NativeAdaptiveLayout.readerSettingsHeight(maxHeight: context.maxDetentValue, isPdf: false,
+            isTablet: UIDevice.current.userInterfaceIdiom == .pad)
+    }
 }
 
 @available(iOS 16.0, *)
 private struct NativePdfTypographyDetent: CustomPresentationDetent {
-    static func height(in context: Context) -> CGFloat? { min(220, context.maxDetentValue * 0.42) }
+    static func height(in context: Context) -> CGFloat? {
+        NativeAdaptiveLayout.readerSettingsHeight(maxHeight: context.maxDetentValue, isPdf: true,
+            isTablet: UIDevice.current.userInterfaceIdiom == .pad)
+    }
 }
 
 private struct NativeTypographyPresentation: ViewModifier {

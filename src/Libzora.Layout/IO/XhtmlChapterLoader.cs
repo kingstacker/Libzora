@@ -17,7 +17,7 @@ namespace Libzora.Layout;
 public sealed class XhtmlChapterLoader
 {
     private static readonly Regex FootnoteReferencePattern = new(
-        @"(?:noteref|doc-noteref|footnote(?:[-_ ]?ref)?|endnote(?:[-_ ]?ref)?|note[-_ ]?ref|fn[-_ ]?ref)|(?:^|[#\s_-])(?:notes?|fn|ftn|footnotes?|zww?)[-_:]?\d*(?:n|ref)?(?:$|[\s#_-])",
+        @"(?:^|[\s:_.-])(?:noteref|doc-noteref|footnote(?:[-_ ]?ref(?:erence)?)?|endnote(?:[-_ ]?ref(?:erence)?)?|note[-_ ]?ref|fn[-_ ]?ref)(?=$|[\s:_.-]|\d)|linknote(?:ref)?(?=$|[\s:_.-]|\d)|(?:^|[\s_-])(?:notes?|fn|ftn|footnotes?|zww?)[-_:]?\d+(?:n|ref)?(?:$|[\s_.-])",
         RegexOptions.CultureInvariant | RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex FootnoteDefinitionTypePattern = new(
         @"(?:^|[\s:])(?:doc-)?(?:footnote|endnote)(?:$|[\s:])",
@@ -44,7 +44,7 @@ public sealed class XhtmlChapterLoader
     // noteref/footnote semantics. The visible marker is then the only signal:
     // <sup><small><a href="notes.html#filepos123">[1]</a></small></sup>.
     private static readonly Regex FootnoteMarkerTextPattern = new(
-        @"^(?:[\[［〔【(（]\s*\d{1,4}\s*[\]］〕】)）]|\d{1,4}|[注註]\s*\d{0,4}|[*†‡§¶])$",
+        @"^(?:[\[［〔【(（]\s*\d{1,4}\s*[\]］〕】)）]|\d{1,4}|[注註]\s*(?:\d{0,4}|[一二三四五六七八九十百]+)|[①-⑳⓪⓵-⓾❶-➓]|[*＊†‡§¶※]{1,3})$",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     private readonly bool _paragraphIndent;
@@ -54,6 +54,9 @@ public sealed class XhtmlChapterLoader
     private readonly Dictionary<string, int> _fragmentTextOffsets = new(StringComparer.Ordinal);
     private readonly List<string> _pendingFragmentIds = new();
     private readonly HashSet<string> _footnoteReferenceFragmentIds = new(StringComparer.Ordinal);
+    private readonly Dictionary<XElement, CssHints> _resolvedHints = new();
+    private readonly Dictionary<string, XElement> _elementsByFragment = new(StringComparer.Ordinal);
+    private readonly HashSet<XElement> _inferredFootnoteDefinitions = new();
     private readonly List<InlineItem> _pending = new();
     private readonly List<(int Start, int Length)> _rubyAnnotationRanges = new();
     private readonly List<PlainFootnoteSection> _plainFootnoteSections = new();
@@ -81,6 +84,9 @@ public sealed class XhtmlChapterLoader
         _fragmentTextOffsets.Clear();
         _pendingFragmentIds.Clear();
         _footnoteReferenceFragmentIds.Clear();
+        _resolvedHints.Clear();
+        _elementsByFragment.Clear();
+        _inferredFootnoteDefinitions.Clear();
         _pending.Clear();
         _plainFootnoteSections.Clear();
         _rubyAnnotationRanges.Clear();
@@ -110,6 +116,7 @@ public sealed class XhtmlChapterLoader
             .FirstOrDefault(e => e.Name.LocalName.Equals("body", StringComparison.OrdinalIgnoreCase));
         if (body is not null)
         {
+            IndexFootnoteTargets(body);
             TrackId(body);
             PreparePlainFootnotes(body);
             // Publisher styles often set line-height or text-align on body;
@@ -355,6 +362,13 @@ public sealed class XhtmlChapterLoader
     private void HandleFlowElement(XElement element, FlowContext ctx)
     {
         var local = element.Name.LocalName.ToLowerInvariant();
+        if (IsHidden(element))
+        {
+            // display:none content is neither laid out nor part of the offset
+            // stream: publishers use it for duplicate TOCs and print-only text.
+            return;
+        }
+
         if (IsFootnoteDefinition(element) && !ContainsVisibleFootnoteTarget(element))
         {
             FlushParagraph(ctx);
@@ -389,7 +403,8 @@ public sealed class XhtmlChapterLoader
             case "li":
                 FlushParagraph(ctx);
                 TrackId(element);
-                WalkBlockParagraph(element, BlockKind.ListItem, ctx);
+                WalkBlockParagraph(element, BlockKind.ListItem, ctx,
+                    BuildListMarker(element, ResolveHints(element), ctx));
                 break;
             case "dd":
             case "dt":
@@ -420,6 +435,12 @@ public sealed class XhtmlChapterLoader
                 break;
             case "ul":
             case "ol":
+                FlushParagraph(ctx);
+                TrackId(element);
+                var listContext = ListContext(element, ctx, local == "ol");
+                WalkFlow(element, listContext);
+                FlushParagraph(listContext);
+                break;
             case "thead":
             case "tbody":
             case "tr":
@@ -465,7 +486,7 @@ public sealed class XhtmlChapterLoader
                 // flow walker as well.
                 FlushParagraph(ctx);
                 TrackId(element);
-                WalkFlow(element, ctx.ForLink(ResolveHref((string?)element.Attribute("href")), element));
+                WalkFlow(element, LinkContext(ctx, ResolveHref((string?)element.Attribute("href")), element));
                 FlushParagraph(ctx);
                 break;
             case "style":
@@ -495,8 +516,121 @@ public sealed class XhtmlChapterLoader
         }
     }
 
-    private static bool IsSpacingParagraph(XElement element)
+    private FlowContext ListContext(XElement element, FlowContext ctx, bool ordered)
     {
+        var hints = ResolveHints(element);
+        // TOC lists already carry chapter titles; generated "1." markers
+        // would duplicate the printed numbers and add unwanted indentation.
+        var navigation = IsNavigationContext(element) || LooksLikeNavigationList(element);
+        var style = navigation ? "none" : hints.ListStyleType ?? (ordered ? "decimal" : "disc");
+        var start = 0;
+        if (ordered && int.TryParse((string?)element.Attribute("start"), out var explicitStart))
+            start = explicitStart - 1;
+        return ctx.AsList(style, new ListCounter { Value = start }, indented: !navigation);
+    }
+
+    /// <summary>
+    /// A plain list whose every item is essentially a cross-document link is
+    /// a hand-built table of contents. Generated bullets/numbers would be
+    /// visually wrong even though the markup lacks nav/epub:type.
+    /// </summary>
+    private static bool LooksLikeNavigationList(XElement list)
+    {
+        var items = list.Elements().Where(child => child.Name.LocalName == "li").ToArray();
+        if (items.Length == 0) return false;
+        foreach (var item in items)
+        {
+            var link = item.Elements().FirstOrDefault(child => child.Name.LocalName == "a");
+            if (link is null) return false;
+            var href = (string?)link.Attribute("href");
+            if (string.IsNullOrWhiteSpace(href) || href.StartsWith('#')
+                || !Uri.TryCreate(href, UriKind.RelativeOrAbsolute, out var target)
+                || (target.IsAbsoluteUri && !target.IsFile)) return false;
+            var linkText = CollapseWhitespace(link.Value);
+            var itemText = CollapseWhitespace(item.Value);
+            var nestedText = item.Elements()
+                .Where(child => child.Name.LocalName is "ul" or "ol")
+                .Sum(child => CollapseWhitespace(child.Value).Length);
+            if (linkText.Length == 0 || itemText.Length - nestedText > linkText.Length * 2 + 4)
+                return false;
+        }
+        return true;
+    }
+
+    private string? BuildListMarker(XElement item, CssHints hints, FlowContext ctx)
+    {
+        if (ctx.ListCounter is null || ctx.ListStyleType is null) return null;
+        var style = hints.ListStyleType ?? ctx.ListStyleType;
+        if (style == "none") return null;
+        var number = ctx.ListCounter.Value + 1;
+        if (int.TryParse((string?)item.Attribute("value"), out var explicitValue))
+            number = explicitValue;
+        ctx.ListCounter.Value = number;
+        return FormatListMarker(style, number) + " ";
+    }
+
+    private static string FormatListMarker(string style, int number)
+    {
+        return style switch
+        {
+            "disc" => "•",
+            "circle" => "○",
+            "square" => "■",
+            "decimal-leading-zero" => number.ToString("00", CultureInfo.InvariantCulture) + ".",
+            "lower-alpha" or "lower-latin" => AlphaNumber(number).ToLowerInvariant() + ".",
+            "upper-alpha" or "upper-latin" => AlphaNumber(number).ToUpperInvariant() + ".",
+            "lower-roman" => RomanNumber(number).ToLowerInvariant() + ".",
+            "upper-roman" => RomanNumber(number) + ".",
+            "cjk-ideographic" or "cjk-decimal" or "chinese-counting" => ChineseNumber(number),
+            _ => number.ToString(CultureInfo.InvariantCulture) + ".",
+        };
+    }
+
+    private static string AlphaNumber(int number)
+    {
+        if (number is >= 1 and <= 26) return ((char)('a' + number - 1)).ToString();
+        return number.ToString(CultureInfo.InvariantCulture);
+    }
+
+    private static string RomanNumber(int number)
+    {
+        if (number is < 1 or > 3999) return number.ToString(CultureInfo.InvariantCulture);
+        var values = new (int Value, string Text)[]
+        {
+            (1000, "M"), (900, "CM"), (500, "D"), (400, "CD"), (100, "C"), (90, "XC"),
+            (50, "L"), (40, "XL"), (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I"),
+        };
+        var builder = new StringBuilder();
+        foreach (var (value, text) in values)
+        {
+            while (number >= value)
+            {
+                builder.Append(text);
+                number -= value;
+            }
+        }
+        return builder.ToString();
+    }
+
+    private static string ChineseNumber(int number)
+    {
+        if (number is < 1 or > 99) return number.ToString(CultureInfo.InvariantCulture);
+        var digits = "〇一二三四五六七八九";
+        if (number < 10) return digits[number].ToString();
+        var tens = number / 10;
+        var ones = number % 10;
+        return (tens == 1 ? "十" : digits[tens] + "十") + (ones == 0 ? string.Empty : digits[ones].ToString());
+    }
+
+    private bool IsHidden(XElement element)
+    {
+        var hidden = element.Attribute("hidden");
+        if (hidden is not null && !hidden.Value.Equals("false", StringComparison.OrdinalIgnoreCase))
+            return true;
+        return ResolveHints(element).Hidden;
+    }
+
+    private static bool IsSpacingParagraph(XElement element)    {
         var children = element.Elements().ToArray();
         if (children.Length != 1
             || !children[0].Name.LocalName.Equals("br", StringComparison.OrdinalIgnoreCase)
@@ -538,6 +672,12 @@ public sealed class XhtmlChapterLoader
 
         if (value.Length > 0)
         {
+            if (ctx.FootnoteHref is null
+                && (ctx.BaseStyle.Casing != TypesetTextCasing.None || ctx.BaseStyle.SmallCaps))
+            {
+                AppendCasedText(value, start, ctx);
+                return;
+            }
             _pending.Add(new InlineItem
             {
                 // Keep a linked footnote reference such as "[3]" together.
@@ -556,11 +696,107 @@ public sealed class XhtmlChapterLoader
         }
     }
 
-    private void WalkBlockParagraph(XElement element, BlockKind kind, FlowContext ctx)
+    /// <summary>
+    /// Applies publisher text-transform/small-caps to the visible text only.
+    /// BodyText keeps the original characters so annotation offsets, search
+    /// and TTS still address the published source. ASCII case mapping keeps
+    /// one output character per source character.
+    /// </summary>
+    private void AppendCasedText(string value, int start, FlowContext ctx)
+    {
+        var style = ctx.BaseStyle;
+        var builder = new StringBuilder();
+        var segmentStart = 0;
+        var segmentFactor = 1f;
+        var capitalizeNext = style.Casing == TypesetTextCasing.Capitalize;
+
+        void Flush(int end)
+        {
+            if (builder.Length == 0) return;
+            var baseFactor = style.FontSizeFactor > 0f ? style.FontSizeFactor : 1f;
+            _pending.Add(new InlineItem
+            {
+                Kind = InlineKind.Text,
+                Text = builder.ToString(),
+                TextStart = start + segmentStart,
+                Style = style with
+                {
+                    FontSizeFactor = Math.Clamp(baseFactor * segmentFactor, 0.5f, 3f),
+                },
+                LinkHref = ctx.LinkHref,
+                FootnoteHref = ctx.FootnoteHref,
+            });
+            builder.Clear();
+            segmentStart = end;
+        }
+
+        for (var index = 0; index < value.Length; index++)
+        {
+            var source = value[index];
+            var displayed = source;
+            var lower = char.IsAsciiLetterLower(source);
+            switch (style.Casing)
+            {
+                case TypesetTextCasing.Uppercase:
+                    displayed = char.ToUpperInvariant(source);
+                    break;
+                case TypesetTextCasing.Lowercase:
+                    displayed = char.ToLowerInvariant(source);
+                    break;
+                case TypesetTextCasing.Capitalize:
+                    if (char.IsAsciiLetter(source))
+                    {
+                        if (capitalizeNext) displayed = char.ToUpperInvariant(source);
+                        capitalizeNext = false;
+                    }
+                    else if (char.IsWhiteSpace(source))
+                    {
+                        capitalizeNext = true;
+                    }
+                    break;
+            }
+
+            var factor = 1f;
+            if (style.SmallCaps && lower)
+            {
+                displayed = char.ToUpperInvariant(source);
+                factor = 0.78f;
+            }
+
+            if (builder.Length > 0 && Math.Abs(factor - segmentFactor) > 0.001f)
+                Flush(index);
+            if (builder.Length == 0) segmentFactor = factor;
+            builder.Append(displayed);
+        }
+        Flush(value.Length);
+    }
+
+    private void WalkBlockParagraph(XElement element, BlockKind kind, FlowContext ctx, string? listMarker = null)
     {
         var id = Id(element);
         var hints = ResolveHints(element);
-        var paragraphCtx = ctx.ForBlock(kind, hints, id);
+        var paragraphCtx = ctx.ForBlock(kind, hints, id).WithListMarker(listMarker);
+        if (listMarker is not null)
+        {
+            // The marker is synthetic: TextStart -1 keeps it out of the body
+            // offset stream used by annotations, search and TTS.
+            _pending.Add(new InlineItem
+            {
+                Kind = InlineKind.Text,
+                Text = listMarker,
+                TextStart = -1,
+                Style = paragraphCtx.BaseStyle with
+                {
+                    NoWrap = true,
+                    Underline = false,
+                    Strikeout = false,
+                    Superscript = false,
+                    Subscript = false,
+                    Casing = TypesetTextCasing.None,
+                    SmallCaps = false,
+                },
+            });
+        }
         WalkInlineContent(element, paragraphCtx);
         FlushParagraph(paragraphCtx);
     }
@@ -585,6 +821,10 @@ public sealed class XhtmlChapterLoader
     private void WalkInlineElement(XElement element, FlowContext ctx)
     {
         var local = element.Name.LocalName.ToLowerInvariant();
+        if (IsHidden(element))
+        {
+            return;
+        }
         // Inside a table cell, flushing would emit a separate block and drop
         // the cell text collected so far; keep the note inline instead.
         if (!_buildingTableCells
@@ -629,8 +869,9 @@ public sealed class XhtmlChapterLoader
                 // descendant link into the parent list item's paragraph.
                 FlushParagraph(ctx);
                 TrackId(element);
-                WalkFlow(element, ctx);
-                FlushParagraph(ctx);
+                var nestedList = ListContext(element, ctx, local == "ol");
+                WalkFlow(element, nestedList);
+                FlushParagraph(nestedList);
                 break;
             case "br":
                 TrackId(element);
@@ -691,9 +932,9 @@ public sealed class XhtmlChapterLoader
             {
                 TrackId(element);
                 var href = ResolveHref((string?)element.Attribute("href"));
-                var inner = ctx.ForLink(href, element);
-                if (inner.FootnoteHref is not null && Id(element) is { } referenceId)
-                    _footnoteReferenceFragmentIds.Add(referenceId);
+                var inner = LinkContext(ctx, href, element);
+                if (inner.FootnoteHref is not null)
+                    _footnoteReferenceFragmentIds.UnionWith(FragmentIds(element));
                 WalkInlineContent(element, inner);
                 break;
             }
@@ -706,6 +947,7 @@ public sealed class XhtmlChapterLoader
 
     private void AppendInlineElement(XElement element, FlowContext ctx)
     {
+        if (IsHidden(element)) return;
         var local = element.Name.LocalName.ToLowerInvariant();
         var style = ctx.BaseStyle;
 
@@ -732,7 +974,10 @@ public sealed class XhtmlChapterLoader
                 style = style with { Strikeout = true };
                 break;
             case "sup":
-                style = style with { Superscript = true };
+                style = style with { Superscript = true, Subscript = false };
+                break;
+            case "sub":
+                style = style with { Subscript = true, Superscript = false };
                 break;
         }
 
@@ -751,6 +996,22 @@ public sealed class XhtmlChapterLoader
         {
             style = style with { NoWrap = true };
         }
+
+        if (hints.Superscript is { } superscript)
+        {
+            style = style with { Superscript = superscript, Subscript = superscript ? false : style.Subscript };
+        }
+
+        if (hints.Subscript is { } subscript)
+        {
+            style = style with { Subscript = subscript, Superscript = subscript ? false : style.Superscript };
+        }
+
+        if (hints.Underline is { } underline) style = style with { Underline = underline };
+        if (hints.Strikeout is { } strikeout) style = style with { Strikeout = strikeout };
+        if (!float.IsNaN(hints.LetterSpacingEm)) style = style with { LetterSpacingEm = hints.LetterSpacingEm };
+        if (hints.Casing is { } casing) style = style with { Casing = casing };
+        if (hints.SmallCaps is { } smallCaps) style = style with { SmallCaps = smallCaps };
 
         if (hints.VerticalTextCombineLimit >= 0)
         {
@@ -861,7 +1122,7 @@ public sealed class XhtmlChapterLoader
 
     private bool ContainsVisibleFootnoteTarget(XElement element) =>
         !string.IsNullOrEmpty(_visibleFootnoteFragment)
-        && element.DescendantsAndSelf().Any(node => Id(node) == _visibleFootnoteFragment);
+        && element.DescendantsAndSelf().Any(node => FragmentIds(node).Contains(_visibleFootnoteFragment));
 
     private void PreserveFootnoteDefinition(XElement element)
     {
@@ -877,9 +1138,7 @@ public sealed class XhtmlChapterLoader
 
         var definitionIds = element
             .DescendantsAndSelf()
-            .Select(Id)
-            .Where(id => !string.IsNullOrWhiteSpace(id))
-            .Select(id => id!)
+            .SelectMany(FragmentIds)
             .Distinct(StringComparer.Ordinal)
             .ToArray();
         foreach (var fragmentId in definitionIds)
@@ -936,6 +1195,8 @@ public sealed class XhtmlChapterLoader
             TextIndentEm = ctx.TextIndentEm,
             SpaceBeforeLines = ctx.SpaceBeforeLines,
             SpaceAfterLines = ctx.SpaceAfterLines,
+            ListMarker = ctx.ListMarker,
+            ListLevel = ctx.ListLevel,
             LineHeightFactor = ctx.LineHeightFactor,
             MarginTopEm = ctx.MarginTopEm,
             MarginBottomEm = ctx.MarginBottomEm,
@@ -967,7 +1228,7 @@ public sealed class XhtmlChapterLoader
             foreach (var rowElement in TableRowElements(table))
             {
                 var cellElements = rowElement.Elements()
-                    .Where(child => child.Name.LocalName is "td" or "th")
+                    .Where(child => (child.Name.LocalName is "td" or "th") && !IsHidden(child))
                     .ToList();
                 if (cellElements.Count == 0)
                 {
@@ -1167,18 +1428,18 @@ public sealed class XhtmlChapterLoader
 
     private static string? GetFootnoteText(XElement element)
     {
-        var value = (string?)element.Attribute("alt")
-            ?? (string?)element.Attribute("title")
-            ?? (string?)element.Attribute("data-footnote-text");
-        if (string.IsNullOrWhiteSpace(value))
+        // Converter payloads contain the note, whereas alt may only be an
+        // empty image description or its number. Empty attributes must not
+        // mask a useful fallback attribute.
+        foreach (var name in new[] { "data-footnote-text", "zy-footnote", "data-note", "alt", "title" })
         {
-            return null;
+            var value = (string?)element.Attribute(name);
+            if (string.IsNullOrWhiteSpace(value) || IsMarker(value)
+                || (name == "data-note" && bool.TryParse(value, out _))) continue;
+            var normalized = CollapseWhitespace(value);
+            return normalized.Length <= 1200 ? normalized : normalized[..1200] + "…";
         }
-
-        var normalized = string.Join(
-            " ",
-            value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
-        return normalized.Length <= 1200 ? normalized : normalized[..1200] + "…";
+        return null;
     }
 
     private void AddImageBlock(XElement element, FlowContext? ctx = null)
@@ -2001,7 +2262,85 @@ public sealed class XhtmlChapterLoader
 
     // ---- helpers ---------------------------------------------------------
 
-    private static string? Id(XElement element) => (string?)element.Attribute("id");
+    private void IndexFootnoteTargets(XElement body)
+    {
+        foreach (var element in body.DescendantsAndSelf())
+        {
+            _cancellationToken.ThrowIfCancellationRequested();
+            foreach (var fragment in FragmentIds(element))
+                _elementsByFragment.TryAdd(fragment, element);
+        }
+
+        // A reciprocal pair is stronger evidence than any particular ID
+        // spelling. Only the definition's leading marker may be the backlink;
+        // ordinary numbered cross-references and TOC entries stay visible.
+        foreach (var reference in body.Descendants().Where(element => element.Name.LocalName == "a"))
+        {
+            _cancellationToken.ThrowIfCancellationRequested();
+            if (IsNavigationContext(reference) || !IsMarker(reference.Value)) continue;
+            var target = LocalTarget(ResolveHref((string?)reference.Attribute("href")));
+            var block = target is null ? null : NearestFootnoteBlock(target);
+            var backlink = block is null ? null : LeadingMarkerLink(block);
+            if (backlink is null || backlink == reference) continue;
+            var returnHref = ResolveHref((string?)backlink.Attribute("href"));
+            var returnFragment = GetHrefFragment(returnHref);
+            if (LocalTarget(returnHref) is null || returnFragment is null
+                || !ReferenceFragmentIds(reference).Contains(returnFragment)) continue;
+            var referenceBlock = NearestFootnoteBlock(reference);
+            if (referenceBlock is not null && LeadingMarkerLink(referenceBlock) == reference
+                && !IsSuperscriptMarkerLink(reference) && !HasReferenceMarkup(reference)) continue;
+            _inferredFootnoteDefinitions.Add(block!);
+        }
+    }
+
+    private XElement? LocalTarget(string? href)
+    {
+        if (!Uri.TryCreate(href, UriKind.Absolute, out var uri) || !uri.IsFile
+            || !string.Equals(uri.LocalPath, _chapterPath, PathComparison)) return null;
+        var fragment = GetHrefFragment(href);
+        return fragment is not null && _elementsByFragment.TryGetValue(fragment, out var target) ? target : null;
+    }
+
+    private static XElement? NearestFootnoteBlock(XElement element) =>
+        element.AncestorsAndSelf().FirstOrDefault(node => node.Name.LocalName is
+            "p" or "li" or "dd" or "aside" or "blockquote" or "section" or "article" or "div");
+
+    private static XElement? LeadingMarkerLink(XElement block)
+    {
+        foreach (var node in block.DescendantNodes())
+        {
+            if (node is XElement element && element.Name.LocalName == "a" && IsMarker(element.Value)
+                && !string.IsNullOrWhiteSpace((string?)element.Attribute("href"))) return element;
+            if (node is XText text && !string.IsNullOrWhiteSpace(text.Value)) return null;
+        }
+        return null;
+    }
+
+    private static bool IsMarker(string text) => FootnoteMarkerTextPattern.IsMatch(CollapseWhitespace(text));
+
+    private static bool IsNavigationContext(XElement element) => element.AncestorsAndSelf().Any(node =>
+        node.Name.LocalName == "nav"
+        || node.Attributes().Any(attribute => attribute.Name.LocalName is "class" or "type" or "role"
+            && attribute.Value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
+                .Any(token => token is "toc" or "doc-toc" or "contents")));
+
+    private static IEnumerable<string> ReferenceFragmentIds(XElement element)
+    {
+        foreach (var node in element.AncestorsAndSelf().TakeWhile(node => node == element || IsInlineTag(node.Name.LocalName)))
+            foreach (var fragment in FragmentIds(node)) yield return fragment;
+        var previous = element.NodesBeforeSelf().LastOrDefault(node => node is not XText text || !string.IsNullOrWhiteSpace(text.Value));
+        if (previous is XElement anchor && anchor.Name.LocalName == "a" && string.IsNullOrWhiteSpace(anchor.Value))
+            foreach (var fragment in FragmentIds(anchor)) yield return fragment;
+    }
+
+    private static IEnumerable<string> FragmentIds(XElement element) => element.Attributes()
+        .Where(attribute => attribute.Name.LocalName == "id"
+            || (attribute.Name.LocalName == "name" && element.Name.LocalName.Equals("a", StringComparison.OrdinalIgnoreCase)))
+        .Select(attribute => attribute.Value)
+        .Where(value => !string.IsNullOrWhiteSpace(value))
+        .Distinct(StringComparer.Ordinal);
+
+    private static string? Id(XElement element) => FragmentIds(element).FirstOrDefault();
 
     private static bool IsFootnoteImage(XElement element)
     {
@@ -2022,7 +2361,10 @@ public sealed class XhtmlChapterLoader
             || value.Equals("fnote", StringComparison.OrdinalIgnoreCase));
     }
 
-    private static bool IsFootnoteDefinition(XElement element)
+    private bool IsFootnoteDefinition(XElement element) =>
+        _inferredFootnoteDefinitions.Contains(element) || HasFootnoteDefinitionMarkup(element);
+
+    private static bool HasFootnoteDefinitionMarkup(XElement element)
     {
         var semanticType = string.Join(
             " ",
@@ -2064,12 +2406,8 @@ public sealed class XhtmlChapterLoader
     /// </summary>
     private static bool LooksLikeConvertedFootnoteDefinition(XElement element)
     {
-        var first = element.Elements().FirstOrDefault();
-        if (first is null
-            || !first.Name.LocalName.Equals("a", StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
+        var first = LeadingMarkerLink(element);
+        if (first is null) return false;
 
         var href = (string?)first.Attribute("href");
         var fragment = GetHrefFragment(href);
@@ -2107,8 +2445,7 @@ public sealed class XhtmlChapterLoader
 
     private void TrackId(XElement element)
     {
-        var id = Id(element);
-        if (!string.IsNullOrEmpty(id))
+        foreach (var id in FragmentIds(element))
         {
             _fragmentIds.Add(id);
             _pendingFragmentIds.Add(id);
@@ -2117,6 +2454,7 @@ public sealed class XhtmlChapterLoader
 
     private CssHints ResolveHints(XElement element)
     {
+        if (_resolvedHints.TryGetValue(element, out var cached)) return cached;
         var classes = ((string?)element.Attribute("class") ?? string.Empty)
             .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         var ancestorClasses = element.Ancestors()
@@ -2130,7 +2468,7 @@ public sealed class XhtmlChapterLoader
             ancestorClasses) ?? CssHints.None;
         var inline = MicroCss.ParseInlineStyle((string?)element.Attribute("style"));
 
-        return new CssHints
+        var resolved = new CssHints
         {
             Bold = hints.Bold || inline.Bold,
             Italic = hints.Italic || inline.Italic,
@@ -2138,6 +2476,17 @@ public sealed class XhtmlChapterLoader
             AlignRight = hints.AlignRight || inline.AlignRight,
             NoJustify = hints.NoJustify || inline.NoJustify,
             NoWrap = hints.NoWrap || inline.NoWrap,
+            Superscript = inline.Superscript ?? hints.Superscript,
+            Subscript = inline.Subscript ?? hints.Subscript,
+            Hidden = hints.Hidden || inline.Hidden,
+            Underline = inline.Underline ?? hints.Underline,
+            Strikeout = inline.Strikeout ?? hints.Strikeout,
+            LetterSpacingEm = float.IsNaN(inline.LetterSpacingEm)
+                ? hints.LetterSpacingEm
+                : inline.LetterSpacingEm,
+            Casing = inline.Casing ?? hints.Casing,
+            SmallCaps = inline.SmallCaps ?? hints.SmallCaps,
+            ListStyleType = inline.ListStyleType ?? hints.ListStyleType,
             VerticalTextCombineLimit = inline.VerticalTextCombineLimit >= 0
                 ? inline.VerticalTextCombineLimit
                 : hints.VerticalTextCombineLimit,
@@ -2178,6 +2527,8 @@ public sealed class XhtmlChapterLoader
                 ? hints.BorderLeftEm
                 : inline.BorderLeftEm,
         };
+        _resolvedHints[element] = resolved;
+        return resolved;
     }
 
     private static bool IsInlineTag(string local) =>
@@ -2306,6 +2657,12 @@ public sealed class XhtmlChapterLoader
         public required IReadOnlyDictionary<string, string> Notes { get; init; }
     }
 
+    /// <summary>Shared by sibling list items; nested lists own a fresh counter.</summary>
+    private sealed class ListCounter
+    {
+        public int Value { get; set; }
+    }
+
     private sealed record FlowContext
     {
         public BlockKind Kind { get; private init; }
@@ -2329,6 +2686,10 @@ public sealed class XhtmlChapterLoader
         public string? FootnoteHref { get; private init; }
         public string? ElementId { get; private init; }
         public bool ParagraphIndentEnabled { get; private init; }
+        public int ListLevel { get; private init; }
+        public ListCounter? ListCounter { get; private init; }
+        public string? ListStyleType { get; private init; }
+        public string? ListMarker { get; private init; }
 
         public static FlowContext Root(bool paragraphIndent) => new()
         {
@@ -2345,6 +2706,31 @@ public sealed class XhtmlChapterLoader
             TextIndentEm = ParagraphIndentEnabled ? 2f : 0f,
             SpaceBeforeLines = 0.78f,
             SpaceAfterLines = 0.78f,
+        };
+
+        public FlowContext AsList(string styleType, ListCounter counter, bool indented = true) => this with
+        {
+            ListLevel = indented ? ListLevel + 1 : ListLevel,
+            ListStyleType = styleType,
+            ListCounter = counter,
+            ListMarker = null,
+        };
+
+        public FlowContext WithListMarker(string? marker) => marker is null
+            ? this
+            : this with { ListMarker = marker, TextIndentEm = 0f };
+
+        private TypesetInlineStyle MergeTextHints(TypesetInlineStyle style, CssHints hints) => style with
+        {
+            Underline = hints.Underline ?? style.Underline,
+            Strikeout = hints.Strikeout ?? style.Strikeout,
+            Superscript = hints.Superscript ?? style.Superscript,
+            Subscript = hints.Subscript ?? style.Subscript,
+            LetterSpacingEm = float.IsNaN(hints.LetterSpacingEm)
+                ? style.LetterSpacingEm
+                : hints.LetterSpacingEm,
+            Casing = hints.Casing ?? style.Casing,
+            SmallCaps = hints.SmallCaps ?? style.SmallCaps,
         };
 
         public FlowContext WithElementId(string? elementId) => this with { ElementId = elementId };
@@ -2375,7 +2761,7 @@ public sealed class XhtmlChapterLoader
             LineHeightFactor = float.IsNaN(hints.LineHeightFactor)
                 ? LineHeightFactor
                 : hints.LineHeightFactor,
-            BaseStyle = BaseStyle with
+            BaseStyle = MergeTextHints(BaseStyle, hints) with
             {
                 FontSizeFactor = ScaleFontSize(BaseStyle.FontSizeFactor, hints.FontSizeFactor),
                 VerticalTextCombineLimit = hints.VerticalTextCombineLimit >= 0
@@ -2391,7 +2777,7 @@ public sealed class XhtmlChapterLoader
             var indented = !isHeading
                 && !hints.Center
                 && ParagraphIndentEnabled
-                && kind is BlockKind.Paragraph or BlockKind.ListItem;
+                && kind == BlockKind.Paragraph;
             return this with
             {
                 Kind = kind,
@@ -2412,7 +2798,7 @@ public sealed class XhtmlChapterLoader
                 MarginRightEm = MarginOrZero(hints.MarginRightEm),
                 PaddingLeftEm = MarginOrZero(hints.PaddingLeftEm),
                 PaddingRightEm = MarginOrZero(hints.PaddingRightEm),
-                BaseStyle = (isHeading ? BaseStyle with { Bold = true } : BaseStyle) with
+                BaseStyle = MergeTextHints(isHeading ? BaseStyle with { Bold = true } : BaseStyle, hints) with
                 {
                     FontSizeFactor = ScaleFontSize(BaseStyle.FontSizeFactor, hints.FontSizeFactor),
                     VerticalTextCombineLimit = hints.VerticalTextCombineLimit >= 0
@@ -2450,7 +2836,7 @@ public sealed class XhtmlChapterLoader
                 LineHeightFactor = float.IsNaN(hints.LineHeightFactor)
                     ? LineHeightFactor
                     : hints.LineHeightFactor,
-                BaseStyle = BaseStyle with
+                BaseStyle = MergeTextHints(BaseStyle, hints) with
                 {
                     Bold = BaseStyle.Bold || hints.Bold || header,
                     Italic = BaseStyle.Italic || hints.Italic,
@@ -2464,131 +2850,117 @@ public sealed class XhtmlChapterLoader
             };
         }
 
-        public FlowContext ForLink(string? href, XElement element)
+        public FlowContext ForLink(string? href, bool isFootnoteReference, bool isBacklink)
         {
-            var metadata = string.Join(
-                " ",
-                element.Attributes()
-                    .Where(attribute => attribute.Name.LocalName is "type" or "role" or "rel" or "class" or "id")
-                    .Select(attribute => attribute.Value));
-            var reference = string.Join(" ", href, metadata);
-            var isFootnoteReference = XhtmlChapterLoader.IsFootnoteReference(reference)
-                || XhtmlChapterLoader.IsLegacyFootnoteReference(href, element);
-            if (string.IsNullOrWhiteSpace(href) && !isFootnoteReference)
-            {
-                return this;
-            }
-
-            if (!isFootnoteReference)
-            {
-                return this with { LinkHref = href };
-            }
-
-            // The link on a footnote definition points back to the body
-            // reference (for example id="notes1n" href="#notes1"). It is
-            // still a link, but it is not a superscript reference marker.
-            // Treating both directions alike made the definition's [1]
-            // shrink and rise above the baseline, which is especially
-            // noticeable on a page containing many notes.
-            if (XhtmlChapterLoader.IsFootnoteDefinitionBacklink(href, element))
+            if (string.IsNullOrWhiteSpace(href)) return this;
+            if (isBacklink)
             {
                 return this with
                 {
                     LinkHref = href,
-                    BaseStyle = BaseStyle with
-                    {
-                        NoWrap = true,
-                        Superscript = false,
-                    },
+                    FootnoteHref = null,
+                    BaseStyle = BaseStyle with { NoWrap = true, Superscript = false, Subscript = false },
                 };
             }
-
+            if (!isFootnoteReference)
+                return this with { LinkHref = href, FootnoteHref = null };
             return this with
             {
+                LinkHref = null,
                 FootnoteHref = href,
-                BaseStyle = BaseStyle with
-                {
-                    NoWrap = true,
-                    Superscript = true,
-                },
+                BaseStyle = BaseStyle with { NoWrap = true, Superscript = true, Subscript = false },
             };
         }
 
         public FlowContext WithStyle(TypesetInlineStyle style) => this with { BaseStyle = style };
     }
 
-    private static bool IsFootnoteReference(string value) =>
-        !string.IsNullOrWhiteSpace(value) && FootnoteReferencePattern.IsMatch(value);
-
-    private static bool IsLegacyFootnoteReference(string? href, XElement element)
+    private FlowContext LinkContext(FlowContext context, string? href, XElement element)
     {
-        var targetFragment = GetHrefFragment(href);
-        var referenceId = Id(element);
-        if (referenceId is not null
-            && Regex.IsMatch(referenceId, @"^id\d+$", RegexOptions.CultureInvariant)
-            && targetFragment == referenceId + "a"
-            && Regex.IsMatch(element.Value.Trim(), @"^[\[［〔]\s*\d+\s*[\]］〕]$", RegexOptions.CultureInvariant))
-        {
-            return true;
-        }
+        var isBacklink = IsFootnoteDefinitionBacklink(href, element);
+        return context.ForLink(href, !isBacklink && IsFootnoteReferenceLink(href, element), isBacklink);
+    }
 
-        // Some converters keep no semantic attributes at all; the superscript
-        // wrapper and the marker text are the only footnote signals, e.g.
-        // <sup><small><a href="notes.html#filepos123">[1]</a></small></sup>.
-        if (targetFragment is not null && IsSuperscriptMarkerLink(element))
-        {
-            return true;
-        }
+    private bool IsFootnoteReferenceLink(string? href, XElement element)
+    {
+        // Inspect fragment IDs and markup, never the entire absolute path.
+        // A book named "footnotes" must not turn every chapter link into a note.
+        if (!Uri.TryCreate(href, UriKind.Absolute, out var targetUri) || !targetUri.IsFile
+            || string.IsNullOrEmpty(targetUri.Fragment) || IsNavigationContext(element)) return false;
+        if (HasReferenceMarkup(element)) return true;
+        var target = LocalTarget(href);
+        // Duokan-style EPUBs use a small image with an empty alt as the whole
+        // reference, e.g. <a id="A_1" href="#B_1"><img alt=""/></a>. The target
+        // being an explicit note definition is the signal, not the link text.
+        if (target is not null && !IsNavigationContext(target)
+            && target.AncestorsAndSelf().Any(IsFootnoteDefinition)) return true;
+        if (!IsMarker(element.Value)) return false;
 
-        if (!HasNumericIdPrefix(targetFragment, 'm'))
-        {
+        if (target is not null && (IsNavigationContext(target)
+            || target.AncestorsAndSelf().Any(node => node.Name.LocalName is "h1" or "h2" or "h3" or "h4" or "h5" or "h6")))
             return false;
-        }
 
-        if (HasNumericIdPrefix(Id(element), 'w'))
-        {
-            return true;
-        }
-
-        // Some converted EPUBs put the body anchor in an empty sibling just
-        // before the actual link, for example: <a id="w1"></a><a
-        // href="#m1"><sup>[1]</sup></a>.
-        var previousAnchor = element.ElementsBeforeSelf()
-            .Reverse()
-            .FirstOrDefault(candidate => candidate.Name.LocalName.Equals("a", StringComparison.OrdinalIgnoreCase));
-        return previousAnchor is not null && HasNumericIdPrefix(Id(previousAnchor), 'w');
+        var fragment = GetHrefFragment(href);
+        return fragment is not null && (FootnoteReferencePattern.IsMatch(fragment)
+            || ReferenceFragmentIds(element).Any(id => IsLegacyFootnotePair(id, fragment))
+            || IsSuperscriptMarkerLink(element));
     }
 
-    private static bool HasNumericIdPrefix(string? value, char prefix)
+    private static bool HasReferenceMarkup(XElement element) => element.AncestorsAndSelf()
+        .TakeWhile(node => node == element || IsInlineTag(node.Name.LocalName))
+        .Any(node => node.Attributes().Any(attribute =>
+            attribute.Name.LocalName is "type" or "role" or "rel" or "class" or "id"
+            && FootnoteReferencePattern.IsMatch(attribute.Value)));
+
+    private static bool IsLegacyFootnotePair(string reference, string definition)
     {
-        return value is { Length: > 1 }
-            && value[0] == prefix
-            && value[1..].All(char.IsDigit);
+        if (Regex.IsMatch(reference, @"^z\d+$", RegexOptions.CultureInvariant)) return definition == "b" + reference;
+        if (Regex.IsMatch(reference, @"^w\d+$", RegexOptions.CultureInvariant)) return definition == "m" + reference[1..];
+        if (Regex.IsMatch(reference, @"^A[_-]\d+$", RegexOptions.CultureInvariant)) return definition == "B" + reference[1..];
+        if (Regex.IsMatch(reference, @"^id\d+$", RegexOptions.CultureInvariant)) return definition == reference + "a";
+        if (Regex.IsMatch(reference, @"^(?:notes?|fn|ftn)\d+$", RegexOptions.CultureInvariant)) return definition == reference + "n";
+        if (reference.StartsWith("commentRef_", StringComparison.Ordinal)) return definition == "comment_" + reference[11..];
+        if (reference.Contains("_noteBack_", StringComparison.Ordinal)) return definition == reference.Replace("_noteBack_", "_note_", StringComparison.Ordinal);
+        if (reference.StartsWith("fnref", StringComparison.Ordinal)) return definition == "fn" + reference[5..];
+        if (Regex.IsMatch(reference, @"^zww\d+$", RegexOptions.CultureInvariant)) return definition == "zw" + reference[3..];
+        if (reference.StartsWith("linknoteref-", StringComparison.Ordinal))
+            return definition == "linknote-" + reference["linknoteref-".Length..];
+        return false;
     }
 
-    private static bool IsSuperscriptMarkerLink(XElement element)
+    private bool IsSuperscriptMarkerLink(XElement element)
     {
-        var value = element.Value.Trim();
-        if (value.Length == 0 || !FootnoteMarkerTextPattern.IsMatch(value))
-        {
-            return false;
-        }
+        if (!IsMarker(element.Value)) return false;
+        // CSS-created superscripts are common in Chinese EPUBs. Stop at the
+        // containing block instead of inheriting unrelated container metadata.
+        return element.AncestorsAndSelf().TakeWhile(node => node == element || IsInlineTag(node.Name.LocalName)).Any(IsSuperscript)
+            || element.Descendants().Any(IsSuperscript);
 
-        return element.Ancestors().Take(6).Any(IsSuperscript)
-            || element.Descendants().Take(8).Any(IsSuperscript);
-
-        static bool IsSuperscript(XElement node) =>
-            node.Name.LocalName.Equals("sup", StringComparison.OrdinalIgnoreCase);
+        bool IsSuperscript(XElement node) => node.Name.LocalName == "sup" || ResolveHints(node).Superscript == true;
     }
 
-    private static bool IsFootnoteDefinitionBacklink(string? href, XElement element)
+    private bool IsFootnoteDefinitionBacklink(string? href, XElement element)
     {
-        var id = Id(element);
-        var targetFragment = GetHrefFragment(href);
-        return id is { Length: > 1 }
-            && id.EndsWith('n')
-            && targetFragment is { Length: > 0 }
-            && !targetFragment.EndsWith('n');
+        var role = string.Join(' ', element.Attributes()
+            .Where(attribute => attribute.Name.LocalName is "type" or "role" or "rel" or "class")
+            .Select(attribute => attribute.Value));
+        if (role.Contains("backlink", StringComparison.OrdinalIgnoreCase)) return true;
+        var fragment = GetHrefFragment(href);
+        if (fragment is null) return false;
+        if (FragmentIds(element).Any(id => IsLegacyFootnotePair(fragment, id))) return true;
+        // Gutenberg's reverse link is <a id="linknote-3" href="#linknoteref-3">.
+        // It belongs to the note text and must stay a normal link, otherwise
+        // the notes chapter grows a second set of markers that resolve to the
+        // body paragraph rather than the note.
+        if (FragmentIds(element).Any(id => id.StartsWith("linknote-", StringComparison.Ordinal)
+            && fragment == "linknoteref-" + id["linknote-".Length..])) return true;
+        if (!IsMarker(element.Value) || !element.Ancestors().Any(IsFootnoteDefinition)) return false;
+        // A real noteref inside a definition can open another note; do not
+        // confuse it with the leading link that returns to this note's source.
+        if (element.Attributes().Any(attribute => attribute.Name.LocalName is "type" or "role" or "rel"
+            && attribute.Value.Contains("noteref", StringComparison.OrdinalIgnoreCase))) return false;
+        var target = LocalTarget(href);
+        return target is null || !target.AncestorsAndSelf().Any(IsFootnoteDefinition);
     }
 
     private static string? GetHrefFragment(string? href)

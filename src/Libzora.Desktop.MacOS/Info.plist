@@ -7,6 +7,16 @@
        subdirectory, so that executable needs its own language declaration. -->
   <key>CFBundleName</key><string>Libzora</string>
   <key>CFBundleDisplayName</key><string>Libzora</string>
+  <key>CFBundleIdentifier</key><string>io.github.kingstacker.libzora</string>
+  <key>NSUbiquitousContainers</key>
+  <dict>
+    <key>iCloud.com.kingstacker.libzora</key>
+    <dict>
+      <key>NSUbiquitousContainerIsDocumentScopePublic</key><false/>
+      <key>NSUbiquitousContainerName</key><string>Libzora</string>
+      <key>NSUbiquitousContainerSupportedFolderLevels</key><string>Any</string>
+    </dict>
+  </dict>
   <key>CFBundleDevelopmentRegion</key><string>en</string>
   <key>CFBundleLocalizations</key>
   <array>

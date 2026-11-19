@@ -30,6 +30,7 @@ internal static class DesktopApplicationBootstrap
             StartupSettings = startupSettings,
             UpdateInstaller = services?.UpdateInstaller,
             SyncService = services?.SyncService,
+            SyncProviders = services?.SyncProviders,
             TtsCacheDirectory = services?.TtsCacheDirectory,
             RetrievalLog = message => Debug.WriteLine($"[RAG] {message}")
         });

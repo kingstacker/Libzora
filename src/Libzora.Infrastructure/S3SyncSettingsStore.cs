@@ -70,6 +70,7 @@ public sealed class S3SyncSettingsStore
                 WebDavEndpoint = persisted.WebDavEndpoint ?? string.Empty,
                 WebDavUsername = Unprotect(persisted.ProtectedWebDavUsername),
                 WebDavPassword = Unprotect(persisted.ProtectedWebDavPassword),
+                ICloudAccountIdentity = persisted.ICloudAccountIdentity ?? string.Empty,
                 Bucket = persisted.Bucket ?? string.Empty,
                 Region = persisted.Region ?? "us-east-1",
                 PathStyle = persisted.PathStyle,
@@ -86,7 +87,7 @@ public sealed class S3SyncSettingsStore
             // Older settings files predate the explicit-choice flag. Preserve
             // their custom connection; a removed official-cloud choice needs user review.
             if (persisted.ProviderChosenByUser is null && persisted.Provider != SyncProvider.AccountServer
-                && (settings.Provider == SyncProvider.WebDav
+                && (settings.Provider is SyncProvider.WebDav or SyncProvider.ICloud
                     || !string.IsNullOrWhiteSpace(settings.Endpoint)
                     || !string.IsNullOrWhiteSpace(settings.AccessKey)
                     || !string.IsNullOrWhiteSpace(settings.SecretKey)
@@ -150,6 +151,7 @@ public sealed class S3SyncSettingsStore
             WebDavEndpoint = normalized.WebDavEndpoint,
             ProtectedWebDavUsername = Protect(normalized.WebDavUsername),
             ProtectedWebDavPassword = Protect(normalized.WebDavPassword),
+            ICloudAccountIdentity = normalized.ICloudAccountIdentity,
             Bucket = normalized.Bucket,
             Region = normalized.Region,
             PathStyle = normalized.PathStyle,
@@ -217,6 +219,7 @@ public sealed class S3SyncSettingsStore
         public string? WebDavEndpoint { get; set; }
         public string? ProtectedWebDavUsername { get; set; }
         public string? ProtectedWebDavPassword { get; set; }
+        public string? ICloudAccountIdentity { get; set; }
         public string? Bucket { get; set; }
         public string? Region { get; set; }
         public bool PathStyle { get; set; }

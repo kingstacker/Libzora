@@ -165,7 +165,16 @@ struct SyncForm: Codable {
     var accountServerUrl = ""
     var accountUserId = "00000000-0000-0000-0000-000000000000"
 }
-struct SyncFormSnapshot: Decodable { let settings: SyncForm; let summary: String }
+struct NativeSyncProviderOption: Decodable, Identifiable {
+    let provider: Int
+    let displayName: String
+    var id: Int { provider }
+}
+struct SyncFormSnapshot: Decodable {
+    let settings: SyncForm
+    let summary: String
+    let providers: [NativeSyncProviderOption]?
+}
 
 struct AiForm: Codable {
     var provider = "deepseek"

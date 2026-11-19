@@ -31,18 +31,20 @@ struct NativeMaterials: View {
         let books = Dictionary(store.library.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         return ScrollView {
             VStack(spacing: 0) {
-                HStack {
-                    Text(L("阅读资料")).font(NativeTheme.pageTitleFont).accessibilityIdentifier("page.materials")
-                    Spacer()
+                HStack(spacing: 0) {
+                    NativePageTitle(title: L("阅读资料"), identifier: "page.materials")
+                    Spacer(minLength: 0)
                     Text(count == 1 ? L("1 条") : L("{0} 条", count))
                         .font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(mutedText)
+                        .lineLimit(1).padding(.trailing, 10)
                     Menu {
                         Button(L("导出 Markdown")) { export(true) }; Button(L("导出纯文本")) { export(false) }
-                    } label: { Text(L("导出")).font(NativeTheme.font(14)).frame(minHeight: 44) }
+                    } label: { Text(L("导出")).font(NativeTheme.font(14)).frame(width: 44, height: 44) }
                         .disabled(exporting || count == 0).accessibilityLabel(L("导出阅读资料"))
-                }.padding(.horizontal, 24).padding(.top, 20).padding(.bottom, 10)
+                }.modifier(NativePageMasthead())
                 Picker(L("资料筛选"), selection: $filter) { Text(L("全部")).tag("all"); Text(L("划线")).tag("highlight"); Text(L("笔记")).tag("note"); Text(L("书签")).tag("bookmark") }
-                    .pickerStyle(.segmented).padding(.horizontal, 12).padding(.bottom, 8)
+                    .pickerStyle(.segmented).frame(minHeight: NativeAdaptiveLayout.mastheadHeight)
+                    .padding(.horizontal, 12).padding(.top, 8).padding(.bottom, 8)
                 LazyVStack(alignment: .leading, spacing: 0) {
                     if loading { ProgressView(L("正在读取阅读资料…")).frame(maxWidth: .infinity).padding(.top, 96) }
                     if !loading && count == 0 {
@@ -75,8 +77,10 @@ struct NativeMaterials: View {
                             Color.clear.frame(height: 6)
                         }
                     }
-                }.padding(.horizontal, 24).padding(.top, 4).padding(.bottom, 28)
+                }.padding(.horizontal, NativeAdaptiveLayout.pageInset).padding(.top, 4).padding(.bottom, 28)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .contain).accessibilityIdentifier("materials.content")
         }.refreshable { await load() }
             .background(NativeAmbientBackground()).navigationBarHidden(true)
             .overlay(alignment: .top) { NativeStatusBarGlass() }
@@ -122,10 +126,14 @@ struct NativeReadingDashboard: View {
     private var secondaryText: Color { store.preferences.colorfulMode ? NativeTheme.secondaryOnColorful : NativeTheme.secondary }
 
     var body: some View {
-        ScrollView {
+        GeometryReader { geometry in
+            let width = NativeAdaptiveLayout.pageWidth(viewportWidth: geometry.size.width)
+            ScrollView {
             VStack(spacing: 0) {
-                Text(L("阅读数据")).font(NativeTheme.pageTitleFont).frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 24).padding(.top, 20).padding(.bottom, 10).accessibilityIdentifier("page.dashboard")
+                HStack(spacing: 0) {
+                    NativePageTitle(title: L("阅读数据"), identifier: "page.dashboard")
+                    Spacer(minLength: 0)
+                }.modifier(NativePageMasthead())
             VStack(alignment: .leading, spacing: 28) {
                 if let value {
                     VStack(alignment: .leading, spacing: 4) {
@@ -136,7 +144,8 @@ struct NativeReadingDashboard: View {
                         }
                         Text(L("连续阅读 {0} 天", value.streak)).font(NativeTheme.font(13)).foregroundStyle(mutedText)
                     }
-                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10),
+                        count: NativeAdaptiveLayout.dashboardColumns(pageWidth: width)), spacing: 10) {
                         statistic(L("已开始"), L("{0} 本", value.dashboard.booksStarted), detail: String(format: L("平均进度 %.1f%%"), value.dashboard.averageProgress))
                         statistic(L("已读完"), L("{0} 本", value.dashboard.booksFinished), detail: L("共 {0} 本书", value.dashboard.books.count))
                         statistic(L("书签"), "\(value.dashboard.bookmarkCount)")
@@ -182,12 +191,16 @@ struct NativeReadingDashboard: View {
                         }
                     }
                 } else { ProgressView(L("正在读取阅读数据…")).frame(maxWidth: .infinity).padding(.top, 70) }
-            }.padding(.horizontal, 24).padding(.top, 16).padding(.bottom, 36)
+            }.padding(.horizontal, NativeAdaptiveLayout.pageInset).padding(.top, 16).padding(.bottom, 36)
             }
-        }.refreshable { await load() }
-            .background(NativeAmbientBackground()).navigationBarHidden(true)
-            .overlay(alignment: .top) { NativeStatusBarGlass() }
-            .task(id: "\(period):\(store.uiLanguage)") { await load() }
+            .frame(width: width)
+            .accessibilityElement(children: .contain).accessibilityIdentifier("dashboard.content")
+            .frame(maxWidth: .infinity)
+            }.refreshable { await load() }
+                .background(NativeAmbientBackground()).navigationBarHidden(true)
+                .overlay(alignment: .top) { NativeStatusBarGlass() }
+                .task(id: "\(period):\(store.uiLanguage)") { await load() }
+        }
     }
     private func durationValue(_ seconds: Int64) -> String {
         String(format: "%.1f", Double(seconds) / (seconds < 3600 ? 60 : 3600))

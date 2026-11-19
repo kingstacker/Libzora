@@ -116,7 +116,9 @@ public partial class MainWindow
     private void UpdateAccountSyncPresentation()
     {
         SyncProviderBox.SetValue(Avalonia.Controls.ToolTip.TipProperty,
-            UiText.Get("仅支持自备 S3 / WebDAV，不提供官方云同步。"));
+            _s3SyncService.AvailableProviders.Any(provider => provider.Provider == SyncProvider.ICloud)
+                ? UiText.Get("可使用 iCloud 云盘或自备 S3 / WebDAV 同步书籍、阅读进度和批注。")
+                : UiText.Get("仅支持自备 S3 / WebDAV，不提供官方云同步。"));
         if (!AccountAvailability.EnforceSyncEntitlements)
         {
             SyncMembershipNoticeText.Text = "";

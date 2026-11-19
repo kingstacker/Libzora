@@ -13,9 +13,27 @@ enum NativeTheme {
 
     /// The window's real top inset. SwiftUI geometry inside a page can report
     /// zero here, while the status-bar glass needs the device value.
-    static var statusBarHeight: CGFloat {
+    private static var activeWindow: UIWindow? {
         let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
-        return (windows.first { $0.isKeyWindow } ?? windows.first { !$0.isHidden })?.safeAreaInsets.top ?? 0
+        return windows.first { $0.isKeyWindow } ?? windows.first { !$0.isHidden }
+    }
+
+    static var statusBarHeight: CGFloat { activeWindow?.safeAreaInsets.top ?? 0 }
+
+    /// Use the actual tab bar, including its safe-area gap. iPadOS moves it to
+    /// the top in a wide window and back to the bottom in compact Split View.
+    static var bottomTabBarInset: CGFloat {
+        guard let window = activeWindow, let root = window.rootViewController else { return 0 }
+        func tabBar(in controller: UIViewController) -> UITabBar? {
+            if let tabs = controller as? UITabBarController { return tabs.tabBar }
+            for child in controller.children {
+                if let bar = tabBar(in: child) { return bar }
+            }
+            return nil
+        }
+        guard let bar = tabBar(in: root), !bar.isHidden, bar.window === window else { return 0 }
+        let frame = bar.convert(bar.bounds, to: window)
+        return frame.minY > window.bounds.midY ? max(0, window.bounds.maxY - frame.minY) : 0
     }
 
     private static func color(_ light: UInt32, _ dark: UInt32) -> Color {
@@ -87,6 +105,27 @@ enum NativeTheme {
         UITabBarItem.appearance().setTitleTextAttributes([.font: uiFont(10)], for: .selected)
         UITabBar.appearance().tintColor = .label
         UITabBar.appearance().unselectedItemTintColor = .secondaryLabel
+    }
+}
+
+/// Shared title geometry for every top-level page, including the shelf.
+struct NativePageTitle: View {
+    let title: String
+    let identifier: String
+
+    var body: some View {
+        Text(title).font(NativeTheme.pageTitleFont)
+            .lineLimit(1).frame(minHeight: NativeAdaptiveLayout.mastheadHeight)
+            .accessibilityIdentifier(identifier)
+    }
+}
+
+/// Keep page headers on the same window edges, independent of their content.
+struct NativePageMasthead: ViewModifier {
+    func body(content: Content) -> some View {
+        content.frame(minHeight: NativeAdaptiveLayout.mastheadHeight)
+            .padding(.leading, NativeAdaptiveLayout.pageInset).padding(.trailing, 12)
+            .padding(.top, NativeAdaptiveLayout.mastheadTopInset).padding(.bottom, 4)
     }
 }
 
@@ -268,7 +307,8 @@ struct NativeForm<Content: View>: View {
     var body: some View {
         List {
             content
-                .listRowInsets(EdgeInsets(top: 13, leading: 24, bottom: 13, trailing: 24))
+                .listRowInsets(EdgeInsets(top: 13, leading: NativeAdaptiveLayout.pageInset,
+                                         bottom: 13, trailing: NativeAdaptiveLayout.pageInset))
                 .listRowSeparator(.hidden).listRowBackground(store.preferences.colorfulMode ? Color.clear : NativeTheme.page)
         }.listStyle(.plain).textCase(nil).font(NativeTheme.font()).buttonStyle(.borderless)
             .modifier(NativeListBackground())

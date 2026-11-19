@@ -58,6 +58,7 @@ struct NativeLibraryPage: View {
     var body: some View {
         let expandedSeries = expandedSeriesID.flatMap { store.seriesSnapshot(for: $0) }
         GeometryReader { geometry in
+            let pageWidth = NativeAdaptiveLayout.pageWidth(viewportWidth: geometry.size.width)
             ScrollView {
                 VStack(spacing: 0) {
                     NativeLibraryScrollReader(state: scrollState)
@@ -65,9 +66,11 @@ struct NativeLibraryPage: View {
                         .opacity(floatingMasthead ? 0 : 1)
                         .accessibilityHidden(floatingMasthead)
                     if !store.libraryLoaded, let error = store.libraryLoadError { libraryFailure(error) }
-                    else if store.preferences.collectionsView { foldersView(width: geometry.size.width) }
-                    else { booksView(width: geometry.size.width) }
+                    else if store.preferences.collectionsView { foldersView(width: pageWidth) }
+                    else { booksView(width: pageWidth) }
                 }
+                .frame(width: pageWidth)
+                .frame(maxWidth: .infinity)
                 .background {
                     GeometryReader { content in
                         Color.clear
@@ -111,6 +114,8 @@ struct NativeLibraryPage: View {
                 .overlay(alignment: .top) {
                     if floatingMasthead {
                         masthead(floating: true)
+                            .frame(width: pageWidth)
+                            .frame(maxWidth: .infinity)
                             .zIndex(1)
                             .transition(.move(edge: .top).combined(with: .opacity))
                     }
@@ -191,10 +196,8 @@ struct NativeLibraryPage: View {
                 NativeSearchField(text: $query, prompt: store.preferences.collectionsView ? L("搜索收藏夹") : L("搜索书名或作者"),
                                   focused: $searchFocused, identifier: "library.search") { searchFocused = false }
             } else {
-                Text(store.preferences.collectionsView ? L("收藏夹") : L("书库"))
-                    .font(NativeTheme.pageTitleFont)
-                    .frame(minHeight: 44)
-                    .accessibilityIdentifier("library.view.title")
+                NativePageTitle(title: store.preferences.collectionsView ? L("收藏夹") : L("书库"),
+                                identifier: "library.view.title")
                 Spacer(minLength: 0)
             }
             Button {
@@ -217,7 +220,7 @@ struct NativeLibraryPage: View {
             }.buttonStyle(.plain).disabled(importing || folderBusy)
                 .accessibilityLabel(store.preferences.collectionsView ? L("新建收藏夹") : L("导入书籍"))
                 .accessibilityIdentifier("library.import")
-        }.padding(.leading, 24).padding(.trailing, 12).padding(.top, 16).padding(.bottom, 4)
+        }.modifier(NativePageMasthead())
             .background {
                 if floating {
                     NativeMastheadGlass(scroll: scrollState, colors: nil)
@@ -277,7 +280,7 @@ struct NativeLibraryPage: View {
                                     destinations: bookDestinations, actions: { bookActions($0) })
                 }
             }
-        }.padding(.horizontal, 24).padding(.top, 8).padding(.bottom, 28)
+        }.padding(.horizontal, NativeAdaptiveLayout.pageInset).padding(.top, 8).padding(.bottom, 28)
     }
     private func closeSeries() {
         withAnimation(.easeOut(duration: 0.2)) { expandedSeriesID = nil }
@@ -335,7 +338,8 @@ struct NativeLibraryPage: View {
         }
     }
     private func foldersView(width: CGFloat) -> some View {
-        let cardWidth = max(1, (width - 48 - 14) / 2)
+        let grid = NativeAdaptiveLayout.collectionGrid(pageWidth: width)
+        let cardWidth = grid.itemWidth
         let folders = store.folders.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }
         return VStack(alignment: .leading, spacing: 16) {
             HStack {
@@ -343,7 +347,7 @@ struct NativeLibraryPage: View {
                 Spacer()
                 NativeLibraryDisplayMenu(store: store)
             }
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)], spacing: 14) {
+            LazyVGrid(columns: Array(repeating: GridItem(.fixed(cardWidth), spacing: grid.spacing), count: grid.columns), spacing: grid.spacing) {
                 ForEach(folders) { folder in
                     NavigationLink { NativeCollectionPage(store: store, folderId: folder.id) } label: {
                         NativeFolderCard(folder: folder, books: store.library.filter { $0.collectionIds.contains(folder.id) }, width: cardWidth)
@@ -369,10 +373,10 @@ struct NativeLibraryPage: View {
                     }.frame(maxWidth: .infinity).frame(height: cardWidth * 1.48)
                     .overlay(RoundedRectangle(cornerRadius: 18).stroke(NativeTheme.strong, style: StrokeStyle(lineWidth: 1.4, dash: [3, 3])))
                 }.buttonStyle(.plain).accessibilityIdentifier("collection.create")
-            }
+            }.accessibilityElement(children: .contain).accessibilityIdentifier("collections.grid")
             Text(L("长按收藏夹可重命名、清空、合并或解散。"))
                 .font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(mutedText)
-        }.padding(.horizontal, 24).padding(.top, 14).padding(.bottom, 28).disabled(folderBusy)
+        }.padding(.horizontal, NativeAdaptiveLayout.pageInset).padding(.top, 14).padding(.bottom, 28).disabled(folderBusy)
     }
     private func bookActions(_ book: LibraryBook, beforeReading: @escaping () -> Void = {}) -> [NativeBookMenuItem] {
         [
@@ -650,11 +654,8 @@ struct NativeBookShelf: View {
     private static let columnSpacing: CGFloat = 16
     private static let seriesEdgeWidth: CGFloat = 14
 
-    static func columnCount(pageWidth: CGFloat) -> Int { max(3, Int((pageWidth - 32) / 136)) }
-    static func coverWidth(pageWidth: CGFloat) -> CGFloat {
-        let columns = columnCount(pageWidth: pageWidth)
-        return max(1, (pageWidth - 48 - CGFloat(columns - 1) * columnSpacing) / CGFloat(columns))
-    }
+    static func columnCount(pageWidth: CGFloat) -> Int { NativeAdaptiveLayout.bookGrid(pageWidth: pageWidth).columns }
+    static func coverWidth(pageWidth: CGFloat) -> CGFloat { NativeAdaptiveLayout.bookGrid(pageWidth: pageWidth).itemWidth }
     private var columns: Int { Self.columnCount(pageWidth: pageWidth) }
     private var coverWidth: CGFloat { Self.coverWidth(pageWidth: pageWidth) }
     private var galleryMode: Bool { store.preferences.galleryMode && !store.preferences.listView }
@@ -1058,11 +1059,14 @@ private struct NativeBookSeriesOverlay: View {
         GeometryReader { geometry in
             let margin: CGFloat = 16
             let gap: CGFloat = 8
-            let panelWidth = min(520, max(0, geometry.size.width - 2 * margin))
-            let coverWidth = NativeBookShelf.coverWidth(pageWidth: geometry.size.width)
-            let headerHeight = max(44, scaledHeaderHeight)
-            let rowHeight = coverWidth * 1.45 + metadataHeight + 14
-            let panelHeight = headerHeight + rowHeight + 12
+            let metrics = NativeAdaptiveLayout.seriesPanel(in: geometry.size,
+                preferredCoverWidth: NativeBookShelf.coverWidth(pageWidth: geometry.size.width),
+                headerHeight: scaledHeaderHeight, metadataHeight: metadataHeight)
+            let panelWidth = metrics.width
+            let coverWidth = metrics.coverWidth
+            let headerHeight = metrics.headerHeight
+            let rowHeight = metrics.rowHeight
+            let panelHeight = metrics.height
             let source = anchor.map { geometry[$0] }
             let bottom = geometry.size.height - margin
             let x = min(max(source?.midX ?? geometry.size.width / 2, margin + panelWidth / 2),
@@ -1078,7 +1082,7 @@ private struct NativeBookSeriesOverlay: View {
                     .onTapGesture(perform: close)
                     .accessibilityHidden(true)
                 panel(coverWidth: coverWidth, headerHeight: headerHeight, rowHeight: rowHeight)
-                    .frame(width: panelWidth)
+                    .frame(width: panelWidth, height: panelHeight)
                     .modifier(NativeBookSeriesGlass())
                     .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("books.series.detail")
@@ -1107,7 +1111,7 @@ private struct NativeBookSeriesOverlay: View {
             }
             .frame(height: headerHeight)
             .padding(.leading, 18).padding(.trailing, 6)
-            ScrollView(.horizontal, showsIndicators: false) {
+            ScrollView([.horizontal, .vertical], showsIndicators: false) {
                 LazyHStack(alignment: .top, spacing: 14) {
                     ForEach(store.booksInDisplayOrder(for: series)) { book in
                         let lifted = previewCenter.request?.source == .seriesVolume && previewCenter.request?.id == book.id

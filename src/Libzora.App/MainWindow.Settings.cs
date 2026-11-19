@@ -798,8 +798,22 @@ public partial class MainWindow
         await _mainReaderAiSettingsLoadTask;
     }
 
+    private void EnsureSyncProviderItems()
+    {
+        // Provider enum 2 is retired, so an item's index is not its wire value.
+        // Populate before controls load their saved provider, not during the
+        // later auto-save setup (which would reset a restored iCloud choice).
+        var providers = _s3SyncService.AvailableProviders;
+        if (SyncProviderBox.Items.OfType<ComboBoxItem>().Select(item => item.Tag)
+            .SequenceEqual(providers.Select(provider => (object)provider.Provider))) return;
+        SyncProviderBox.Items.Clear();
+        foreach (var provider in providers)
+            SyncProviderBox.Items.Add(new ComboBoxItem { Content = provider.DisplayName, Tag = provider.Provider });
+    }
+
     private void ConfigureS3SettingsDraftTracking()
     {
+        EnsureSyncProviderItems();
         ToggleSwitch[] switches = [S3SyncEnabledCheck, S3AutomaticSyncCheck, S3DownloadBookFilesCheck, S3PathStyleCheck, S3SkipTlsVerifyCheck];
         foreach (var control in switches) control.IsCheckedChanged += (_, _) => S3SettingsFieldChanged();
         TextBox[] fields = [S3EndpointBox, S3AccessKeyBox, S3SecretKeyBox, S3BucketBox, S3RegionBox, S3PrefixBox, S3EncryptionKeyBox,
@@ -820,13 +834,23 @@ public partial class MainWindow
         UpdateS3SettingsDraftState();
     }
 
+    private SyncProvider SelectedSyncProvider => SyncProviderBox.SelectedItem is ComboBoxItem { Tag: SyncProvider provider }
+        ? provider : _s3SyncStoredSettings.Settings.Provider;
+
     private void UpdateSyncProviderControls()
     {
-        var webDav = SyncProviderBox.SelectedIndex == (int)SyncProvider.WebDav;
-        SetProviderVisibility(S3ConnectionPanel, !webDav);
+        var provider = SelectedSyncProvider;
+        var s3 = provider == SyncProvider.S3;
+        var webDav = provider == SyncProvider.WebDav;
+        var iCloud = provider == SyncProvider.ICloud;
+        SetProviderVisibility(S3ConnectionPanel, s3);
         SetProviderVisibility(WebDavConnectionPanel, webDav);
-        SetProviderVisibility(S3RegionRow, !webDav);
-        SetProviderVisibility(S3PathStyleCheck, !webDav);
+        SetProviderVisibility(ICloudConnectionPanel, iCloud && _s3SyncService.AvailableProviders.Any(item => item.Provider == SyncProvider.ICloud));
+        SetProviderVisibility(S3RegionRow, s3);
+        SetProviderVisibility(S3PathStyleCheck, s3);
+        SetProviderVisibility(S3SkipTlsVerifyCheck, !iCloud);
+        SetProviderVisibility(S3ConcurrencyRow, !iCloud);
+        SetProviderVisibility(SettingsS3ProfileExpander, !iCloud);
         _settingsSearchCache.Clear();
         if (!string.IsNullOrWhiteSpace(SettingsSearchBox.Text))
             SettingsSearchBox_TextChanged(null, new TextChangedEventArgs(TextBox.TextChangedEvent));
@@ -865,7 +889,9 @@ public partial class MainWindow
         var requiresProviderConfirmation = saved.IsConfigured && !saved.HasChosenCustomProvider;
         var draftStatus = _s3SettingsSaving ? T("正在保存同步设置…")
             : _s3SettingsDirty ? T("有未保存的修改 · 保存后生效")
-            : requiresProviderConfirmation ? T("请确认自备 S3 / WebDAV 连接信息并保存后再同步。")
+            : requiresProviderConfirmation ? saved.Provider == SyncProvider.ICloud
+                ? T("请确认同步方式并保存后再同步。")
+                : T("请确认自备 S3 / WebDAV 连接信息并保存后再同步。")
             : saved.IsConfigured ? T("配置已保存 · 立即同步使用当前保存的配置")
             : T("尚未配置 · 填写连接信息后保存");
         S3DraftStatusText.Text = ReadS3SyncSettingsFromControls().ProviderName + " · " + draftStatus;
@@ -874,7 +900,8 @@ public partial class MainWindow
         S3DiscardSettingsButton.IsEnabled = !_s3SyncBusy && !_s3SettingsSaving && _s3SettingsDirty;
         S3TestConnectionButton.IsEnabled = !_s3SyncBusy && !_s3SettingsSaving && _s3TestConnectionCancellation is null;
         S3SyncNowButton.IsEnabled = !_s3SyncBusy && !_s3SettingsSaving && !_s3SettingsDirty
-            && saved.IsConfigured && saved.HasChosenCustomProvider;
+            && saved.IsConfigured && saved.HasChosenCustomProvider
+            && _s3SyncService.AvailableProviders.Any(provider => provider.Provider == saved.Provider);
     }
 
     private void S3DiscardSettingsButton_Click(object? sender, RoutedEventArgs e)

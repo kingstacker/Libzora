@@ -27,6 +27,7 @@ public static class MobileComposition
             SecretProtector = services.SecretProtector,
             MetadataService = services.MetadataService,
             FormatConverter = services.FormatConverter,
+            SyncProviders = services.SyncProviders,
             StartupSettings = settings
         });
     }

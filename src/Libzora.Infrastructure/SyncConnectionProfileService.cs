@@ -17,8 +17,12 @@ public static class SyncConnectionProfileService
         WriteIndented = true
     };
 
-    public static string FileExtension(SyncProvider provider) => provider == SyncProvider.WebDav
-        ? WebDavFileExtension : S3ConnectionProfileService.FileExtension;
+    public static string FileExtension(SyncProvider provider) => provider switch
+    {
+        SyncProvider.S3 => S3ConnectionProfileService.FileExtension,
+        SyncProvider.WebDav => WebDavFileExtension,
+        _ => throw new NotSupportedException(UiText.Get("此同步方式无需导入或导出连接参数。"))
+    };
 
     public static async Task ExportAsync(string destinationPath, S3SyncSettings settings, CancellationToken cancellationToken = default)
     {

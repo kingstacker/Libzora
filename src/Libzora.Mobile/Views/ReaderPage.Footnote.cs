@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using Libzora.Core;
 using Libzora.Infrastructure;
@@ -404,11 +405,25 @@ public partial class ReaderPage
     private static string FootnoteTitle(string? marker)
     {
         var value = (marker ?? string.Empty).Trim();
-        if (value.Length == 0 || value == "注") return UiText.Get("注释");
-        var trimmed = value.Trim('[', ']', '【', '】', '(', ')', '（', '）').Trim();
+        if (value.Length == 0 || value is "注" or "註") return UiText.Get("注释");
+        var trimmed = FootnoteLabelCore(value, normalizeEnclosedNumber: false);
         if (trimmed.Length == 0) return UiText.Get("注释");
         if (trimmed.Length > 12) trimmed = trimmed[..12];
         return UiText.Get("注 {0}", trimmed);
+    }
+
+    private static string FootnoteLabelCore(string label, bool normalizeEnclosedNumber = true)
+    {
+        var core = label.Trim('[', ']', '［', '］', '〔', '〕', '【', '】', '(', ')', '（', '）').Trim();
+        if (core.Length > 0 && core[0] is '注' or '註') core = core[1..].Trim();
+        if (normalizeEnclosedNumber && core.Length == 1
+            && char.GetUnicodeCategory(core[0]) == UnicodeCategory.OtherNumber)
+        {
+            var number = char.GetNumericValue(core[0]);
+            if (number >= 0 && number <= 50 && number == Math.Truncate(number))
+                core = ((int)number).ToString(CultureInfo.InvariantCulture);
+        }
+        return core;
     }
 
     /// <summary>
@@ -420,47 +435,33 @@ public partial class ReaderPage
     {
         var label = (marker ?? string.Empty).Trim();
         if (label.Length == 0 || text.Length == 0) return text;
-        var core = label.Trim('[', ']', '【', '】', '(', ')', '（', '）').Trim();
-        if (core.StartsWith('注')) core = core[1..].TrimStart(' ', '　');
+        var core = FootnoteLabelCore(label);
         if (core.Length == 0) core = label;
-
-        // A bracketed marker is unambiguous even when the note text follows it
-        // without a space, as in Calibre's "<a>[1]</a>野人：…".
-        if (label.Length > 2
-            && "[(［〔【（".Contains(label[0])
-            && "])］〕】）".Contains(label[^1])
-            && text.StartsWith(label, StringComparison.Ordinal))
-        {
-            var rest = text[label.Length..].TrimStart(
-                ' ', '\t', '　', '：', ':', '、', '。', '，', ',', '.', '．', ')', '）', '】', ']');
-            if (rest.Length > 0) return rest;
-        }
-
         var candidates = new[]
         {
-            label,
-            core,
-            "注" + core,
-            "注 " + core,
-            "[" + core + "]",
-            "【" + core + "】",
+            label, core, "注" + core, "注 " + core, "註" + core, "註 " + core,
+            "[" + core + "]", "［" + core + "］", "〔" + core + "〕", "【" + core + "】",
+            "(" + core + ")", "（" + core + "）",
         };
         foreach (var candidate in candidates.Distinct(StringComparer.Ordinal))
         {
             if (!text.StartsWith(candidate, StringComparison.Ordinal)) continue;
             var rest = text[candidate.Length..];
             if (rest.Length == 0) continue;
+            // Publishers may use a bare "1" in the body and "[1]" in the
+            // definition. Brackets identify the label even without whitespace;
+            // bare digits still require a separator so "1月…" stays intact.
+            var bracketed = candidate.Length > 2 && "[(［〔【（".Contains(candidate[0])
+                && "])］〕】）".Contains(candidate[^1]);
+            var enclosedNumber = candidate.Length == 1
+                && char.GetUnicodeCategory(candidate[0]) == UnicodeCategory.OtherNumber;
             var separator = rest[0];
             var dotSeparator = separator is '.' or '．' or '，' or ','
                 && (rest.Length == 1 || char.IsWhiteSpace(rest[1]));
-            if (!char.IsWhiteSpace(separator)
-                && !"：:、。）)】]".Contains(separator)
-                && !dotSeparator)
-            {
-                continue;
-            }
-            rest = rest.TrimStart(' ', '\t', '　', '：', ':', '、', '。', '，', ',', '.', '．',
-                '）', ')', '】', ']');
+            if (!bracketed && !enclosedNumber && !char.IsWhiteSpace(separator)
+                && !"：:、。）)】]〕］".Contains(separator) && !dotSeparator) continue;
+            rest = rest.TrimStart(' ', '\t', '\r', '\n', '　', '：', ':', '、', '。', '，', ',', '.', '．',
+                '）', ')', '】', ']', '〕', '］');
             if (rest.Length > 0) return rest;
         }
         return text;

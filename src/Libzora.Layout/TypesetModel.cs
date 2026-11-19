@@ -35,6 +35,15 @@ public enum TypesetVerticalOrientation
     Sideways,
 }
 
+/// <summary>Publisher `text-transform` applied to the visible text only.</summary>
+public enum TypesetTextCasing
+{
+    None,
+    Uppercase,
+    Lowercase,
+    Capitalize,
+}
+
 public enum HotZoneKind
 {
     Link,
@@ -67,6 +76,18 @@ public readonly record struct TypesetInlineStyle(
     /// default; headings and `<span style="font-size:...">` scale from here.
     /// </summary>
     public float FontSizeFactor { get; init; } = 1f;
+
+    /// <summary>Subscript content sits below the baseline and is scaled down.</summary>
+    public bool Subscript { get; init; }
+
+    /// <summary>Publisher letter-spacing in em; NaN keeps the reader default.</summary>
+    public float LetterSpacingEm { get; init; } = float.NaN;
+
+    /// <summary>Publisher text-transform; display only, the offset stream is unchanged.</summary>
+    public TypesetTextCasing Casing { get; init; }
+
+    /// <summary>Small-caps renders lowercase letters as smaller capitals.</summary>
+    public bool SmallCaps { get; init; }
 }
 
 /// <summary>
@@ -117,6 +138,10 @@ public sealed class ContentBlock
     public float TextIndentEm { get; init; }
     public float SpaceBeforeLines { get; init; }
     public float SpaceAfterLines { get; init; }
+    /// <summary>Visible marker generated from list-style-type, e.g. "1." or "•".</summary>
+    public string? ListMarker { get; init; }
+    /// <summary>One for a top-level list, increasing for nested lists.</summary>
+    public int ListLevel { get; init; }
     /// <summary>
     /// Publisher `line-height` as a multiple of the body font size. Zero keeps
     /// the reader's own line height, so user settings still win for unstyled

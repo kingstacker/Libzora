@@ -334,6 +334,7 @@ jobs:
           APPLE_NOTARY_KEY_BASE64: ${{ secrets.APPLE_NOTARY_KEY_BASE64 }}
           APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
           APPLE_NOTARY_ISSUER: ${{ secrets.APPLE_NOTARY_ISSUER }}
+          APPLE_ICLOUD_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_ICLOUD_PROVISIONING_PROFILE_BASE64 }}
         shell: bash
         run: |
           set -euo pipefail
@@ -354,6 +355,14 @@ jobs:
             echo "Configure APPLE_CERTIFICATE_P12_BASE64, APPLE_CERTIFICATE_PASSWORD, APPLE_NOTARY_KEY_BASE64, APPLE_NOTARY_KEY_ID and APPLE_NOTARY_ISSUER together, or leave all of them unset for an ad-hoc build." >&2
             exit 1
           fi
+
+          if [[ -z "${APPLE_ICLOUD_PROVISIONING_PROFILE_BASE64:-}" ]]; then
+            echo "Configure APPLE_ICLOUD_PROVISIONING_PROFILE_BASE64 with a Developer ID profile authorizing iCloud.com.kingstacker.libzora." >&2
+            exit 1
+          fi
+          icloud_profile="$RUNNER_TEMP/libzora-icloud.provisionprofile"
+          printf '%s' "$APPLE_ICLOUD_PROVISIONING_PROFILE_BASE64" | base64 -D > "$icloud_profile"
+          chmod 600 "$icloud_profile"
 
           keychain="$RUNNER_TEMP/libzora-signing.keychain-db"
           keychain_password="${APPLE_KEYCHAIN_PASSWORD:-$(openssl rand -hex 24)}"
@@ -387,6 +396,8 @@ jobs:
             echo "APPLE_NOTARY_KEY_ID=$APPLE_NOTARY_KEY_ID"
             echo "APPLE_NOTARY_ISSUER=$APPLE_NOTARY_ISSUER"
             echo "APPLE_REQUIRE_NOTARIZATION=1"
+            echo "APPLE_ICLOUD_PROVISIONING_PROFILE=$icloud_profile"
+            echo "APPLE_REQUIRE_ICLOUD=1"
           } >> "$GITHUB_ENV"
           echo "Configured Developer ID signing and notarization."
       - name: Build macOS package

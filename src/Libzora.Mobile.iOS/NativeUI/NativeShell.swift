@@ -40,6 +40,11 @@ struct NativeShell: View {
             .allowsHitTesting(!showingLaunch)
             .accessibilityHidden(showingLaunch)
             .task { await store.prepareLaunch(viewport: geometry.size) }
+            .onChange(of: geometry.size) { _ in
+                // A preview's source frame belongs to the previous window size.
+                // Dismiss only the transient overlay, never the tab/navigation state.
+                previewCenter.dismiss()
+            }
         }
         .font(NativeTheme.font()).foregroundStyle(NativeTheme.ink).tint(NativeTheme.ink)
         .environment(\.symbolVariants, .none)
@@ -227,12 +232,13 @@ enum NativeCoverCache {
             let request = Request(path: path, version: book.updatedAt, pixels: Int(width * 3))
             if !requests.contains(request) { requests.append(request) }
         }
-        let width = max(1, viewport.width)
-        let height = max(1, viewport.height - 49) // Tab bar, outside the shelf's scroll view.
+        let width = max(1, NativeAdaptiveLayout.pageWidth(viewportWidth: viewport.width))
+        let height = max(1, viewport.height - 49) // Conservative initial toolbar estimate.
         if preferences.collectionsView {
-            let cardWidth = max(1, (width - 48 - 14) / 2)
-            let rows = max(1, Int(ceil(max(1, height - 124) / (cardWidth * 1.48 + 14))))
-            for folder in folders.prefix(rows * 2) {
+            let grid = NativeAdaptiveLayout.collectionGrid(pageWidth: width)
+            let cardWidth = grid.itemWidth
+            let rows = max(1, Int(ceil(max(1, height - 124) / (cardWidth * 1.48 + grid.spacing))))
+            for folder in folders.prefix(rows * grid.columns) {
                 let covers = books.filter { $0.collectionIds.contains(folder.id) }
                     .sorted { $0.updatedAt > $1.updatedAt }.prefix(3)
                 for book in covers { append(book, width: cardWidth * 0.46) }

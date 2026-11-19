@@ -786,7 +786,8 @@ public sealed partial class SettingsTests(SettingsUiSession session)
         public void RequestQuit() => Call("RequestApplicationQuit");
 
         public static async Task<TestWindow> Create(AppSettings? settings = null, IBookFormatConverter? formatConverter = null,
-            IReaderHostFactory? readerHostFactory = null, ISyncService? syncService = null)
+            IReaderHostFactory? readerHostFactory = null, ISyncService? syncService = null,
+            SyncProviderRegistry? syncProviders = null, S3SyncSettings? initialSyncSettings = null)
         {
             ((Libzora.App)Application.Current!).ApplyLanguage("zh-CN");
             var directory = Path.Combine(Path.GetTempPath(), "libzora-settings-tests", Guid.NewGuid().ToString("N"));
@@ -800,9 +801,12 @@ public sealed partial class SettingsTests(SettingsUiSession session)
             await new AppSettingsStore(paths).SaveAsync(initial);
             var library = new SqliteBookLibraryService(paths, new BookMetadataService());
             await library.InitializeAsync();
-            var services = readerHostFactory is null && syncService is null ? null
+            if (initialSyncSettings is not null)
+                await new S3SyncSettingsStore(paths, new TestSecretProtector()).SaveAsync(
+                    Guid.NewGuid().ToString("N"), initialSyncSettings);
+            var services = readerHostFactory is null && syncService is null && syncProviders is null ? null
                 : new AppServices(new TestSecretProtector(), _ => null,
-                    FormatReaderHostFactory: readerHostFactory, SyncService: syncService);
+                    FormatReaderHostFactory: readerHostFactory, SyncService: syncService, SyncProviders: syncProviders);
             var window = new MainWindow(paths, library, formatConverter: formatConverter,
                 startupSettings: initial, services: services) { Width = 1294, Height = 818 };
             var scope = new TestWindow(window, paths, directory);

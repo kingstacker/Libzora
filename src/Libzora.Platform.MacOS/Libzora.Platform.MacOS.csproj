@@ -2,6 +2,10 @@
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>Libzora.Platform.MacOS</RootNamespace>
+    <ICloudNativeRuntimeIdentifier>$(RuntimeIdentifier)</ICloudNativeRuntimeIdentifier>
+    <ICloudNativeRuntimeIdentifier Condition="'$(ICloudNativeRuntimeIdentifier)' == ''">$(NETCoreSdkRuntimeIdentifier)</ICloudNativeRuntimeIdentifier>
+    <ICloudNativeOutput>$(MSBuildProjectDirectory)/obj/$(Configuration)/$(TargetFramework)/$(ICloudNativeRuntimeIdentifier)/native-icloud</ICloudNativeOutput>
+    <ICloudNativeSourceRoot>$(MSBuildProjectDirectory)/../Libzora.Platform.Common/Apple</ICloudNativeSourceRoot>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Libzora.Platform.Common\Libzora.Platform.Common.csproj" />
@@ -9,4 +13,17 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Libzora.Platform.Common.Tests" />
   </ItemGroup>
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('OSX'))">
+    <!-- Content metadata propagates the dylib to the desktop head's output and publish. -->
+    <None Include="$(ICloudNativeOutput)/libLibzoraICloud.dylib"
+          Link="libLibzoraICloud.dylib" TargetPath="libLibzoraICloud.dylib"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+  <Target Name="BuildICloudFoundationHelper"
+          BeforeTargets="PrepareForBuild;GetCopyToOutputDirectoryItems;GetCopyToPublishDirectoryItems"
+          Condition="$([MSBuild]::IsOSPlatform('OSX')) And '$(DesignTimeBuild)' != 'true'"
+          Inputs="$(ICloudNativeSourceRoot)/LibzoraICloud.m;$(ICloudNativeSourceRoot)/build-icloud.sh"
+          Outputs="$(ICloudNativeOutput)/libLibzoraICloud.dylib">
+    <Exec Command="/bin/zsh &quot;$(ICloudNativeSourceRoot)/build-icloud.sh&quot; &quot;$(ICloudNativeRuntimeIdentifier)&quot; &quot;$(ICloudNativeOutput)&quot; &quot;$(Configuration)&quot;" />
+  </Target>
 </Project>

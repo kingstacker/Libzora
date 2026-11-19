@@ -240,6 +240,15 @@ cat > "$app_root/Contents/Info.plist" <<EOF
   <key>CFBundleDisplayName</key><string>Libzora</string>
   <key>CFBundleExecutable</key><string>Libzora</string>
   <key>CFBundleIdentifier</key><string>io.github.kingstacker.libzora</string>
+  <key>NSUbiquitousContainers</key>
+  <dict>
+    <key>iCloud.com.kingstacker.libzora</key>
+    <dict>
+      <key>NSUbiquitousContainerIsDocumentScopePublic</key><false/>
+      <key>NSUbiquitousContainerName</key><string>Libzora</string>
+      <key>NSUbiquitousContainerSupportedFolderLevels</key><string>Any</string>
+    </dict>
+  </dict>
   <key>CFBundleIconFile</key><string>Libzora</string>
   <key>CFBundleIconName</key><string>Libzora</string>
   <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
@@ -329,11 +338,33 @@ if [[ "$require_notarization" == "1" ]]; then
     exit 2
   fi
 fi
-entitlements_file="$repo_root/scripts/macos/Libzora.entitlements"
-if [[ ! -f "$entitlements_file" ]]; then
-  echo "Missing entitlements file: $entitlements_file" >&2
+base_entitlements="$repo_root/scripts/macos/Libzora.entitlements"
+if [[ ! -f "$base_entitlements" ]]; then
+  echo "Missing entitlements file: $base_entitlements" >&2
   exit 2
 fi
+runtime_entitlements_file="$work_root/Libzora.runtime.entitlements"
+entitlements_file="$work_root/Libzora.app.entitlements"
+icloud_profile="${APPLE_ICLOUD_PROVISIONING_PROFILE:-}"
+profile_args=()
+if [[ -n "$icloud_profile" ]]; then
+  if [[ "$signing_identity" == "-" || ! -f "$icloud_profile" ]]; then
+    echo "iCloud requires a valid APPLE_ICLOUD_PROVISIONING_PROFILE and an Apple signing identity." >&2
+    exit 2
+  fi
+  decoded_profile="$work_root/icloud-profile.plist"
+  security cms -D -i "$icloud_profile" > "$decoded_profile"
+  profile_args=(--profile "$decoded_profile")
+  cp "$icloud_profile" "$app_root/Contents/embedded.provisionprofile"
+elif [[ "${APPLE_REQUIRE_ICLOUD:-0}" == "1" ]]; then
+  echo "APPLE_ICLOUD_PROVISIONING_PROFILE is required for an iCloud-enabled macOS release." >&2
+  exit 2
+else
+  printf 'No iCloud provisioning profile: signing a runnable diagnostic build without iCloud authorization.\n'
+fi
+python3 -I "$repo_root/scripts/prepare-macos-icloud-signing.py" \
+  --base "$base_entitlements" "${profile_args[@]}" \
+  --runtime-output "$runtime_entitlements_file" --app-output "$entitlements_file"
 
 # Sign nested Mach-O images from the inside out, then the bundle. `--deep` is
 # deprecated for distribution and only signs nested code with the top-level
@@ -353,7 +384,7 @@ codesign "${sign_args[@]}" \
 while IFS= read -r -d '' binary; do
   [[ "$binary" == "$app_macos/Libzora" ]] && continue
   case "$binary" in
-    "$widget_appex"/*) continue ;;
+    "$widget_appex"/*|"$app_root/Contents/embedded.provisionprofile") continue ;;
   esac
   # Files under Contents/Resources are sealed by the outer bundle signature;
   # `codesign --deep` does not require individual signatures for them.
@@ -368,7 +399,11 @@ while IFS= read -r -d '' binary; do
     # secure timestamp, and entitlements when it is an executable.
     binary_args=("${sign_args[@]}" --sign "$signing_identity")
     if [[ "$file_type" == *executable* ]]; then
-      binary_args+=(--entitlements "$entitlements_file")
+      case "$binary" in
+        "$app_macos/x86_64/Libzora"|"$app_macos/arm64/Libzora")
+          binary_args+=(--entitlements "$entitlements_file") ;;
+        *) binary_args+=(--entitlements "$runtime_entitlements_file") ;;
+      esac
     fi
   else
     # Managed assemblies, PDBs and other payload files are generic code

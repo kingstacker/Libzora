@@ -50,6 +50,7 @@ security find-identity -v -p codesigning
 | `APPLE_NOTARY_KEY_BASE64` | `AuthKey_<KEYID>.p8` 的 Base64 |
 | `APPLE_NOTARY_KEY_ID` | API Key 的 Key ID |
 | `APPLE_NOTARY_ISSUER` | App Store Connect 的 Issuer ID |
+| `APPLE_ICLOUD_PROVISIONING_PROFILE_BASE64` | Developer ID 描述文件的 Base64；须授权 `io.github.kingstacker.libzora`、共享容器 `iCloud.com.kingstacker.libzora` 和 CloudDocuments |
 | `APPLE_SIGNING_IDENTITY` | 可选，例如 `Developer ID Application: Your Name (TEAMID)`；不填则自动从证书中查找 |
 | `APPLE_KEYCHAIN_PASSWORD` | 可选，临时 keychain 密码；不填则自动生成 |
 
@@ -75,6 +76,8 @@ xcrun notarytool store-credentials "libzora-notary" \
 
 APPLE_SIGNING_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
 APPLE_NOTARY_PROFILE=libzora-notary \
+APPLE_ICLOUD_PROVISIONING_PROFILE="/absolute/path/Libzora.provisionprofile" \
+APPLE_REQUIRE_ICLOUD=1 \
   bash scripts/build-macos-release.sh 1.1.3 artifacts/macos osx-arm64
 ```
 

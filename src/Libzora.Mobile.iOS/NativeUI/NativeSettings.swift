@@ -24,10 +24,41 @@ struct NativeProfilePage: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                Text(L("我的")).font(NativeTheme.pageTitleFont).accessibilityIdentifier("page.profile")
-                    .padding(.bottom, 18)
+            VStack(spacing: 0) {
+                HStack(spacing: 0) {
+                    NativePageTitle(title: L("我的"), identifier: "page.profile")
+                    Spacer(minLength: 0)
+                }.modifier(NativePageMasthead())
+                profileContent
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .contain).accessibilityIdentifier("profile.content")
+        }.background(NativeAmbientBackground()).navigationBarHidden(true)
+            .background {
+                GeometryReader { geometry in
+                    Color.clear.onChange(of: geometry.size) { _ in preferenceMenu = nil }
+                }
+            }
+            .overlay(alignment: .top) { NativeStatusBarGlass() }
+            .overlay {
+                if let preferenceMenu {
+                    NativePreferenceMenuOverlay(request: preferenceMenu) { self.preferenceMenu = nil }
+                        .zIndex(10)
+                }
+            }
+            .task(id: store.uiLanguage) {
+                do {
+                    let result: ProfileSummary = try await store.request("settings.profile")
+                    guard !Task.isCancelled else { return }
+                    summary = result; store.account = result.account
+                }
+                catch { if !Task.isCancelled { store.failure = error.localizedDescription } }
+                if !Task.isCancelled { await loadMembership() }
+            }
+    }
 
+    private var profileContent: some View {
+        VStack(alignment: .leading, spacing: 0) {
                 accountSection
 
                 groupLabel(L("阅读与外观"))
@@ -78,24 +109,8 @@ struct NativeProfilePage: View {
                         profileRow(title: L("关于 Libzora"), value: summary?.version ?? "")
                     }.accessibilityIdentifier("profile.about")
                 }
-            }.padding(.horizontal, 24).padding(.top, 20).padding(.bottom, 120).buttonStyle(.plain)
-        }.background(NativeAmbientBackground()).navigationBarHidden(true)
-            .overlay(alignment: .top) { NativeStatusBarGlass() }
-            .overlay {
-                if let preferenceMenu {
-                    NativePreferenceMenuOverlay(request: preferenceMenu) { self.preferenceMenu = nil }
-                        .zIndex(10)
-                }
-            }
-            .task(id: store.uiLanguage) {
-                do {
-                    let result: ProfileSummary = try await store.request("settings.profile")
-                    guard !Task.isCancelled else { return }
-                    summary = result; store.account = result.account
-                }
-                catch { if !Task.isCancelled { store.failure = error.localizedDescription } }
-                if !Task.isCancelled { await loadMembership() }
-            }
+        }.padding(.horizontal, NativeAdaptiveLayout.pageInset).padding(.top, 8)
+            .padding(.bottom, 120).buttonStyle(.plain)
     }
 
     /// Identity and cloud sync stay together without a surrounding card. The
@@ -273,7 +288,6 @@ private struct NativePreferenceMenuOverlay: View {
 
     private static let menuWidth: CGFloat = 250
     private static let rowHeight: CGFloat = 46
-    private static let tabBarClearance: CGFloat = 96
 
     var body: some View {
         GeometryReader { safeArea in
@@ -289,16 +303,17 @@ private struct NativePreferenceMenuOverlay: View {
                                 y: request.sourceFrame.minY - origin.y,
                                 width: request.sourceFrame.width,
                                 height: request.sourceFrame.height)
-            let width = min(Self.menuWidth, max(0, proxy.size.width - 24))
+            let bounds = NativeAdaptiveLayout.popupBounds(in: proxy.size,
+                safeArea: safeArea.offsetBy(dx: -origin.x, dy: -origin.y),
+                bottomBarInset: NativeTheme.bottomTabBarInset)
+            let width = min(Self.menuWidth, bounds.width)
             let naturalHeight = CGFloat(request.options.count) * Self.rowHeight + 10
-            let topLimit = max(12, safeArea.minY - origin.y + 8)
-            let bottomLimit = max(topLimit, proxy.size.height - Self.tabBarClearance)
-            let height = min(naturalHeight, max(0, bottomLimit - topLimit))
+            let height = min(naturalHeight, bounds.height)
             let selectedIndex = request.options.firstIndex(where: \.selected) ?? 0
             let preferredTop = anchor.midY - CGFloat(selectedIndex) * Self.rowHeight - Self.rowHeight / 2 - 5
-            let top = min(max(preferredTop, topLimit), max(topLimit, bottomLimit - height))
-            let centerX = min(max(anchor.maxX - width / 2, width / 2 + 12),
-                              proxy.size.width - width / 2 - 12)
+            let top = min(max(preferredTop, bounds.minY), max(bounds.minY, bounds.maxY - height))
+            let centerX = min(max(anchor.maxX - width / 2, bounds.minX + width / 2),
+                              bounds.maxX - width / 2)
 
             ZStack(alignment: .topLeading) {
                 Color.black.opacity(0.001)
@@ -484,6 +499,8 @@ struct NativeLibrarySettings: View {
 struct NativeSyncSettings: View {
     @ObservedObject var store: NativeStore
     @State private var form = SyncForm()
+    @State private var providers = [NativeSyncProviderOption(provider: 0, displayName: "S3"),
+                                    NativeSyncProviderOption(provider: 1, displayName: "WebDAV")]
     @State private var formLoaded = false
     @State private var summary = ""
     @State private var status = ""
@@ -499,11 +516,12 @@ struct NativeSyncSettings: View {
     var body: some View {
         NativeForm {
             Section {
-                Picker(L("同步方式"), selection: $form.provider) { Text("S3").tag(0); Text("WebDAV").tag(1) }
-                    .pickerStyle(.segmented).accessibilityIdentifier("sync.provider")
+                Picker(L("同步方式"), selection: $form.provider) {
+                    ForEach(providers) { provider in Text(provider.displayName).tag(provider.provider) }
+                }.pickerStyle(.segmented).accessibilityIdentifier("sync.provider")
                 Toggle(L("启用同步"), isOn: $form.enabled).tint(NativeTheme.systemSwitchTint)
                 Toggle(L("自动同步"), isOn: $form.automaticSyncEnabled).tint(NativeTheme.systemSwitchTint)
-                caption(L("仅支持自备 S3 / WebDAV，不提供官方云同步。试用与买断同步功能相同。"))
+                caption(L("可使用 iCloud 云盘或自备 S3 / WebDAV 同步书籍、阅读进度和批注。"))
             }
             customStorageSections
             Section {
@@ -546,12 +564,17 @@ struct NativeSyncSettings: View {
                 field(L("服务地址"), text: $form.webDavEndpoint)
                 field(L("用户名"), text: $form.webDavUsername)
                 secret(L("密码"), text: $form.webDavPassword)
-            } else {
+            } else if form.provider == 0 {
                 field(L("Endpoint（AWS 可留空）"), text: $form.endpoint)
                 field("Bucket", text: $form.bucket)
                 field("Region", text: $form.region)
                 field("Access Key", text: $form.accessKey)
                 secret("Secret Key", text: $form.secretKey)
+            } else if form.provider == 3 {
+                Label(L("iCloud 云盘"), systemImage: "icloud")
+                    .font(NativeTheme.font()).accessibilityIdentifier("sync.icloud.info")
+                caption(L("在系统设置中开启 iCloud 云盘。iPhone、iPad 和 Mac 使用同一 Apple 账户、相同区域和目录前缀即可同步，无需填写服务器或密码。"))
+                caption(L("数据占用你的 iCloud 存储空间，其他设备可能需要稍等片刻才能收到更新。"))
             }
             field(L("目录前缀"), text: $form.prefix)
         }
@@ -559,11 +582,13 @@ struct NativeSyncSettings: View {
             DisclosureGroup(L("高级选项"), isExpanded: $advanced) {
                 if form.provider == 0 { Toggle("Path Style", isOn: $form.pathStyle).tint(NativeTheme.systemSwitchTint) }
                 Toggle(L("同步时下载书籍文件"), isOn: $form.downloadBookFilesOnSync).tint(NativeTheme.systemSwitchTint)
-                Toggle(L("跳过 TLS 验证"), isOn: $form.skipTlsVerify).tint(NativeTheme.systemSwitchTint)
+                if form.provider != 3 { Toggle(L("跳过 TLS 验证"), isOn: $form.skipTlsVerify).tint(NativeTheme.systemSwitchTint) }
             }
             syncKey
-            Button(L("导入连接参数")) { run("import") }
-            Button(L("导出连接参数")) { run("export") }
+            if form.provider != 3 {
+                Button(L("导入连接参数")) { run("import") }
+                Button(L("导出连接参数")) { run("export") }
+            }
         }
         Section {
             caption(summary)
@@ -594,6 +619,7 @@ struct NativeSyncSettings: View {
     private func loadSnapshot() async throws -> SyncForm {
         let value: SyncFormSnapshot = try await store.request("settings.sync.get")
         summary = value.summary
+        if let available = value.providers { providers = available }
         return value.settings
     }
     private func load() async {
@@ -646,7 +672,8 @@ struct NativeSyncSettings: View {
                     if operation == "save" {
                         savedEncryptionKey = form.encryptionKey
                         confirmEncryptionKey = ""
-                        status = L("已保存"); _ = try? await loadSnapshot()
+                        status = L("已保存")
+                        if let saved = try? await loadSnapshot() { form = saved }
                         if store.preferences.showBookSyncStatus { try await store.refreshLibrary() }
                     }
                 }

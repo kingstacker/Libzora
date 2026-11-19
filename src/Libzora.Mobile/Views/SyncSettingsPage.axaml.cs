@@ -184,8 +184,8 @@ public partial class SyncSettingsPage : UserControl, IShellPage
         // Saving this form records the user's explicit provider choice.
         settings = settings with { ProviderChosenByUser = true };
         await _modules!.Sync.Service.SaveSettingsAsync(_stored!.DeviceId, settings, _lifetime.Token);
-        _stored = new S3SyncStoredSettings(_stored.DeviceId, settings);
-        _draftSettings = settings;
+        _stored = await _modules.Sync.Service.LoadSettingsAsync(_lifetime.Token);
+        _draftSettings = _stored.Settings;
         return true;
     }
 
@@ -425,18 +425,37 @@ public partial class SyncSettingsPage : UserControl, IShellPage
 
     private void PresentProvider()
     {
+        var iCloudAvailable = _modules?.Sync.Service.AvailableProviders.Any(provider => provider.Provider == SyncProvider.ICloud) == true;
+        ProviderICloud.IsVisible = iCloudAvailable;
+        ProviderColumns.ColumnDefinitions = new ColumnDefinitions(iCloudAvailable ? "*,*,*" : "*,*,0");
+        var s3 = _provider == SyncProvider.S3;
         var webDav = _provider == SyncProvider.WebDav;
-        ProviderS3.Classes.Set("on", !webDav);
+        var iCloud = _provider == SyncProvider.ICloud;
+        ProviderS3.Classes.Set("on", s3);
         ProviderWebDav.Classes.Set("on", webDav);
-        S3Fields.IsVisible = !webDav;
+        ProviderICloud.Classes.Set("on", iCloud);
+        S3Fields.IsVisible = s3;
         WebDavFields.IsVisible = webDav;
-        PathStyleRow.IsVisible = !webDav;
+        ICloudHelpText.IsVisible = iCloud;
+        PathStyleRow.IsVisible = s3;
+        SkipTlsRow.IsVisible = !iCloud;
+        ConnectionProfilePanel.IsVisible = !iCloud;
+        SyncStorageHelpText.Text = iCloudAvailable
+            ? UiText.Get("可使用 iCloud 云盘或自备 S3 / WebDAV 同步书籍、阅读进度和批注。")
+            : "试用与买断使用自备 S3 / WebDAV，不提供官方云同步。两区账号与数据独立。";
     }
 
     private async void OnProviderClick(object? sender, RoutedEventArgs e)
     {
         if (_busy) return;
-        _provider = sender is Button { Name: nameof(ProviderWebDav) } ? SyncProvider.WebDav : SyncProvider.S3;
+        var provider = sender switch
+        {
+            Button { Name: nameof(ProviderWebDav) } => SyncProvider.WebDav,
+            Button { Name: nameof(ProviderICloud) } => SyncProvider.ICloud,
+            _ => SyncProvider.S3
+        };
+        if (_modules is not null && !_modules.Sync.Service.AvailableProviders.Any(item => item.Provider == provider)) return;
+        _provider = provider;
         PresentProvider();
         if (_modules is not null)
         {

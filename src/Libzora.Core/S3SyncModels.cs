@@ -5,7 +5,8 @@ public enum SyncProvider
     S3 = 0,
     WebDav = 1,
     // Reserved solely to recognize and disable historical official-cloud settings.
-    AccountServer = 2
+    AccountServer = 2,
+    ICloud = 3
 }
 
 /// <summary>
@@ -16,7 +17,7 @@ public enum SyncProvider
 public sealed record S3SyncSettings
 {
     public SyncProvider Provider { get; init; } = SyncProvider.S3;
-    // Records the user's explicit choice of their own S3 / WebDAV connection.
+    // Records the user's explicit choice of their own storage connection.
     public bool ProviderChosenByUser { get; init; }
     public bool Enabled { get; init; }
     public bool AutomaticSyncEnabled { get; init; } = true;
@@ -30,6 +31,8 @@ public sealed record S3SyncSettings
     public string WebDavEndpoint { get; init; } = string.Empty;
     public string WebDavUsername { get; init; } = string.Empty;
     public string WebDavPassword { get; init; } = string.Empty;
+    // Local-only account binding. Portable backups and sync snapshots omit it.
+    public string ICloudAccountIdentity { get; init; } = string.Empty;
     public string Bucket { get; init; } = string.Empty;
     public string Region { get; init; } = "us-east-1";
     // AWS S3 uses virtual-hosted-style addressing by default. S3-compatible
@@ -46,15 +49,27 @@ public sealed record S3SyncSettings
 
     public bool IsConfigured => Validate() is null;
     /// <summary>A connection to the user's own storage, chosen deliberately.</summary>
-    public bool HasChosenCustomProvider => Provider is SyncProvider.S3 or SyncProvider.WebDav && ProviderChosenByUser;
-    public string ProviderName => Provider switch { SyncProvider.WebDav => "WebDAV", SyncProvider.S3 => "S3", _ => UiText.Get("不支持的同步方式") };
+    public bool HasChosenCustomProvider => Provider is SyncProvider.S3 or SyncProvider.WebDav or SyncProvider.ICloud && ProviderChosenByUser;
+    public string ProviderName => Provider switch
+    {
+        SyncProvider.WebDav => "WebDAV",
+        SyncProvider.S3 => "S3",
+        SyncProvider.ICloud => "iCloud",
+        _ => UiText.Get("不支持的同步方式")
+    };
 
     public string? Validate()
     {
         if (Provider == SyncProvider.AccountServer)
             return "官方云同步已移除，请重新选择并配置自备 S3 或 WebDAV。";
-        if (Provider is not (SyncProvider.S3 or SyncProvider.WebDav))
-            return "请选择 S3 或 WebDAV 同步。";
+        if (Provider is not (SyncProvider.S3 or SyncProvider.WebDav or SyncProvider.ICloud))
+            return "请选择可用的同步方式。";
+        if (Provider == SyncProvider.ICloud)
+        {
+            if (Prefix.Any(char.IsControl)) return "同步子目录不能包含控制字符。";
+            if (Prefix.Contains(':')) return "iCloud 同步对象路径无效。";
+            return string.IsNullOrWhiteSpace(Prefix) ? "请输入同步目录前缀。" : null;
+        }
         if (Provider == SyncProvider.WebDav)
         {
             if (!Uri.TryCreate(WebDavEndpoint, UriKind.Absolute, out var webDav)
@@ -96,6 +111,11 @@ public sealed record S3SyncSettings
                 .Replace('\\', '/')
                 .Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .Where(part => part is not "." and not ".."));
+        // Apple file systems can treat case/Unicode variants as one directory.
+        // Canonicalize only iCloud so aliases cannot bypass the encryption-key
+        // change guard; S3/WebDAV addressing and existing baselines stay intact.
+        if (settings.Provider == SyncProvider.ICloud)
+            prefix = prefix.Normalize(System.Text.NormalizationForm.FormC).ToLowerInvariant();
 
         return settings with
         {
@@ -110,6 +130,7 @@ public sealed record S3SyncSettings
             WebDavEndpoint = NormalizeWebDavEndpoint(settings.WebDavEndpoint),
             WebDavUsername = (settings.WebDavUsername ?? string.Empty).Trim(),
             WebDavPassword = settings.WebDavPassword ?? string.Empty,
+            ICloudAccountIdentity = (settings.ICloudAccountIdentity ?? string.Empty).Trim(),
             Bucket = (settings.Bucket ?? string.Empty).Trim(),
             Region = string.IsNullOrWhiteSpace(settings.Region) ? "us-east-1" : settings.Region.Trim(),
             TimeoutSeconds = Math.Clamp(settings.TimeoutSeconds, 10, 600),

@@ -117,6 +117,8 @@ internal sealed class HorizontalComposer
         // stored in em so the reader's font scale keeps the proportions.
         leftInset += (block.MarginLeftEm + block.PaddingLeftEm) * BaseFontSize;
         rightInset += (block.MarginRightEm + block.PaddingRightEm) * BaseFontSize;
+        if (block.ListLevel > 0)
+            leftInset += block.ListLevel * BaseFontSize * 1.4f;
 
         var availWidth = Math.Max(1f, ContentWidth - leftInset - rightInset);
         var blockLeft = InsetH + leftInset;
@@ -127,6 +129,11 @@ internal sealed class HorizontalComposer
             cells.AddRange(_cells.BuildCells(item, vertical: false, maxWordWidth: availWidth));
         }
         CellFactory.CollapseWhitespace(cells);
+        // A generated list marker is synthetic (TextStart -1). Wrapped lines
+        // align under the item text rather than under the marker.
+        var hangingIndent = block.ListMarker is null ? 0f : cells
+            .TakeWhile(cell => cell.TextStart < 0)
+            .Sum(cell => cell.Advance);
         if (naturalLatin)
         {
             // Some CJK faces use a half-em space even in English. Start with
@@ -193,7 +200,8 @@ internal sealed class HorizontalComposer
                 + block.MarginTopEm * BaseFontSize;
         }
 
-        var lines = BreakLines(cells, availWidth, block.TextIndentEm * BaseFontSize, allowPageAnchor: true);
+        var lines = BreakLines(cells, availWidth, block.TextIndentEm * BaseFontSize,
+            allowPageAnchor: true, continuationIndent: hangingIndent);
         var anchorLineIndex = lines.FindIndex(line => line.StartsAnchoredPage);
 
         var lineIndex = 0;
@@ -363,7 +371,8 @@ internal sealed class HorizontalComposer
             var superscriptShift = cell.Superscript
                 ? -(cell.FootnoteMarker ? BaseFontSize * 0.38f : cell.FontSize * 0.35f)
                 : 0f;
-            var cellBaseline = baseline + superscriptShift;
+            var subscriptShift = cell.Subscript ? cell.FontSize * 0.22f : 0f;
+            var cellBaseline = baseline + superscriptShift + subscriptShift;
 
             if (run is null || !run.CanAppend(cell, cellBaseline))
             {
@@ -400,7 +409,7 @@ internal sealed class HorizontalComposer
 
             if (cell.Style.Underline && cell.TextLength > 0)
             {
-                var underlineY = baseline + cell.FontSize * 0.14f;
+                var underlineY = cellBaseline + cell.FontSize * 0.14f;
                 _pages.AddDecoration(new PlacedRect
                 {
                     Kind = DecorationKind.Underline,
@@ -412,7 +421,7 @@ internal sealed class HorizontalComposer
 
             if (cell.Style.Strikeout && cell.TextLength > 0)
             {
-                var strikeY = baseline - cell.FontSize * 0.25f;
+                var strikeY = cellBaseline - cell.FontSize * 0.25f;
                 _pages.AddDecoration(new PlacedRect
                 {
                     Kind = DecorationKind.Strikeout,
@@ -472,7 +481,8 @@ internal sealed class HorizontalComposer
     /// trailing margin; an opening mark never ends a line — it moves down
     /// together with the character that follows it.
     /// </summary>
-    private List<LineBox> BreakLines(List<LayoutCell> cells, float availWidth, float firstLineIndent, bool allowPageAnchor = false)
+    private List<LineBox> BreakLines(List<LayoutCell> cells, float availWidth, float firstLineIndent,
+        bool allowPageAnchor = false, float continuationIndent = 0f)
     {
         var lines = new List<LineBox>();
         var line = new LineBox();
@@ -487,13 +497,18 @@ internal sealed class HorizontalComposer
                 line = new LineBox { StartsAnchoredPage = true };
                 _context.PageStartConsumed = true;
                 // An anchor within a paragraph is a continuation, not a new indent.
-                if (lines.Count > 0) indentApplied = true;
+                if (lines.Count > 0)
+                {
+                    indentApplied = true;
+                    line.Indent = continuationIndent;
+                }
             }
             if (cell.IsLineBreak)
             {
                 line.EndsWithForcedBreak = true;
                 lines.Add(line);
-                line = new LineBox();
+                line = new LineBox { Indent = continuationIndent };
+                indentApplied = true;
                 continue;
             }
 
@@ -544,8 +559,7 @@ internal sealed class HorizontalComposer
                     lines.Add(line);
                 }
 
-                line = new LineBox { StartsAnchoredPage = startsAnchoredPage };
-                line.Indent = 0f;
+                line = new LineBox { StartsAnchoredPage = startsAnchoredPage, Indent = continuationIndent };
                 foreach (var pulledCell in pulled)
                 {
                     line.Add(pulledCell);

@@ -293,7 +293,7 @@
   "{0} 册": "{0} volumes",
   "显示书籍同步状态": "Show Sync Status",
   "启用同步": "Enable Sync",
-  "仅支持自备 S3 / WebDAV，不提供官方云同步。试用与买断同步功能相同。": "Sync requires your own S3 or WebDAV storage; hosted cloud sync is not provided. Trial and Lifetime offer the same sync features.",
+  "可使用 iCloud 云盘或自备 S3 / WebDAV 同步书籍、阅读进度和批注。": "Sync books, reading progress, and annotations with iCloud Drive or your own S3 / WebDAV storage.",
   "同步": "Sync",
   "清除同步密钥": "Clear Sync Key",
   "确认同步密钥": "Confirm Sync Key",

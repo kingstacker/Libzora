@@ -203,7 +203,9 @@ internal static class Program
             TtsEngine: ttsEngine,
             TtsAudioPlayer: ttsPlayer,
             Paths: paths,
-            RootConfigurationDirectory: configurationDirectory);
+            RootConfigurationDirectory: configurationDirectory,
+            SyncProviders: SyncProviderRegistry.CreateDefault()
+                .Register(new ICloudSyncProviderFactory(new AppleICloudSyncFileSystem())));
     }
 
     /// <summary>

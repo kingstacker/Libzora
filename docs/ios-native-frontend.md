@@ -25,7 +25,7 @@ UIKit 恢复旧版 Avalonia 的场景会话时，`AppDelegate` 会在激活时�
 普通文本、导航栏标题与按钮、分段控件标题和底部标签都使用该字体；系统确认框保持系统字体。
 四个标签页的抬头共用 `NativeTheme.pageTitleFont`，字号和字形保持一致；
 书库、阅读资料、阅读数据、我的不再各自设置标题大小。
-`NativeBookshelf.swift` 保留紧凑的书库标题、三列书架、细进度条和收藏夹封面卡片；
+`NativeBookshelf.swift` 保留紧凑的书库标题、自适应书架、细进度条和收藏夹封面卡片；
 “收藏夹视图”与网格视图、列表视图放在同一组，均可通过显示菜单切换。
 详情页使用居中封面和底部固定的阅读按钮。“我的”和阅读资料保持自定义页面布局。
 “我的”中的外观与语言支持整行点击，右侧显示当前值与细箭头。菜单从设置行右侧弹出，
@@ -189,6 +189,43 @@ Swift 与 C# 通过同一进程内的 C ABI 传递 JSON 请求、结果和状态
 翻页、朗读进度和 AI 输出不会让书库等标签页重新计算。书库刷新时只替换有变化的数据，
 书库和阅读资料每次渲染只做一次筛选、排序或分组。
 
+## iPad 与可调整窗口
+
+原生前端支持 iPad 横竖屏与分屏，布局以当前窗口的实际宽度为准，不以设备型号或
+`UIScreen` 的完整屏幕宽度推断。四个标签页继续保留各自的导航与页面状态；宽窗口
+使用 iPadOS 的顶部标签栏，紧凑窗口由系统调整导航位置。
+
+- 书库和收藏夹按可用宽度增减列数；紧凑窗口允许一至两列，不强行压缩为三列。
+  封面预加载与实际书架共用尺寸策略，收藏夹卡片不会随横屏拉成半屏宽。
+- 书库、阅读资料、阅读数据与「我的」复用同一页头：26 点标题、44 点标题行、
+  16 点顶部留白和 24 点页面左右边界。列表、资料、设置表单与书籍详情随窗口铺满，
+  不对整页居中限宽；四张统计卡在宽窗口中排成一行，窄窗口保持两列或一列。
+- 书籍详情在窗口宽度不少于 760 点时将封面与简介、信息并排展示；较窄时恢复
+  纵向布局，底部阅读按钮最大宽度为 420 点。旋转不会关闭详情或重置展开状态。
+- EPUB 正文视口最大宽度为 840 点，阅读工具栏最大宽度为 720 点，笔记卡最大宽度
+  为 560 点；PDF 的缩放与适页继续使用整个窗口。正文视口变更由现有排版引擎重排并
+  保留阅读位置，不改写用户的字号、字体、页边距或阅读偏好。
+- 长按与设置选项菜单按实际安全区和标签栏位置约束。旋转或调整窗口时收起已过期
+  的锚点菜单，不重建页面；系列面板限制在可用高度内，并允许滚动查看全部内容。
+  笔记键盘避让使用所属窗口中的键盘交集，浮动键盘不产生整条底部留白。
+
+共享尺寸策略的无界面回归在 `tests/Libzora.Mobile.iOS.LogicTests`；真实 iPad 的
+横竖屏书库、收藏夹、设置、详情、阅读与 PDF 检查在 `NativeTabletLayoutTests`。
+运行后者时显式选择 iPad 模拟器，使用该模拟器里的独立预览副本，不重置 iPhone 17
+上的已有书库。准备好该 iPad 的预览书库后，使用尚不存在的结果目录运行：
+
+```bash
+python3 -I tests/Libzora.Mobile.iOS.UITests/run-tests.py \
+  --simulator "<iPad simulator UUID>" --results /tmp/libzora-ipad-ui-results \
+  --suite NativeTabletLayoutTests \
+  --only testLibraryAndCollectionsReflowAcrossRotation \
+  --only testProfileAndBookDetailsRetainNavigationAcrossRotation \
+  --only testReaderReflowsWithoutResettingProgress \
+  --only testPdfRetainsFullLandscapeViewport \
+  --only testReadingDataPagesUseShelfBoundaries \
+  --only testTopLevelPagesUseShelfHeadersAndEdges
+```
+
 ## 构建
 
 需要 macOS、Xcode 命令行工具、仓库指定的 .NET SDK 和 iOS workload。
@@ -231,6 +268,11 @@ dotnet build src/Libzora.Mobile.iOS/Libzora.Mobile.iOS.csproj \
 `group.com.kingstacker.libzora` 共享，真机签名要求主应用和扩展的 profile
 都包含该组。关闭小组件可加 `-p:EnableWidgets=false`。完整说明见
 [widgets.md](widgets.md)。
+
+iCloud 同步默认启用编译支持，真机 profile 还须包含
+`iCloud.com.kingstacker.libzora` 的 CloudDocuments 能力；该容器与 macOS 端共用。
+无描述文件的诊断构建需同时设置 `-p:EnableWidgets=false -p:EnableICloud=false`。
+容器、签名和双设备验证步骤见 [iCloud 同步](icloud-sync.md)。
 
 ## 回归测试
 
@@ -281,9 +323,38 @@ python3 -I tests/Libzora.Mobile.iOS.UITests/run-tests.py \
   --suite ReaderMediaTests --only testDragDoesNotOpenImageAndViewerRotates
 ```
 
+脚注兼容性使用独立的 `com.kingstacker.libzora.readerfootnotepreview`，不复制或重置现有书库。
+准备脚本生成四本带真实公版书封面的 EPUB，分别覆盖 CSS 上标与旧式锚点、跨文件多段注释、
+空 `alt` 图片的数据属性，以及不应误识别为脚注的普通章节链接。交互测试还检查定位原注和返回原文后的阅读位置：
+
+```bash
+python3 -I tests/Libzora.Mobile.iOS.UITests/prepare-reader-footnote-preview.py \
+  --app "$APP" --simulator "$SIMULATOR_ID"
+python3 -I tests/Libzora.Mobile.iOS.UITests/run-tests.py \
+  --simulator "$SIMULATOR_ID" --results /tmp/libzora-reader-footnote-results \
+  --suite ReaderFootnoteTests \
+  --only testLegacyCssFootnoteOpensWithoutChangingPosition \
+  --only testCrossFileNoteKeepsAllParagraphsAndReturnsToSource \
+  --only testImagePayloadUsesDataAttributeWhenAltIsEmpty \
+  --only testChapterLinkNavigatesWithoutOpeningFootnote
+```
+
+排版兼容性使用独立的 `com.kingstacker.libzora.readerlayoutpreview`，同样不复制用户书库。
+样例覆盖第一批发布方排版：`display:none` 隐藏内容、有序/无序列表与悬挂缩进、目录列表不生成编号、
+CSS 下划线/删除线、下标、字距、大小写转换和小型大写。截图用于人工核对实际字形与版式：
+
+```bash
+python3 -I tests/Libzora.Mobile.iOS.UITests/prepare-reader-layout-preview.py \
+  --app "$APP" --simulator "$SIMULATOR_ID"
+python3 -I tests/Libzora.Mobile.iOS.UITests/run-tests.py \
+  --simulator "$SIMULATOR_ID" --results /tmp/libzora-reader-layout-results \
+  --suite ReaderLayoutTests \
+  --only testFirstBatchLayoutRenders \
+  --only testTocListDoesNotGainGeneratedNumbers
+```
+
 `--results` 必须使用尚不存在的路径。运行器使用独立构建目录并对测试宿主做 ad-hoc 签名，
-避免模拟器复用旧的未签名测试代码。测试覆盖标签页、连续打开输入弹窗、
-系统确认框取消/重开、键盘收起/重新聚焦、排版滚动和持久化、PDF 显示设置，
+避免模拟器复用旧的未签名测试代码。测试覆盖标签页、连续打开输入弹窗、系统确认框取消/重开、键盘收起/重新聚焦、排版滚动和持久化、PDF 显示设置，
 以及原生工具栏周围的正文触摸/翻页。结果包含 `.xcresult`、构建日志和 `screenshots/`。
 截图通过 CoreSimulator 导出，在 XCTest 截图因显卡驱动返回黑图的机器上也可核对实际显示。
 这些测试不会点击真实云端同步、发送邮箱或恢复备份。

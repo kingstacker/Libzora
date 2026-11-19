@@ -5383,7 +5383,9 @@ public partial class MainWindow
         _suppressS3SettingsDraftTracking = true;
         try
         {
-            SyncProviderBox.SelectedIndex = (int)settings.Provider;
+            EnsureSyncProviderItems();
+            SyncProviderBox.SelectedItem = SyncProviderBox.Items.OfType<ComboBoxItem>()
+                .FirstOrDefault(item => item.Tag is SyncProvider provider && provider == settings.Provider);
             S3SyncEnabledCheck.IsChecked = settings.Enabled;
             S3AutomaticSyncCheck.IsChecked = settings.AutomaticSyncEnabled;
             S3DownloadBookFilesCheck.IsChecked = settings.DownloadBookFilesOnSync;
@@ -5415,7 +5417,8 @@ public partial class MainWindow
 
     private S3SyncSettings ReadS3SyncSettingsFromControls() => S3SyncSettings.Normalize(new S3SyncSettings
     {
-        Provider = (SyncProvider)SyncProviderBox.SelectedIndex,
+        Provider = SelectedSyncProvider,
+        ICloudAccountIdentity = _s3SyncStoredSettings.Settings.ICloudAccountIdentity,
         ProviderChosenByUser = _s3SyncStoredSettings.Settings.ProviderChosenByUser,
         Enabled = S3SyncEnabledCheck.IsChecked == true,
         AutomaticSyncEnabled = S3AutomaticSyncCheck.IsChecked == true,
@@ -5495,6 +5498,8 @@ public partial class MainWindow
             using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCancellation.Token, cancellationToken);
             settings = await BindSyncRegionAsync(settings, linkedCancellation.Token);
             await _s3SyncService.SaveSettingsAsync(_s3SyncStoredSettings.DeviceId, settings, linkedCancellation.Token);
+            var draftUnchanged = _s3SettingsEditVersion == editVersion && ReadS3SyncSettingsFromControls() == settings;
+            settings = (await _s3SyncService.LoadSettingsAsync(linkedCancellation.Token)).Settings;
             if (settings != _s3SyncStoredSettings.Settings)
             {
                 _s3DeletionConfirmationPending = false;
@@ -5508,7 +5513,7 @@ public partial class MainWindow
             RefreshS3SyncIndicatorFromSettings();
             // An edit made while persistence was awaiting I/O belongs to the
             // next draft and must not be replaced by the older saved snapshot.
-            if (_s3SettingsEditVersion == editVersion && ReadS3SyncSettingsFromControls() == settings) PopulateS3SyncControls();
+            if (draftUnchanged) PopulateS3SyncControls();
             else UpdateS3SettingsDraftState();
             if (IsAutomaticS3SyncReady()) ScheduleS3LocalChangeSync(S3LocalChangeSyncDebounce);
             else _s3LocalChangeSyncTimer.Stop();

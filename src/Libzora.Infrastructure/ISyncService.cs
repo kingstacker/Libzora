@@ -5,6 +5,9 @@ namespace Libzora.Infrastructure;
 /// <summary>Portable synchronization operations required by an application shell.</summary>
 public interface ISyncService
 {
+    /// <summary>Only providers registered by this platform's composition root.</summary>
+    IReadOnlyList<SyncProviderDescriptor> AvailableProviders => SyncProviderRegistry.CreateDefault().Descriptors;
+
     event EventHandler? RemoteSettingsApplied;
     Task<S3SyncStoredSettings> LoadSettingsAsync(CancellationToken cancellationToken = default);
     Task SaveSettingsAsync(string deviceId, S3SyncSettings settings, CancellationToken cancellationToken = default);

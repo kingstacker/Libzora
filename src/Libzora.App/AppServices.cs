@@ -27,4 +27,5 @@ public sealed record AppServices(
     IReaderHostFactory? FormatReaderHostFactory = null,
     string? TtsCacheDirectory = null,
     IPdfDocumentFactory? PdfDocumentFactory = null,
-    ISyncService? SyncService = null);
+    ISyncService? SyncService = null,
+    SyncProviderRegistry? SyncProviders = null);

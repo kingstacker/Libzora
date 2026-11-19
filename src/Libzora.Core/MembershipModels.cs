@@ -24,7 +24,8 @@ public static class MemberEntitlements
     {
         SyncProvider.S3 => DeviceFeature.CustomS3,
         SyncProvider.WebDav => DeviceFeature.CustomWebDav,
-        _ => throw new ArgumentOutOfRangeException(nameof(provider), "仅支持 S3 或 WebDAV 同步。")
+        SyncProvider.ICloud => DeviceFeature.ICloud,
+        _ => throw new ArgumentOutOfRangeException(nameof(provider), "不支持的同步方式。")
     };
 
     /// <summary>The most urgent expiry reminder for a time-limited feature subscription.</summary>
@@ -53,8 +54,8 @@ public static class MemberEntitlements
     public static bool CanExtendPlus(AccountMembership membership, int days, DateTimeOffset now) => false;
 }
 
-/// <summary>Trial and lifetime subscribers can use their own S3/WebDAV. The legacy cloud value is never granted.</summary>
-public enum DeviceFeature { CustomS3, CustomWebDav, AccountCloudSync }
+/// <summary>Custom storage features. The legacy official-cloud value is never granted.</summary>
+public enum DeviceFeature { CustomS3, CustomWebDav, AccountCloudSync, ICloud }
 
 public interface IDeviceFeatureAccess
 {

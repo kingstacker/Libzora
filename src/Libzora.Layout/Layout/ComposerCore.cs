@@ -73,6 +73,8 @@ internal sealed record LayoutCell
     public char? Character { get; init; }
     /// <summary>Superscript cells (footnote markers, sup) shift toward the line start edge.</summary>
     public bool Superscript => Style.Superscript;
+    /// <summary>Subscript cells are scaled down and shifted below the baseline.</summary>
+    public bool Subscript => Style.Subscript;
 }
 
 /// <summary>Shared context for the two composers.</summary>
@@ -330,7 +332,7 @@ internal sealed class CellFactory
     private readonly Dictionary<(string FontPath, float Size, ushort Glyph), float> _apostropheAdvanceCache = new();
     // A compose has fixed fonts and spacing. Reuse immutable glyph arrays for
     // repeated characters/words, while assigning source offsets per occurrence.
-    private readonly Dictionary<(string Text, float Size), LayoutCell> _cellCache = new();
+    private readonly Dictionary<(string Text, float Size, float Spacing, bool Latin), LayoutCell> _cellCache = new();
 
     public CellFactory(ComposerContext context)
     {
@@ -368,9 +370,22 @@ internal sealed class CellFactory
             // mathematical/text superscripts do not change unexpectedly.
             fontSize *= footnoteMarker ? 0.70f : 0.75f;
         }
+        else if (fontSizeOverride is null && style.Subscript)
+        {
+            fontSize *= 0.75f;
+        }
+
+        var naturalLatin = unitText.Any(TypesetText.IsLatinLetter) && !unitText.Any(TypesetText.IsCjk)
+            && !vertical && _context.Options.NaturalLatinTypography
+            && _context.Options.WritingMode == TypesetWritingMode.HorizontalTb;
+        var letterSpacing = !float.IsNaN(style.LetterSpacingEm)
+            ? style.LetterSpacingEm * fontSize
+            : naturalLatin
+                ? 0f
+                : _context.LetterSpacing * (fontSize / _context.Options.BaseFontSize);
 
         var cacheable = unitText.Length <= 64;
-        var key = (unitText, fontSize);
+        var key = (unitText, fontSize, letterSpacing, naturalLatin);
         if (cacheable && _cellCache.TryGetValue(key, out var cached))
             return cached with
             {
@@ -391,13 +406,7 @@ internal sealed class CellFactory
 
         var (ascent, descent) = GetMetrics(fontPath, fontSize);
         var latinWord = unitText.Any(TypesetText.IsLatinLetter) && !unitText.Any(TypesetText.IsCjk);
-        // Preserve the font's kerning and ligatures in horizontal Latin text;
-        // the CJK tracking preference must not widen every English letter.
-        var naturalLatin = latinWord && !vertical && _context.Options.NaturalLatinTypography
-            && _context.Options.WritingMode == TypesetWritingMode.HorizontalTb;
-        var letterSpacing = naturalLatin
-            ? 0f
-            : _context.LetterSpacing * (fontSize / _context.Options.BaseFontSize);
+        // naturalLatin and letterSpacing were resolved before the cache lookup.
 
         var glyphCount = shaped.GlyphIds.Length;
         var glyphX = new float[glyphCount];

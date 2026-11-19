@@ -54,7 +54,6 @@ struct NativeBookPreviewOverlay: View {
     private static let gap: CGFloat = 6
     private static let menuWidth: CGFloat = 250
     private static let rowHeight: CGFloat = 46
-    private static let tabBarClearance: CGFloat = 96
 
     var body: some View {
         let _ = uiLocale
@@ -71,23 +70,23 @@ struct NativeBookPreviewOverlay: View {
             let origin = proxy.frame(in: .global).origin
             let sourceX = request.sourceFrame.midX - origin.x
             let halfCover = request.coverWidth * Self.scale / 2
-            let centerX = request.source == .seriesVolume
-                ? min(max(sourceX, halfCover), proxy.size.width - halfCover) : sourceX
+            let centerX = min(max(sourceX, halfCover), max(halfCover, proxy.size.width - halfCover))
             let centerPoint = CGPoint(x: centerX, y: request.sourceFrame.midY - origin.y)
             // The local size is measured before scaleEffect.
             let height = (cardHeight > 0 ? cardHeight : request.coverWidth * 1.45) * Self.scale
             let below = centerPoint.y + height / 2 + Self.gap
             let above = centerPoint.y - height / 2 - Self.gap
-            let top = max(12, safeArea.minY - origin.y + 8)
-            let bottom = proxy.size.height - Self.tabBarClearance
-            let roomBelow = max(0, bottom - below)
-            let roomAbove = max(0, above - top)
+            let bounds = NativeAdaptiveLayout.popupBounds(in: proxy.size,
+                safeArea: safeArea.offsetBy(dx: -origin.x, dy: -origin.y),
+                bottomBarInset: NativeTheme.bottomTabBarInset)
+            let roomBelow = max(0, bounds.maxY - below)
+            let roomAbove = max(0, above - bounds.minY)
             let naturalHeight = measuredMenuHeight > 0 ? measuredMenuHeight : CGFloat(request.actions.count) * Self.rowHeight + 10
             let opensBelow = roomBelow >= naturalHeight || (roomAbove < naturalHeight && roomBelow >= roomAbove)
             let menuHeight = min(naturalHeight, opensBelow ? roomBelow : roomAbove)
             let menuCenter = opensBelow ? below + menuHeight / 2 : above - menuHeight / 2
-            let menuWidth = min(Self.menuWidth, max(0, proxy.size.width - 24))
-            let menuX = min(max(centerPoint.x, menuWidth / 2 + 12), proxy.size.width - menuWidth / 2 - 12)
+            let menuWidth = min(Self.menuWidth, bounds.width)
+            let menuX = min(max(centerPoint.x, bounds.minX + menuWidth / 2), bounds.maxX - menuWidth / 2)
 
             ZStack(alignment: .topLeading) {
                 Color.black.opacity(expanded ? 0.25 : 0)

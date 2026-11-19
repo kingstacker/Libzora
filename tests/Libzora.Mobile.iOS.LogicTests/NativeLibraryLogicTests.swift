@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 
 /// Runs the production Foundation-only models and policies. No app launch,
 /// simulator, network connection or library data is involved.
@@ -27,7 +28,84 @@ struct NativeLibraryLogicTests {
         return series
     }
 
+    private static func testAdaptiveLayout() {
+        var lastBooks = 0
+        var lastCollections = 0
+        for width in stride(from: 260, through: 1400, by: 1) {
+            let pageWidth = CGFloat(width)
+            let books = NativeAdaptiveLayout.bookGrid(pageWidth: pageWidth)
+            let collections = NativeAdaptiveLayout.collectionGrid(pageWidth: pageWidth)
+            for grid in [books, collections] {
+                let occupied = CGFloat(grid.columns) * grid.itemWidth
+                    + CGFloat(grid.columns - 1) * grid.spacing + NativeAdaptiveLayout.pageInset * 2
+                check(abs(occupied - pageWidth) < 0.001, "Grid fills the available width without overflow at \(width)")
+                check(grid.columns > 0 && grid.itemWidth > 0, "Narrow windows retain usable grid geometry")
+            }
+            check(books.columns >= lastBooks, "Widening a window must not remove book columns")
+            check(collections.columns >= lastCollections, "Widening a window must not remove collection columns")
+            lastBooks = books.columns
+            lastCollections = collections.columns
+        }
+        let phone = NativeAdaptiveLayout.bookGrid(pageWidth: 393)
+        check(phone.columns == 3, "Keep iPhone 17's three-column shelf")
+        check(abs(phone.itemWidth - (393 - 48 - 32) / 3) < 0.001, "Keep the existing phone cover width")
+        check(NativeAdaptiveLayout.bookGrid(pageWidth: 320).columns == 2, "Compact iPad windows can use two columns")
+        check(NativeAdaptiveLayout.collectionGrid(pageWidth: 393).columns == 2, "Keep the phone's collection layout")
+        check(NativeAdaptiveLayout.collectionGrid(pageWidth: 820).columns == 4, "iPad portrait collections use four columns")
+        check(NativeAdaptiveLayout.collectionGrid(pageWidth: 1180).columns == 6, "iPad landscape collections use six columns")
+        check(NativeAdaptiveLayout.bookGrid(pageWidth: .nan).columns == 1, "Transient invalid widths are safe")
+        check(NativeAdaptiveLayout.pageWidth(viewportWidth: 1180) == 1180,
+              "All pages keep the shelf's full-width boundaries on iPad")
+        check(NativeAdaptiveLayout.pageWidth(viewportWidth: 393) == 393,
+              "Phone pages preserve their existing window boundaries")
+        check(NativeAdaptiveLayout.pageInset == 24 && NativeAdaptiveLayout.mastheadHeight == 44
+              && NativeAdaptiveLayout.mastheadTopInset == 16,
+              "Every top-level page uses the shelf's title and edge geometry")
+        check(NativeAdaptiveLayout.readerWidth(viewportWidth: 1180, isPdf: false) == 840, "EPUB text is constrained on iPad")
+        check(NativeAdaptiveLayout.readerWidth(viewportWidth: 1180, isPdf: true) == 1180, "PDF keeps its full-width viewport")
+        check(NativeAdaptiveLayout.readerWidth(viewportWidth: 393, isPdf: false) == 393, "Phone reading remains full width")
+        check(NativeAdaptiveLayout.noteWidth(viewportWidth: 1180) == 560, "An iPad note editor must not stretch across the screen")
+        check(NativeAdaptiveLayout.dashboardColumns(pageWidth: 393) == 2, "Phone statistic cards remain in two columns")
+        check(NativeAdaptiveLayout.dashboardColumns(pageWidth: 980) == 4, "All four statistics fill one wide row")
+
+        let window = CGRect(x: 0, y: 0, width: 600, height: 700)
+        check(NativeAdaptiveLayout.keyboardOverlap(windowBounds: window,
+            keyboardFrame: CGRect(x: 0, y: 480, width: 600, height: 300)) == 220,
+              "Docked keyboard overlap uses the resized window")
+        check(NativeAdaptiveLayout.keyboardOverlap(windowBounds: window,
+            keyboardFrame: CGRect(x: 100, y: 400, width: 300, height: 200)) == 0,
+              "Floating keyboards must not lift the note card")
+        check(NativeAdaptiveLayout.keyboardOverlap(windowBounds: window,
+            keyboardFrame: CGRect(x: 700, y: 480, width: 600, height: 300)) == 0,
+              "A keyboard in another window reserves nothing")
+        check(NativeAdaptiveLayout.keyboardOverlap(windowBounds: window,
+            keyboardFrame: CGRect(x: 0, y: 300, width: 600, height: 200)) == 0,
+              "An undocked wide keyboard is not bottom padding")
+
+        let safe = CGRect(x: 0, y: 24, width: 1180, height: 776)
+        let padBounds = NativeAdaptiveLayout.popupBounds(in: CGSize(width: 1180, height: 820), safeArea: safe)
+        check(padBounds.maxY == 792, "iPad top tabs do not reserve a phone-sized bottom strip")
+        let bottomTabs = NativeAdaptiveLayout.popupBounds(in: CGSize(width: 1180, height: 820),
+            safeArea: safe, bottomBarInset: 80)
+        check(bottomTabs.maxY == 732, "A real bottom tab bar remains protected")
+        for height in [CGFloat(160), 220, 320, 600, 1000] {
+            for metadata in [CGFloat(62), 124] {
+                let panel = NativeAdaptiveLayout.seriesPanel(in: CGSize(width: 600, height: height),
+                    preferredCoverWidth: 220, headerHeight: 44, metadataHeight: metadata)
+                check(panel.height <= height - 32, "Series preview fits short/resized windows")
+                check(panel.width <= 568 && panel.coverWidth <= 160, "Series covers use panel geometry, not screen width")
+                check(abs(panel.headerHeight + panel.rowHeight + 12 - panel.height) < 0.001,
+                      "Series panel rows fit the actual panel height")
+            }
+        }
+        check(NativeAdaptiveLayout.readerSettingsHeight(maxHeight: 1000, isPdf: false, isTablet: true) == 420,
+              "Tablet typography sheets expose more controls")
+        check(NativeAdaptiveLayout.readerSettingsHeight(maxHeight: 800, isPdf: false, isTablet: false) == 336,
+              "Phone typography detents stay unchanged")
+    }
+
     static func main() {
+        testAdaptiveLayout()
         let multiAuthor = stack([book("two", "Second", author: "B", series: "Collection", index: 2),
                                  book("one", "First", author: "A", series: "Collection", index: 1)])
         check(multiAuthor.books.map(\.id) == ["one", "two"], "Explicit multi-author series must group and sort")
@@ -89,6 +167,6 @@ struct NativeLibraryLogicTests {
             check(NativeSyncKeyConfirmation.decision(operation: operation, key: "new", savedKey: "old", confirmation: "") == .proceed,
                   "\(operation) does not persist the encryption key")
         }
-        print("Passed \(assertions) iOS library and sync-key logic assertions.")
+        print("Passed \(assertions) iOS adaptive-layout, library and sync-key logic assertions.")
     }
 }

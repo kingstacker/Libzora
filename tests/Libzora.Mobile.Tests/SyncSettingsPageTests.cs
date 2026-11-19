@@ -438,7 +438,13 @@ public sealed class SyncSettingsPageTests(MobileUiSession session)
     private static async Task Until(Func<bool> condition)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-        while (!condition()) await Task.Delay(10, timeout.Token);
+        while (!condition())
+        {
+            // Headless animations need an explicit frame clock; sleeping alone
+            // leaves sheet bounds frozen at the first layout on some hosts.
+            AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+            await Task.Delay(10, timeout.Token);
+        }
     }
 
     private sealed class TestProtector : ISecretProtector

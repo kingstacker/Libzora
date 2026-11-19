@@ -3018,8 +3018,8 @@
                                                 <TextBlock Text="{DynamicResource Sync.ProviderLabel}" FontSize="14" VerticalAlignment="Center" />
                                                 <ComboBox x:Name="SyncProviderBox" Grid.Column="1" SelectedIndex="0" MinWidth="160" HorizontalAlignment="Left"
                                                           AutomationProperties.Name="{DynamicResource Sync.ProviderLabel}">
-                                                    <ComboBoxItem Content="S3" />
-                                                    <ComboBoxItem Content="WebDAV" />
+                                                    <ComboBoxItem Content="S3" Tag="S3" />
+                                                    <ComboBoxItem Content="WebDAV" Tag="WebDav" />
                                                 </ComboBox>
                                             </Grid>
                                             <TextBlock x:Name="SyncMembershipNoticeText" IsVisible="False" Margin="160,0,0,0"
@@ -3064,6 +3064,13 @@
                                                     </Grid>
                                                 </StackPanel>
                                             </Border>
+                                            <Border x:Name="ICloudConnectionPanel" Classes="flatSubsection" Padding="0,12,0,0" Margin="0,4,0,0" IsVisible="False">
+                                                <StackPanel Spacing="9">
+                                                    <TextBlock Text="iCloud" FontSize="15" FontWeight="SemiBold" />
+                                                    <TextBlock Text="{DynamicResource Sync.ICloudHelp}" FontSize="12" Foreground="{DynamicResource MutedInkBrush}" TextWrapping="Wrap" />
+                                                    <TextBlock Text="{DynamicResource Sync.ICloudStorageHelp}" FontSize="12" Foreground="{DynamicResource MutedInkBrush}" TextWrapping="Wrap" />
+                                                </StackPanel>
+                                            </Border>
                                             <StackPanel Spacing="0">
                                                 <ToggleSwitch x:Name="S3AutomaticSyncCheck" VerticalAlignment="Center" Classes="settingsToggle" Content="{DynamicResource Sync.AutomaticLabel}" ToolTip.Tip="{DynamicResource Ui.Auto.1744BAADE68F9732}" AutomationProperties.Name="{DynamicResource Sync.AutomaticLabel}" />
                                                 <ToggleSwitch x:Name="S3DownloadBookFilesCheck" VerticalAlignment="Center" ToolTip.Tip="{DynamicResource Sync.DownloadBookFilesOnSyncHelp}" Classes="settingsToggle" Content="{DynamicResource Sync.DownloadFilesLabel}" AutomationProperties.Name="{DynamicResource Sync.DownloadFilesLabel}" />
@@ -3091,7 +3098,7 @@
                                                             <TextBlock Text="{DynamicResource Ui.Auto.72EC61D7855C86A1}" FontSize="12" VerticalAlignment="Center" TextWrapping="Wrap" />
                                                             <NumericUpDown x:Name="S3TimeoutBox" Grid.Column="1" Minimum="10" Maximum="600" Increment="10" Value="60" AutomationProperties.Name="{DynamicResource Ui.Auto.72EC61D7855C86A1}" FontSize="14" />
                                                         </Grid>
-                                                        <Grid ColumnDefinitions="150,150" ColumnSpacing="10">
+                                                        <Grid x:Name="S3ConcurrencyRow" ColumnDefinitions="150,150" ColumnSpacing="10">
                                                             <TextBlock Text="{DynamicResource Ui.Auto.8267CD636CE539F9}" FontSize="12" VerticalAlignment="Center" TextWrapping="Wrap" />
                                                             <NumericUpDown x:Name="S3ConcurrencyBox" Grid.Column="1" Minimum="1" Maximum="32" Increment="1" Value="4" AutomationProperties.Name="{DynamicResource Ui.Auto.8267CD636CE539F9}" FontSize="14" />
                                                         </Grid>

@@ -397,6 +397,8 @@ internal sealed class VerticalComposer
         var superscriptShift = cell.Superscript
             ? -(footnoteMarker ? _context.Options.BaseFontSize * 0.10f : cell.FontSize * 0.35f)
             : 0f;
+        var subscriptShift = cell.Subscript ? cell.FontSize * 0.20f : 0f;
+        var flowShift = superscriptShift + subscriptShift;
         float MarkerShiftX(float freeSpace) => footnoteMarker
             ? Math.Min(
                 _context.Options.BaseFontSize * 0.22f,
@@ -421,7 +423,7 @@ internal sealed class VerticalComposer
                 ? Math.Max(1f, cell.ImageWidth)
                 : Math.Max(1f, cell.ImageHeight);
             var availableHeight = flowAdvance;
-            var imageTop = paintY + Math.Max(0f, (availableHeight - imageHeight) / 2f) + superscriptShift;
+            var imageTop = paintY + Math.Max(0f, (availableHeight - imageHeight) / 2f) + flowShift;
             var imageLeft = colCenter - imageWidth / 2f
                 + MarkerShiftX(BodyColumnWidth - imageWidth);
             var imageRect = new SKRect(
@@ -459,7 +461,7 @@ internal sealed class VerticalComposer
             var ascent = cell.Ascent;
             var descent = cell.Descent;
             var originX = colCenter - (ascent - descent) / 2f + MarkerShiftX(BodyColumnWidth - cell.Advance);
-            var originY = paintY + superscriptShift
+            var originY = paintY + flowShift
                 + (cell.RubyAnnotation is not null ? Math.Max(0f, (flowAdvance - cell.Advance) / 2f) : 0f);
             var run = new PlacedRun
             {
@@ -485,7 +487,7 @@ internal sealed class VerticalComposer
         {
             var advance = Math.Max(1f, cell.Advance);
             var scale = Math.Min(1f, _context.Options.BaseFontSize / advance);
-            var baseline = paintY + flowAdvance / 2f + (cell.Ascent - cell.Descent) / 2f + superscriptShift;
+            var baseline = paintY + flowAdvance / 2f + (cell.Ascent - cell.Descent) / 2f + flowShift;
             var scaledAdvance = advance * scale;
             var originX = columnLeft + (BodyColumnWidth - scaledAdvance) / 2f
                 + MarkerShiftX(BodyColumnWidth - scaledAdvance);
@@ -557,7 +559,7 @@ internal sealed class VerticalComposer
                 + flowAdvance / 2f
                 + (cell.Ascent - cell.Descent) / 2f
                 + baselineCorrection
-                + superscriptShift;
+                + flowShift;
             var originX = columnLeft;
             var glyphX = new float[cell.Glyphs.Length];
             var glyphY = new float[cell.Glyphs.Length];
@@ -621,6 +623,20 @@ internal sealed class VerticalComposer
             _pages.AddDecoration(new PlacedRect
             {
                 Kind = DecorationKind.Underline,
+                Rect = new SKRect(barX, paintY, barX + 1.2f, paintY + height),
+                TextStart = cell.TextStart,
+                TextLength = cell.TextLength,
+            });
+        }
+
+        if (cell.Style.Strikeout && cell.TextLength > 0)
+        {
+            // In vertical text the strike line runs along the column centre.
+            var barX = colCenter - 0.6f;
+            var height = cell.Sideways ? cell.Advance : CellPitch;
+            _pages.AddDecoration(new PlacedRect
+            {
+                Kind = DecorationKind.Strikeout,
                 Rect = new SKRect(barX, paintY, barX + 1.2f, paintY + height),
                 TextStart = cell.TextStart,
                 TextLength = cell.TextLength,

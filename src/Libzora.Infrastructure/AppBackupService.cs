@@ -679,17 +679,24 @@ public sealed partial class AppBackupService
             // overwrites an existing custom connection, its secrets or sync key.
             return S3SyncSettings.Normalize(currentSettings with { Enabled = false });
 
-        var credentialsReady = imported.Provider == SyncProvider.WebDav
-            ? currentSettings.Provider == SyncProvider.WebDav
+        var credentialsReady = imported.Provider switch
+        {
+            SyncProvider.WebDav => currentSettings.Provider == SyncProvider.WebDav
                 && currentSettings.WebDavEndpoint == S3SyncSettings.Normalize(new S3SyncSettings { WebDavEndpoint = imported.WebDavEndpoint ?? string.Empty }).WebDavEndpoint
-                && (!imported.WebDavAuthenticationRequired || currentSettings.WebDavUsername.Length > 0)
-            : !string.IsNullOrWhiteSpace(currentSettings.AccessKey) && !string.IsNullOrWhiteSpace(currentSettings.SecretKey);
+                && (!imported.WebDavAuthenticationRequired || currentSettings.WebDavUsername.Length > 0),
+            // Portable backups cannot establish which system Apple account is
+            // signed in. An iCloud restore always requires an explicit enable.
+            SyncProvider.ICloud => false,
+            SyncProvider.S3 => !string.IsNullOrWhiteSpace(currentSettings.AccessKey)
+                && !string.IsNullOrWhiteSpace(currentSettings.SecretKey),
+            _ => false
+        };
         var encryptionReady = !imported.EncryptionEnabled
             || !string.IsNullOrWhiteSpace(currentSettings.EncryptionKey);
         // A restored custom connection is an explicit choice; older packages
         // without the flag are inferred from the connection they carry.
-        var importedCustom = imported.Provider is SyncProvider.S3 or SyncProvider.WebDav
-            && (imported.ProviderChosenByUser || imported.Provider == SyncProvider.WebDav
+        var importedCustom = imported.Provider is SyncProvider.S3 or SyncProvider.WebDav or SyncProvider.ICloud
+            && (imported.ProviderChosenByUser || imported.Provider is SyncProvider.WebDav or SyncProvider.ICloud
                 || !string.IsNullOrWhiteSpace(imported.Endpoint) || !string.IsNullOrWhiteSpace(imported.Bucket));
         return S3SyncSettings.Normalize(currentSettings with
         {

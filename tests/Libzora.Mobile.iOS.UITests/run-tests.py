@@ -62,6 +62,10 @@ def main() -> int:
         # Media rotation uses a separate fixture bundle and must be selected
         # explicitly after prepare-reader-media-preview.py.
         command.append("-skip-testing:NativeFrontendUITests/ReaderMediaTests")
+        # Footnote compatibility also uses a separate, explicitly prepared bundle.
+        command.append("-skip-testing:NativeFrontendUITests/ReaderFootnoteTests")
+        # Layout compatibility uses its own isolated bundle as well.
+        command.append("-skip-testing:NativeFrontendUITests/ReaderLayoutTests")
         # Upgrade setup deliberately uses another preview installation and is
         # run separately after the host has installed the legacy then native UI.
         command.append("-skip-testing:NativeFrontendUITests/NativeFrontendTests/testLegacyUpgradePreservesLibraryAndPreferences")

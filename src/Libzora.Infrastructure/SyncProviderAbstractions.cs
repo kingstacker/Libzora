@@ -14,12 +14,14 @@ public static class SyncProviderIds
 {
     public const string S3 = "s3";
     public const string WebDav = "webdav";
+    public const string ICloud = "icloud";
 
     public static string FromProvider(SyncProvider provider) => provider switch
     {
         SyncProvider.S3 => S3,
         SyncProvider.WebDav => WebDav,
-        _ => throw new ArgumentOutOfRangeException(nameof(provider), "仅支持 S3 或 WebDAV 同步。")
+        SyncProvider.ICloud => ICloud,
+        _ => throw new ArgumentOutOfRangeException(nameof(provider), "不支持的同步方式。")
     };
 }
 
@@ -88,6 +90,15 @@ public interface ISyncProviderFactory
     /// an encryption-key change against an already-published directory.
     /// </summary>
     bool IsSameRemoteDirectory(S3SyncSettings left, S3SyncSettings right);
+}
+
+/// <summary>
+/// Optional system-account binding. Explicit settings saves may rebind; a
+/// transfer must refuse a different account rather than publish a library to it.
+/// </summary>
+public interface ISyncProviderAccountBinding
+{
+    S3SyncSettings BindAccount(S3SyncSettings settings, bool allowAccountChange = false);
 }
 
 /// <summary>

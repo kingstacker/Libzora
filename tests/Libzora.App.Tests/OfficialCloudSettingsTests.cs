@@ -86,17 +86,23 @@ public sealed partial class SettingsTests
         await Render();
 
         var notice = scope.Get<TextBlock>("SyncMembershipNoticeText");
-        Assert.Equal(state is not ("trial" or "lifetime"), notice.IsVisible);
-        if (state == "expired")
+        // The current release intentionally leaves custom synchronization
+        // free. Keep the future-entitlement expectations only behind its gate.
+        Assert.Equal(AccountAvailability.EnforceSyncEntitlements && state is not ("trial" or "lifetime"), notice.IsVisible);
+        if (AccountAvailability.EnforceSyncEntitlements && state == "expired")
         {
             Assert.Contains("不会删除", notice.Text);
             Assert.Contains(expiry!.Value.LocalDateTime.ToString("yyyy/MM/dd"), notice.Text);
             Assert.DoesNotContain("销毁", notice.Text);
             Assert.DoesNotContain("保留期", notice.Text);
         }
-        if (state == "signed-out") Assert.Contains("领取试用", notice.Text);
-        if (state == "free") Assert.Contains("自备 S3 / WebDAV", notice.Text);
-        if (state == "region-switch") Assert.Contains("重新打开应用", notice.Text);
+        if (AccountAvailability.EnforceSyncEntitlements)
+        {
+            if (state == "signed-out") Assert.Contains("领取试用", notice.Text);
+            if (state == "free") Assert.Contains("自备 S3 / WebDAV", notice.Text);
+            if (state == "region-switch") Assert.Contains("重新打开应用", notice.Text);
+        }
+        else Assert.True(string.IsNullOrEmpty(notice.Text));
         Assert.Contains("不提供官方云同步", ToolTip.GetTip(scope.Get<ComboBox>("SyncProviderBox"))?.ToString());
         Assert.True(scope.Get<Button>("S3TestConnectionButton").IsVisible);
         Assert.True(scope.Get<Button>("AccountNavigationButton").IsEnabled);

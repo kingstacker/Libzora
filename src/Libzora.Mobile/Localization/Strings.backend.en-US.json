@@ -24,7 +24,7 @@
   "请输入有效的接口地址。": "Enter a valid API URL.",
   "无效的邮箱设置。": "Invalid email settings.",
   "未知设置操作：{0}": "Unknown settings action: {0}",
-  "填写自备 S3 / WebDAV 连接信息后可与其他设备同步": "Enter your own S3 or WebDAV connection details to sync with other devices",
+  "选择同步方式并保存后可与其他设备同步": "Choose a sync method and save to sync with other devices",
   "上次同步 {0:yyyy/MM/dd HH:mm} · {1} 本": "Last synced {0:yyyy/MM/dd HH:mm} · {1} books",
   " · {0} 个文件待下载": " · {0} files pending download",
   "尚未同步": "Not synced yet",

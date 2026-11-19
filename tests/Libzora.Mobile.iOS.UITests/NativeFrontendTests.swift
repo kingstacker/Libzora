@@ -1043,9 +1043,9 @@ final class NativeFrontendTests: XCTestCase {
         }
     }
 
-    /// Only S3 and WebDAV are selectable. Both keep user-owned credentials,
-    /// encryption, connection profiles and ordinary settings actions available.
-    func testCustomSyncShowsOnlyS3AndWebDavAndKeepsStorageToolsAvailable() {
+    /// Apple platforms expose iCloud without confusing its wire value (3)
+    /// with the retired official-cloud provider (2). S3/WebDAV keep their tools.
+    func testCustomSyncShowsAppleProvidersAndKeepsStorageToolsAvailable() {
         app.tabBars.buttons["我的"].tap()
         XCTAssertTrue(app.staticTexts["page.profile"].waitForExistence(timeout: 15))
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "QQ 交流群")).firstMatch.exists)
@@ -1053,9 +1053,11 @@ final class NativeFrontendTests: XCTestCase {
         app.buttons["profile.sync"].tap()
         let providers = app.segmentedControls["sync.provider"]
         XCTAssertTrue(providers.waitForExistence(timeout: 15))
-        XCTAssertEqual(providers.buttons.count, 2)
+        XCTAssertTrue(providers.buttons["iCloud"].waitForExistence(timeout: 15))
+        XCTAssertEqual(providers.buttons.count, 3)
         XCTAssertEqual(providers.buttons.element(boundBy: 0).label, "S3")
         XCTAssertEqual(providers.buttons.element(boundBy: 1).label, "WebDAV")
+        XCTAssertEqual(providers.buttons.element(boundBy: 2).label, "iCloud")
         XCTAssertFalse(providers.buttons["账号云同步"].exists)
         providers.buttons["S3"].tap()
         let prefix = app.textFields["目录前缀"]
@@ -1080,6 +1082,57 @@ final class NativeFrontendTests: XCTestCase {
         XCTAssertTrue(app.secureTextFields["密码"].exists)
         XCTAssertFalse(app.buttons["sync.membership.manage"].exists)
         attachScreenshot("自备同步-WebDAV")
+    }
+
+    func testICloudSyncHidesCredentialsAndPersistsDisabledChoice() {
+        showLibrary()
+        attachScreenshot("iCloud同步-现有书库")
+        app.tabBars.buttons["我的"].tap()
+        app.buttons["profile.sync"].tap()
+        let providers = app.segmentedControls["sync.provider"]
+        XCTAssertTrue(providers.waitForExistence(timeout: 15))
+        XCTAssertTrue(providers.buttons["iCloud"].waitForExistence(timeout: 15))
+        providers.buttons["iCloud"].tap()
+        let enabled = app.switches["启用同步"]
+        if enabled.value as? String == "1" { enabled.tap() }
+        XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "sync.icloud.info").firstMatch.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.textFields["目录前缀"].exists)
+        for label in ["服务地址", "用户名", "Bucket", "Region", "Access Key", "Endpoint（AWS 可留空）"] {
+            XCTAssertFalse(app.textFields[label].exists, label)
+        }
+        XCTAssertFalse(app.secureTextFields["密码"].exists)
+        XCTAssertFalse(app.secureTextFields["Secret Key"].exists)
+        XCTAssertFalse(app.buttons["导入连接参数"].exists)
+        XCTAssertFalse(app.buttons["导出连接参数"].exists)
+        attachScreenshot("iCloud同步-无需服务器凭据")
+        let advanced = app.buttons["高级选项"]
+        reveal(advanced); advanced.tap()
+        XCTAssertTrue(app.switches["同步时下载书籍文件"].exists)
+        XCTAssertFalse(app.switches["跳过 TLS 验证"].exists)
+        XCTAssertFalse(app.switches["Path Style"].exists)
+        let key = app.secureTextFields["sync.encryptionKey"]
+        reveal(key); XCTAssertTrue(key.exists)
+        let save = app.buttons["sync.save"]
+        reveal(save); save.tap()
+        XCTAssertTrue(app.staticTexts["已保存"].waitForExistence(timeout: 10))
+        app.navigationBars["同步"].buttons.firstMatch.tap()
+        app.buttons["profile.sync"].tap()
+        let iCloud = providers.buttons["iCloud"]
+        // The form is initially disabled with fallback options until the
+        // platform registry/settings request completes. Wait for that payload,
+        // not merely the segmented control's first placeholder snapshot.
+        XCTAssertTrue(iCloud.waitForExistence(timeout: 15))
+        XCTAssertTrue(waitUntil { iCloud.isSelected })
+        XCTAssertEqual(app.switches["启用同步"].value as? String, "0")
+        attachScreenshot("iCloud同步-选择已保存")
+        // This simulator has no provisioned iCloud account. The bridge must
+        // still resolve its static native symbols and report a sign-in prompt,
+        // never a missing-library/entrypoint error or a fake successful sync.
+        let test = app.buttons["测试连接"]
+        reveal(test); test.tap()
+        let status = app.staticTexts["sync.status"]
+        XCTAssertTrue(waitUntil(timeout: 15) { status.label.contains("Apple") && status.label.contains("iCloud") })
+        XCTAssertFalse(status.label.contains("DllNotFound") || status.label.contains("EntryPoint"))
     }
 
     func testSyncKeyboardCanDismissAndRefocusAndSaveDisabledDraft() {

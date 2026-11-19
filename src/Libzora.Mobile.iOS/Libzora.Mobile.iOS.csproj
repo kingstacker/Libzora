@@ -22,11 +22,17 @@
     <Registrar Condition="'$(UseSwiftUIFrontend)' == 'true'">static</Registrar>
     <DefineConstants Condition="'$(UseSwiftUIFrontend)' == 'true'">$(DefineConstants);LIBZORA_SWIFT_UI</DefineConstants>
     <NativeSwiftOutput>$(MSBuildProjectDirectory)/obj/$(Configuration)/$(TargetFramework)/$(RuntimeIdentifier)/native-ui</NativeSwiftOutput>
+    <ICloudNativeOutput>$(MSBuildProjectDirectory)/obj/$(Configuration)/$(TargetFramework)/$(RuntimeIdentifier)/native-icloud</ICloudNativeOutput>
+    <ICloudNativeSourceRoot>$(MSBuildProjectDirectory)/../Libzora.Platform.Common/Apple</ICloudNativeSourceRoot>
     <!-- WidgetKit extensions share an App Group with the phone app. Device
          builds need a provisioning profile that includes
          group.com.kingstacker.libzora; pass -p:EnableWidgets=false to build a
          profile-less diagnostic app instead. -->
     <EnableWidgets Condition="'$(EnableWidgets)' == ''">true</EnableWidgets>
+    <!-- Device profiles must authorize the same iCloud container as macOS.
+         Profile-less diagnostics can disable both iCloud and widgets. -->
+    <EnableICloud Condition="'$(EnableICloud)' == ''">true</EnableICloud>
+    <DefineConstants Condition="'$(EnableICloud)' == 'true'">$(DefineConstants);LIBZORA_ICLOUD</DefineConstants>
     <WidgetBundleId Condition="'$(WidgetBundleId)' == ''">com.kingstacker.libzora.widgets</WidgetBundleId>
     <!-- Optional path to the widget extension's provisioning profile. Device
          builds must pass it when the generated extension is signed, otherwise
@@ -36,7 +42,7 @@
     <WidgetGeneratedEntitlements Condition="'$(RuntimeIdentifier)' == 'ios-arm64' And '$(WidgetProvisioningProfile)' != ''">$(WidgetSwiftOutput)/LibzoraWidgets.device.entitlements</WidgetGeneratedEntitlements>
     <WidgetCodesignEntitlements>$(MSBuildProjectDirectory)/../../src/Libzora.Widgets/LibzoraWidgets.iOS.entitlements</WidgetCodesignEntitlements>
     <WidgetCodesignEntitlements Condition="'$(WidgetGeneratedEntitlements)' != ''">$(WidgetGeneratedEntitlements)</WidgetCodesignEntitlements>
-    <CodesignEntitlements Condition="'$(EnableWidgets)' == 'true' And '$(RuntimeIdentifier)' != '' And '$(CodesignEntitlements)' == ''">$(MSBuildProjectDirectory)/Entitlements.plist</CodesignEntitlements>
+    <CodesignEntitlements Condition="('$(EnableWidgets)' == 'true' Or '$(EnableICloud)' == 'true') And '$(RuntimeIdentifier)' != '' And '$(CodesignEntitlements)' == ''">$(MSBuildProjectDirectory)/Entitlements.plist</CodesignEntitlements>
     <WidgetBuildScript>$(MSBuildProjectDirectory)/../../src/Libzora.Widgets/build-ios-widgets.sh</WidgetBuildScript>
     <WidgetSourceRoot>$(MSBuildProjectDirectory)/../../src/Libzora.Widgets/Shared</WidgetSourceRoot>
   </PropertyGroup>
@@ -90,6 +96,7 @@
     <BundleResource Include="../Libzora.App/Assets/Icons/Lucide-LICENSE.txt"
                     LogicalName="Assets/Icons/Lucide-LICENSE.txt" />
     <ProjectReference Include="..\Libzora.Mobile\Libzora.Mobile.csproj" />
+    <ProjectReference Include="..\Libzora.Platform.Common\Libzora.Platform.Common.csproj" />
     <PackageReference Include="Avalonia.iOS" Version="12.1.1" />
     <!-- SkiaSharp only pulls its iOS native framework through its
          net10.0-ios26.2 dependency group. Device builds pinned to an older
@@ -130,6 +137,19 @@
       <CodesignEntitlements>$(WidgetCodesignEntitlements)</CodesignEntitlements>
     </AdditionalAppExtensions>
   </ItemGroup>
+
+  <ItemGroup Condition="'$(RuntimeIdentifier)' != ''">
+    <NativeReference Include="$(ICloudNativeOutput)/libLibzoraICloud.a"
+                     Kind="Static" ForceLoad="true" SmartLink="false"
+                     Frameworks="Foundation" />
+  </ItemGroup>
+
+  <Target Name="BuildICloudFoundationHelper" BeforeTargets="_ExpandNativeReferences"
+          Condition="'$(RuntimeIdentifier)' != '' And '$(DesignTimeBuild)' != 'true'"
+          Inputs="$(ICloudNativeSourceRoot)/LibzoraICloud.m;$(ICloudNativeSourceRoot)/build-icloud.sh"
+          Outputs="$(ICloudNativeOutput)/libLibzoraICloud.a">
+    <Exec Command="/bin/zsh &quot;$(ICloudNativeSourceRoot)/build-icloud.sh&quot; &quot;$(RuntimeIdentifier)&quot; &quot;$(ICloudNativeOutput)&quot; &quot;$(Configuration)&quot;" />
+  </Target>
 
   <Target Name="BuildSwiftFrontend" BeforeTargets="_ExpandNativeReferences"
           Condition="'$(UseSwiftUIFrontend)' == 'true' And '$(RuntimeIdentifier)' != ''"

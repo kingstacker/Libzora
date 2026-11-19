@@ -74,7 +74,8 @@ public sealed record MobileServices(
     IMobileTabBar? TabBar = null,
     IMobileBackgroundWork? BackgroundWork = null,
     IMobileFileShare? FileShare = null,
-    Func<IReadOnlyList<string>>? PreferredLanguages = null);
+    Func<IReadOnlyList<string>>? PreferredLanguages = null,
+    SyncProviderRegistry? SyncProviders = null);
 
 /// <summary>Fallback for hosts without a document picker (designer, preview).</summary>
 public sealed class NoFileImportSource : IFileImportSource

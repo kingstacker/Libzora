@@ -52,6 +52,7 @@
         <Button Name="SyncNowButton" Classes="primary" Content="立即同步" Margin="0,16,0,0"
                 Click="OnSyncNowClick" />
 
+        <StackPanel Name="ConnectionProfilePanel">
         <TextBlock Classes="label" Text="连接参数" Margin="0,28,0,12" />
         <Grid ColumnDefinitions="*,12,*">
           <Button Name="ImportProfileButton" Classes="secondary" Content="导入参数" Click="OnImportProfileClick" />
@@ -59,24 +60,28 @@
         </Grid>
         <TextBlock Classes="muted" FontSize="12" Margin="0,8,0,16" TextWrapping="Wrap"
                    Text="参数文件明文包含连接凭据，请妥善保管；同步加密密钥不包含在内。" />
+        </StackPanel>
 
         <TextBlock Classes="label" Text="连接" Margin="0,8,0,12" />
 
         <c:NativeSegmentGroup Margin="0,0,0,16">
           <Border Classes="segments">
-            <Grid ColumnDefinitions="*,*">
+            <Grid Name="ProviderColumns" ColumnDefinitions="*,*,0">
               <Button Grid.Column="0" Name="ProviderS3" Classes="seg" Content="S3" Click="OnProviderClick" />
               <Button Grid.Column="1" Name="ProviderWebDav" Classes="seg" Content="WebDAV" Click="OnProviderClick" />
+              <Button Grid.Column="2" Name="ProviderICloud" Classes="seg" Content="iCloud" IsVisible="False" Click="OnProviderClick" />
             </Grid>
           </Border>
         </c:NativeSegmentGroup>
 
         <StackPanel Spacing="10" Margin="0,0,0,16">
           <TextBlock Name="AccountSummaryText" Classes="muted" TextWrapping="Wrap" />
-          <TextBlock Classes="muted" FontSize="12" Text="试用与买断使用自备 S3 / WebDAV，不提供官方云同步。两区账号与数据独立。" TextWrapping="Wrap" />
+          <TextBlock Name="SyncStorageHelpText" Classes="muted" FontSize="12" Text="试用与买断使用自备 S3 / WebDAV，不提供官方云同步。两区账号与数据独立。" TextWrapping="Wrap" />
           <Button Classes="secondary" Content="登录 / 管理账号" Click="OnAccountClick" />
         </StackPanel>
 
+        <TextBlock Name="ICloudHelpText" Classes="muted" FontSize="12" Margin="0,0,0,16" IsVisible="False" TextWrapping="Wrap"
+                   Text="在系统设置中开启 iCloud 云盘。iPhone、iPad 和 Mac 使用同一 Apple 账户、相同区域和目录前缀即可同步，无需填写服务器或密码。" />
         <StackPanel Name="WebDavFields" IsVisible="False">
           <StackPanel Classes="field">
             <TextBlock Text="服务地址" />
@@ -144,7 +149,7 @@
               <ToggleSwitch Name="DownloadFilesSwitch" OnContent="" OffContent="" MinWidth="0" />
             </c:NativeSwitchGroup>
           </Grid>
-          <Grid ColumnDefinitions="*,Auto">
+          <Grid Name="SkipTlsRow" ColumnDefinitions="*,Auto">
             <StackPanel VerticalAlignment="Center" Spacing="2">
               <TextBlock Text="跳过证书校验" />
               <TextBlock Classes="muted" FontSize="12" Text="仅用于可信的自建服务" />

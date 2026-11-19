@@ -11,6 +11,20 @@ public sealed class CssHints
     /// <summary>The publisher asked for ragged-right text (`text-align: left`).</summary>
     public bool NoJustify { get; init; }
     public bool NoWrap { get; init; }
+    /// <summary>Publisher vertical-align; null leaves the element's default unchanged.</summary>
+    public bool? Superscript { get; init; }
+    public bool? Subscript { get; init; }
+    /// <summary>Publisher display:none or visibility:hidden.</summary>
+    public bool Hidden { get; init; }
+    /// <summary>text-decoration; null means unspecified.</summary>
+    public bool? Underline { get; init; }
+    public bool? Strikeout { get; init; }
+    /// <summary>Publisher letter-spacing in em; NaN keeps the reader default.</summary>
+    public float LetterSpacingEm { get; init; } = float.NaN;
+    public TypesetTextCasing? Casing { get; init; }
+    public bool? SmallCaps { get; init; }
+    /// <summary>Resolved list-style-type token, or null when unspecified.</summary>
+    public string? ListStyleType { get; init; }
     /// <summary>-1 means unspecified, 0 means none, positive values limit digits; int.MaxValue means all.</summary>
     public int VerticalTextCombineLimit { get; init; } = -1;
     public TypesetVerticalOrientation? VerticalTextOrientation { get; init; }
@@ -124,6 +138,15 @@ public sealed class MicroCss
         var alignRight = false;
         var noJustify = false;
         var noWrap = false;
+        bool? superscript = null;
+        bool? subscript = null;
+        var hidden = false;
+        bool? underline = null;
+        bool? strikeout = null;
+        var letterSpacing = float.NaN;
+        TypesetTextCasing? casing = null;
+        bool? smallCaps = null;
+        string? listStyleType = null;
         var verticalTextCombineLimit = -1;
         TypesetVerticalOrientation? verticalTextOrientation = null;
         var indent = float.NaN;
@@ -168,6 +191,56 @@ public sealed class MicroCss
                         break;
                     case "white-space":
                         noWrap = value == "nowrap" || value == "pre";
+                        break;
+                    case "vertical-align":
+                        if (value is "super" or "sub" or "baseline")
+                        {
+                            superscript = value == "super";
+                            subscript = value == "sub";
+                        }
+                        break;
+                    case "display":
+                        hidden = value is "none";
+                        break;
+                    case "visibility":
+                        hidden = value is "hidden" or "collapse";
+                        break;
+                    case "text-decoration":
+                    case "text-decoration-line":
+                        if (value.Contains("none", StringComparison.Ordinal))
+                        {
+                            underline = false;
+                            strikeout = false;
+                        }
+                        else
+                        {
+                            if (value.Contains("underline", StringComparison.Ordinal)) underline = true;
+                            if (value.Contains("line-through", StringComparison.Ordinal)) strikeout = true;
+                        }
+                        break;
+                    case "letter-spacing":
+                        letterSpacing = value == "normal" ? 0f : ParseLengthEm(value);
+                        break;
+                    case "text-transform":
+                        casing = value switch
+                        {
+                            "uppercase" => TypesetTextCasing.Uppercase,
+                            "lowercase" => TypesetTextCasing.Lowercase,
+                            "capitalize" => TypesetTextCasing.Capitalize,
+                            "none" => TypesetTextCasing.None,
+                            _ => casing,
+                        };
+                        break;
+                    case "font-variant":
+                    case "font-variant-caps":
+                        if (value.Contains("small-caps", StringComparison.Ordinal)) smallCaps = true;
+                        else if (value is "normal" or "none") smallCaps = false;
+                        break;
+                    case "list-style-type":
+                        listStyleType = ParseListStyleType(value) ?? listStyleType;
+                        break;
+                    case "list-style":
+                        listStyleType = ParseListStyleShorthand(value) ?? listStyleType;
                         break;
                     case "text-combine-upright":
                     case "-webkit-text-combine":
@@ -318,6 +391,15 @@ public sealed class MicroCss
                 AlignRight = alignRight,
                 NoJustify = noJustify,
                 NoWrap = noWrap,
+                Superscript = superscript,
+                Subscript = subscript,
+                Hidden = hidden,
+                Underline = underline,
+                Strikeout = strikeout,
+                LetterSpacingEm = letterSpacing,
+                Casing = casing,
+                SmallCaps = smallCaps,
+                ListStyleType = listStyleType,
                 VerticalTextCombineLimit = verticalTextCombineLimit,
                 VerticalTextOrientation = verticalTextOrientation,
                 TextIndentEm = indent,
@@ -463,6 +545,28 @@ public sealed class MicroCss
         }
 
         return float.IsNaN(current) || current <= 0f ? 1f / 16f : current;
+    }
+
+    private static string? ParseListStyleType(string value)
+    {
+        var token = value.Trim().ToLowerInvariant();
+        return token is "none" or "disc" or "circle" or "square" or "decimal"
+            or "decimal-leading-zero" or "lower-alpha" or "upper-alpha"
+            or "lower-latin" or "upper-latin" or "lower-roman" or "upper-roman"
+            or "cjk-ideographic" or "cjk-decimal" or "chinese-counting"
+            ? token : null;
+    }
+
+    private static string? ParseListStyleShorthand(string value)
+    {
+        // `list-style: inside none` and `list-style: decimal outside` are the
+        // common forms. The position token is irrelevant to the reflow engine.
+        foreach (var token in value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var style = ParseListStyleType(token);
+            if (style is not null) return style;
+        }
+        return null;
     }
 
     private static int ParseTextCombineLimit(string value)

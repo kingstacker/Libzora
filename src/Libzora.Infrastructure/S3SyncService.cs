@@ -158,11 +158,32 @@ public sealed partial class S3SyncService : ISyncService
             : store;
     }
 
+    public IReadOnlyList<SyncProviderDescriptor> AvailableProviders => _providers.Descriptors;
+
     public async Task<S3SyncStoredSettings> LoadSettingsAsync(CancellationToken cancellationToken = default)
     {
         var stored = await _settingsStore.LoadAsync(cancellationToken);
         if (_dataRegion is { } region && stored.Settings.AccountRegion != region)
-            return stored with { Settings = stored.Settings with { AccountRegion = region, Enabled = false } };
+            stored = stored with { Settings = stored.Settings with { AccountRegion = region, Enabled = false } };
+        // A backup may carry an Apple-only provider onto Windows or Android.
+        // Keep the choice visible without rerouting it to leftover credentials.
+        if (!_providers.TryGet(stored.Settings.Provider, out var factory))
+            stored = stored with { Settings = stored.Settings with { Enabled = false } };
+        else if (stored.Settings.Enabled && factory is ISyncProviderAccountBinding binding)
+        {
+            // A signed-out/switched system account must not automatically
+            // receive this library. Only an explicit settings save can rebind.
+            try
+            {
+                var bound = binding.BindAccount(stored.Settings);
+                if (bound != stored.Settings)
+                    stored = stored with { Settings = stored.Settings with { Enabled = false } };
+            }
+            catch (Exception exception) when (exception is InvalidOperationException or IOException)
+            {
+                stored = stored with { Settings = stored.Settings with { Enabled = false } };
+            }
+        }
         return stored;
     }
 
@@ -175,6 +196,13 @@ public sealed partial class S3SyncService : ISyncService
         CancellationToken cancellationToken = default)
     {
         var normalized = S3SyncSettings.Normalize(settings);
+        if (normalized.Enabled)
+        {
+            if (!_providers.TryGet(normalized.Provider, out var factory))
+                throw new NotSupportedException(UiText.Get("当前平台不支持此同步方式。"));
+            if (factory is ISyncProviderAccountBinding binding)
+                normalized = binding.BindAccount(normalized, allowAccountChange: true);
+        }
         if (_dataRegion is { } dataRegion)
         {
             await _accounts!.EnsureSyncRegionAsync(dataRegion, cancellationToken);
@@ -264,6 +292,8 @@ public sealed partial class S3SyncService : ISyncService
         CancellationToken cancellationToken = default)
     {
         var normalized = S3SyncSettings.Normalize(settings);
+        if (!_providers.TryGet(normalized.Provider, out _))
+            return new S3SyncStatusSummary(null, 0, 0, 0, 0, 0, 0, null);
         deviceId = NormalizeDeviceId(deviceId);
         var storageIdentity = BuildStorageIdentity(normalized);
         await _syncGate.WaitAsync(cancellationToken);
@@ -402,7 +432,7 @@ public sealed partial class S3SyncService : ISyncService
         ArgumentNullException.ThrowIfNull(books);
         var statuses = books.ToDictionary(book => book.Id, _ => BookSyncStatus.NotSynced);
         var normalized = S3SyncSettings.Normalize(settings);
-        if (!normalized.IsConfigured) return statuses;
+        if (!normalized.IsConfigured || !_providers.TryGet(normalized.Provider, out _)) return statuses;
 
         // The local state file is replaced during SyncAsync. Serialize this
         // read with the same gate, otherwise a badge refresh can observe the
@@ -1164,20 +1194,25 @@ public sealed partial class S3SyncService : ISyncService
               && string.Equals(left.SmtpUsername, right.SmtpUsername, StringComparison.Ordinal)
               && left.EnableSsl == right.EnableSsl;
 
-    private static S3SyncSettings NormalizeTransferSettings(S3SyncSettings settings)
+    private S3SyncSettings NormalizeTransferSettings(S3SyncSettings settings)
     {
         // Check before migration: an explicit removed provider must never use
         // credentials left over from a previously configured S3 connection.
         if (settings.Provider == SyncProvider.AccountServer)
             throw new InvalidOperationException(MemberEntitlements.AccountCloudRequirement);
-        return S3SyncSettings.Normalize(settings);
+        var normalized = S3SyncSettings.Normalize(settings);
+        if (_providers.TryGet(normalized.Provider, out var factory) && factory is ISyncProviderAccountBinding binding)
+            normalized = binding.BindAccount(normalized);
+        return normalized;
     }
 
-    private static void ThrowIfInvalid(S3SyncSettings settings)
+    private void ThrowIfInvalid(S3SyncSettings settings)
     {
         var validation = settings.Validate();
         if (validation is not null)
             throw new InvalidOperationException(validation);
+        if (!_providers.TryGet(settings.Provider, out _))
+            throw new NotSupportedException(UiText.Get("当前平台不支持此同步方式。"));
     }
 
     private static string NormalizeDeviceId(string deviceId) =>
@@ -1192,7 +1227,7 @@ public sealed partial class S3SyncService : ISyncService
 
     private bool SameRemoteDirectory(S3SyncSettings left, S3SyncSettings right) =>
         left.Provider == right.Provider && left.Prefix == right.Prefix && left.AccountRegion == right.AccountRegion
-        && _providers.Get(left.Provider).IsSameRemoteDirectory(left, right);
+        && _providers.TryGet(left.Provider, out var factory) && factory.IsSameRemoteDirectory(left, right);
 
     private string BuildStorageIdentity(S3SyncSettings settings) =>
         (_dataRegion is { } region ? "region:" + AccountRegions.Slug(region) + "|" : "")

@@ -56,7 +56,10 @@ pattern: `MainWindow.<Area><Aspect>.cs`.
 | `MainWindow.ReaderSelectionPopup.cs` | Selection action bar. |
 | `MainWindow.ReaderFootnotes.cs` | Footnote and annotation popovers. |
 | `MainWindow.ReaderBridge.cs` | WebView bridge message dispatch. |
-| `MainWindow.ReaderFeatures.cs`, `.ReaderAi.cs`, `.ReaderTts.cs` | Reader features, AI panel, TTS. |
+| `MainWindow.ReaderFeatures*.cs` | Shortcuts, PDF navigation, tabs, bookmarks, whole-book search, progress slider and layout panel. |
+| `MainWindow.ReaderAi*.cs` | Embedding models, assistant panel, provider settings, chat and context building. |
+| `MainWindow.ReaderTts*.cs` | TTS navigation, controls, floating panel, model management and playback. |
+| `MainWindow.KreaderValidation*.cs` | Debug-only Kreader validation and layout diagnostics. |
 | `MainWindow.ReaderLinuxTextFallback*.cs` | Linux plain-text fallback surface (render, content, input). |
 | `MainWindow.ReaderNavigation.cs` | Return-to-library navigation and native menus. |
 
@@ -98,6 +101,24 @@ pattern: `MainWindow.<Area><Aspect>.cs`.
 | `MainWindow.BookInteractions.cs` | Card/grid pointer handling, rubber band, detail actions. |
 | `MainWindow.WindowChrome.cs` | Title bar, window-state animation, accessibility tooltips. |
 | `MainWindow.Settings.cs`, `MainWindow.Plugins.cs` | Settings page shell and plugin UI. |
+
+### Reflection editor
+
+`BookReflectionEditorSurface` is a partial class split by responsibility:
+
+| File | Responsibility |
+| --- | --- |
+| `BookReflectionEditorSurface.cs` | State, markdown projection and loading. |
+| `.Toolbar.cs` | Formatting toolbar and image action buttons. |
+| `.Blocks.cs` | Block view construction. |
+| `.Images.cs` | Image selection, resizing and replacement. |
+| `.Editing.cs` | Text edits, keyboard handling, paste and block splitting. |
+| `.BlockUpdate.cs` | Block refresh and selection toolbar state. |
+| `.Formatting.cs` | Bold, links and citation insertion. |
+| `.Dialogs.cs` | Owner window lookup and dialog chrome. |
+| `.Media.cs` | Image insertion and link/alt prompts. |
+| `.TextModel.cs` | Inline styles and markdown parsing. |
+| `.Types.cs` | Nested view and block-state types. |
 
 ## iOS native frontend
 

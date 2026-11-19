@@ -120,6 +120,24 @@ pattern: `MainWindow.<Area><Aspect>.cs`.
 | `.TextModel.cs` | Inline styles and markdown parsing. |
 | `.Types.cs` | Nested view and block-state types. |
 
+## Service layer partials
+
+Large services are split by responsibility so one change opens one file:
+
+| Service | Files |
+| --- | --- |
+| `S3SyncService.Database*.cs` | connection, snapshot, apply-remote (sync core), merge, dedupe, blobs, SQL, tombstones |
+| `SqliteBookLibraryService.*.cs` | queries, import, mutations, trash, collections, file paths, readers, schema |
+| `ReaderDataService.*.cs` | annotations, layout, stats, index, embeddings, search |
+| `EpubReaderPreparationService.*.cs` | toc, navigation, chapter titles, index cache, extraction, XML, sanitizer |
+| `PluginBridge.*.cs` | dispatch, content, AI, network, decode |
+| `EpubTranslationService.*.cs` | translate, retry, render, documents, text tools, cache, types |
+| `PinyinBookService.*.cs` | generate, annotate, AI review, documents, cache, types |
+| `TtsService.*.cs` | startup, control, run, pipeline, lifecycle |
+| `MtpKindleDeviceService.*.cs` | books, resources, annotations, scan, session |
+| `LibzoraMcpTools.*.cs` + `McpResults.cs` | library, collections, content, devices, validation, projection, result records |
+| `NativePdfReaderHost.*.cs` | interaction, annotation callouts, search, rendering, pointer |
+
 ## iOS native frontend
 
 - `src/Libzora.Mobile.iOS/NativeUI/*.swift` — SwiftUI screens: bookshelf,

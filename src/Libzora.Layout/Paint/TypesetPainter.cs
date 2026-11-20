@@ -53,7 +53,12 @@ public sealed class TypesetPainter
             if (RunBlobCache.TryGetValue(run, out var cached)) return cached;
         }
 
-        using var font = new SKFont(typeface, run.FontSize * run.Scale);
+        using var font = new SKFont(typeface, run.FontSize * run.Scale)
+        {
+            Subpixel = true,
+            Edging = SKFontEdging.Antialias,
+            Hinting = SKFontHinting.Slight,
+        };
         using var builder = new SKTextBlobBuilder();
         var buffer = builder.AllocatePositionedRun(font, glyphCount);
         buffer.SetGlyphs(run.Glyphs.AsSpan(0, glyphCount));
@@ -171,7 +176,7 @@ public sealed class TypesetPainter
             var skImage = _imageResolver?.Invoke(image.Path);
             if (skImage is not null)
             {
-                DrawPlacedImage(canvas, skImage, image);
+                DrawPlacedImage(canvas, skImage, image, IsDarkBackground(_theme.Background));
             }
             else
             {
@@ -261,7 +266,12 @@ public sealed class TypesetPainter
             // soon as a selection existed, making unrelated text unreadable.
             if (inversionBands is not null)
             {
-                using var glyphFont = new SKFont(typeface, run.FontSize * run.Scale);
+                using var glyphFont = new SKFont(typeface, run.FontSize * run.Scale)
+                {
+                    Subpixel = true,
+                    Edging = SKFontEdging.Antialias,
+                    Hinting = SKFontHinting.Slight,
+                };
                 for (var glyphIndex = 0; glyphIndex < glyphCount; glyphIndex++)
                 {
                     var glyphRect = ChapterLayoutInteraction.GetGlyphRect(page, run, glyphIndex);
@@ -605,8 +615,29 @@ public sealed class TypesetPainter
             _ => "solid",
         };
 
-    private static void DrawPlacedImage(SKCanvas canvas, SKImage image, PlacedImage placed)
+    private static bool IsDarkBackground(SKColor color)
     {
+        var luminance = (0.2126f * color.Red + 0.7152f * color.Green + 0.0722f * color.Blue) / 255f;
+        return luminance < 0.25f;
+    }
+
+    private static readonly float[] DarkModeImageDimMatrix =
+    [
+        0.84f, 0f,    0f,    0f, 0f,
+        0f,    0.84f, 0f,    0f, 0f,
+        0f,    0f,    0.84f, 0f, 0f,
+        0f,    0f,    0f,    1f, 0f,
+    ];
+
+    private static void DrawPlacedImage(SKCanvas canvas, SKImage image, PlacedImage placed, bool darkBackground)
+    {
+        using var paint = darkBackground
+            ? new SKPaint
+            {
+                IsAntialias = true,
+                ColorFilter = SKColorFilter.CreateColorMatrix(DarkModeImageDimMatrix),
+            }
+            : null;
         if (Math.Abs(placed.RotationDegrees - 90f) < 0.01f)
         {
             // Rect is the final, rotated bounding box. Draw the source image
@@ -618,12 +649,13 @@ public sealed class TypesetPainter
             canvas.RotateDegrees(90f);
             canvas.DrawImage(
                 image,
-                new SKRect(0f, 0f, placed.Rect.Height, placed.Rect.Width));
+                new SKRect(0f, 0f, placed.Rect.Height, placed.Rect.Width),
+                paint);
             canvas.Restore();
             return;
         }
 
-        canvas.DrawImage(image, placed.Rect);
+        canvas.DrawImage(image, placed.Rect, paint);
     }
 
     private static void DrawPlacedBlob(

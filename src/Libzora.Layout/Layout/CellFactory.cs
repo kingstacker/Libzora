@@ -69,6 +69,15 @@ internal sealed partial class CellFactory
                 : _context.LetterSpacing * (fontSize / _context.Options.BaseFontSize);
 
         var preferredFont = ResolvePreferredFont(unitText, style, vertical, preferLatinFont);
+        if (fontSizeOverride is null
+            && !vertical
+            && !style.Monospace
+            && _context.Fonts.LatinFontPath is { } pairedLatin
+            && preferredFont.StartsWith(pairedLatin, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(pairedLatin, _context.MainFont, StringComparison.OrdinalIgnoreCase))
+        {
+            fontSize *= _context.Fonts.GetLatinOpticalScale(pairedLatin);
+        }
         var publisherTracking = !vertical && !float.IsNaN(style.LetterSpacingEm);
         var cacheable = unitText.Length <= 64;
         var key = (unitText, fontSize, letterSpacing, naturalLatin, publisherTracking, preferredFont, style.PreserveWhitespace);

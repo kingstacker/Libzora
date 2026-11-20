@@ -9,6 +9,81 @@ namespace Libzora.Layout;
 public sealed partial class TypesetFontLibrary
 {
     private const string StyleSeparator = "#style:";
+    private readonly Dictionary<(string MainKey, string LatinKey), float> _latinScaleCache = new();
+
+    /// <summary>
+    /// Computes an optical scale factor so a paired Latin typeface visually
+    /// balances the main CJK typeface's ideograph height (targeting Latin cap
+    /// height at ~76% of Han height). Returns 1 when both faces are the same.
+    /// </summary>
+    public float GetLatinOpticalScale(string latinFontPath)
+    {
+        if (_disposed
+            || string.IsNullOrWhiteSpace(latinFontPath)
+            || string.Equals(latinFontPath, MainFontPath, StringComparison.OrdinalIgnoreCase))
+        {
+            return 1f;
+        }
+
+        var baseLatin = StripStyleSuffix(latinFontPath);
+        var key = (MainFontPath, baseLatin);
+        lock (_faces)
+        {
+            if (_latinScaleCache.TryGetValue(key, out var cached))
+            {
+                return cached;
+            }
+        }
+
+        var scale = 1f;
+        try
+        {
+            var mainFace = TryGetTypeface(MainFontPath);
+            var latinFace = TryGetTypeface(baseLatin) ?? TryGetTypeface(latinFontPath);
+            if (mainFace is not null && latinFace is not null)
+            {
+                const float sampleSize = 100f;
+                var mainHeight = MeasureSampleGlyphHeight(mainFace, '永', sampleSize);
+                var latinCapHeight = MeasureSampleGlyphHeight(latinFace, 'H', sampleSize);
+                if (mainHeight > 20f && latinCapHeight > 20f)
+                {
+                    // Classic CJK-Latin mixed typography aligns Latin capitals
+                    // around 76% of the CJK ideograph visual height.
+                    var targetCap = mainHeight * 0.76f;
+                    scale = Math.Clamp(targetCap / latinCapHeight, 0.90f, 1.12f);
+                }
+            }
+        }
+        catch (Exception)
+        {
+            scale = 1f;
+        }
+
+        lock (_faces)
+        {
+            if (!_disposed)
+            {
+                _latinScaleCache[key] = scale;
+            }
+        }
+
+        return scale;
+    }
+
+    private static float MeasureSampleGlyphHeight(SKTypeface typeface, char ch, float sampleSize)
+    {
+        using var font = new SKFont(typeface, sampleSize);
+        var glyph = font.GetGlyph(ch);
+        if (glyph == 0)
+        {
+            return 0f;
+        }
+
+        Span<ushort> glyphs = stackalloc ushort[1];
+        glyphs[0] = glyph;
+        _ = font.GetGlyphWidths(glyphs, out var bounds, null);
+        return bounds[0].Height;
+    }
 
     public static bool IsStyledVariantKey(string? fontPath) =>
         fontPath is not null

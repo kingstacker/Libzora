@@ -177,6 +177,14 @@ public static class TypesetText
             return true;
         }
 
+        // Keep two-character Chinese ellipses (……) and dashes (——) indivisible.
+        if (left.Length == 1 && right.Length == 1
+            && left[0] == right[0]
+            && left[0] is '…' or '—' or '―' or '‥')
+        {
+            return true;
+        }
+
         if (IsProhibitedAtLineEnd(left) || IsProhibitedAtLineStart(right))
         {
             return true;

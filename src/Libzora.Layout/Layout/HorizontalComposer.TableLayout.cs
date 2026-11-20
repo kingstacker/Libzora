@@ -494,6 +494,10 @@ internal sealed partial class HorizontalComposer
         public bool StartsAnchoredPage { get; set; }
         /// <summary>True when the final cell is a closing CJK mark intentionally hanging into the trailing margin.</summary>
         public bool HasHangingPunctuation { get; set; }
+        /// <summary>Optical protrusion into the trailing margin (e.g. half a Latin hyphen or period).</summary>
+        public float OpticalTrailingProtrusion { get; set; }
+        /// <summary>Additional left inset on this line (e.g. beside a floated drop cap).</summary>
+        public float FloatLeftInset { get; set; }
 
         public void Add(LayoutCell cell)
         {
@@ -542,6 +546,12 @@ internal sealed partial class HorizontalComposer
                 // hanging punctuation sit outside the margin.
                 extra += Cells[end - 1].Advance;
                 end--;
+            }
+            else if (OpticalTrailingProtrusion > 0f)
+            {
+                // Optical margin alignment: let trailing hyphens/periods peek
+                // slightly past the right margin so the text column looks straight.
+                extra += OpticalTrailingProtrusion;
             }
 
             if (extra <= 0.01f)

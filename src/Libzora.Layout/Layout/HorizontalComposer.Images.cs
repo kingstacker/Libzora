@@ -27,13 +27,20 @@ internal sealed partial class HorizontalComposer
         {
             return;
         }
+        if (block.PageBreakBefore)
+        {
+            _pages.NextIfUsed();
+            _cursorY = InsetV;
+        }
+
         var hasWidthConstraint = item.ImageWidthFactor is > 0f;
         var maxW = hasWidthConstraint
             ? Math.Min(
                 ContentWidth * Math.Clamp(item.ImageWidthFactor!.Value, 0.01f, 1f),
                 item.DecorativeQuote ? BaseFontSize * 5f : float.MaxValue)
             : ContentWidth;
-        var maxH = Math.Max(1f, _context.Options.ContentHeight - BaseFontSize * 3.6f);
+        var captionReserve = block.KeepWithNext ? BodyLineHeight * 2.2f : 0f;
+        var maxH = Math.Max(1f, _context.Options.ContentHeight - BaseFontSize * 3.6f - captionReserve);
         var scale = Math.Min(maxW / info.Width, maxH / info.Height);
         if (!hasWidthConstraint)
         {
@@ -43,7 +50,7 @@ internal sealed partial class HorizontalComposer
         var h = info.Height * scale;
 
         _cursorY += BaseFontSize * 1.8f;
-        if (_cursorY + h > ContentBottom + 0.01f)
+        if (_cursorY + h + captionReserve > ContentBottom + 0.01f)
         {
             _pages.NextIfUsed();
             _cursorY = InsetV + BaseFontSize * 0.5f;
@@ -75,7 +82,12 @@ internal sealed partial class HorizontalComposer
                 Marker = item.FootnoteHref is not null ? item.Text : null,
             });
         }
-        _cursorY += h + BaseFontSize * 1.8f;
+        _cursorY += h + (block.KeepWithNext ? BaseFontSize * 0.6f : BaseFontSize * 1.8f);
+        if (block.PageBreakAfter)
+        {
+            _pages.NextIfUsed();
+            _cursorY = InsetV;
+        }
     }
 
     private void PlaceRule(ContentBlock block)

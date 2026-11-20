@@ -102,10 +102,11 @@ internal sealed partial class HorizontalComposer
         var paragraphSpacing = naturalLatin && !_context.Options.ParagraphIndent && block.TextIndentEm <= 0f
             ? Math.Max(0.35f, _context.Options.ParagraphSpacingEm)
             : _context.Options.ParagraphSpacingEm;
-        var startsAtPageTop = isHeading
-            && !followsHeading
-            && (!string.IsNullOrWhiteSpace(block.ElementId)
-                || block.FragmentIds.Any(id => !block.FootnoteReferenceFragmentIds.Contains(id)));
+        var startsAtPageTop = block.PageBreakBefore
+            || (isHeading
+                && !followsHeading
+                && (!string.IsNullOrWhiteSpace(block.ElementId)
+                    || block.FragmentIds.Any(id => !block.FootnoteReferenceFragmentIds.Contains(id))));
         float leftInset = 0f;
         float rightInset = 0f;
         if (block.Kind == BlockKind.Blockquote)
@@ -165,17 +166,57 @@ internal sealed partial class HorizontalComposer
                 + block.MarginTopEm * BaseFontSize;
         }
 
+        // True float:left drop cap: extract an initial oversized floated letter
+        // so the first 2-3 lines wrap beside it instead of pushing them down.
+        LayoutCell? floatedDropCap = null;
+        var dropCapWidth = 0f;
+        var dropCapLines = 0;
+        if (!isHeading
+            && !block.Center
+            && !block.AlignRight
+            && block.ListMarker is null
+            && cells.Count >= 2)
+        {
+            var firstNonSpace = cells.FindIndex(c => !c.IsSpace && !c.IsLineBreak);
+            if (firstNonSpace >= 0)
+            {
+                var candidate = cells[firstNonSpace];
+                if (candidate.Style.FloatLeft
+                    && candidate.Style.FontSizeFactor >= 1.5f
+                    && candidate.ImagePath is null
+                    && candidate.TextLength is > 0 and <= 2
+                    && candidate.Advance < availWidth * 0.4f)
+                {
+                    floatedDropCap = candidate;
+                    cells.RemoveAt(firstNonSpace);
+                    dropCapWidth = candidate.Advance + BaseFontSize * 0.25f;
+                    dropCapLines = Math.Clamp((int)Math.Ceiling((candidate.Ascent + candidate.Descent) / bodyLineHeight), 2, 4);
+                }
+            }
+        }
+
         // Adapt default CJK 2em indentation for Latin prose: keep the first
         // paragraph after a heading flush left, and use a calmer 1.25em indent
         // on subsequent paragraphs unless publisher CSS explicitly set one.
-        var effectiveIndentEm = block.TextIndentEm;
+        var effectiveIndentEm = floatedDropCap is not null ? 0f : block.TextIndentEm;
         if (naturalLatin && !block.ExplicitTextIndent && effectiveIndentEm > 0f)
         {
             effectiveIndentEm = followsHeading ? 0f : Math.Min(effectiveIndentEm, 1.25f);
         }
 
-        var lines = BreakLines(cells, availWidth, effectiveIndentEm * BaseFontSize,
-            allowPageAnchor: true, continuationIndent: hangingIndent, preferLatinFont: naturalLatin);
+        List<LineBox> lines;
+        if (CanUseKnuthPlass(cells, naturalLatin)
+            && TryBreakLinesKnuthPlass(cells, availWidth, effectiveIndentEm * BaseFontSize,
+                hangingIndent, preferLatinFont: true, dropCapWidth, dropCapLines) is { } optimalLines)
+        {
+            lines = optimalLines;
+        }
+        else
+        {
+            lines = BreakLines(cells, availWidth, effectiveIndentEm * BaseFontSize,
+                allowPageAnchor: true, continuationIndent: hangingIndent, preferLatinFont: naturalLatin,
+                dropCapWidth: dropCapWidth, dropCapLines: dropCapLines);
+        }
         var anchorLineIndex = lines.FindIndex(line => line.StartsAnchoredPage);
 
         // Compute line height per line rather than taking the paragraph maximum:
@@ -189,6 +230,38 @@ internal sealed partial class HorizontalComposer
                 lines[i], block, isHeading, bodyLineHeight, rubyGap);
         }
 
+        // Keep-with-next: avoid stranding a subheading (or break-after: avoid
+        // block) at the bottom of a page without room for its following text.
+        if (block.KeepWithNext && !startsAtPageTop && _pages.CurrentPageHasContent && lineHeights.Length > 0)
+        {
+            var blockHeight = 0f;
+            for (var i = 0; i < lineHeights.Length; i++) blockHeight += lineHeights[i];
+            var afterReserve = block.SpaceAfterLines * BodyLineHeight
+                + block.MarginBottomEm * BaseFontSize
+                + bodyLineHeight * 1.8f;
+            if (_cursorY + blockHeight + afterReserve > ContentBottom + 0.01f
+                && blockHeight + afterReserve <= _context.Options.ContentHeight)
+            {
+                _pages.NextIfUsed();
+                _cursorY = InsetV;
+            }
+        }
+
+        // Keep a floated drop cap together with the lines wrapped beside it.
+        if (floatedDropCap is not null && _pages.CurrentPageHasContent && lineHeights.Length > 0)
+        {
+            var dropHeight = 0f;
+            var spanCount = Math.Min(dropCapLines, lineHeights.Length);
+            for (var i = 0; i < spanCount; i++) dropHeight += lineHeights[i];
+            dropHeight = Math.Max(dropHeight, floatedDropCap.Ascent + floatedDropCap.Descent);
+            if (_cursorY + dropHeight > ContentBottom + 0.01f)
+            {
+                _pages.NextIfUsed();
+                _cursorY = InsetV;
+            }
+        }
+
+        var dropCapPlaced = false;
         var lineIndex = 0;
         while (lineIndex < lines.Count)
         {
@@ -240,6 +313,21 @@ internal sealed partial class HorizontalComposer
                 }
             }
 
+            var pageSliceTop = _cursorY;
+            if (floatedDropCap is not null && !dropCapPlaced && lineIndex == 0)
+            {
+                dropCapPlaced = true;
+                var firstLineHeight = lineHeights[0];
+                var firstBaseline = _cursorY
+                    + firstLineHeight / 2f
+                    + (lines[0].Ascent - lines[0].Descent) / 2f;
+                var capTop = firstBaseline - lines[0].Ascent;
+                var capBaseline = capTop + floatedDropCap.Ascent;
+                var dropLine = new LineBox();
+                dropLine.Add(floatedDropCap);
+                PlaceLine(dropLine, blockLeft, capBaseline, capTop, floatedDropCap.Ascent + floatedDropCap.Descent, rubyGap);
+            }
+
             for (var placed = 0; placed < capacity; placed++, lineIndex++)
             {
                 var line = lines[lineIndex];
@@ -256,20 +344,21 @@ internal sealed partial class HorizontalComposer
                     + (line.Ascent - line.Descent) / 2f
                     + rubyShelf / 2f;
 
-                var startX = blockLeft + line.Indent;
+                var lineAvail = Math.Max(BaseFontSize * 2f, availWidth - line.FloatLeftInset);
+                var startX = blockLeft + line.FloatLeftInset + line.Indent;
                 var isLastLine = lineIndex == lines.Count - 1 || line.EndsWithForcedBreak;
                 if (isHeading || block.Center)
                 {
-                    startX = blockLeft + Math.Max(0f, (availWidth - line.Used) / 2f);
+                    startX = blockLeft + line.FloatLeftInset + Math.Max(0f, (lineAvail - line.Used) / 2f);
                 }
                 else if (block.AlignRight)
                 {
-                    startX = blockLeft + Math.Max(0f, availWidth - line.Used);
+                    startX = blockLeft + line.FloatLeftInset + Math.Max(0f, lineAvail - line.Used);
                 }
                 else if (block.Justify && !_context.Options.AlignLeft && !isLastLine)
                 {
-                    var extra = availWidth - line.Indent - line.Used;
-                    if (extra > 0f || line.HasHangingPunctuation)
+                    var extra = lineAvail - line.Indent - line.Used;
+                    if (extra > 0f || line.HasHangingPunctuation || line.OpticalTrailingProtrusion > 0f)
                     {
                         line.TryJustify(extra, BaseFontSize, naturalLatin);
                     }
@@ -277,6 +366,17 @@ internal sealed partial class HorizontalComposer
 
                 PlaceLine(line, startX, baseline, _cursorY, lineHeight, rubyGap);
                 _cursorY += lineHeight;
+            }
+
+            if (block.BorderLeftEm > 0f && _cursorY > pageSliceTop)
+            {
+                var barWidth = Math.Clamp(block.BorderLeftEm * BaseFontSize, 2f, 5f);
+                var barX = Math.Max(InsetH, blockLeft - Math.Max(barWidth + 4f, BaseFontSize * 0.6f));
+                _pages.AddDecoration(new PlacedRect
+                {
+                    Kind = DecorationKind.BlockquoteBar,
+                    Rect = new SKRect(barX, pageSliceTop + 2f, barX + barWidth, _cursorY - 2f),
+                });
             }
 
             if (lineIndex < lines.Count)
@@ -288,7 +388,12 @@ internal sealed partial class HorizontalComposer
 
         // The last line already advanced the cursor by one line height. In
         // compact mode, consecutive paragraphs need no additional gap.
-        if (block.Kind == BlockKind.Paragraph && precedesParagraph
+        if (block.PageBreakAfter)
+        {
+            _pages.NextIfUsed();
+            _cursorY = InsetV;
+        }
+        else if (block.Kind == BlockKind.Paragraph && precedesParagraph
             && _context.Options.OverridePublisherParagraphSpacing)
         {
             _cursorY += paragraphSpacing * BaseFontSize;

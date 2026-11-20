@@ -8,10 +8,11 @@ internal sealed partial class VerticalComposer
     private void PlaceTextBlock(ContentBlock block, bool followsHeading, bool followsParagraph, bool precedesParagraph)
     {
         var isHeading = block.Kind == BlockKind.Heading;
-        var startsAtPageTop = isHeading
-            && !followsHeading
-            && (!string.IsNullOrWhiteSpace(block.ElementId)
-                || block.FragmentIds.Any(id => !block.FootnoteReferenceFragmentIds.Contains(id)));
+        var startsAtPageTop = block.PageBreakBefore
+            || (isHeading
+                && !followsHeading
+                && (!string.IsNullOrWhiteSpace(block.ElementId)
+                    || block.FragmentIds.Any(id => !block.FootnoteReferenceFragmentIds.Contains(id))));
 
         float rightInset = 0f;
         if (block.Kind == BlockKind.Blockquote)
@@ -111,7 +112,12 @@ internal sealed partial class VerticalComposer
         }
 
         // Each column has already advanced the cursor by its pitch.
-        if (block.Kind == BlockKind.Paragraph && precedesParagraph
+        if (block.PageBreakAfter)
+        {
+            _pages.NextIfUsed();
+            _cursorX = ContentRight;
+        }
+        else if (block.Kind == BlockKind.Paragraph && precedesParagraph
             && _context.Options.OverridePublisherParagraphSpacing)
         {
             _cursorX -= _context.Options.ParagraphSpacingEm * _context.Options.BaseFontSize;

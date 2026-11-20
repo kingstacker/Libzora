@@ -11,12 +11,12 @@ namespace Libzora.Layout;
 /// </summary>
 public sealed partial class XhtmlChapterLoader
 {
-    private void WalkBlockParagraph(XElement element, BlockKind kind, FlowContext ctx, string? listMarker = null)
+    private void WalkBlockParagraph(XElement element, BlockKind kind, FlowContext ctx, string? listMarker = null, int headingLevel = 0)
     {
         var id = Id(element);
         var hints = ResolveHints(element);
         if (hints.VisibilityHidden == true) listMarker = null;
-        var paragraphCtx = ctx.ForBlock(kind, hints, id).WithListMarker(listMarker);
+        var paragraphCtx = ctx.ForBlock(kind, hints, id, headingLevel).WithListMarker(listMarker);
         if (listMarker is not null)
         {
             // The marker is synthetic: TextStart -1 keeps it out of the body
@@ -260,6 +260,11 @@ public sealed partial class XhtmlChapterLoader
         if (hints.PreserveWhitespace is { } preserveWs)
         {
             style = style with { PreserveWhitespace = preserveWs };
+        }
+
+        if (hints.FloatLeft)
+        {
+            style = style with { FloatLeft = true };
         }
 
         if (hints.Superscript is { } superscript)

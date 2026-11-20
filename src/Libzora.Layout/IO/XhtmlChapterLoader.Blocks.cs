@@ -63,11 +63,85 @@ public sealed partial class XhtmlChapterLoader
             MarginRightEm = ctx.MarginRightEm,
             PaddingLeftEm = ctx.PaddingLeftEm,
             PaddingRightEm = ctx.PaddingRightEm,
+            BorderLeftEm = ctx.BorderLeftEm,
+            HeadingLevel = ctx.HeadingLevel,
+            PageBreakBefore = ctx.PageBreakBefore,
+            PageBreakAfter = ctx.PageBreakAfter,
+            KeepWithNext = ctx.KeepWithNext,
+            IsCaption = ctx.IsCaption,
             FootnoteReferenceFragmentIds = _pendingFragmentIds.Where(_footnoteReferenceFragmentIds.Contains).ToArray(),
             FragmentIds = TakePendingFragmentIds(),
             Items = items,
         });
     }
+
+    private void ApplyContainerPageBreaks(int startBlockIndex, CssHints hints)
+    {
+        if (startBlockIndex >= _blocks.Count)
+        {
+            return;
+        }
+
+        if (hints.PageBreakBefore)
+        {
+            var first = _blocks[startBlockIndex];
+            _blocks[startBlockIndex] = CloneWithBreakFlags(first, pageBreakBefore: true);
+        }
+
+        if (hints.PageBreakAfter)
+        {
+            var last = _blocks[^1];
+            _blocks[^1] = CloneWithBreakFlags(last, pageBreakAfter: true);
+        }
+    }
+
+    private void LinkFigureCaptions(int startBlockIndex)
+    {
+        for (var i = startBlockIndex; i < _blocks.Count - 1; i++)
+        {
+            if (_blocks[i].Kind == BlockKind.Image && _blocks[i + 1].IsCaption)
+            {
+                _blocks[i] = CloneWithBreakFlags(_blocks[i], keepWithNext: true);
+            }
+        }
+    }
+
+    private static ContentBlock CloneWithBreakFlags(
+        ContentBlock source,
+        bool? pageBreakBefore = null,
+        bool? pageBreakAfter = null,
+        bool? keepWithNext = null) => new()
+    {
+        Kind = source.Kind,
+        ElementId = source.ElementId,
+        FragmentIds = source.FragmentIds,
+        FootnoteReferenceFragmentIds = source.FootnoteReferenceFragmentIds,
+        Style = source.Style,
+        Center = source.Center,
+        AlignRight = source.AlignRight,
+        Justify = source.Justify,
+        TextIndentEm = source.TextIndentEm,
+        ExplicitTextIndent = source.ExplicitTextIndent,
+        SpaceBeforeLines = source.SpaceBeforeLines,
+        SpaceAfterLines = source.SpaceAfterLines,
+        ListMarker = source.ListMarker,
+        ListLevel = source.ListLevel,
+        LineHeightFactor = source.LineHeightFactor,
+        MarginTopEm = source.MarginTopEm,
+        MarginBottomEm = source.MarginBottomEm,
+        MarginLeftEm = source.MarginLeftEm,
+        MarginRightEm = source.MarginRightEm,
+        PaddingLeftEm = source.PaddingLeftEm,
+        PaddingRightEm = source.PaddingRightEm,
+        BorderLeftEm = source.BorderLeftEm,
+        HeadingLevel = source.HeadingLevel,
+        PageBreakBefore = pageBreakBefore ?? source.PageBreakBefore,
+        PageBreakAfter = pageBreakAfter ?? source.PageBreakAfter,
+        KeepWithNext = keepWithNext ?? source.KeepWithNext,
+        IsCaption = source.IsCaption,
+        Table = source.Table,
+        Items = source.Items,
+    };
 
     private bool _buildingTableCells;
 

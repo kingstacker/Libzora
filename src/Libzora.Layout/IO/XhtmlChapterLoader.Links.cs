@@ -162,6 +162,12 @@ public sealed partial class XhtmlChapterLoader
         public float MarginRightEm { get; private init; }
         public float PaddingLeftEm { get; private init; }
         public float PaddingRightEm { get; private init; }
+        public float BorderLeftEm { get; private init; }
+        public int HeadingLevel { get; private init; }
+        public bool PageBreakBefore { get; private init; }
+        public bool PageBreakAfter { get; private init; }
+        public bool KeepWithNext { get; private init; }
+        public bool IsCaption { get; private init; }
         public TypesetInlineStyle BaseStyle { get; private init; }
         public string? LinkHref { get; private init; }
         public string? FootnoteHref { get; private init; }
@@ -180,13 +186,29 @@ public sealed partial class XhtmlChapterLoader
             BaseStyle = new TypesetInlineStyle(),
         };
 
-        public FlowContext AsQuote() => this with
+        public FlowContext AsQuote(CssHints? hints = null) => this with
         {
             IsQuote = true,
             Justify = !NoJustify,
             TextIndentEm = ParagraphIndentEnabled ? 2f : 0f,
             SpaceBeforeLines = 0.78f,
             SpaceAfterLines = 0.78f,
+            BorderLeftEm = hints is not null && !float.IsNaN(hints.BorderLeftEm) && hints.BorderLeftEm > 0f
+                ? Math.Clamp(hints.BorderLeftEm, 0.05f, 1f)
+                : BorderLeftEm,
+        };
+
+        public FlowContext AsCaption() => this with
+        {
+            IsCaption = true,
+            Center = true,
+            NoJustify = true,
+            Justify = false,
+            TextIndentEm = 0f,
+            ExplicitTextIndent = true,
+            SpaceBeforeLines = 0.2f,
+            SpaceAfterLines = 0.8f,
+            BaseStyle = BaseStyle with { FontSizeFactor = ScaleFontSize(BaseStyle.FontSizeFactor, 0.9f) },
         };
 
         public FlowContext AsPreformatted() => this with
@@ -265,7 +287,7 @@ public sealed partial class XhtmlChapterLoader
             },
         };
 
-        public FlowContext ForBlock(BlockKind kind, CssHints hints, string? elementId)
+        public FlowContext ForBlock(BlockKind kind, CssHints hints, string? elementId, int headingLevel = 0)
         {
             var isHeading = kind == BlockKind.Heading;
             var preserveWs = hints.PreserveWhitespace ?? BaseStyle.PreserveWhitespace;
@@ -273,21 +295,36 @@ public sealed partial class XhtmlChapterLoader
             var indented = !isHeading
                 && !hints.Center
                 && !preserveWs
+                && !IsCaption
                 && ParagraphIndentEnabled
                 && kind == BlockKind.Paragraph;
             var textIndentEm = indented
                 ? hasExplicitIndent ? Math.Clamp(hints.TextIndentEm, 0f, 4f) : 2f
                 : 0f;
+            var effectiveHeadingScale = isHeading && float.IsNaN(hints.FontSizeFactor)
+                ? headingLevel switch
+                {
+                    1 => 1.35f,
+                    2 => 1.22f,
+                    3 => 1.12f,
+                    4 => 1.05f,
+                    _ => 1f,
+                }
+                : hints.FontSizeFactor;
+            var borderLeftEm = !float.IsNaN(hints.BorderLeftEm) && hints.BorderLeftEm > 0f
+                ? Math.Clamp(hints.BorderLeftEm, 0.05f, 1f)
+                : BorderLeftEm;
             return this with
             {
                 Kind = kind,
                 ElementId = elementId,
-                Center = isHeading || hints.Center,
+                HeadingLevel = isHeading ? headingLevel : 0,
+                Center = isHeading || hints.Center || (IsCaption && !hints.AlignRight && !hints.NoJustify),
                 AlignRight = AlignRight || hints.AlignRight,
                 NoJustify = NoJustify || hints.NoJustify || preserveWs,
-                Justify = !isHeading && !hints.Center && !hints.NoJustify && !NoJustify && !preserveWs,
+                Justify = !isHeading && !hints.Center && !hints.NoJustify && !NoJustify && !preserveWs && !IsCaption,
                 TextIndentEm = textIndentEm,
-                ExplicitTextIndent = hasExplicitIndent,
+                ExplicitTextIndent = hasExplicitIndent || ExplicitTextIndent,
                 SpaceBeforeLines = isHeading ? 1.15f : SpaceBeforeLines,
                 SpaceAfterLines = isHeading ? 1.25f : SpaceAfterLines,
                 LineHeightFactor = float.IsNaN(hints.LineHeightFactor)
@@ -299,9 +336,13 @@ public sealed partial class XhtmlChapterLoader
                 MarginRightEm = MarginOrZero(hints.MarginRightEm),
                 PaddingLeftEm = MarginOrZero(hints.PaddingLeftEm),
                 PaddingRightEm = MarginOrZero(hints.PaddingRightEm),
+                BorderLeftEm = borderLeftEm,
+                PageBreakBefore = hints.PageBreakBefore,
+                PageBreakAfter = hints.PageBreakAfter,
+                KeepWithNext = isHeading || hints.PageBreakAfterAvoid,
                 BaseStyle = MergeTextHints(isHeading ? BaseStyle with { Bold = true } : BaseStyle, hints) with
                 {
-                    FontSizeFactor = ScaleFontSize(BaseStyle.FontSizeFactor, hints.FontSizeFactor),
+                    FontSizeFactor = ScaleFontSize(BaseStyle.FontSizeFactor, effectiveHeadingScale),
                     VerticalTextCombineLimit = hints.VerticalTextCombineLimit >= 0
                         ? hints.VerticalTextCombineLimit
                         : BaseStyle.VerticalTextCombineLimit,

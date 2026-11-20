@@ -94,6 +94,9 @@ public readonly record struct TypesetInlineStyle(
 
     /// <summary>Preserve spaces and explicit line breaks (preformatted blocks).</summary>
     public bool PreserveWhitespace { get; init; }
+
+    /// <summary>True for a CSS <c>float: left</c> initial letter (drop cap).</summary>
+    public bool FloatLeft { get; init; }
 }
 
 /// <summary>
@@ -163,6 +166,18 @@ public sealed class ContentBlock
     public float MarginRightEm { get; init; }
     public float PaddingLeftEm { get; init; }
     public float PaddingRightEm { get; init; }
+    /// <summary>Optional left border width in em (e.g. styled blockquotes).</summary>
+    public float BorderLeftEm { get; init; }
+    /// <summary>Heading level 1..6 for h1..h6 blocks, 0 otherwise.</summary>
+    public int HeadingLevel { get; init; }
+    /// <summary>Force a page break before this block (CSS page-break-before / break-before).</summary>
+    public bool PageBreakBefore { get; init; }
+    /// <summary>Force a page break after this block (CSS page-break-after / break-after).</summary>
+    public bool PageBreakAfter { get; init; }
+    /// <summary>Avoid splitting this block from the start of the following block (headings, figure images, break-after: avoid).</summary>
+    public bool KeepWithNext { get; init; }
+    /// <summary>True for figcaption / caption blocks paired with figures.</summary>
+    public bool IsCaption { get; init; }
     /// <summary>
     /// Structured rows and cells. <see cref="Items"/> still carries the same
     /// text flattened, which vertical typesetting (and any host that does not

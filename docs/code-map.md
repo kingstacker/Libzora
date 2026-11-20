@@ -143,7 +143,7 @@ Large services are split by responsibility so one change opens one file:
 | `S3SyncService.*.cs` | settings, sync entry, versions, state, snapshots, cleanup, download, encryption |
 | `WpdKindleAccess.*.cs` | devices, resources, annotations, books, shell items |
 | `KindleDeviceService.*.cs` | detection, books, transfer, resources, annotations, files, native |
-| `HorizontalComposer.*.cs` | line breaking, images, tables, table layout |
+| `HorizontalComposer.*.cs` | line breaking, Knuth-Plass, images, tables, table layout |
 | `ReaderPage.*.cs` (Mobile) | navigation, position, input, selection, chrome, lifecycle, native (actions, search) |
 | `MobileShell.*.cs` | shell state, sheets, bars |
 | `AppDataMigrationService.*.cs` | journal, journal I/O, payload, verification, types |

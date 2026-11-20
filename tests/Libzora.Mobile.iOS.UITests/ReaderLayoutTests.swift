@@ -52,23 +52,29 @@ final class ReaderLayoutTests: XCTestCase {
         XCTAssertTrue(typoButton.waitForExistence(timeout: 10), app.debugDescription)
         typoButton.tap()
 
-        let latinRow = app.buttons["typography.latinFontFamily"]
-        XCTAssertTrue(latinRow.waitForExistence(timeout: 10), app.debugDescription)
         let scroll = app.scrollViews["typography.scroll"]
         if scroll.exists { scroll.swipeUp() }
+        let advancedRow = app.buttons["typography.advanced"]
+        XCTAssertTrue(advancedRow.waitForExistence(timeout: 10), app.debugDescription)
+        checkpoint("排版设置主面板-高级排版入口")
+        advancedRow.tap()
+
+        let latinRow = app.buttons["typography.latinFontFamily"]
+        XCTAssertTrue(latinRow.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertTrue(app.segmentedControls["typography.alignment"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.segmentedControls["typography.hyphenation"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.segmentedControls["typography.cjkLatinSpacing"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.segmentedControls["typography.widowsOrphans"].waitForExistence(timeout: 5))
-        checkpoint("排版设置面板-新增中英选项")
+        checkpoint("高级排版二级页")
 
-        if scroll.exists { scroll.swipeDown() }
-        XCTAssertTrue(latinRow.waitForExistence(timeout: 5))
         latinRow.tap()
         let georgia = app.buttons["latinFontPicker.option.system:Georgia"]
         XCTAssertTrue(georgia.waitForExistence(timeout: 10), app.debugDescription)
         checkpoint("英文字体选择器")
         georgia.tap()
 
+        let advDone = app.buttons["advancedTypography.done"]
+        if advDone.waitForExistence(timeout: 5) { advDone.tap() }
         let done = app.buttons["typography.done"]
         if done.waitForExistence(timeout: 5) { done.tap() }
         // Tap center to hide chrome for clean body capture.

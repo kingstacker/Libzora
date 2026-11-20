@@ -15,11 +15,22 @@ internal sealed partial class HorizontalComposer
     /// get a hyphenation opportunity.
     /// </summary>
     private List<LineBox> BreakLines(List<LayoutCell> cells, float availWidth, float firstLineIndent,
-        bool allowPageAnchor = false, float continuationIndent = 0f, bool preferLatinFont = false)
+        bool allowPageAnchor = false, float continuationIndent = 0f, bool preferLatinFont = false,
+        float dropCapWidth = 0f, int dropCapLines = 0)
     {
         var lines = new List<LineBox>();
-        var line = new LineBox();
+        var line = new LineBox { FloatLeftInset = dropCapLines > 0 ? dropCapWidth : 0f };
         var indentApplied = false;
+
+        float EffectiveAvailWidth(LineBox currentLine) =>
+            Math.Max(BaseFontSize * 2f, availWidth - currentLine.FloatLeftInset);
+
+        LineBox MakeNextLine(bool startsAnchoredPage = false) => new()
+        {
+            StartsAnchoredPage = startsAnchoredPage,
+            Indent = continuationIndent,
+            FloatLeftInset = lines.Count < dropCapLines ? dropCapWidth : 0f,
+        };
 
         for (var cellIndex = 0; cellIndex < cells.Count; cellIndex++)
         {
@@ -28,20 +39,23 @@ internal sealed partial class HorizontalComposer
             if (allowPageAnchor && _context.StartsAnchoredPage(cell))
             {
                 if (line.Cells.Count > 0) lines.Add(line);
-                line = new LineBox { StartsAnchoredPage = true };
+                line = MakeNextLine(startsAnchoredPage: true);
                 _context.PageStartConsumed = true;
                 // An anchor within a paragraph is a continuation, not a new indent.
                 if (lines.Count > 0)
                 {
                     indentApplied = true;
-                    line.Indent = continuationIndent;
+                }
+                else
+                {
+                    line.Indent = 0f;
                 }
             }
             if (cell.IsLineBreak)
             {
                 line.EndsWithForcedBreak = true;
                 lines.Add(line);
-                line = new LineBox { Indent = continuationIndent };
+                line = MakeNextLine();
                 indentApplied = true;
                 continue;
             }
@@ -57,18 +71,21 @@ internal sealed partial class HorizontalComposer
                 indentApplied = true;
             }
 
-            var fits = line.Indent + line.WidthWith(cell) <= availWidth + 0.01f;
+            var lineAvail = EffectiveAvailWidth(line);
+            var fits = line.Indent + line.WidthWith(cell) <= lineAvail + 0.01f;
             while (!fits
                 && _cells.TrySplitForHyphenation(
-                    cell, availWidth - line.Indent - line.Used - 0.01f, out var head, out var tail, preferLatinFont))
+                    cell, lineAvail - line.Indent - line.Used - 0.01f, out var head, out var tail, preferLatinFont))
             {
                 // Break the word at an English syllable boundary rather than
                 // leaving a conspicuous gap. The source offsets stay contiguous.
                 line.Add(head);
+                line.OpticalTrailingProtrusion = ComputeOpticalTrailingProtrusion(head);
                 lines.Add(line);
-                line = new LineBox { Indent = continuationIndent };
+                line = MakeNextLine();
+                lineAvail = EffectiveAvailWidth(line);
                 cell = tail;
-                fits = line.Indent + line.WidthWith(cell) <= availWidth + 0.01f;
+                fits = line.Indent + line.WidthWith(cell) <= lineAvail + 0.01f;
             }
 
             if (!fits)
@@ -86,12 +103,12 @@ internal sealed partial class HorizontalComposer
                     && !nextIsClosing
                     && TypesetText.IsHangablePunctuation(cell.Text)
                     && cell.Advance <= maxHang + 0.01f
-                    && line.Indent + line.Used <= availWidth + 0.01f)
+                    && line.Indent + line.Used <= lineAvail + 0.01f)
                 {
                     line.Add(cell);
                     line.HasHangingPunctuation = true;
                     lines.Add(line);
-                    line = new LineBox { Indent = continuationIndent };
+                    line = MakeNextLine();
                     continue;
                 }
 
@@ -119,7 +136,7 @@ internal sealed partial class HorizontalComposer
                     // still try hyphenating that word so the line stays balanced.
                     if (pulled.Count > 0 && pulled[0].IsLatinWord)
                     {
-                        var room = availWidth - line.Indent - line.Used - 0.01f;
+                        var room = lineAvail - line.Indent - line.Used - 0.01f;
                         if (room > BaseFontSize * 1.5f
                             && _cells.TrySplitForHyphenation(
                                 pulled[0], room, out var head, out var tail, preferLatinFont))
@@ -166,10 +183,14 @@ internal sealed partial class HorizontalComposer
                 var startsAnchoredPage = line.StartsAnchoredPage && line.Cells.Count == 0;
                 if (line.Cells.Count > 0)
                 {
+                    if (!line.HasHangingPunctuation)
+                    {
+                        line.OpticalTrailingProtrusion = ComputeOpticalTrailingProtrusion(line.Cells[^1]);
+                    }
                     lines.Add(line);
                 }
 
-                line = new LineBox { StartsAnchoredPage = startsAnchoredPage, Indent = continuationIndent };
+                line = MakeNextLine(startsAnchoredPage);
                 foreach (var pulledCell in pulled)
                 {
                     line.Add(pulledCell);

@@ -13,6 +13,14 @@ public sealed class CssHints
     public bool? PreserveWhitespace { get; init; }
     /// <summary>Publisher requested a monospace family (`font-family: monospace`).</summary>
     public bool? Monospace { get; init; }
+    /// <summary>Publisher requested `float: left` (commonly used for drop caps).</summary>
+    public bool FloatLeft { get; init; }
+    /// <summary>Publisher requested a forced page break before this element.</summary>
+    public bool PageBreakBefore { get; init; }
+    /// <summary>Publisher requested a forced page break after this element.</summary>
+    public bool PageBreakAfter { get; init; }
+    /// <summary>Publisher requested keeping this element with the following block.</summary>
+    public bool PageBreakAfterAvoid { get; init; }
     /// <summary>Publisher vertical-align; null leaves the element's default unchanged.</summary>
     public bool? Superscript { get; init; }
     public bool? Subscript { get; init; }
@@ -155,6 +163,10 @@ public sealed partial class MicroCss
         bool? strikeout = null;
         bool? preserveWhitespace = null;
         bool? monospace = null;
+        var floatLeft = false;
+        var pageBreakBefore = false;
+        var pageBreakAfter = false;
+        var pageBreakAfterAvoid = false;
         var letterSpacing = float.NaN;
         TypesetTextCasing? casing = null;
         bool? smallCaps = null;
@@ -219,6 +231,27 @@ public sealed partial class MicroCss
                             || value.Contains("consolas", StringComparison.OrdinalIgnoreCase))
                         {
                             monospace = true;
+                        }
+                        break;
+                    case "float":
+                        floatLeft = value == "left";
+                        break;
+                    case "page-break-before":
+                    case "break-before":
+                        if (value is "always" or "page" or "left" or "right")
+                        {
+                            pageBreakBefore = true;
+                        }
+                        break;
+                    case "page-break-after":
+                    case "break-after":
+                        if (value is "always" or "page" or "left" or "right")
+                        {
+                            pageBreakAfter = true;
+                        }
+                        else if (value is "avoid" or "avoid-page")
+                        {
+                            pageBreakAfterAvoid = true;
                         }
                         break;
                     case "vertical-align":
@@ -431,6 +464,10 @@ public sealed partial class MicroCss
                 NoWrap = noWrap,
                 PreserveWhitespace = preserveWhitespace,
                 Monospace = monospace,
+                FloatLeft = floatLeft,
+                PageBreakBefore = pageBreakBefore,
+                PageBreakAfter = pageBreakAfter,
+                PageBreakAfterAvoid = pageBreakAfterAvoid,
                 Superscript = superscript,
                 Subscript = subscript,
                 DisplayNone = displayNone,

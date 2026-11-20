@@ -71,7 +71,7 @@ public sealed partial class XhtmlChapterLoader
             case "h6":
                 FlushParagraph(ctx);
                 TrackId(element);
-                WalkBlockParagraph(element, BlockKind.Heading, ctx);
+                WalkBlockParagraph(element, BlockKind.Heading, ctx, headingLevel: local[1] - '0');
                 break;
             case "li":
                 FlushParagraph(ctx);
@@ -81,11 +81,15 @@ public sealed partial class XhtmlChapterLoader
                 break;
             case "dd":
             case "dt":
+                FlushParagraph(ctx);
+                TrackId(element);
+                WalkBlockParagraph(element, BlockKind.Paragraph, ctx);
+                break;
             case "figcaption":
             case "caption":
                 FlushParagraph(ctx);
                 TrackId(element);
-                WalkBlockParagraph(element, BlockKind.Paragraph, ctx);
+                WalkBlockParagraph(element, BlockKind.Paragraph, ctx.AsCaption());
                 break;
             case "pre":
                 FlushParagraph(ctx);
@@ -95,15 +99,22 @@ public sealed partial class XhtmlChapterLoader
             case "blockquote":
                 FlushParagraph(ctx);
                 TrackId(element);
-                WalkFlow(element, ctx.AsQuote());
-                FlushParagraph(ctx.AsQuote());
+                var quoteHints = ResolveHints(element);
+                var quoteStart = _blocks.Count;
+                var quoteContext = ctx.AsQuote(quoteHints);
+                WalkFlow(element, quoteContext);
+                FlushParagraph(quoteContext);
+                ApplyContainerPageBreaks(quoteStart, quoteHints);
                 break;
             case "div":
                 FlushParagraph(ctx);
                 TrackId(element);
-                var containerContext = ctx.WithContainerHints(ResolveHints(element));
+                var divHints = ResolveHints(element);
+                var divStart = _blocks.Count;
+                var containerContext = ctx.WithContainerHints(divHints);
                 WalkFlow(element, containerContext);
                 FlushParagraph(containerContext);
+                ApplyContainerPageBreaks(divStart, divHints);
                 break;
             case "table":
                 FlushParagraph(ctx);
@@ -119,12 +130,21 @@ public sealed partial class XhtmlChapterLoader
                 WalkFlow(element, listContext);
                 FlushParagraph(listContext);
                 break;
+            case "figure":
+                FlushParagraph(ctx);
+                TrackId(element);
+                var figureHints = ResolveHints(element);
+                var figureStart = _blocks.Count;
+                WalkFlow(element, ctx);
+                FlushParagraph(ctx);
+                LinkFigureCaptions(figureStart);
+                ApplyContainerPageBreaks(figureStart, figureHints);
+                break;
             case "thead":
             case "tbody":
             case "tr":
             case "td":
             case "th":
-            case "figure":
                 FlushParagraph(ctx);
                 TrackId(element);
                 WalkFlow(element, ctx);

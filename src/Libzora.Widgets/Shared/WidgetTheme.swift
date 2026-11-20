@@ -3,6 +3,7 @@ import CoreText
 import Foundation
 import ImageIO
 import SwiftUI
+import WidgetKit
 
 #if os(iOS)
 import UIKit
@@ -110,8 +111,10 @@ struct KkCover: View {
     var width: CGFloat
     var height: CGFloat
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.widgetRenderingMode) private var renderingMode
 
     private var cornerRadius: CGFloat { max(3, width * 0.045) }
+    private var isFullColor: Bool { renderingMode == .fullColor }
 
     private var image: CGImage? {
         guard let path = KkSnapshotStore.coverURL(book.cover)?.path else { return nil }
@@ -121,12 +124,20 @@ struct KkCover: View {
     var body: some View {
         Group {
             if let image {
-                lzImage(image)
-                    .resizable()
-                    .scaledToFill()
+                if #available(iOS 18.0, macOS 15.0, *) {
+                    lzImage(image)
+                        .resizable()
+                        .widgetAccentedRenderingMode(.fullColor)
+                        .scaledToFill()
+                } else {
+                    lzImage(image)
+                        .resizable()
+                        .scaledToFill()
+                }
             } else {
                 ZStack {
-                    KkTheme.track(scheme)
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .fill(isFullColor ? KkTheme.track(scheme) : Color.primary.opacity(0.12))
                     VStack(spacing: height * 0.08) {
                         Image(systemName: "book.closed")
                             .font(.system(size: max(10, width * 0.18), weight: .light))
@@ -135,7 +146,7 @@ struct KkCover: View {
                             .multilineTextAlignment(.center)
                             .lineLimit(1)
                     }
-                    .foregroundStyle(KkTheme.secondaryInk(scheme))
+                    .foregroundStyle(isFullColor ? KkTheme.secondaryInk(scheme) : Color.primary.opacity(0.8))
                     .padding(.horizontal, width * 0.12)
                 }
             }
@@ -143,15 +154,18 @@ struct KkCover: View {
         .frame(width: width, height: height)
         .clipped()
         .overlay(alignment: .leading) {
-            LinearGradient(colors: [.black.opacity(0.16), .clear, .white.opacity(0.10)],
-                           startPoint: .leading, endPoint: .trailing)
-                .frame(width: max(3, width * 0.06))
+            if isFullColor {
+                LinearGradient(colors: [.black.opacity(0.16), .clear, .white.opacity(0.10)],
+                               startPoint: .leading, endPoint: .trailing)
+                    .frame(width: max(3, width * 0.06))
+            }
         }
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .strokeBorder(KkTheme.hairline(scheme), lineWidth: 0.5))
-        .shadow(color: Color.black.opacity(scheme == .dark ? 0.28 : 0.14), radius: 5, x: 0, y: 3)
+                .strokeBorder(isFullColor ? KkTheme.hairline(scheme) : Color.primary.opacity(0.24), lineWidth: 0.5))
+        .shadow(color: isFullColor ? Color.black.opacity(scheme == .dark ? 0.28 : 0.14) : .clear,
+                radius: isFullColor ? 5 : 0, x: 0, y: isFullColor ? 3 : 0)
         .accessibilityHidden(true)
     }
 }

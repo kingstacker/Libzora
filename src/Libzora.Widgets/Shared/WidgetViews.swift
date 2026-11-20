@@ -86,25 +86,38 @@ struct KkContinueWidgetView: View {
         .padding(16)
     }
 
-    /// The medium widget lists the books that are actively being read, so a
-    /// tap anywhere on a row opens that book rather than only the last one.
+    /// The medium widget arranges up to four actively-read books horizontally so
+    /// tapping any cover opens that exact book.
     @ViewBuilder
     private func medium(_ books: [KkBook]) -> some View {
         if books.count == 1, let only = books.first {
             mediumBook(only)
         } else {
-            VStack(alignment: .leading, spacing: 0) {
-                heading
-                VStack(spacing: 5) {
-                    ForEach(Array(books.prefix(4))) { item in
-                        bookRow(item)
+            let items = Array(books.prefix(4))
+            GeometryReader { geometry in
+                let horizontalPadding: CGFloat = 14
+                let verticalPadding: CGFloat = 12
+                let spacing: CGFloat = 10
+                let availableWidth = max(120, geometry.size.width - horizontalPadding * 2)
+                let slotWidth = floor((availableWidth - spacing * 3) / 4)
+                let availableHeight = max(80, geometry.size.height - verticalPadding * 2)
+                let maxCoverHeight = max(44, availableHeight - 52)
+                let coverHeight = min(maxCoverHeight, floor(slotWidth / 0.70))
+                let coverWidth = floor(coverHeight * 0.70)
+
+                VStack(alignment: .leading, spacing: 0) {
+                    heading
+                    Spacer(minLength: 6)
+                    HStack(alignment: .top, spacing: spacing) {
+                        ForEach(items) { item in
+                            bookColumn(item, slotWidth: slotWidth, coverWidth: coverWidth, coverHeight: coverHeight)
+                        }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .padding(.top, 7)
-                Spacer(minLength: 0)
+                .padding(.horizontal, horizontalPadding)
+                .padding(.vertical, verticalPadding)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
         }
     }
 
@@ -130,32 +143,35 @@ struct KkContinueWidgetView: View {
     }
 
     @ViewBuilder
-    private func bookRow(_ book: KkBook) -> some View {
+    private func bookColumn(_ book: KkBook, slotWidth: CGFloat, coverWidth: CGFloat, coverHeight: CGFloat) -> some View {
         if let destination = URL(string: "libzora://read/\(book.id)") {
-            Link(destination: destination) { bookRowContent(book) }
+            Link(destination: destination) {
+                bookColumnContent(book, slotWidth: slotWidth, coverWidth: coverWidth, coverHeight: coverHeight)
+            }
         } else {
-            bookRowContent(book)
+            bookColumnContent(book, slotWidth: slotWidth, coverWidth: coverWidth, coverHeight: coverHeight)
         }
     }
 
-    private func bookRowContent(_ book: KkBook) -> some View {
-        HStack(spacing: 9) {
-            KkCover(book: book, width: 19, height: 26)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(book.title)
-                    .font(KkTheme.title(12))
-                    .foregroundStyle(KkTheme.ink(scheme))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
+    private func bookColumnContent(_ book: KkBook, slotWidth: CGFloat, coverWidth: CGFloat, coverHeight: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            KkCover(book: book, width: coverWidth, height: coverHeight)
+                .frame(maxWidth: .infinity, alignment: .center)
+            Text(book.title)
+                .font(KkTheme.title(10.5))
+                .foregroundStyle(KkTheme.ink(scheme))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 4) {
                 KkProgressBar(progress: book.progress, height: 2)
+                Text(KkFormat.percent(book.progress))
+                    .font(KkTheme.label(9, weight: .medium))
+                    .foregroundStyle(KkTheme.secondaryInk(scheme))
+                    .monospacedDigit()
+                    .fixedSize()
             }
-            Spacer(minLength: 8)
-            Text(KkFormat.percent(book.progress))
-                .font(KkTheme.label(10, weight: .semibold))
-                .foregroundStyle(KkTheme.secondaryInk(scheme))
-                .monospacedDigit()
         }
-        .frame(height: 26)
+        .frame(width: slotWidth, alignment: .top)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }

@@ -84,8 +84,9 @@
 
 1. 实现 `ISyncObjectStore`，并满足接口文档中的约定：列表必须完整，否则抛出 `SyncListingUnavailableException`；`PutAsync` 不得暴露半写对象；`DeleteAsync` 对不存在的键视为成功；不支持 Range 时退回完整读取。
 2. 实现 `ISyncProviderFactory`，提供稳定的 `Id`、显示名、`SyncProviderCapabilities`、`Create`、`BuildStorageIdentity` 和 `IsSameRemoteDirectory`。`BuildStorageIdentity` 一经用于某个远端就必须保持稳定，否则下次同步会从空基线开始。
-3. 在 `SyncProviderRegistry` 注册。平台入口可从 `SyncProviderRegistry.CreateDefault()` 开始追加工厂，再通过 `ApplicationModuleOptions.SyncProviders` 注入；当前内置注册表只包含 `SyncProviderIds.S3` 和 `SyncProviderIds.WebDav`，`SyncProvider.AccountServer` 和未定义的枚举值会被拒绝。
-4. 新增持久化枚举值后，同步读取、设置校验和平台设置界面也要同步支持；仅注册工厂不足以让用户选中该提供方。存储标识包含提供方、远端根、区域和加密密钥指纹，不同提供方之间不会共享基线。
+3. 在 `SyncProviderRegistry` 注册。平台入口可从 `SyncProviderRegistry.CreateDefault()` 开始追加工厂，再通过 `ApplicationModuleOptions.SyncProviders` 注入；内置注册表包含 `s3` 与 `webdav`，苹果平台额外注册 `icloud`。后期新增网盘（如 OneDrive、Google Drive）或自建官方服务器，统一使用 `SyncProvider.Custom` 搭配稳定的字符串 `CustomProviderId`（不得复用已废弃的 `SyncProvider.AccountServer = 2`），把非敏感参数放入 `S3SyncSettings.ProviderOptions`，敏感令牌/凭据放入 `S3SyncSettings.ProviderSecrets`（自动走 `ISecretProtector` 加密并排除在便携备份外）。
+4. 可按需实现 `ISyncProviderValidator`（自管校验与规范化）、`ISyncProviderAuthHandler`（OAuth / 令牌刷新）和 `SyncProviderUiHints`（声明是否支持配置导入导出、交互登录与端到端加密）。所有提供方均自动复用引擎层的客户端端到端加密（`LIBZORA-SYNC3` + HMAC 路径名），跨端多设备互通。
+5. `GuardedSyncObjectStore` 统一对所有提供方强制执行 `MaxObjectBytes`（超限抛 `SyncObjectTooLargeException`）并对 `SyncRateLimitedException` 自动退避重试；认证失效和配额耗尽分别抛出标准的 `SyncAuthExpiredException` / `SyncQuotaExceededException`。`ISyncService.EvaluateConnectionStatusAsync` 提供与提供方无关的统一连接健康状态（`SyncConnectionHealth`）。
 
 能力声明只允许降低性能或关闭破坏性维护，不能改变合并语义：
 

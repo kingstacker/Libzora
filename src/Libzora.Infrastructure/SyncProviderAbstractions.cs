@@ -59,6 +59,15 @@ public sealed record SyncProviderCapabilities(
     long? MaxObjectBytes = null);
 
 /// <summary>
+/// Declarative UI hints exposed by each provider so desktop and mobile settings
+/// forms do not need to hardcode provider enum checks.
+/// </summary>
+public sealed record SyncProviderUiHints(
+    bool SupportsProfileImportExport = true,
+    bool RequiresInteractiveAuth = false,
+    bool SupportsClientSideEncryption = true);
+
+/// <summary>
 /// Everything the engine and future settings UI need to know about a provider
 /// without referencing its implementation.
 /// </summary>
@@ -66,7 +75,11 @@ public sealed record SyncProviderDescriptor(
     SyncProvider Provider,
     string Id,
     string DisplayName,
-    SyncProviderCapabilities Capabilities);
+    SyncProviderCapabilities Capabilities,
+    SyncProviderUiHints? UiHints = null)
+{
+    public SyncProviderUiHints EffectiveUiHints => UiHints ?? new SyncProviderUiHints();
+}
 
 /// <summary>
 /// Creates a storage adapter for one provider. Implementations must not merge
@@ -103,14 +116,35 @@ public interface ISyncProviderAccountBinding
 }
 
 /// <summary>
+/// Optional provider-owned validation and normalization. Future cloud drives and
+/// official servers implement this instead of adding switches to <see cref="S3SyncSettings"/>.
+/// </summary>
+public interface ISyncProviderValidator
+{
+    string? Validate(S3SyncSettings settings);
+    S3SyncSettings Normalize(S3SyncSettings settings) => settings;
+}
+
+/// <summary>
+/// Optional interactive OAuth / token refresh contract for future cloud drives
+/// (OneDrive, Google Drive, Dropbox) or a self-hosted official sync server.
+/// </summary>
+public interface ISyncProviderAuthHandler
+{
+    Task<S3SyncSettings> RefreshAuthAsync(S3SyncSettings settings, CancellationToken cancellationToken);
+}
+
+/// <summary>
 /// Provider registration point. The default registry contains only the
 /// built-in S3 and WebDAV stores; platform heads can pass a registry with
 /// additional factories through <c>ApplicationModuleOptions.SyncProviders</c>.
-/// Registration is intended to happen once during composition.
+/// Future providers may register under <see cref="SyncProvider.Custom"/> with
+/// distinct string <see cref="SyncProviderDescriptor.Id"/> values.
 /// </summary>
 public sealed class SyncProviderRegistry
 {
     private readonly Dictionary<SyncProvider, ISyncProviderFactory> _factories = [];
+    private readonly Dictionary<string, ISyncProviderFactory> _byId = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _gate = new();
 
     /// <summary>Creates a registry with the built-in S3 and WebDAV providers.</summary>
@@ -132,13 +166,17 @@ public sealed class SyncProviderRegistry
             throw new ArgumentException(MemberEntitlements.AccountCloudRequirement, nameof(factory));
         if (!Enum.IsDefined(provider))
             throw new ArgumentOutOfRangeException(nameof(factory), "同步方式必须是已定义的 SyncProvider 值。");
-        if (string.IsNullOrWhiteSpace(factory.Descriptor.Id))
+        var id = factory.Descriptor.Id?.Trim();
+        if (string.IsNullOrWhiteSpace(id))
             throw new ArgumentException("同步方式缺少稳定的标识。", nameof(factory));
 
         lock (_gate)
         {
-            if (!_factories.TryAdd(provider, factory))
+            if (_byId.ContainsKey(id))
+                throw new InvalidOperationException($"同步方式标识 {id} 已注册。");
+            if (provider != SyncProvider.Custom && !_factories.TryAdd(provider, factory))
                 throw new InvalidOperationException($"同步方式 {provider} 已注册。");
+            _byId[id] = factory;
         }
         return this;
     }
@@ -157,19 +195,52 @@ public sealed class SyncProviderRegistry
         return false;
     }
 
+    public bool TryGetById(string? id, out ISyncProviderFactory factory)
+    {
+        if (!string.IsNullOrWhiteSpace(id))
+        {
+            lock (_gate)
+            {
+                if (_byId.TryGetValue(id.Trim(), out var found))
+                {
+                    factory = found;
+                    return true;
+                }
+            }
+        }
+        factory = null!;
+        return false;
+    }
+
+    /// <summary>Resolves the factory for either a built-in provider or a string-keyed custom/official provider.</summary>
+    public bool TryGet(S3SyncSettings settings, out ISyncProviderFactory factory)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        return settings.Provider == SyncProvider.Custom
+            ? TryGetById(settings.CustomProviderId, out factory)
+            : TryGet(settings.Provider, out factory);
+    }
+
     public ISyncProviderFactory Get(SyncProvider provider) =>
         TryGet(provider, out var factory)
             ? factory
             : throw new NotSupportedException($"同步方式 {provider} 尚未注册。");
 
-    /// <summary>Registered descriptors, ordered by their persisted provider value.</summary>
+    public ISyncProviderFactory Get(S3SyncSettings settings) =>
+        TryGet(settings, out var factory)
+            ? factory
+            : throw new NotSupportedException($"同步方式 {settings.ProviderName} 尚未注册。");
+
+    /// <summary>Registered descriptors, ordered by their persisted provider value then stable id.</summary>
     public IReadOnlyList<SyncProviderDescriptor> Descriptors
     {
         get
         {
             lock (_gate)
-                return _factories.Values.Select(factory => factory.Descriptor)
-                    .OrderBy(descriptor => descriptor.Provider).ToArray();
+                return _byId.Values.Select(factory => factory.Descriptor)
+                    .OrderBy(descriptor => descriptor.Provider)
+                    .ThenBy(descriptor => descriptor.Id, StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
         }
     }
 }

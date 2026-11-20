@@ -65,6 +65,29 @@ public sealed class SyncObjectNotFoundException(string message, Exception? inner
 public sealed class SyncListingUnavailableException(string message, Exception inner)
     : IOException(message, inner);
 
+/// <summary>OAuth token or official-server session expired and requires re-authentication.</summary>
+public sealed class SyncAuthExpiredException(string message, Exception? inner = null)
+    : UnauthorizedAccessException(message, inner);
+
+/// <summary>Remote cloud storage or bandwidth quota is exhausted.</summary>
+public sealed class SyncQuotaExceededException(string message, Exception? inner = null)
+    : IOException(message, inner);
+
+/// <summary>Remote provider throttled requests (e.g. HTTP 429); callers may retry after <see cref="RetryAfter"/>.</summary>
+public sealed class SyncRateLimitedException(string message, TimeSpan? retryAfter = null, Exception? inner = null)
+    : IOException(message, inner)
+{
+    public TimeSpan? RetryAfter { get; } = retryAfter;
+}
+
+/// <summary>Object exceeds the provider's declared <c>MaxObjectBytes</c> limit.</summary>
+public sealed class SyncObjectTooLargeException(string message, long actualBytes, long limitBytes)
+    : IOException(message)
+{
+    public long ActualBytes { get; } = actualBytes;
+    public long LimitBytes { get; } = limitBytes;
+}
+
 /// <summary>
 /// Optional authoritative time source. The account server returns its clock in
 /// response headers; custom S3/WebDAV stores do not, so the client falls back

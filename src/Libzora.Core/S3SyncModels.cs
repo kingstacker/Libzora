@@ -6,8 +6,28 @@ public enum SyncProvider
     WebDav = 1,
     // Reserved solely to recognize and disable historical official-cloud settings.
     AccountServer = 2,
-    ICloud = 3
+    ICloud = 3,
+    // Extensible slot for future cloud drives (OneDrive, Google Drive, Dropbox, etc.)
+    // or a future self-hosted official sync server identified by CustomProviderId.
+    Custom = 4
 }
+
+public enum SyncConnectionHealth
+{
+    Disabled = 0,
+    Ready = 1,
+    NeedsConfiguration = 2,
+    NeedsReauth = 3,
+    AccountChanged = 4,
+    QuotaExceeded = 5,
+    UnsupportedOnPlatform = 6
+}
+
+public sealed record SyncConnectionStatus(
+    SyncConnectionHealth Health,
+    string ProviderId,
+    string DisplayName,
+    string? Message = null);
 
 /// <summary>
 /// Sync configuration. The historical type and settings file names are kept
@@ -46,15 +66,37 @@ public sealed record S3SyncSettings
     public AccountRegion AccountRegion { get; init; }
     public string AccountServerUrl { get; init; } = string.Empty;
     public Guid AccountUserId { get; init; }
+    /// <summary>
+    /// Stable string identifier for extensible providers when <see cref="Provider"/>
+    /// is <see cref="SyncProvider.Custom"/> (e.g. <c>"onedrive"</c>, <c>"official-cloud"</c>).
+    /// </summary>
+    public string CustomProviderId { get; init; } = string.Empty;
+    /// <summary>Non-secret provider-specific configuration bag (safe for portable backups).</summary>
+    public IReadOnlyDictionary<string, string>? ProviderOptions { get; init; }
+    /// <summary>
+    /// Provider-specific credentials/tokens (e.g. OAuth refresh token, session token).
+    /// Protected by <c>ISecretProtector</c> at rest and omitted from backups/snapshots.
+    /// </summary>
+    public IReadOnlyDictionary<string, string>? ProviderSecrets { get; init; }
+
+    public string EffectiveProviderId => Provider switch
+    {
+        SyncProvider.S3 => "s3",
+        SyncProvider.WebDav => "webdav",
+        SyncProvider.ICloud => "icloud",
+        SyncProvider.Custom => (CustomProviderId ?? string.Empty).Trim().ToLowerInvariant(),
+        _ => string.Empty
+    };
 
     public bool IsConfigured => Validate() is null;
     /// <summary>A connection to the user's own storage, chosen deliberately.</summary>
-    public bool HasChosenCustomProvider => Provider is SyncProvider.S3 or SyncProvider.WebDav or SyncProvider.ICloud && ProviderChosenByUser;
+    public bool HasChosenCustomProvider => Provider is SyncProvider.S3 or SyncProvider.WebDav or SyncProvider.ICloud or SyncProvider.Custom && ProviderChosenByUser;
     public string ProviderName => Provider switch
     {
         SyncProvider.WebDav => "WebDAV",
         SyncProvider.S3 => "S3",
         SyncProvider.ICloud => "iCloud",
+        SyncProvider.Custom => string.IsNullOrWhiteSpace(CustomProviderId) ? UiText.Get("自定义同步") : CustomProviderId.Trim(),
         _ => UiText.Get("不支持的同步方式")
     };
 
@@ -62,8 +104,14 @@ public sealed record S3SyncSettings
     {
         if (Provider == SyncProvider.AccountServer)
             return "官方云同步已移除，请重新选择并配置自备 S3 或 WebDAV。";
-        if (Provider is not (SyncProvider.S3 or SyncProvider.WebDav or SyncProvider.ICloud))
+        if (Provider is not (SyncProvider.S3 or SyncProvider.WebDav or SyncProvider.ICloud or SyncProvider.Custom))
             return "请选择可用的同步方式。";
+        if (Provider == SyncProvider.Custom)
+        {
+            if (string.IsNullOrWhiteSpace(CustomProviderId)) return "请选择可用的同步方式。";
+            if (Prefix.Any(char.IsControl)) return "同步子目录不能包含控制字符。";
+            return string.IsNullOrWhiteSpace(Prefix) ? "请输入同步目录前缀。" : null;
+        }
         if (Provider == SyncProvider.ICloud)
         {
             if (Prefix.Any(char.IsControl)) return "同步子目录不能包含控制字符。";
@@ -137,8 +185,27 @@ public sealed record S3SyncSettings
             ConcurrentRequests = Math.Clamp(settings.ConcurrentRequests, 1, 32),
             Prefix = string.IsNullOrWhiteSpace(prefix) ? "libzora" : prefix,
             EncryptionKey = settings.EncryptionKey ?? string.Empty,
-            AccountServerUrl = (settings.AccountServerUrl ?? string.Empty).Trim().TrimEnd('/')
+            AccountServerUrl = (settings.AccountServerUrl ?? string.Empty).Trim().TrimEnd('/'),
+            CustomProviderId = (settings.CustomProviderId ?? string.Empty).Trim().ToLowerInvariant(),
+            ProviderOptions = NormalizeStringBag(settings.ProviderOptions, trimValues: true),
+            ProviderSecrets = NormalizeStringBag(settings.ProviderSecrets, trimValues: false)
         };
+    }
+
+    private static IReadOnlyDictionary<string, string>? NormalizeStringBag(
+        IReadOnlyDictionary<string, string>? source,
+        bool trimValues)
+    {
+        if (source is null || source.Count == 0) return null;
+        var result = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (rawKey, rawValue) in source)
+        {
+            var key = rawKey?.Trim();
+            if (string.IsNullOrEmpty(key)) continue;
+            var value = rawValue ?? string.Empty;
+            result[key] = trimValues ? value.Trim() : value;
+        }
+        return result.Count > 0 ? result : null;
     }
 
     private static string NormalizeWebDavEndpoint(string? value)

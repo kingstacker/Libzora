@@ -21,4 +21,8 @@ public interface ISyncService
     Task<S3SyncResult> SyncAsync(string deviceId, S3SyncSettings settings, IProgress<string>? progress = null,
         CancellationToken cancellationToken = default, S3SyncOptions? options = null);
     Task InitializeDeletionTrackingAsync(CancellationToken cancellationToken = default, string? deviceId = null);
+
+    /// <summary>Evaluates provider-agnostic sync connection health for settings UIs.</summary>
+    Task<SyncConnectionStatus> EvaluateConnectionStatusAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult(new SyncConnectionStatus(SyncConnectionHealth.Disabled, string.Empty, string.Empty));
 }

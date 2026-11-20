@@ -41,18 +41,28 @@ public sealed partial class S3SyncService : ISyncService
         if (settings.Provider == SyncProvider.AccountServer)
             throw new InvalidOperationException(MemberEntitlements.AccountCloudRequirement);
         var normalized = S3SyncSettings.Normalize(settings);
-        if (_providers.TryGet(normalized.Provider, out var factory) && factory is ISyncProviderAccountBinding binding)
-            normalized = binding.BindAccount(normalized);
+        if (_providers.TryGet(normalized, out var factory))
+        {
+            if (factory is ISyncProviderValidator validator)
+                normalized = validator.Normalize(normalized);
+            if (factory is ISyncProviderAccountBinding binding)
+                normalized = binding.BindAccount(normalized);
+        }
         return normalized;
     }
+
+    private static string? ValidateWithProvider(S3SyncSettings settings, ISyncProviderFactory factory) =>
+        settings.Validate() ?? (factory is ISyncProviderValidator validator ? validator.Validate(settings) : null);
 
     private void ThrowIfInvalid(S3SyncSettings settings)
     {
         var validation = settings.Validate();
         if (validation is not null)
             throw new InvalidOperationException(validation);
-        if (!_providers.TryGet(settings.Provider, out _))
+        if (!_providers.TryGet(settings, out var factory))
             throw new NotSupportedException(UiText.Get("当前平台不支持此同步方式。"));
+        if (factory is ISyncProviderValidator validator && validator.Validate(settings) is { } providerError)
+            throw new InvalidOperationException(providerError);
     }
 
     private static string NormalizeDeviceId(string deviceId) =>
@@ -66,15 +76,19 @@ public sealed partial class S3SyncService : ISyncService
             : (deviceId ?? string.Empty).Trim();
 
     private bool SameRemoteDirectory(S3SyncSettings left, S3SyncSettings right) =>
-        left.Provider == right.Provider && left.Prefix == right.Prefix && left.AccountRegion == right.AccountRegion
-        && _providers.TryGet(left.Provider, out var factory) && factory.IsSameRemoteDirectory(left, right);
+        left.Provider == right.Provider
+        && string.Equals(left.EffectiveProviderId, right.EffectiveProviderId, StringComparison.OrdinalIgnoreCase)
+        && left.Prefix == right.Prefix
+        && left.AccountRegion == right.AccountRegion
+        && _providers.TryGet(left, out var factory)
+        && factory.IsSameRemoteDirectory(left, right);
 
     private string BuildStorageIdentity(S3SyncSettings settings) =>
         (_dataRegion is { } region ? "region:" + AccountRegions.Slug(region) + "|" : "")
-        + _providers.Get(settings.Provider).BuildStorageIdentity(settings);
+        + _providers.Get(settings).BuildStorageIdentity(settings);
 
     private SyncProviderCapabilities ProviderCapabilities(S3SyncSettings settings) =>
-        _providers.Get(settings.Provider).Descriptor.Capabilities;
+        _providers.Get(settings).Descriptor.Capabilities;
 
     private int EffectiveConcurrency(S3SyncSettings settings)
     {

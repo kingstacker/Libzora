@@ -35,6 +35,7 @@ public sealed class ICloudSyncObjectStore : ISyncObjectStore
         return RunAsync<IReadOnlyList<SyncObjectMetadata>>(async token =>
         {
             var root = await GetRootAsync(token).ConfigureAwait(false);
+            await _fileSystem.RefreshDirectoryAsync(root, token).ConfigureAwait(false);
             try
             {
                 return await Task.Run(() => _fileSystem.Coordinate(root, ICloudSyncFileAccess.Read, coordinatedRoot =>
@@ -155,20 +156,29 @@ public sealed class ICloudSyncObjectStore : ISyncObjectStore
         }, cancellationToken);
     }
 
-    public Task PutAsync(string key, Stream input, string contentType, CancellationToken cancellationToken,
+    public async Task PutAsync(string key, Stream input, string contentType, CancellationToken cancellationToken,
         string? knownSha256 = null)
     {
         key = CanonicalKey(key);
         ArgumentNullException.ThrowIfNull(input);
-        return RunAsync(async token =>
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        var stagedPath = NewLocalTemporaryPath();
+        long stagedBytes;
+        try
         {
-            var root = await GetRootAsync(token).ConfigureAwait(false);
-            var stagedPath = NewLocalTemporaryPath();
-            try
+            await using (var staged = new FileStream(stagedPath, FileMode.CreateNew, FileAccess.Write,
+                FileShare.None, 81920, useAsync: true))
             {
-                await using (var staged = new FileStream(stagedPath, FileMode.CreateNew, FileAccess.Write,
-                    FileShare.None, 81920, useAsync: true))
-                    await input.CopyToAsync(staged, token).ConfigureAwait(false);
+                await input.CopyToAsync(staged, cancellationToken).ConfigureAwait(false);
+                stagedBytes = staged.Length;
+            }
+            // Scale upload confirmation timeout for large books (minimum 256 KB/s
+            // allowance, capped at 15 min) so large PDFs/EPUBs do not falsely fail
+            // under the default 60s metadata timeout.
+            var uploadTimeout = ComputeUploadTimeout(_timeout, stagedBytes);
+            await RunAsync(async token =>
+            {
+                var root = await GetRootAsync(token).ConfigureAwait(false);
                 await Task.Run(() =>
                 {
                     EnsureAccount();
@@ -204,9 +214,16 @@ public sealed class ICloudSyncObjectStore : ISyncObjectStore
                 }, token).ConfigureAwait(false);
                 await _fileSystem.EnsureUploadedAsync(ResolveKey(root, key), token).ConfigureAwait(false);
                 return true;
-            }
-            finally { TryDeleteTemporaryFile(stagedPath); }
-        }, cancellationToken);
+            }, cancellationToken, uploadTimeout).ConfigureAwait(false);
+        }
+        finally { TryDeleteTemporaryFile(stagedPath); }
+    }
+
+    internal static TimeSpan ComputeUploadTimeout(TimeSpan baseTimeout, long bytes)
+    {
+        if (bytes <= 0) return baseTimeout;
+        var scaledSeconds = Math.Max(baseTimeout.TotalSeconds, 60.0 + bytes / (256.0 * 1024.0));
+        return TimeSpan.FromSeconds(Math.Min(900.0, scaledSeconds));
     }
 
     public Task DeleteAsync(string key, CancellationToken cancellationToken)
@@ -267,11 +284,12 @@ public sealed class ICloudSyncObjectStore : ISyncObjectStore
             throw new InvalidOperationException(UiText.Get("系统 iCloud 账户已更改。请确认当前 Apple 账户后重新保存同步设置。"));
     }
 
-    private async Task<T> RunAsync<T>(Func<CancellationToken, Task<T>> action, CancellationToken cancellationToken)
+    private async Task<T> RunAsync<T>(Func<CancellationToken, Task<T>> action, CancellationToken cancellationToken,
+        TimeSpan? timeoutOverride = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(_timeout);
+        timeout.CancelAfter(timeoutOverride ?? _timeout);
         try
         {
             var result = await action(timeout.Token).ConfigureAwait(false);

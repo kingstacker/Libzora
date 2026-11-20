@@ -95,6 +95,12 @@ public sealed partial class S3SyncService : ISyncService
     {
     }
 
+    public S3SyncService(AppPaths paths, ISecretProtector protector, SyncProviderRegistry providers,
+        IDeviceFeatureAccess? features = null)
+        : this(paths, protector, providers, features, storeFactoryOverride: null)
+    {
+    }
+
     public S3SyncService(AppPaths paths, ISecretProtector protector, AccountService accounts, AccountRegion dataRegion,
         IDeviceFeatureAccess? features = null)
         : this(paths, protector, SyncProviderRegistry.CreateDefault(), features ?? new DeviceMembershipService(accounts))

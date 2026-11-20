@@ -81,7 +81,10 @@ public sealed class S3SyncSettingsStore
                 AccountRegion = persisted.AccountRegion,
                 AccountServerUrl = persisted.AccountServerUrl ?? string.Empty,
                 AccountUserId = persisted.AccountUserId,
-                EncryptionKey = Unprotect(persisted.ProtectedEncryptionKey)
+                EncryptionKey = Unprotect(persisted.ProtectedEncryptionKey),
+                CustomProviderId = persisted.CustomProviderId ?? string.Empty,
+                ProviderOptions = persisted.ProviderOptions,
+                ProviderSecrets = UnprotectBag(persisted.ProtectedProviderSecrets)
             });
 
             // Older settings files predate the explicit-choice flag. Preserve
@@ -162,7 +165,12 @@ public sealed class S3SyncSettingsStore
             AccountRegion = normalized.AccountRegion,
             AccountServerUrl = normalized.AccountServerUrl,
             AccountUserId = normalized.AccountUserId,
-            ProtectedEncryptionKey = Protect(normalized.EncryptionKey)
+            ProtectedEncryptionKey = Protect(normalized.EncryptionKey),
+            CustomProviderId = string.IsNullOrEmpty(normalized.CustomProviderId) ? null : normalized.CustomProviderId,
+            ProviderOptions = normalized.ProviderOptions is { Count: > 0 }
+                ? new Dictionary<string, string>(normalized.ProviderOptions, StringComparer.Ordinal)
+                : null,
+            ProtectedProviderSecrets = ProtectBag(normalized.ProviderSecrets)
         };
 
         var temporaryPath = SettingsPath + ".tmp";
@@ -231,6 +239,34 @@ public sealed class S3SyncSettingsStore
         public string? AccountServerUrl { get; set; }
         public Guid AccountUserId { get; set; }
         public string? ProtectedEncryptionKey { get; set; }
+        public string? CustomProviderId { get; set; }
+        public Dictionary<string, string>? ProviderOptions { get; set; }
+        public Dictionary<string, string>? ProtectedProviderSecrets { get; set; }
+    }
+
+    private Dictionary<string, string>? ProtectBag(IReadOnlyDictionary<string, string>? values)
+    {
+        if (values is null || values.Count == 0) return null;
+        var result = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (key, value) in values)
+        {
+            if (string.IsNullOrWhiteSpace(key) || string.IsNullOrEmpty(value)) continue;
+            result[key] = Protect(value);
+        }
+        return result.Count > 0 ? result : null;
+    }
+
+    private Dictionary<string, string>? UnprotectBag(Dictionary<string, string>? protectedValues)
+    {
+        if (protectedValues is null || protectedValues.Count == 0) return null;
+        var result = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (key, value) in protectedValues)
+        {
+            if (string.IsNullOrWhiteSpace(key)) continue;
+            var plain = Unprotect(value);
+            if (!string.IsNullOrEmpty(plain)) result[key] = plain;
+        }
+        return result.Count > 0 ? result : null;
     }
 }
 

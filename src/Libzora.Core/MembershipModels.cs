@@ -25,6 +25,7 @@ public static class MemberEntitlements
         SyncProvider.S3 => DeviceFeature.CustomS3,
         SyncProvider.WebDav => DeviceFeature.CustomWebDav,
         SyncProvider.ICloud => DeviceFeature.ICloud,
+        SyncProvider.Custom => DeviceFeature.CustomProvider,
         _ => throw new ArgumentOutOfRangeException(nameof(provider), "不支持的同步方式。")
     };
 
@@ -55,7 +56,7 @@ public static class MemberEntitlements
 }
 
 /// <summary>Custom storage features. The legacy official-cloud value is never granted.</summary>
-public enum DeviceFeature { CustomS3, CustomWebDav, AccountCloudSync, ICloud }
+public enum DeviceFeature { CustomS3, CustomWebDav, AccountCloudSync, ICloud, CustomProvider }
 
 public interface IDeviceFeatureAccess
 {

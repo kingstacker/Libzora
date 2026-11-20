@@ -164,8 +164,9 @@ LZ_EXPORT int lz_icloud_download_status(const char *path, int requestDownload, c
         // A newly written local item within the real container needs no download.
         if (!isUbiquitous && hasContents && !hasPlaceholder) return 0;
         id status = values[NSURLUbiquitousItemDownloadingStatusKey];
-        if (hasContents && ([status isEqual:NSURLUbiquitousItemDownloadingStatusCurrent] ||
-                            [status isEqual:NSURLUbiquitousItemDownloadingStatusDownloaded])) return 0;
+        // Require Current (not stale Downloaded) so a device never reads an
+        // outdated cached snapshot when another device has published an update.
+        if (hasContents && [status isEqual:NSURLUbiquitousItemDownloadingStatusCurrent]) return 0;
         return 3;
     } @catch (NSException *exception) { LZError(error, exception.reason); return 2; } }
 }
@@ -271,5 +272,45 @@ LZ_EXPORT int lz_icloud_delete(const char *path, char **error)
         failure = nil;
         if ([NSFileManager.defaultManager removeItemAtURL:LZPlaceholderURL(logical) error:&failure] || LZMissing(failure)) return 0;
         LZNSError(error, failure); return 2;
+    } @catch (NSException *exception) { LZError(error, exception.reason); return 2; } }
+}
+
+// Triggers a brief NSMetadataQuery gather over the ubiquity Documents scope so
+// newly installed devices materialize remote .icloud metadata entries before listing.
+LZ_EXPORT int lz_icloud_refresh_metadata(double timeoutSeconds, char **error)
+{
+    if (error) *error = NULL;
+    @autoreleasepool { @try {
+        if (!NSFileManager.defaultManager.ubiquityIdentityToken) return 0;
+        double clamped = timeoutSeconds < 0.2 ? 0.2 : (timeoutSeconds > 5.0 ? 5.0 : timeoutSeconds);
+        __block BOOL finished = NO;
+        NSMetadataQuery *query = [[NSMetadataQuery alloc] init];
+        query.searchScopes = @[NSMetadataQueryUbiquitousDocumentsScope];
+        query.predicate = [NSPredicate predicateWithFormat:@"%K LIKE '*'", NSMetadataItemFSNameKey];
+        NSOperationQueue *queue = [[NSOperationQueue alloc] init];
+        queue.maxConcurrentOperationCount = 1;
+        query.operationQueue = queue;
+
+        dispatch_semaphore_t signal = dispatch_semaphore_create(0);
+        id observer = [NSNotificationCenter.defaultCenter
+            addObserverForName:NSMetadataQueryDidFinishGatheringNotification
+                        object:query
+                         queue:queue
+                    usingBlock:^(__unused NSNotification *note) {
+                        finished = YES;
+                        dispatch_semaphore_signal(signal);
+                    }];
+        [queue addOperationWithBlock:^{
+            if (![query startQuery]) {
+                dispatch_semaphore_signal(signal);
+            }
+        }];
+        dispatch_semaphore_wait(signal, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(clamped * NSEC_PER_SEC)));
+        [NSNotificationCenter.defaultCenter removeObserver:observer];
+        [queue addOperationWithBlock:^{
+            [query stopQuery];
+        }];
+        [queue waitUntilAllOperationsAreFinished];
+        return finished ? 0 : 0;
     } @catch (NSException *exception) { LZError(error, exception.reason); return 2; } }
 }

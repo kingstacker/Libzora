@@ -11,6 +11,8 @@ public sealed class AppleICloudSyncFileSystem : IICloudSyncFileSystem
 {
     private static readonly NativeAccessor AccessorCallback = InvokeAccessor;
     private static readonly TimeSpan DownloadPollInterval = TimeSpan.FromMilliseconds(250);
+    private static readonly TimeSpan MetadataRefreshCooldown = TimeSpan.FromSeconds(10);
+    private long _lastMetadataRefreshTicks;
 
     public string ContainerIdentifier => ICloudSyncContainer.Identifier;
 
@@ -57,6 +59,26 @@ public sealed class AppleICloudSyncFileSystem : IICloudSyncFileSystem
                 throw new InvalidOperationException(UiText.Get("系统 iCloud 账户已更改。请确认当前 Apple 账户后重新保存同步设置。"));
             cancellationToken.ThrowIfCancellationRequested();
             return NormalizePath(path);
+        }, cancellationToken).WaitAsync(cancellationToken);
+    }
+
+    public Task RefreshDirectoryAsync(string directoryPath, CancellationToken cancellationToken)
+    {
+        RequireApple();
+        cancellationToken.ThrowIfCancellationRequested();
+        var now = DateTimeOffset.UtcNow.Ticks;
+        var previous = Volatile.Read(ref _lastMetadataRefreshTicks);
+        if (now - previous < MetadataRefreshCooldown.Ticks
+            || Interlocked.CompareExchange(ref _lastMetadataRefreshTicks, now, previous) != previous)
+        {
+            return Task.CompletedTask;
+        }
+
+        return Task.Run(() =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            _ = Native.RefreshMetadata(2.0, out var error);
+            _ = TakeString(error);
         }, cancellationToken).WaitAsync(cancellationToken);
     }
 
@@ -289,5 +311,7 @@ public sealed class AppleICloudSyncFileSystem : IICloudSyncFileSystem
             int access, NativeAccessor accessor, IntPtr context, out IntPtr error);
         [DllImport(Library, EntryPoint = "lz_icloud_delete", CallingConvention = CallingConvention.Cdecl)]
         internal static extern int Delete([MarshalAs(UnmanagedType.LPUTF8Str)] string path, out IntPtr error);
+        [DllImport(Library, EntryPoint = "lz_icloud_refresh_metadata", CallingConvention = CallingConvention.Cdecl)]
+        internal static extern int RefreshMetadata(double timeoutSeconds, out IntPtr error);
     }
 }

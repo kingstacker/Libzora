@@ -137,13 +137,14 @@ Large services are split by responsibility so one change opens one file:
 | `TtsService.*.cs` | startup, control, run, pipeline, lifecycle |
 | `MtpKindleDeviceService.*.cs` | books, resources, annotations, scan, session |
 | `LibzoraMcpTools.*.cs` + `McpResults.cs` | library, collections, content, devices, validation, projection, result records |
-| `NativePdfReaderHost.*.cs` | interaction, annotation callouts, search, rendering, pointer, layout, view |
+| `NativePdfReaderHost.*.cs` + `PdfReaderLayout.cs` | interaction, annotation callouts, search, rendering, pointer, layout, view, auto-crop, dark coloring |
 | `NativeReaderHost.*.cs` | navigation, configuration, scrolling, annotations, search, content, page counts, layout, rendering, images, pointer, selection, capture |
 | `XhtmlChapterLoader.*.cs` | flow, inline, blocks, footnotes, plain footnotes, targets, links |
 | `S3SyncService.*.cs` | settings, sync entry, versions, state, snapshots, cleanup, download, encryption |
 | `WpdKindleAccess.*.cs` | devices, resources, annotations, books, shell items |
 | `KindleDeviceService.*.cs` | detection, books, transfer, resources, annotations, files, native |
 | `HorizontalComposer.*.cs` | line breaking, Knuth-Plass, images, tables, table layout |
+| `GlyphShaper.cs` + `GlyphShaper.Variants.cs` | HarfBuzz shaping, system font loading, paired Latin/monospace and true Bold/Italic variants |
 | `ReaderPage.*.cs` (Mobile) | navigation, position, input, selection, chrome, lifecycle, native (actions, search) |
 | `MobileShell.*.cs` | shell state, sheets, bars |
 | `AppDataMigrationService.*.cs` | journal, journal I/O, payload, verification, types |
@@ -158,7 +159,8 @@ Large services are split by responsibility so one change opens one file:
 ## iOS native frontend
 
 - `src/Libzora.Mobile.iOS/NativeUI/*.swift` — SwiftUI screens: bookshelf,
-  library, reader, settings, account, membership, theme, widgets.
+  library, reader (`NativeReader.swift`, `NativeReaderAdvancedTypography.swift`,
+  `NativeReaderLatinFontPicker.swift`), settings, account, membership, theme, widgets.
 - `src/Libzora.Mobile.iOS/IOSNativeFrontend.*.cs` — C# side of the bridge,
   split by area (`Library`, `Reader`, `Settings`, `Fonts`).
 - `src/Libzora.Mobile.iOS/IOSMobileHost.cs` — host wiring.
@@ -170,10 +172,11 @@ Large services are split by responsibility so one change opens one file:
 | --- | --- |
 | Reader UI or page-turn behaviour | `MainWindow.ReaderPaging.cs`, `MainWindow.ReaderInteraction.cs` |
 | EPUB parsing or pagination | `src/Libzora.Layout/IO/`, `src/Libzora.Layout/Layout/` |
+| PDF viewing, zoom, auto-crop | `src/Libzora.Reader/NativePdfReaderHost*.cs`, `PdfReaderLayout.cs` |
 | Book library list, grid, selection | `MainWindow.Library*.cs` |
 | Book import pipeline | `MainWindow.LibraryImport.cs`, `src/Libzora.Application/` |
 | Kindle device transfer | `MainWindow.Stage3Device*.cs`, `src/Libzora.Infrastructure/` |
-| S3 / WebDAV sync | `S3SyncService*.cs`, `MainWindow.Stage3SettingsS3.cs` |
+| S3 / WebDAV / iCloud sync | `S3SyncService*.cs`, `MainWindow.Stage3SettingsS3*.cs`, `docs/icloud-sync.md` |
 | Backup and encryption | `MainWindow.Stage3Backup.cs`, `src/Libzora.Infrastructure/` |
 | SQLite schema or queries | `src/Libzora.Infrastructure/SqliteBookLibraryService*.cs` |
 | iOS screen | `src/Libzora.Mobile.iOS/NativeUI/`, `IOSNativeFrontend.*.cs` |
@@ -195,14 +198,14 @@ dotnet test tests/Libzora.App.Tests/Libzora.App.Tests.csproj
 ```
 
 - iOS is built with `scripts/` helpers or Xcode; see
-  [ios-development.md](ios-development.md).
-- Simulator conventions are in `AGENTS.md`.
+  [ios-development.md](ios-development.md) and [ios-native-frontend.md](ios-native-frontend.md).
+- General AI/maintainer rules are in `AGENTS.md`.
 
 ## Code organisation rules
 
-1. Keep a source file under ~1,500 lines. When a `MainWindow` partial grows
-   past that, split it along an existing feature boundary rather than adding a
-   new `#region`.
+1. Keep a source file under ~800 lines. When a `MainWindow` partial or service
+   grows past that, split it along an existing feature boundary rather than
+   adding a new `#region`.
 2. Name new partials `MainWindow.<Area><Aspect>.cs` so the file list stays
    sortable by feature.
 3. Put business orchestration in `Libzora.Application`, not in the window.

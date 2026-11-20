@@ -39,6 +39,13 @@ public interface IICloudSyncFileSystem
 
     /// <summary>Removes a coordinated item; a missing item is a success.</summary>
     void DeleteItem(string path);
+
+    /// <summary>
+    /// Prompts iCloud Drive to refresh remote directory metadata (e.g. via
+    /// NSMetadataQuery) so newly installed devices discover remote placeholders
+    /// before listing. Non-fatal when unsupported or timed out.
+    /// </summary>
+    Task RefreshDirectoryAsync(string directoryPath, CancellationToken cancellationToken) => Task.CompletedTask;
 }
 
 public enum ICloudSyncFileAccess

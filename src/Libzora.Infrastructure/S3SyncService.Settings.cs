@@ -24,8 +24,11 @@ public sealed partial class S3SyncService : ISyncService
     {
         if (_accounts is not null && _dataRegion is { } expectedRegion && settings.AccountRegion != expectedRegion)
             throw new InvalidOperationException("同步区域与当前书库不一致，请检查区域设置。");
-        var store = _storeFactoryOverride?.Invoke(settings)
-            ?? _providers.Get(settings.Provider).Create(settings);
+        var hasFactory = _providers.TryGet(settings, out var factory);
+        var rawStore = _storeFactoryOverride?.Invoke(settings)
+            ?? (hasFactory ? factory.Create(settings) : _providers.Get(settings).Create(settings));
+        var capabilities = hasFactory ? factory.Descriptor.Capabilities : new SyncProviderCapabilities();
+        ISyncObjectStore store = new GuardedSyncObjectStore(rawStore, capabilities);
         return _accounts is { } accounts && _dataRegion is { } region
             ? new RegionalSyncObjectStore(store, accounts, region)
             : store;
@@ -33,14 +36,64 @@ public sealed partial class S3SyncService : ISyncService
 
     public IReadOnlyList<SyncProviderDescriptor> AvailableProviders => _providers.Descriptors;
 
+    /// <summary>
+    /// Evaluates the current connection health in a provider-agnostic way so
+    /// desktop and mobile UIs can show consistent status for any sync provider.
+    /// </summary>
+    public async Task<SyncConnectionStatus> EvaluateConnectionStatusAsync(CancellationToken cancellationToken = default)
+    {
+        var stored = await _settingsStore.LoadAsync(cancellationToken, initializeIfMissing: false);
+        var settings = stored.Settings;
+        var providerId = settings.EffectiveProviderId;
+        if (!_providers.TryGet(settings, out var factory))
+        {
+            return new SyncConnectionStatus(
+                SyncConnectionHealth.UnsupportedOnPlatform,
+                providerId,
+                settings.ProviderName,
+                UiText.Get("当前平台不支持此同步方式。"));
+        }
+
+        var displayName = factory.Descriptor.DisplayName;
+        if (!settings.Enabled)
+        {
+            return new SyncConnectionStatus(SyncConnectionHealth.Disabled, factory.Descriptor.Id, displayName);
+        }
+
+        var validation = ValidateWithProvider(settings, factory);
+        if (validation is not null)
+        {
+            return new SyncConnectionStatus(SyncConnectionHealth.NeedsConfiguration, factory.Descriptor.Id, displayName, validation);
+        }
+
+        if (factory is ISyncProviderAccountBinding binding)
+        {
+            try
+            {
+                var bound = binding.BindAccount(settings);
+                if (bound != settings)
+                {
+                    return new SyncConnectionStatus(SyncConnectionHealth.AccountChanged, factory.Descriptor.Id, displayName,
+                        UiText.Get("系统同步账户已更改，请重新保存设置。"));
+                }
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or IOException)
+            {
+                return new SyncConnectionStatus(SyncConnectionHealth.AccountChanged, factory.Descriptor.Id, displayName, ex.Message);
+            }
+        }
+
+        return new SyncConnectionStatus(SyncConnectionHealth.Ready, factory.Descriptor.Id, displayName);
+    }
+
     public async Task<S3SyncStoredSettings> LoadSettingsAsync(CancellationToken cancellationToken = default)
     {
         var stored = await _settingsStore.LoadAsync(cancellationToken);
         if (_dataRegion is { } region && stored.Settings.AccountRegion != region)
             stored = stored with { Settings = stored.Settings with { AccountRegion = region, Enabled = false } };
-        // A backup may carry an Apple-only provider onto Windows or Android.
+        // A backup may carry an Apple-only or custom provider onto another OS.
         // Keep the choice visible without rerouting it to leftover credentials.
-        if (!_providers.TryGet(stored.Settings.Provider, out var factory))
+        if (!_providers.TryGet(stored.Settings, out var factory))
             stored = stored with { Settings = stored.Settings with { Enabled = false } };
         else if (stored.Settings.Enabled && factory is ISyncProviderAccountBinding binding)
         {
@@ -69,12 +122,16 @@ public sealed partial class S3SyncService : ISyncService
         CancellationToken cancellationToken = default)
     {
         var normalized = S3SyncSettings.Normalize(settings);
-        if (normalized.Enabled)
+        if (_providers.TryGet(normalized, out var factory))
         {
-            if (!_providers.TryGet(normalized.Provider, out var factory))
-                throw new NotSupportedException(UiText.Get("当前平台不支持此同步方式。"));
-            if (factory is ISyncProviderAccountBinding binding)
+            if (factory is ISyncProviderValidator validator)
+                normalized = validator.Normalize(normalized);
+            if (normalized.Enabled && factory is ISyncProviderAccountBinding binding)
                 normalized = binding.BindAccount(normalized, allowAccountChange: true);
+        }
+        else if (normalized.Enabled)
+        {
+            throw new NotSupportedException(UiText.Get("当前平台不支持此同步方式。"));
         }
         if (_dataRegion is { } dataRegion)
         {

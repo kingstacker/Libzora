@@ -13,7 +13,8 @@ public sealed class ICloudSyncProviderFactory(IICloudSyncFileSystem fileSystem)
         // iCloud Drive is eventually consistent, not an authoritative remote
         // listing. Never retire snapshots or collect blobs from its local view.
         new SyncProviderCapabilities(SupportsRangeRead: false, ReliableListing: false,
-            ReliableLastModified: false, MaxConcurrentRequests: 1));
+            ReliableLastModified: false, MaxConcurrentRequests: 1),
+        new SyncProviderUiHints(SupportsProfileImportExport: false));
 
     public S3SyncSettings BindAccount(S3SyncSettings settings, bool allowAccountChange = false)
     {

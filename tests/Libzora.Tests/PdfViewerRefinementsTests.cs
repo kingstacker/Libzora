@@ -85,4 +85,17 @@ public sealed class PdfViewerRefinementsTests
         Assert.True(pixels[8] > pixels[10], $"Expected blue hue preserved: B={pixels[8]}, R={pixels[10]}");
         Assert.True(pixels[8] < 80, $"Expected pale blue background inverted to dark tone, got B={pixels[8]}");
     }
+
+    [Fact]
+    public void PureBlackOledPaletteUsesZeroLuminanceBackgroundForInkTheme()
+    {
+        var normalInk = ReaderPalette.For(ReaderTheme.Ink, pureBlackOled: false);
+        var oledInk = ReaderPalette.For(ReaderTheme.Ink, pureBlackOled: true);
+        Assert.True(normalInk.Page.R > 0);
+        Assert.Equal((byte)0, oledInk.Page.R);
+        Assert.Equal((byte)0, oledInk.Page.G);
+        Assert.Equal((byte)0, oledInk.Page.B);
+        // Light themes remain unchanged under power saving
+        Assert.Equal(ReaderPalette.For(ReaderTheme.Classic), ReaderPalette.For(ReaderTheme.Classic, pureBlackOled: true));
+    }
 }

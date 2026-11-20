@@ -27,12 +27,18 @@ public sealed record ReaderPalette(
     private static readonly ReaderPalette InkPaper = Palette(
         "#0E0E0E", "#0E0E0E", "#0E0E0E", "#DEDEDE", "#9C9C9C",
         "#2E2E2E", "#262626", "#363636", "#E6E6E6", "#0E0E0E");
+    // True #000000 pure black turns OLED subpixels completely off for maximum battery savings.
+    private static readonly ReaderPalette InkOledPaper = Palette(
+        "#000000", "#000000", "#000000", "#CFCFCF", "#8E8E8E",
+        "#242424", "#1A1A1A", "#2C2C2C", "#DCDCDC", "#000000");
 
-    public static ReaderPalette For(ReaderTheme theme) => theme switch
+    public static ReaderPalette For(ReaderTheme theme) => For(theme, pureBlackOled: false);
+
+    public static ReaderPalette For(ReaderTheme theme, bool pureBlackOled) => theme switch
     {
         ReaderTheme.Beige => Beige,
         ReaderTheme.Green => Green,
-        ReaderTheme.Ink => InkPaper,
+        ReaderTheme.Ink => pureBlackOled ? InkOledPaper : InkPaper,
         _ => Classic
     };
 

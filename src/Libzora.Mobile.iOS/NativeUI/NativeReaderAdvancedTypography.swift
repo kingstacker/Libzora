@@ -114,6 +114,22 @@ struct NativeReaderAdvancedTypography: View {
                         .accessibilityIdentifier("typography.widowsOrphans")
                     }
                 }
+
+                Section(header: sectionHeader(L("省电与续航"))) {
+                    optionRow(
+                        title: L("省电模式"),
+                        detail: L("关闭翻页动画与后台全书算页，减少写盘并启用 OLED 纯黑省电")
+                    ) {
+                        Picker(L("省电模式"), selection: preference(\.readerPowerSavingMode)) {
+                            Text(L("关")).tag(0)
+                            Text(L("跟随")).tag(1)
+                            Text(L("开")).tag(2)
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(width: 156)
+                        .accessibilityIdentifier("typography.powerSaving")
+                    }
+                }
             }
             .listStyle(.plain)
             .accessibilityIdentifier("advancedTypography.list")

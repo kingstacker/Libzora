@@ -58,6 +58,10 @@ struct NativeReaderPage: View {
     @State private var footnoteCardHeight: CGFloat = 140
     /// PostScript name of the body font, so the reading footer matches the page.
     @State private var bodyFontName = "KingHwaOldSong"
+    @State private var systemLowPowerMode = ProcessInfo.processInfo.isLowPowerModeEnabled
+    private var powerSavingActive: Bool {
+        store.preferences.isPowerSaving(systemLowPower: systemLowPowerMode)
+    }
     private let chromeSideInset: CGFloat = 8
     private let footerHeight: CGFloat = 24
     private var reader: ReaderSnapshot { session.state }
@@ -96,7 +100,7 @@ struct NativeReaderPage: View {
             ? appColorScheme
             : (store.preferences.readerTheme == 5 ? .dark : .light)
     }
-    private var paper: Color { store.preferences.paper(for: effectiveReaderTheme) }
+    private var paper: Color { store.preferences.paper(for: effectiveReaderTheme, pureBlackOled: powerSavingActive) }
     // Assistant conversations take the full screen; the other reader tools
     // remain page sheets so the reading context stays visible.
     private var sheetPanel: Binding<ReaderPanel?> {
@@ -304,7 +308,7 @@ struct NativeReaderPage: View {
             paper.ignoresSafeArea()
             ReaderSurface(controller: store.readerController).padding(.bottom, readerBottomInset)
                 .overlay {
-                    if store.preferences.readerThemeFollowsAppearance && store.preferences.colorfulMode {
+                    if !powerSavingActive && store.preferences.readerThemeFollowsAppearance && store.preferences.colorfulMode {
                         // The wash spans the entire window, including the side
                         // paper around an iPad's narrower text column. An overlay
                         // does not enlarge the reader's pagination/touch viewport.
@@ -312,6 +316,10 @@ struct NativeReaderPage: View {
                             .frame(width: viewportWidth)
                             .ignoresSafeArea().allowsHitTesting(false).accessibilityHidden(true)
                     }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .NSProcessInfoPowerStateDidChange)) { _ in
+                    systemLowPowerMode = ProcessInfo.processInfo.isLowPowerModeEnabled
+                    run("refreshPowerState")
                 }
             if !reader.ready {
                 VStack(spacing: 16) {
@@ -702,6 +710,7 @@ struct NativeTypography: View {
             }
         }
         if store.preferences.readerAlignLeft { parts.append(L("左对齐")) }
+        if store.preferences.readerPowerSavingMode == 2 { parts.append(L("省电")) }
         return parts.isEmpty ? L("默认") : parts.joined(separator: " · ")
     }
     private func preference<Value>(_ key: WritableKeyPath<MobilePreferences, Value>) -> Binding<Value> {
@@ -778,6 +787,13 @@ struct NativeTypography: View {
                         }
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("typography.pdfRotate")
+                    }
+                    row(L("省电模式")) {
+                        Picker(L("省电模式"), selection: preference(\.readerPowerSavingMode)) {
+                            Text(L("关")).tag(0)
+                            Text(L("跟随")).tag(1)
+                            Text(L("开")).tag(2)
+                        }.pickerStyle(.segmented).accessibilityIdentifier("typography.powerSaving")
                     }
                 } else {
                     row(L("正文字体")) {

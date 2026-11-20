@@ -196,20 +196,41 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         }
     }
 
+    /// <summary>Power-saving mode caps render scaling at 2x and uses pure OLED black for dark paper.</summary>
+    public bool PowerSavingMode { get; private set; }
+
+    public void SetPowerSavingMode(bool enabled)
+    {
+        if (PowerSavingMode == enabled) return;
+        PowerSavingMode = enabled;
+        _palette = ReaderPalette.For(_appearance.Theme, PowerSavingMode);
+        _paintTheme = _palette.PaintTheme;
+        _bitmapDirty = true;
+        InvalidateVisual();
+    }
+
     /// <summary>Repaint only: selection, layout, page index and scroll offset stay intact.</summary>
     public void SetAppearance(ReaderAppearanceSettings appearance)
     {
         appearance = ReaderAppearanceSettings.Normalize(appearance);
-        if (_appearance == appearance) return;
+        var palette = ReaderPalette.For(appearance.Theme, PowerSavingMode);
+        if (_appearance == appearance && _palette == palette) return;
         _appearance = appearance;
-        _palette = ReaderPalette.For(appearance.Theme);
+        _palette = palette;
         _paintTheme = _palette.PaintTheme;
         ReaderAppearanceResources.PopulateControls(_scrollBar.Resources, appearance);
         _bitmapDirty = true;
         InvalidateVisual();
     }
 
-    private double CurrentScaling => TopLevel.GetTopLevel(this)?.RenderScaling ?? 1;
+    private double CurrentScaling
+    {
+        get
+        {
+            var raw = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1;
+            return PowerSavingMode ? Math.Min(2.0, raw) : raw;
+        }
+    }
 
     public override void Render(DrawingContext context)
     {

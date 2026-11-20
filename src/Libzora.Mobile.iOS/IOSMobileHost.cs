@@ -32,7 +32,8 @@ internal static class IOSMobileHost
             BackgroundWork: new IOSBackgroundWork(),
             FileShare: new IOSFileShare(),
             PreferredLanguages: () => NSLocale.PreferredLanguages,
-            SyncProviders: CreateSyncProviders());
+            SyncProviders: CreateSyncProviders(),
+            IsSystemLowPowerMode: () => NSProcessInfo.ProcessInfo.LowPowerModeEnabled);
     }
 
     private static SyncProviderRegistry CreateSyncProviders()

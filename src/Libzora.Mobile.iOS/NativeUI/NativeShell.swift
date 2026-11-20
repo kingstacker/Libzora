@@ -86,8 +86,10 @@ struct NativeShell: View {
             } else if showingLaunch {
                 NativeLaunchPage(restoringReader: store.restoringReader,
                                  showBranding: store.showsLaunchAnimation)
+                    .transition(.opacity)
             }
         }
+        .animation(.easeOut(duration: 0.2), value: showingLaunch)
         .overlay {
             if let request = previewCenter.request {
                 NativeBookPreviewOverlay(request: request, center: previewCenter)
@@ -139,7 +141,7 @@ private struct NativeLaunchPage: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("launch.screen")
         .onAppear {
-            withAnimation(.easeOut(duration: 0.65)) { revealed = true }
+            withAnimation(.easeOut(duration: 0.25)) { revealed = true }
         }
     }
 }

@@ -52,6 +52,7 @@ public sealed partial class NativePdfReaderHost : Control, IReaderHost, IReaderP
     private Rect?[] _cropBoxes = [];
     private PdfReaderLayout? _layout;
     private double _layoutDpi = 1;
+    private ReaderTheme _appearanceTheme = ReaderTheme.Classic;
     private ReaderPalette _palette = ReaderPalette.For(ReaderTheme.Classic);
     private IReadOnlyList<ReaderAnnotation> _annotations = [];
     private int _version;
@@ -153,6 +154,8 @@ public sealed partial class NativePdfReaderHost : Control, IReaderHost, IReaderP
     public PdfReaderFitMode FitMode { get; private set; } = PdfReaderFitMode.Width;
     public int Rotation { get; private set; }
     public bool AutoCropMargins { get; private set; }
+    /// <summary>Power-saving mode caps render DPI at 2x, skips adjacent prefetch, and uses true OLED black in Ink mode.</summary>
+    public bool PowerSavingMode { get; private set; }
     public bool IsPointAnnotationMode => _pointAnnotationMode;
     public bool IsHandToolMode => _handToolMode;
 
@@ -178,7 +181,14 @@ public sealed partial class NativePdfReaderHost : Control, IReaderHost, IReaderP
     internal int CachedPageCount => _pages.Count;
     internal long CachedRasterBytes => _pages.Values.Sum(page => (long)(page.Raster?.Width ?? 0) * (page.Raster?.Height ?? 0) * 4);
     public IReadOnlyList<int> VisiblePageNumbers => _layout?.VisiblePages(DocumentViewport).ToArray() ?? [];
-    private double DeviceScaling => TopLevel.GetTopLevel(this)?.RenderScaling ?? 1;
+    private double DeviceScaling
+    {
+        get
+        {
+            var raw = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1;
+            return PowerSavingMode ? Math.Min(2.0, raw) : raw;
+        }
+    }
     private Size Viewport => new(Math.Max(1, Bounds.Width), Math.Max(1, Bounds.Height));
     private Rect DocumentViewport => new(_pan.X, _pan.Y, Viewport.Width, Viewport.Height);
 

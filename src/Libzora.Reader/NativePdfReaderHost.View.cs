@@ -175,8 +175,9 @@ public sealed partial class NativePdfReaderHost
             InvalidateVisual();
 
             // Background prefetch of adjacent pages (+1 / -1) so single-page
-            // turns paint immediately without waiting on PDFium.
-            if (PageCount > 1 && DisplayMode != PdfReaderDisplayMode.Continuous)
+            // turns paint immediately without waiting on PDFium. Skip under
+            // power-saving mode to avoid unnecessary PDFium background CPU work.
+            if (!PowerSavingMode && PageCount > 1 && DisplayMode != PdfReaderDisplayMode.Continuous)
             {
                 _ = PrefetchAdjacentPagesAsync(version, rasterVersion, rotation, palette, token);
             }

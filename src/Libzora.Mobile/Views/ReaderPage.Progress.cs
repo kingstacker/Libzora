@@ -115,7 +115,7 @@ public partial class ReaderPage
 
     private void StartReadingStatsTimer()
     {
-        if (_readingStatsTimer is not null || _disposed) return;
+        if (_readingStatsTimer is not null || _disposed || IsPowerSavingActive) return;
         var timer = new DispatcherTimer(DispatcherPriority.Background)
         {
             Interval = PaceRefreshInterval

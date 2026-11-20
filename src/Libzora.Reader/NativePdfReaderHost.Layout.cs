@@ -81,9 +81,25 @@ public sealed partial class NativePdfReaderHost
         return target < 1 || target > PageCount ? PageNumber : target;
     }
 
+    public void SetPowerSavingMode(bool enabled)
+    {
+        if (PowerSavingMode == enabled) return;
+        PowerSavingMode = enabled;
+        var palette = ReaderPalette.For(_appearanceTheme, PowerSavingMode);
+        if (_palette != palette || Math.Abs(DeviceScaling - _layoutDpi) > 0.001)
+        {
+            _palette = palette;
+            ++_rasterVersion;
+            RebuildLayout(preservePosition: true);
+            ScheduleRender();
+        }
+        InvalidateVisual();
+    }
+
     public void SetAppearance(ReaderAppearanceSettings appearance)
     {
-        var palette = ReaderPalette.For(appearance.Theme);
+        _appearanceTheme = appearance.Theme;
+        var palette = ReaderPalette.For(appearance.Theme, PowerSavingMode);
         if (_palette != palette)
         {
             _palette = palette;

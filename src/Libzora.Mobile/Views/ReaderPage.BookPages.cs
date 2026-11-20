@@ -68,8 +68,10 @@ public partial class ReaderPage
         var host = _readerHost as IReaderPageCountHost;
         var knownChapter = host?.GetCurrentChapterPageCountFor(_layout, width, height);
         // Cheap byte-size totals appear immediately, so the footer switches
-        // to a whole-book page number on the very first turn.
+        // to a whole-book page number on the very first turn. In power-saving
+        // mode, keep the instant estimate and skip full-book background layout.
         _bookPageCounts = BuildCheapBookPageCounts(document, knownChapter);
+        if (IsPowerSavingActive) return;
         _ = RefreshBookPageCountsAsync(
             document, _layout, width, height, host, knownChapter, sequence, cancellation);
     }

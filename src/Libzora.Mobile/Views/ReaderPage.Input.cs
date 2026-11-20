@@ -32,7 +32,8 @@ public partial class ReaderPage
         if (!_ready || _bookFile is null || _readerHost is null) return true;
         var now = DateTimeOffset.UtcNow;
         CountReadingTime(now);
-        if (!force && now - _lastProgressSave < TimeSpan.FromSeconds(1.2)) return true;
+        var minSaveInterval = IsPowerSavingActive ? TimeSpan.FromSeconds(25) : TimeSpan.FromSeconds(1.2);
+        if (!force && now - _lastProgressSave < minSaveInterval) return true;
         _lastProgressSave = now;
 
         long seconds = 0;
@@ -356,7 +357,7 @@ public partial class ReaderPage
 
             var surface = new ReaderTransitionSurface(
                 ReaderHostSlot, TransitionSnapshot, TransitionTrail, TransitionFront, TransitionEdge, ReaderPaper);
-            var animation = (int)_shell.Preferences.Current.ReaderPageAnimation;
+            var animation = IsPowerSavingActive ? 0 : (int)_shell.Preferences.Current.ReaderPageAnimation;
             await ReaderTransitionPlayer.RunAsync(surface, animation,
                 MobileReaderPagingPolicy.VisualDirection(direction, _layout.VerticalWriting, _isPdf), async () =>
             {

@@ -124,6 +124,28 @@ public partial class ReaderPage
     private ReaderTheme CurrentTheme => _shell.Preferences.Current.ResolveReaderTheme(
         _nativeAppAppearanceDark ?? (_shell.ActualThemeVariant == ThemeVariant.Dark));
 
+    public bool IsPowerSavingActive => _shell.Preferences.Current.ResolvePowerSaving(
+        _shell.Services.IsSystemLowPowerMode?.Invoke() == true);
+
+    private void ApplyPowerSavingToHost()
+    {
+        var powerSaving = IsPowerSavingActive;
+        if (_readerHost is NativeReaderHost epub) epub.SetPowerSavingMode(powerSaving);
+        else if (_readerHost is NativePdfReaderHost pdf) pdf.SetPowerSavingMode(powerSaving);
+        if (powerSaving)
+        {
+            _bookPageCountCancellation?.Cancel();
+            StopReadingStatsTimer();
+        }
+    }
+
+    public void RefreshPowerSavingState()
+    {
+        if (_disposed) return;
+        ApplyPowerSavingToHost();
+        RefreshReaderAppearance();
+    }
+
     private double PdfZoom => _shell.Preferences.Current.GetEffectivePdfZoom(_bookFile?.Id);
 
     private bool IsPdfZoomed => _isPdf && PdfZoom > 1.01;
@@ -182,7 +204,7 @@ public partial class ReaderPage
     private void ApplyTheme()
     {
         var dark = CurrentTheme == ReaderTheme.Ink;
-        var paper = ReaderPalette.For(CurrentTheme).Page;
+        var paper = ReaderPalette.For(CurrentTheme, IsPowerSavingActive).Page;
         ThemeScope.RequestedThemeVariant = dark ? ThemeVariant.Dark : ThemeVariant.Light;
         Surface.Background = new SolidColorBrush(paper);
         _shell.SetPaperSystemBars(paper, dark);
@@ -195,6 +217,7 @@ public partial class ReaderPage
 
     private void RefreshReaderAppearance()
     {
+        ApplyPowerSavingToHost();
         ApplyTheme();
         ReaderFooter.IsVisible = !_usesNativeFrontend
             && _shell.Preferences.Current.ReaderProgressDisplay != MobileReaderProgressDisplay.Off;

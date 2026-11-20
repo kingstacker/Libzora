@@ -36,6 +36,14 @@ public enum MobileReaderProgressDisplay
     Off = 4
 }
 
+/// <summary>Battery-saving mode for mobile reading.</summary>
+public enum MobileReaderPowerSavingMode
+{
+    Off = 0,
+    System = 1,
+    On = 2
+}
+
 /// <summary>Phone-only interface choices; shared library data stays in the database.</summary>
 public sealed record MobilePreferences
 {
@@ -94,6 +102,15 @@ public sealed record MobilePreferences
     public bool ReaderVerticalWriting { get; init; }
     public MobilePageAnimation ReaderPageAnimation { get; init; } = MobilePageAnimation.Fade;
     public MobileReaderProgressDisplay ReaderProgressDisplay { get; init; } = MobileReaderProgressDisplay.Pages;
+    /// <summary>Power-saving mode during reading: Off, follow OS Low Power Mode (default), or always On.</summary>
+    public MobileReaderPowerSavingMode ReaderPowerSavingMode { get; init; } = MobileReaderPowerSavingMode.System;
+
+    public bool ResolvePowerSaving(bool systemLowPowerMode) => ReaderPowerSavingMode switch
+    {
+        MobileReaderPowerSavingMode.On => true,
+        MobileReaderPowerSavingMode.System => systemLowPowerMode,
+        _ => false
+    };
 
     /// <summary>
     /// Stored values can outlive a retired option. Value 2 used to mean the

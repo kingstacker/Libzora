@@ -52,6 +52,7 @@ public partial class ReaderPage
         // page break at the old page's first word and leaving the preceding page empty.
         var host = new NativeReaderHost { Focusable = false, ReaderObjectsEnabled = _usesNativeFrontend };
         _readerHost = host;
+        host.SetPowerSavingMode(IsPowerSavingActive);
         host.SetAppearance(new ReaderAppearanceSettings { Theme = CurrentTheme });
         host.WebMessageReceived += OnReaderWebMessage;
         host.LayoutCompleted += OnReaderLayoutCompleted;
@@ -133,6 +134,7 @@ public partial class ReaderPage
 
         var host = new NativePdfReaderHost { Focusable = false };
         _readerHost = host;
+        host.SetPowerSavingMode(IsPowerSavingActive);
         host.SetAppearance(new ReaderAppearanceSettings { Theme = CurrentTheme });
         host.WebMessageReceived += OnReaderWebMessage;
         ReaderHostSlot.Content = host.View;

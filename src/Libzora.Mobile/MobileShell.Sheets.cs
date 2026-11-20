@@ -68,6 +68,9 @@ public partial class MobileShell
     public async void RequestAutoSync(TimeSpan minimumGap)
     {
         if (_backupBlocked || DateTimeOffset.UtcNow - Sync.LastRunAt < minimumGap) return;
+        // Defer automatic background sync while reading in power-saving mode to
+        // avoid waking Wi-Fi/cellular radios; sync resumes when leaving the reader.
+        if (CurrentPage is ReaderPage activeReader && activeReader.IsPowerSavingActive) return;
         using var operation = MobileDataCoordinator.TryBeginOperation();
         if (operation is null) return;
         try

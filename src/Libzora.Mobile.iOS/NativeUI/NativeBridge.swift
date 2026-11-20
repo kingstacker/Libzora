@@ -48,17 +48,27 @@ struct MobilePreferences: Codable, Equatable {
     var readerVerticalWriting = false
     var readerPageAnimation = 1
     var readerProgressDisplay = 0
+    /// 0 = Off, 1 = Follow OS Low Power Mode, 2 = Always On
+    var readerPowerSavingMode = 1
+
+    func isPowerSaving(systemLowPower: Bool) -> Bool {
+        switch readerPowerSavingMode {
+        case 2: return true
+        case 1: return systemLowPower
+        default: return false
+        }
+    }
 
     var colorScheme: ColorScheme? {
         themeMode == 1 ? .light : themeMode == 2 ? .dark : nil
     }
     /// The page colours from `ReaderPalette`. SwiftUI fills the margins around
     /// the rendered page, so any difference shows as a band above and below it.
-    func paper(for theme: Int) -> Color {
+    func paper(for theme: Int, pureBlackOled: Bool = false) -> Color {
         switch theme {
         case 1: return Color(red: 244 / 255, green: 242 / 255, blue: 236 / 255)
         case 2: return Color(red: 238 / 255, green: 243 / 255, blue: 236 / 255)
-        case 5: return Color(red: 14 / 255, green: 14 / 255, blue: 14 / 255)
+        case 5: return pureBlackOled ? .black : Color(red: 14 / 255, green: 14 / 255, blue: 14 / 255)
         default: return .white
         }
     }
@@ -354,24 +364,34 @@ final class NativeStore: ObservableObject {
         return librarySeriesCache?[id]
     }
 
-    /// The root owns startup, rather than waiting for a tab's onAppear. The
-    /// branded splash stays for two seconds while the shelf is prepared in
-    /// parallel. Restoring the last reader skips the animation and its delay.
+    /// The root owns startup, rather than waiting for a tab's onAppear. As soon
+    /// as the library snapshot arrives, the splash dismisses immediately while
+    /// viewport cover thumbnails warm concurrently in the background.
     func prepareLaunch(viewport: CGSize) async {
         guard !launchStarted else { return }
         launchStarted = true
-        async let launchAnimation: Void = Task.sleep(nanoseconds: showsLaunchAnimation ? 2_000_000_000 : 0)
         do {
             try await refreshLibrary(timeoutNanoseconds: 30_000_000_000)
-            await NativeCoverCache.prepareLibrary(books: library, folders: folders, preferences: preferences,
-                                                 continueBookId: continueBookId, viewport: viewport)
             try Task.checkCancellation()
         } catch {
             if !libraryLoaded {
                 libraryLoadError = Task.isCancelled ? L("书库加载已中断，请重试。") : error.localizedDescription
             }
         }
-        try? await launchAnimation
+        let snapshotBooks = library
+        let snapshotFolders = folders
+        let snapshotPreferences = preferences
+        let snapshotContinueBookId = continueBookId
+        if libraryLoaded && !snapshotBooks.isEmpty {
+            Task {
+                await NativeCoverCache.prepareLibrary(
+                    books: snapshotBooks,
+                    folders: snapshotFolders,
+                    preferences: snapshotPreferences,
+                    continueBookId: snapshotContinueBookId,
+                    viewport: viewport)
+            }
+        }
         preparingLibrary = false
         if libraryLoaded && !Task.isCancelled {
             openPendingReaderIfNeeded()

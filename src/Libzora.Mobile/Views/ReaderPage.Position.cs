@@ -50,11 +50,24 @@ public partial class ReaderPage
         request.Token.ThrowIfCancellationRequested();
     }
 
+    private string FormatPdfPageTitle(int page)
+    {
+        if (_readerHost is NativePdfReaderHost pdf)
+        {
+            var label = pdf.GetPageLabel(page);
+            if (!string.IsNullOrWhiteSpace(label) && !string.Equals(label, page.ToString(), StringComparison.Ordinal))
+            {
+                return UiText.Get("第 {0} 页", label);
+            }
+        }
+        return UiText.Get("第 {0} 页", page);
+    }
+
     private void UpdatePdfLabels()
     {
         if (_pdfPageCount <= 0) return;
         _overallProgress = Math.Clamp((double)_pdfPage / _pdfPageCount, 0, 1);
-        PresentPosition(UiText.Get("第 {0} 页", _pdfPage), $"{_pdfPage} / {_pdfPageCount}");
+        PresentPosition(FormatPdfPageTitle(_pdfPage), $"{_pdfPage} / {_pdfPageCount}");
     }
 
     private void PresentPosition(string title, string position)
@@ -119,11 +132,21 @@ public partial class ReaderPage
             return;
         }
 
-        for (var page = 1; page <= Math.Min(_pdfPageCount, 300); page++)
-            _tocEntries.Add(new TocEntry(UiText.Get("第 {0} 页", page), page - 1, null, 0)
+        var pdf = _readerHost as NativePdfReaderHost;
+        var limit = Math.Min(_pdfPageCount, 2000);
+        for (var page = 1; page <= limit; page++)
+        {
+            var label = pdf?.GetPageLabel(page);
+            var hasCustomLabel = !string.IsNullOrWhiteSpace(label) && !string.Equals(label, page.ToString(), StringComparison.Ordinal);
+            _tocEntries.Add(new TocEntry(
+                hasCustomLabel ? $"{UiText.Get("第 {0} 页", label!)} ({page})" : UiText.Get("第 {0} 页", page),
+                page - 1,
+                null,
+                0)
             {
-                UiTextTemplate = "第 {0} 页"
+                UiTextTemplate = hasCustomLabel ? null : "第 {0} 页"
             });
+        }
     }
 
     private async Task JumpToAsync(TocEntry item)
@@ -161,15 +184,20 @@ public partial class ReaderPage
         }
     }
 
-    private async Task GoToPdfPageAsync(int page)
+    private async Task GoToPdfPageAsync(int page, double? top = null)
     {
         if (_readerHost is not NativePdfReaderHost pdf) return;
         // A whole-page view shows each page from its start, never a pan carried over.
-        if (!IsPdfZoomed && pdf.Zoom > 1) await pdf.SetFitModeAsync(PdfReaderFitMode.Page);
+        if (!IsPdfZoomed && pdf.Zoom > 1.01) await pdf.SetFitModeAsync(DesiredPdfFitMode);
         page = Math.Clamp(page, 1, _pdfPageCount);
         var path = _modules.Library.Books.GetAbsoluteFilePath(_bookFile!);
-        if (!await pdf.NavigateAsync(new Uri(new Uri(path).AbsoluteUri + $"#page={page}"), _lifetime.Token))
+        var fragment = top is { } t && double.IsFinite(t)
+            ? $"#page={page}&top={Math.Clamp(t, 0, 1).ToString(System.Globalization.CultureInfo.InvariantCulture)}"
+            : $"#page={page}";
+        if (!await pdf.NavigateAsync(new Uri(new Uri(path).AbsoluteUri + fragment), _lifetime.Token))
             return;
+        // NavigateAsync clears hand-tool mode; restore panning when zoomed or scrolling.
+        pdf.SetHandToolMode(IsPdfPannable);
         _pdfPage = pdf.PageNumber;
         UpdatePdfLabels();
         _ = SaveProgressSoonAsync(force: true);

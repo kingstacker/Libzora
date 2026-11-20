@@ -97,8 +97,8 @@ enum NativeAdaptiveLayout {
     }
 
     static func readerSettingsHeight(maxHeight: CGFloat, isPdf: Bool, isTablet: Bool) -> CGFloat {
-        if isTablet { return min(isPdf ? 280 : 420, maxHeight * 0.65) }
-        return min(isPdf ? 220 : 340, maxHeight * 0.42)
+        if isTablet { return min(isPdf ? 400 : 420, maxHeight * 0.65) }
+        return min(isPdf ? 340 : 340, maxHeight * 0.42)
     }
 
     private static func finiteWidth(_ width: CGFloat) -> CGFloat {

@@ -527,7 +527,7 @@ public partial class ReaderPage
         if (Math.Abs(zoom - _pinchRequestedZoom) >= ZoomStep)
         {
             _pinchRequestedZoom = zoom;
-            _ = pdf.SetZoomAsync(zoom);
+            _ = pdf.SetZoomAsync(zoom, TouchCenter());
         }
         return true;
     }
@@ -539,10 +539,14 @@ public partial class ReaderPage
         if (!_pinching) return false;
         if (_touches.Count > 0) return true;
         _pinching = false;
-        // A pinch that ends near 1 snaps back to the whole page.
+        // A pinch that ends near 1 snaps back to fit; otherwise preserve the
+        // anchored pan instead of re-zooming from the viewport center.
         var zoom = _pinchRequestedZoom < 1.1 ? 1 : Math.Round(_pinchRequestedZoom, 2);
-        _shell.Preferences.Update(value => value with { PdfZoom = zoom });
-        if (_readerHost is NativePdfReaderHost pdf) _ = ApplyPdfZoomAsync(pdf);
+        _shell.Preferences.Update(value => value.WithPdfZoom(_bookFile?.Id, zoom));
+        if (_readerHost is NativePdfReaderHost pdf)
+        {
+            _ = ApplyPdfZoomAsync(pdf, preserveZoomAnchor: zoom > 1);
+        }
         return true;
     }
 
@@ -563,5 +567,12 @@ public partial class ReaderPage
         var points = _touches.Values.Take(2).ToArray();
         var delta = points[0] - points[1];
         return Math.Sqrt(delta.X * delta.X + delta.Y * delta.Y);
+    }
+
+    private Point TouchCenter()
+    {
+        var points = _touches.Values.Take(2).ToArray();
+        if (points.Length < 2) return points.Length == 1 ? points[0] : default;
+        return new Point((points[0].X + points[1].X) / 2, (points[0].Y + points[1].Y) / 2);
     }
 }

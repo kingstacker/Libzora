@@ -28,6 +28,9 @@ struct MobilePreferences: Codable, Equatable {
     var stackBookSeries = false
     var collectionsView = false
     var pdfZoom = 1.0
+    var pdfDisplayMode = 0
+    var pdfFitMode = 0
+    var pdfAutoCrop = false
     var sort = 0
     var readerTheme = 0
     var readerThemeFollowsAppearance = true

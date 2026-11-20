@@ -653,7 +653,7 @@ struct NativeReaderPage: View {
     }
     @ViewBuilder private func panelContent(_ panel: ReaderPanel) -> some View {
         switch panel {
-        case .toc: NativeReaderTocView(store: store, paper: paper,
+        case .toc: NativeReaderTocView(store: store, isPdf: reader.isPdf, paper: paper,
                                       usesAmbient: store.preferences.readerThemeFollowsAppearance && store.preferences.colorfulMode,
                                       ambientOpacity: appColorScheme == .dark ? 0.14 : 0.10,
                                       close: { self.panel = nil })
@@ -736,8 +736,48 @@ struct NativeTypography: View {
                     }.pickerStyle(.segmented).accessibilityIdentifier("typography.progressDisplay")
                 }
                 if isPdf {
+                    row(L("阅读模式")) {
+                        Picker(L("阅读模式"), selection: preference(\.pdfDisplayMode)) {
+                            Text(L("单页")).tag(0)
+                            Text(L("滚动")).tag(1)
+                            if UIDevice.current.userInterfaceIdiom == .pad {
+                                Text(L("双页")).tag(2)
+                            }
+                        }.pickerStyle(.segmented).accessibilityIdentifier("typography.pdfDisplayMode")
+                    }
+                    row(L("画面适配")) {
+                        Picker(L("画面适配"), selection: preference(\.pdfFitMode)) {
+                            Text(L("整页")).tag(0)
+                            Text(L("适宽")).tag(1)
+                        }.pickerStyle(.segmented).accessibilityIdentifier("typography.pdfFitMode")
+                    }
+                    row(L("自动裁边")) {
+                        Picker(L("自动裁边"), selection: preference(\.pdfAutoCrop)) {
+                            Text(L("关")).tag(false)
+                            Text(L("开")).tag(true)
+                        }.pickerStyle(.segmented).accessibilityIdentifier("typography.pdfAutoCrop")
+                    }
                     row(L("缩放")) {
-                        Picker(L("缩放"), selection: preference(\.pdfZoom)) { Text(L("整页")).tag(1.0); Text(L("1.5 倍")).tag(1.5); Text(L("2 倍")).tag(2.0) }.pickerStyle(.segmented)
+                        Picker(L("缩放"), selection: preference(\.pdfZoom)) {
+                            Text(L("1 倍")).tag(1.0)
+                            Text(L("1.5 倍")).tag(1.5)
+                            Text(L("2 倍")).tag(2.0)
+                            Text(L("3 倍")).tag(3.0)
+                        }.pickerStyle(.segmented).accessibilityIdentifier("typography.pdfZoom")
+                    }
+                    row(L("页面旋转")) {
+                        Button {
+                            store.perform { try await store.command("reader.pdfRotate") }
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "rotate.right").font(.system(size: 13))
+                                Text(L("顺时针旋转 90°")).font(NativeTheme.font(13))
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 34)
+                            .background(NativeTheme.sunk, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("typography.pdfRotate")
                     }
                 } else {
                     row(L("正文字体")) {
@@ -1053,12 +1093,14 @@ private struct NativeLegacyTypographyPresentation: UIViewControllerRepresentable
 
 struct NativeReaderTocView: View {
     @ObservedObject var store: NativeStore
+    let isPdf: Bool
     let paper: Color
     let usesAmbient: Bool
     let ambientOpacity: Double
     let close: () -> Void
     @State private var items: [ReaderToc] = []
     @State private var collapsed: Set<Int> = []
+    @State private var jumpPageInput = ""
     /// Large books can carry hundreds of entries; recomputing the outline on
     /// every body evaluation made every checkmark and layout pass O(n).
     @State private var parents: Set<Int> = []
@@ -1069,8 +1111,37 @@ struct NativeReaderTocView: View {
         rows = NativeReaderTocOutline.visibleRows(items, collapsed: collapsed)
     }
 
+    private func submitPdfJump() {
+        let digits = jumpPageInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let target = Int(digits), target >= 1 else { return }
+        store.perform { try await store.command("reader.pdfJumpPage", ["page": target]); close() }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
+            if isPdf {
+                HStack(spacing: 10) {
+                    TextField(L("输入页码跳转"), text: $jumpPageInput)
+                        .keyboardType(.numberPad)
+                        .submitLabel(.go)
+                        .onSubmit { submitPdfJump() }
+                        .padding(.horizontal, 12)
+                        .frame(height: 36)
+                        .background(NativeTheme.sunk, in: Capsule())
+                        .accessibilityIdentifier("reader.toc.pdfJumpInput")
+                    Button(L("跳转"), action: submitPdfJump)
+                        .font(NativeTheme.font(14))
+                        .padding(.horizontal, 14)
+                        .frame(height: 36)
+                        .background(NativeTheme.sunk, in: Capsule())
+                        .buttonStyle(.plain)
+                        .disabled(Int(jumpPageInput.trimmingCharacters(in: .whitespacesAndNewlines)) == nil)
+                        .accessibilityIdentifier("reader.toc.pdfJumpGo")
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
+                .padding(.bottom, 6)
+            }
             ScrollViewReader { proxy in
                 List(rows) { row in
                     let item = row.item

@@ -101,23 +101,31 @@ public sealed partial class NativePdfReaderHost
         // Paint every shadow below every sheet. When pages are close together,
         // a later page's shadow must never tint an earlier page's paper.
         foreach (var pageNumber in visiblePages)
-            DrawPageShadow(context, GetPageBounds(pageNumber));
+            DrawPageShadow(context, GetVisiblePageFrame(pageNumber));
 
         foreach (var pageNumber in visiblePages)
         {
             var page = GetPageBounds(pageNumber);
-            context.DrawRectangle(new SolidColorBrush(_palette.Page), new Pen(new SolidColorBrush(_palette.Border), 0.5), page);
-            if (_pages.TryGetValue(pageNumber, out var cached) && cached.Bitmap is { } bitmap && cached.Raster is { } raster
-                && raster.Rotation == Rotation && cached.Palette == _palette)
+            var frame = GetVisiblePageFrame(pageNumber);
+            context.DrawRectangle(new SolidColorBrush(_palette.Page), new Pen(new SolidColorBrush(_palette.Border), 0.5), frame);
+            using var clip = context.PushClip(frame);
+            if (_pages.TryGetValue(pageNumber, out var cached))
             {
-                var target = new Rect(
-                    page.X + (double)raster.Left / raster.PagePixelWidth * page.Width,
-                    page.Y + (double)raster.Top / raster.PagePixelHeight * page.Height,
-                    (double)raster.Width / raster.PagePixelWidth * page.Width,
-                    (double)raster.Height / raster.PagePixelHeight * page.Height);
-                context.DrawImage(bitmap, new Rect(bitmap.Size), target);
+                if (cached.PreviewBitmap is { } preview && cached.PreviewRotation == Rotation && cached.PreviewPalette == _palette)
+                {
+                    context.DrawImage(preview, new Rect(preview.Size), page);
+                }
+                if (cached.Bitmap is { } bitmap && cached.Raster is { } raster
+                    && raster.Rotation == Rotation && cached.Palette == _palette)
+                {
+                    var target = new Rect(
+                        page.X + (double)raster.Left / raster.PagePixelWidth * page.Width,
+                        page.Y + (double)raster.Top / raster.PagePixelHeight * page.Height,
+                        (double)raster.Width / raster.PagePixelWidth * page.Width,
+                        (double)raster.Height / raster.PagePixelHeight * page.Height);
+                    context.DrawImage(bitmap, new Rect(bitmap.Size), target);
+                }
             }
-            using var clip = context.PushClip(page);
             // Rotate the original annotation geometry as a whole, including
             // underline direction, so a 180° turn does not move lines across text.
             using var transform = context.PushTransform(GetPageTransform(page));

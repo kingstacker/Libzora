@@ -124,18 +124,59 @@ public partial class ReaderPage
     private ReaderTheme CurrentTheme => _shell.Preferences.Current.ResolveReaderTheme(
         _nativeAppAppearanceDark ?? (_shell.ActualThemeVariant == ThemeVariant.Dark));
 
-    private double PdfZoom => _shell.Preferences.Current.PdfZoom;
+    private double PdfZoom => _shell.Preferences.Current.GetEffectivePdfZoom(_bookFile?.Id);
 
-    private bool IsPdfZoomed => _isPdf && PdfZoom > 1;
+    private bool IsPdfZoomed => _isPdf && PdfZoom > 1.01;
 
-    /// <summary>A zoomed page outgrows the screen, so drags pan it instead of turning.</summary>
-    private async Task ApplyPdfZoomAsync(NativePdfReaderHost host)
+    private bool IsPdfContinuous => _isPdf && _shell.Preferences.Current.PdfDisplayMode == 1;
+
+    private bool IsPdfPannable => _isPdf && (IsPdfZoomed || IsPdfContinuous || _shell.Preferences.Current.PdfFitMode == 1);
+
+    private PdfReaderDisplayMode DesiredPdfDisplayMode => _shell.Preferences.Current.PdfDisplayMode switch
     {
-        host.SetHandToolMode(PdfZoom > 1);
-        // Fitting resets zoom and re-centres; zooming back to 1 with an anchor
-        // would leave the page panned off to one side.
-        if (PdfZoom > 1) await host.SetZoomAsync(PdfZoom);
-        else await host.SetFitModeAsync(PdfReaderFitMode.Page);
+        1 => PdfReaderDisplayMode.Continuous,
+        2 => PdfReaderDisplayMode.TwoPage,
+        _ => PdfReaderDisplayMode.SinglePage,
+    };
+
+    private PdfReaderFitMode DesiredPdfFitMode => _shell.Preferences.Current.PdfFitMode == 1
+        ? PdfReaderFitMode.Width
+        : PdfReaderFitMode.Page;
+
+    /// <summary>A zoomed or continuous page needs finger panning instead of swipe page turns.</summary>
+    private async Task ApplyPdfZoomAsync(NativePdfReaderHost host, bool preserveZoomAnchor = false)
+    {
+        var desiredDisplay = DesiredPdfDisplayMode;
+        if (host.DisplayMode != desiredDisplay)
+        {
+            await host.SetDisplayModeAsync(desiredDisplay);
+        }
+
+        var desiredAutoCrop = _shell.Preferences.Current.PdfAutoCrop;
+        if (host.AutoCropMargins != desiredAutoCrop)
+        {
+            await host.SetAutoCropMarginsAsync(desiredAutoCrop);
+        }
+
+        var desiredFit = DesiredPdfFitMode;
+        var targetZoom = PdfZoom;
+        if (host.FitMode != desiredFit)
+        {
+            await host.SetFitModeAsync(desiredFit);
+        }
+
+        host.SetHandToolMode(IsPdfPannable);
+        if (targetZoom > 1.01)
+        {
+            if (!preserveZoomAnchor && Math.Abs(host.Zoom - targetZoom) > 0.01)
+            {
+                await host.SetZoomAsync(targetZoom);
+            }
+        }
+        else if (Math.Abs(host.Zoom - 1) > 0.01)
+        {
+            await host.SetFitModeAsync(desiredFit);
+        }
     }
 
     private void ApplyTheme()
@@ -167,7 +208,15 @@ public partial class ReaderPage
     private async Task ApplyReaderSettingsAsync()
     {
         RefreshReaderAppearance();
-        if (_readerHost is NativePdfReaderHost pdf && pdf.Zoom != PdfZoom) await ApplyPdfZoomAsync(pdf);
+        if (_readerHost is NativePdfReaderHost pdf)
+        {
+            // Keep per-book zoom synced if user picked a preset in Display Settings.
+            if (Math.Abs(pdf.Zoom - _shell.Preferences.Current.PdfZoom) > 0.01 && _bookFile is not null)
+            {
+                _shell.Preferences.Update(value => value.WithPdfZoom(_bookFile.Id, value.PdfZoom));
+            }
+            await ApplyPdfZoomAsync(pdf);
+        }
 
         var layout = BuildLayout(_shell.Preferences.Current);
         if (layout == _layout)

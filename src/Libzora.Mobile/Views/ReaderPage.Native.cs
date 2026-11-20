@@ -306,4 +306,17 @@ public partial class ReaderPage
     }
     public string NativePageText() => CurrentPageText();
     public void NativeClearSelection() => ClearSelection();
+
+    public async Task NativeRotatePdfAsync()
+    {
+        if (_readerHost is not NativePdfReaderHost pdf) return;
+        await pdf.RotateClockwiseAsync();
+        NotifyNativeState();
+    }
+
+    public async Task NativeJumpPdfPageAsync(int page)
+    {
+        if (!_isPdf || _pdfPageCount <= 0) return;
+        await GoToPdfPageAsync(Math.Clamp(page, 1, _pdfPageCount));
+    }
 }

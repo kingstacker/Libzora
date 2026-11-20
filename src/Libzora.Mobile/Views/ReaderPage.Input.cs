@@ -141,7 +141,7 @@ public partial class ReaderPage
         _selectionArmed = false;
         _expectSelection = false;
         _tapConsumed = false;
-        if (!IsPdfZoomed) _longPress.Start();
+        _longPress.Start();
     }
 
     private void CancelPress()
@@ -179,15 +179,20 @@ public partial class ReaderPage
             e.Handled = true;
             return;
         }
-        if (_pressPoint is not { } start || _selectionArmed || IsPdfZoomed) return;
-        e.Handled = true;
+        if (_pressPoint is not { } start || _selectionArmed) return;
         var current = e.GetPosition(ReaderHostSlot);
         if (Math.Abs(current.X - start.X) > TapSlop || Math.Abs(current.Y - start.Y) > TapSlop)
         {
             _pressMoved = true;
             _longPress.Stop();
         }
+        if (IsPdfPannable) return;
+        e.Handled = true;
     }
+
+    private DateTimeOffset _lastPdfTapAt = DateTimeOffset.MinValue;
+    private Point _lastPdfTapPoint;
+    private int _pendingPdfTapId;
 
     private void OnSurfaceReleased(object? sender, PointerReleasedEventArgs e)
     {
@@ -217,23 +222,86 @@ public partial class ReaderPage
         var dominant = Math.Abs(dx) >= Math.Abs(dy) * SwipeDominance;
         if (Math.Abs(dx) >= SwipeDistance && dominant)
         {
-            ConsumeSurfaceRelease(e);
-            if (!IsPdfZoomed) HandleSwipe(dx);
+            if (!IsPdfPannable)
+            {
+                ConsumeSurfaceRelease(e);
+                HandleSwipe(dx);
+            }
+            else if (_isPdf && !IsPdfContinuous && Math.Abs(dx) >= 72
+                && _readerHost is NativePdfReaderHost pdf
+                && pdf.IsAtHorizontalEdge(dx < 0 ? 1 : -1))
+            {
+                ConsumeSurfaceRelease(e);
+                HandleSwipe(dx);
+            }
         }
         else if (!_pressMoved && Math.Abs(dx) <= TapSlop && Math.Abs(dy) <= TapSlop)
         {
+            // Double-tap zooms to 2x at the tapped point or resets back to fit on PDF.
+            var now = DateTimeOffset.UtcNow;
+            if (_isPdf && !IsChromeVisible && (now - _lastPdfTapAt).TotalMilliseconds <= 300
+                && Math.Abs(end.X - _lastPdfTapPoint.X) <= 36 && Math.Abs(end.Y - _lastPdfTapPoint.Y) <= 36)
+            {
+                _pendingPdfTapId++;
+                _lastPdfTapAt = DateTimeOffset.MinValue;
+                _tapConsumed = true;
+                _ = TogglePdfDoubleTapZoomAsync(end);
+                return;
+            }
+
             // The host reports link, annotation and figure hits after this
             // tunnel handler, but only a gesture that stayed a tap reaches it.
             var ratio = end.X / Math.Max(1, ReaderHostSlot.Bounds.Width);
-            Dispatcher.UIThread.Post(() =>
+            if (_isPdf && !IsChromeVisible)
             {
-                if (!_tapConsumed) HandleTap(ratio);
-            }, DispatcherPriority.Background);
+                _lastPdfTapAt = now;
+                _lastPdfTapPoint = end;
+                var tapId = ++_pendingPdfTapId;
+                _ = HandleDelayedPdfTapAsync(tapId, ratio);
+            }
+            else
+            {
+                Dispatcher.UIThread.Post(() =>
+                {
+                    if (!_tapConsumed) HandleTap(ratio);
+                }, DispatcherPriority.Background);
+            }
         }
-        else
+        else if (!IsPdfPannable)
         {
             ConsumeSurfaceRelease(e);
         }
+    }
+
+    private async Task HandleDelayedPdfTapAsync(int tapId, double ratio)
+    {
+        try
+        {
+            await Task.Delay(220, _lifetime.Token);
+            if (tapId == _pendingPdfTapId && !_tapConsumed)
+            {
+                HandleTap(ratio);
+            }
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    private async Task TogglePdfDoubleTapZoomAsync(Point anchor)
+    {
+        if (_readerHost is not NativePdfReaderHost pdf) return;
+        var nextZoom = pdf.Zoom > 1.05 ? 1.0 : 2.0;
+        _shell.Preferences.Update(value => value.WithPdfZoom(_bookFile?.Id, nextZoom));
+        if (nextZoom > 1.05)
+        {
+            pdf.SetHandToolMode(true);
+            await pdf.SetZoomAsync(nextZoom, anchor);
+        }
+        else
+        {
+            await pdf.SetFitModeAsync(DesiredPdfFitMode);
+            pdf.SetHandToolMode(IsPdfPannable);
+        }
+        NotifyNativeState();
     }
 
     private static void ConsumeSurfaceRelease(PointerReleasedEventArgs e)

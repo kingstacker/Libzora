@@ -53,6 +53,14 @@ public sealed record MobilePreferences
     public bool StackBookSeries { get; init; }
     public bool CollectionsView { get; init; }
     public double PdfZoom { get; init; } = 1;
+    /// <summary>PDF display mode: 0 = SinglePage, 1 = Continuous, 2 = TwoPage.</summary>
+    public int PdfDisplayMode { get; init; }
+    /// <summary>PDF fit mode: 0 = Page, 1 = Width.</summary>
+    public int PdfFitMode { get; init; }
+    /// <summary>Trim outer white margins on PDF pages automatically.</summary>
+    public bool PdfAutoCrop { get; init; }
+    /// <summary>Per-book remembered PDF zoom factors keyed by bookFileId.</summary>
+    public Dictionary<string, double>? PdfBookZooms { get; init; }
     public MobileBookSort Sort { get; init; }
     public ReaderTheme ReaderTheme { get; init; }
     /// <summary>Follow the app's effective light or dark appearance for reader paper.</summary>
@@ -103,6 +111,37 @@ public sealed record MobilePreferences
     public ReaderTheme ResolveReaderTheme(bool darkAppearance) => ReaderThemeFollowsAppearance
         ? (darkAppearance ? Libzora.Core.ReaderTheme.Ink : Libzora.Core.ReaderTheme.Classic)
         : ReaderTheme;
+
+    public double GetEffectivePdfZoom(Guid? bookFileId)
+    {
+        if (bookFileId is { } id && PdfBookZooms is { Count: > 0 } map
+            && map.TryGetValue(id.ToString("N"), out var saved) && double.IsFinite(saved))
+        {
+            return Math.Clamp(saved, 1, 4);
+        }
+        return double.IsFinite(PdfZoom) ? Math.Clamp(PdfZoom, 1, 4) : 1;
+    }
+
+    public MobilePreferences WithPdfZoom(Guid? bookFileId, double zoom)
+    {
+        var clamped = double.IsFinite(zoom) ? Math.Clamp(zoom, 1, 4) : 1;
+        if (bookFileId is not { } id)
+        {
+            return this with { PdfZoom = clamped };
+        }
+        var updated = PdfBookZooms is not null
+            ? new Dictionary<string, double>(PdfBookZooms, StringComparer.OrdinalIgnoreCase)
+            : new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        var key = id.ToString("N");
+        if (Math.Abs(clamped - 1) < 0.01) updated.Remove(key);
+        else updated[key] = clamped;
+        while (updated.Count > 64)
+        {
+            var oldest = updated.Keys.First();
+            updated.Remove(oldest);
+        }
+        return this with { PdfZoom = clamped, PdfBookZooms = updated };
+    }
 }
 
 /// <summary>

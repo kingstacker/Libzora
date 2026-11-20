@@ -22,7 +22,16 @@ public sealed partial class NativePdfReaderHost : Control, IReaderHost, IReaderP
         public PdfRasterRegion? Raster { get; set; }
         public WriteableBitmap? Bitmap { get; set; }
         public ReaderPalette? Palette { get; set; }
-        public void Dispose() => Bitmap?.Dispose();
+        /// <summary>Full-page low-resolution fallback painted under high-DPI tiles so panning never flashes white.</summary>
+        public WriteableBitmap? PreviewBitmap { get; set; }
+        public ReaderPalette? PreviewPalette { get; set; }
+        public int PreviewRotation { get; set; }
+        public Rect? CropBox { get; set; }
+        public void Dispose()
+        {
+            Bitmap?.Dispose();
+            PreviewBitmap?.Dispose();
+        }
     }
 
     private readonly object _documentGate = new();
@@ -40,6 +49,7 @@ public sealed partial class NativePdfReaderHost : Control, IReaderHost, IReaderP
     private CancellationTokenSource? _viewportCancellation;
     private Task _renderTask = Task.CompletedTask;
     private Size[] _sizes = [];
+    private Rect?[] _cropBoxes = [];
     private PdfReaderLayout? _layout;
     private double _layoutDpi = 1;
     private ReaderPalette _palette = ReaderPalette.For(ReaderTheme.Classic);
@@ -142,8 +152,18 @@ public sealed partial class NativePdfReaderHost : Control, IReaderHost, IReaderP
     public PdfReaderDisplayMode DisplayMode { get; private set; } = PdfReaderDisplayMode.Continuous;
     public PdfReaderFitMode FitMode { get; private set; } = PdfReaderFitMode.Width;
     public int Rotation { get; private set; }
+    public bool AutoCropMargins { get; private set; }
     public bool IsPointAnnotationMode => _pointAnnotationMode;
     public bool IsHandToolMode => _handToolMode;
+
+    /// <summary>True when horizontal panning is already at the requested edge (-1 left, +1 right).</summary>
+    public bool IsAtHorizontalEdge(int direction)
+    {
+        if (_layout is null || direction == 0) return true;
+        var maxPanX = Math.Max(0, _layout.Extent.Width - Viewport.Width);
+        if (maxPanX <= 1) return true;
+        return direction < 0 ? _pan.X <= 2 : _pan.X >= maxPanX - 2;
+    }
     public string? LastError { get; private set; }
     public PdfPageContent? PageContent => GetPageContent(PageNumber);
     public double VisibleTop => GetVisibleTop(new Rect(Viewport));
@@ -217,6 +237,7 @@ public sealed partial class NativePdfReaderHost : Control, IReaderHost, IReaderP
         _handToolMode = false;
         _isPanning = false;
         _sizes = Enumerable.Repeat(new Size(595, 842), count).ToArray();
+        _cropBoxes = new Rect?[count];
         _layout = null;
         _pan = default;
         _annotations = [];

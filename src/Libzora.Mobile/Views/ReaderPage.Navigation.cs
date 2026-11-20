@@ -141,9 +141,19 @@ public partial class ReaderPage
         if (_pdfPageCount <= 0) throw new InvalidOperationException("这个 PDF 没有可显示的页面。");
         _annotations.AddRange(await _modules.Reader.Data.GetAnnotationsAsync(_bookFile!.Id, cancellationToken));
         host.SetAnnotations(_annotations.ToList());
-        // One whole page at a time, turned like the EPUB surface.
-        await host.SetDisplayModeAsync(PdfReaderDisplayMode.SinglePage);
-        await host.SetFitModeAsync(PdfReaderFitMode.Page);
+        // Sync global PdfZoom chip with this book's remembered zoom before applying.
+        var bookZoom = _shell.Preferences.Current.GetEffectivePdfZoom(_bookFile!.Id);
+        if (Math.Abs(_shell.Preferences.Current.PdfZoom - bookZoom) > 0.01)
+        {
+            _shell.Preferences.Update(value => value with { PdfZoom = bookZoom });
+        }
+
+        await host.SetDisplayModeAsync(DesiredPdfDisplayMode);
+        await host.SetFitModeAsync(DesiredPdfFitMode);
+        if (_shell.Preferences.Current.PdfAutoCrop)
+        {
+            await host.SetAutoCropMarginsAsync(true);
+        }
         initialPage = Math.Clamp(initialPage, 1, _pdfPageCount);
         var target = new Uri(new Uri(path).AbsoluteUri + $"#page={initialPage}");
         if (!await host.NavigateAsync(target, cancellationToken))
@@ -286,6 +296,27 @@ public partial class ReaderPage
                     : _pdfPage;
                 UpdatePdfLabels();
                 _ = SaveProgressSoonAsync(force: false);
+            }
+            else if (type.GetString() == "pdfLink")
+            {
+                _tapConsumed = true;
+                var targetPage = root.TryGetProperty("page", out var pageProp) && pageProp.ValueKind == JsonValueKind.Number
+                    ? pageProp.GetInt32()
+                    : 0;
+                var targetTop = root.TryGetProperty("top", out var topProp) && topProp.ValueKind == JsonValueKind.Number
+                    ? topProp.GetDouble()
+                    : (double?)null;
+                var uriText = root.TryGetProperty("uri", out var uriProp) && uriProp.ValueKind == JsonValueKind.String
+                    ? uriProp.GetString()
+                    : null;
+                if (targetPage >= 1 && targetPage <= _pdfPageCount)
+                {
+                    _ = GoToPdfPageAsync(targetPage, targetTop);
+                }
+                else if (!string.IsNullOrWhiteSpace(uriText))
+                {
+                    _ = HandleLinkAsync(uriText, null);
+                }
             }
         }
         catch (JsonException)

@@ -37,10 +37,14 @@ public sealed partial class NativePdfReaderHost
     {
         var point = new Point(x, y);
         var page = PageAtPoint(point);
-        if (page == 0 || page != PageNumber || _pointAnnotationMode || _handToolMode
-            || AnnotationAt(point) is not null)
+        if (page == 0 || _pointAnnotationMode || AnnotationAt(point) is not null)
         {
             return false;
+        }
+
+        if (page != PageNumber)
+        {
+            ActivatePage(page);
         }
 
         var content = GetPageContent(page);
@@ -48,6 +52,11 @@ public sealed partial class NativePdfReaderHost
         {
             return false;
         }
+
+        // Long-press word selection overrides active hand-panning so users can
+        // highlight, look up, or annotate text even while zoomed into a PDF.
+        _isPanning = false;
+        _selectionPage = page;
 
         var pageBounds = GetPageBounds(page);
         var local = GetPageTransform(pageBounds).Invert().Transform(point);

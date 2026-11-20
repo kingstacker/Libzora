@@ -31,12 +31,86 @@ public sealed partial class NativePdfReaderHost
                 if (version != _version || rasterVersion != _rasterVersion) return;
                 RebuildLayout(preservePosition: true);
             }
-            var requests = new List<(int Page, int Width, int Height, int X, int Y, int W, int H)>();
             var visible = VisiblePageNumbers;
+            var cropDiscovered = false;
+            // Ensure each visible page has a lightweight full-page preview bitmap
+            // (for zero white-flash panning) and content crop box when auto-crop is on.
+            foreach (var page in visible)
+            {
+                if (!_pages.TryGetValue(page, out var cached)) continue;
+                var needsCrop = AutoCropMargins && page - 1 < _cropBoxes.Length && _cropBoxes[page - 1] is null && cached.CropBox is null;
+                var needsPreview = cached.PreviewBitmap is null || cached.PreviewPalette != palette || cached.PreviewRotation != rotation;
+                if (!needsCrop && !needsPreview) continue;
+
+                var rawSize = _sizes[page - 1];
+                if (rotation % 180 != 0) rawSize = new(rawSize.Height, rawSize.Width);
+                var previewScale = Math.Min(1.0, 320.0 / Math.Max(1, Math.Max(rawSize.Width, rawSize.Height)));
+                var pw = Math.Max(32, (int)Math.Round(rawSize.Width * previewScale));
+                var ph = Math.Max(32, (int)Math.Round(rawSize.Height * previewScale));
+                var previewRaster = await Task.Run(() =>
+                {
+                    lock (_documentGate)
+                    {
+                        token.ThrowIfCancellationRequested();
+                        if (_disposed || version != _version || rasterVersion != _rasterVersion || _document is null) throw new OperationCanceledException(token);
+                        return _document.RenderRegion(page, pw, ph, 0, 0, pw, ph, token, rotation);
+                    }
+                }, token);
+                token.ThrowIfCancellationRequested();
+                if (_disposed || version != _version || rasterVersion != _rasterVersion) return;
+
+                if (needsCrop && rotation == 0)
+                {
+                    var detected = DetectContentCropBox(previewRaster.Pixels, previewRaster.Width, previewRaster.Height);
+                    cached.CropBox = detected;
+                    if (detected is not null && page - 1 < _cropBoxes.Length)
+                    {
+                        _cropBoxes[page - 1] = detected;
+                        cropDiscovered = true;
+                    }
+                }
+                else if (needsCrop)
+                {
+                    // Probe unrotated page so cropBox stays orientation-independent.
+                    var uSize = _sizes[page - 1];
+                    var uScale = Math.Min(1.0, 240.0 / Math.Max(1, Math.Max(uSize.Width, uSize.Height)));
+                    var uw = Math.Max(32, (int)Math.Round(uSize.Width * uScale));
+                    var uh = Math.Max(32, (int)Math.Round(uSize.Height * uScale));
+                    var unrot = await Task.Run(() =>
+                    {
+                        lock (_documentGate)
+                        {
+                            token.ThrowIfCancellationRequested();
+                            if (_disposed || version != _version || rasterVersion != _rasterVersion || _document is null) throw new OperationCanceledException(token);
+                            return _document.RenderRegion(page, uw, uh, 0, 0, uw, uh, token, 0);
+                        }
+                    }, token);
+                    token.ThrowIfCancellationRequested();
+                    if (_disposed || version != _version || rasterVersion != _rasterVersion) return;
+                    var detected = DetectContentCropBox(unrot.Pixels, unrot.Width, unrot.Height);
+                    cached.CropBox = detected;
+                    if (detected is not null && page - 1 < _cropBoxes.Length)
+                    {
+                        _cropBoxes[page - 1] = detected;
+                        cropDiscovered = true;
+                    }
+                }
+
+                ReplacePreviewBitmap(cached, previewRaster, palette, rotation);
+            }
+
+            if (cropDiscovered)
+            {
+                RebuildLayout(preservePosition: true);
+                visible = VisiblePageNumbers;
+            }
+
+            var requests = new List<(int Page, int Width, int Height, int X, int Y, int W, int H)>();
             foreach (var page in visible)
             {
                 if (!_pages.TryGetValue(page, out var cached)) continue;
                 var bounds = GetPageBounds(page);
+                var frame = GetVisiblePageFrame(page);
                 var fullSize = _sizes[page - 1];
                 if (Rotation % 180 != 0) fullSize = new(fullSize.Height, fullSize.Width);
                 var scale = Math.Max(
@@ -44,7 +118,7 @@ public sealed partial class NativePdfReaderHost
                     bounds.Height / Math.Max(1, fullSize.Height));
                 var width = Math.Max(1, (int)Math.Round(fullSize.Width * scale * _layoutDpi));
                 var height = Math.Max(1, (int)Math.Round(fullSize.Height * scale * _layoutDpi));
-                var intersection = bounds.Intersect(new Rect(Viewport));
+                var intersection = frame.Intersect(new Rect(Viewport));
                 if (intersection.Width <= 0 || intersection.Height <= 0) continue;
                 var left = Math.Clamp(
                     (int)Math.Floor((intersection.X - bounds.X) * _layoutDpi),
@@ -86,7 +160,10 @@ public sealed partial class NativePdfReaderHost
                 if (_disposed || version != _version || rasterVersion != _rasterVersion) return;
                 ReplaceBitmap(_pages[request.Page], raster, palette);
             }
-            var keep = visible.Append(PageNumber).ToHashSet();
+            var keep = visible.Append(PageNumber)
+                .Append(Math.Min(PageCount, PageNumber + 1))
+                .Append(Math.Max(1, PageNumber - 1))
+                .ToHashSet();
             foreach (var page in _pages.Keys.Where(page => !keep.Contains(page)).OrderByDescending(page => Math.Abs(page - PageNumber)).ToArray())
             {
                 if (_pages.Count <= Math.Max(6, keep.Count) && CachedRasterBytes < 96_000_000) break;
@@ -96,6 +173,13 @@ public sealed partial class NativePdfReaderHost
             if (!string.IsNullOrEmpty(_searchQuery)) RebuildSearch(_searchQuery);
             EmitPage();
             InvalidateVisual();
+
+            // Background prefetch of adjacent pages (+1 / -1) so single-page
+            // turns paint immediately without waiting on PDFium.
+            if (PageCount > 1 && DisplayMode != PdfReaderDisplayMode.Continuous)
+            {
+                _ = PrefetchAdjacentPagesAsync(version, rasterVersion, rotation, palette, token);
+            }
         }
         catch (OperationCanceledException) { }
         catch (Exception exception)
@@ -123,6 +207,70 @@ public sealed partial class NativePdfReaderHost
         page.Palette = palette;
         // Keep geometry for cache reuse, not a second copy of the pixel buffer.
         page.Raster = raster with { Pixels = [] };
+    }
+
+    private static void ReplacePreviewBitmap(CachedPage page, PdfRasterRegion raster, ReaderPalette palette, int rotation)
+    {
+        ApplyPageColors(raster.Pixels, palette);
+        var bitmap = new WriteableBitmap(new PixelSize(raster.Width, raster.Height), new Vector(96, 96), PixelFormats.Bgra8888, AlphaFormat.Opaque);
+        using (var frame = bitmap.Lock())
+        {
+            if (frame.RowBytes == raster.Width * 4) Marshal.Copy(raster.Pixels, 0, frame.Address, raster.Pixels.Length);
+            else for (var row = 0; row < raster.Height; row++)
+                Marshal.Copy(raster.Pixels, row * raster.Width * 4, IntPtr.Add(frame.Address, row * frame.RowBytes), raster.Width * 4);
+        }
+        page.PreviewBitmap?.Dispose();
+        page.PreviewBitmap = bitmap;
+        page.PreviewPalette = palette;
+        page.PreviewRotation = rotation;
+    }
+
+    private async Task PrefetchAdjacentPagesAsync(int version, int rasterVersion, int rotation, ReaderPalette palette, CancellationToken token)
+    {
+        try
+        {
+            var step = DisplayMode == PdfReaderDisplayMode.TwoPage ? 2 : 1;
+            int[] candidates = [PageNumber + step, PageNumber - step];
+            foreach (var page in candidates)
+            {
+                if (page < 1 || page > PageCount) continue;
+                token.ThrowIfCancellationRequested();
+                if (_disposed || version != _version || rasterVersion != _rasterVersion) return;
+                if (!_pages.ContainsKey(page))
+                {
+                    await LoadPageContentsAsync([page], version, token);
+                }
+                if (_disposed || version != _version || rasterVersion != _rasterVersion) return;
+                if (!_pages.TryGetValue(page, out var cached)) continue;
+                if (cached.PreviewBitmap is not null && cached.PreviewPalette == palette && cached.PreviewRotation == rotation) continue;
+
+                var rawSize = _sizes[page - 1];
+                if (rotation % 180 != 0) rawSize = new(rawSize.Height, rawSize.Width);
+                var previewScale = Math.Min(1.0, 360.0 / Math.Max(1, Math.Max(rawSize.Width, rawSize.Height)));
+                var pw = Math.Max(32, (int)Math.Round(rawSize.Width * previewScale));
+                var ph = Math.Max(32, (int)Math.Round(rawSize.Height * previewScale));
+                var previewRaster = await Task.Run(() =>
+                {
+                    lock (_documentGate)
+                    {
+                        token.ThrowIfCancellationRequested();
+                        if (_disposed || version != _version || rasterVersion != _rasterVersion || _document is null) throw new OperationCanceledException(token);
+                        return _document.RenderRegion(page, pw, ph, 0, 0, pw, ph, token, rotation);
+                    }
+                }, token);
+                token.ThrowIfCancellationRequested();
+                if (_disposed || version != _version || rasterVersion != _rasterVersion) return;
+                if (AutoCropMargins && rotation == 0 && page - 1 < _cropBoxes.Length && _cropBoxes[page - 1] is null)
+                {
+                    var detected = DetectContentCropBox(previewRaster.Pixels, previewRaster.Width, previewRaster.Height);
+                    cached.CropBox = detected;
+                    if (detected is not null) _cropBoxes[page - 1] = detected;
+                }
+                ReplacePreviewBitmap(cached, previewRaster, palette, rotation);
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception) { }
     }
 
     protected override Size MeasureOverride(Size availableSize)

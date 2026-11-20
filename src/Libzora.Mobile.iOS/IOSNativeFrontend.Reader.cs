@@ -118,6 +118,8 @@ internal sealed partial class IOSNativeFrontend
                 case "reader.annotate": await reader.NativeAnnotateAsync(Text(args, "note")); break;
                 case "reader.annotationEdit": await reader.NativeEditAnnotationAsync(Id(args, "id"), Text(args, "note")); break;
                 case "reader.annotationDelete": await reader.NativeDeleteAnnotationAsync(Id(args, "id")); break;
+                case "reader.pdfRotate": await reader.NativeRotatePdfAsync(); break;
+                case "reader.pdfJumpPage": await reader.NativeJumpPdfPageAsync(Number(args, "page", 1)); break;
                 default: throw new InvalidOperationException(UiText.Get("未知阅读操作：{0}", command));
             }
             return Data();

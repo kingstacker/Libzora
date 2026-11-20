@@ -69,6 +69,8 @@ public sealed partial class NativePdfReaderHost
     public PdfPageContent? GetPageContent(int page) => _pages.GetValueOrDefault(page)?.Content;
     public Rect GetPageBounds(int page) => _layout is not null && page >= 1 && page <= _layout.Pages.Length
         ? _layout.Pages[page - 1].Translate(-_pan) : new Rect(Viewport);
+    public Rect GetVisiblePageFrame(int page) => _layout is not null && page >= 1 && page <= _layout.Frames.Length
+        ? _layout.Frames[page - 1].Translate(-_pan) : GetPageBounds(page);
     internal PdfRasterRegion? GetRenderedRegion(int page) => _pages.GetValueOrDefault(page)?.Raster;
 
     public int GetAdjacentPage(int direction)
@@ -118,6 +120,16 @@ public sealed partial class NativePdfReaderHost
         ++_layoutRequest;
         FitMode = mode;
         Zoom = 1;
+        RebuildLayout(preservePosition: true);
+        await RefreshViewportAsync();
+        Emit(new { type = "pdfLayout" });
+    }
+
+    public async Task SetAutoCropMarginsAsync(bool enabled)
+    {
+        if (AutoCropMargins == enabled) return;
+        ++_layoutRequest;
+        AutoCropMargins = enabled;
         RebuildLayout(preservePosition: true);
         await RefreshViewportAsync();
         Emit(new { type = "pdfLayout" });
@@ -254,7 +266,8 @@ public sealed partial class NativePdfReaderHost
             FitMode,
             Zoom,
             _layoutDpi,
-            Rotation);
+            Rotation,
+            AutoCropMargins ? _cropBoxes : null);
         if (preservePosition)
         {
             var page = _layout.Pages[PageNumber - 1];

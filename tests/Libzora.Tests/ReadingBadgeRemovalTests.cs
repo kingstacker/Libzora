@@ -50,7 +50,7 @@ public sealed partial class S3SyncIntegrationTests
         {
             using (var gzip = new GZipStream(output, CompressionMode.Compress, leaveOpen: true))
                 JsonSerializer.Serialize(gzip, json);
-            bucket.Objects[a.SnapshotKey] = output.ToArray();
+            bucket.Objects[a.SnapshotKey] = (byte[])ProtectSnapshot.Invoke(null, [output.ToArray(), MemoryBucket.DefaultEncryptionKey])!;
         }
 
         await using var b = await Device.CreateAsync(bucket);

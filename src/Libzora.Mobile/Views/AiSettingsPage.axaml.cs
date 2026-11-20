@@ -3,6 +3,7 @@ using Avalonia.Interactivity;
 using Libzora.ApplicationServices;
 using Libzora.Core;
 using Libzora.Infrastructure;
+using Libzora.Mobile.Views.Sheets;
 
 namespace Libzora.Mobile.Views;
 
@@ -13,6 +14,7 @@ public partial class AiSettingsPage : UserControl, IShellPage
     private readonly MobileShell? _shell;
     private readonly CancellationTokenSource _lifetime = new();
     private string _provider = "deepseek";
+    private IReadOnlyList<string> _fetchedModels = [];
 
     /// <summary>Design-time only.</summary>
     public AiSettingsPage() => InitializeComponent();
@@ -66,6 +68,8 @@ public partial class AiSettingsPage : UserControl, IShellPage
         var defaults = AiConnectionSettings.GetDefaults(_provider);
         BaseUrlBox.Text = defaults.BaseUrl;
         ModelBox.Text = defaults.Model;
+        _fetchedModels = [];
+        ChooseModelButton.IsVisible = false;
         PresentProvider();
     }
 
@@ -77,8 +81,73 @@ public partial class AiSettingsPage : UserControl, IShellPage
 
     private void SetBusy(bool busy)
     {
+        FetchModelsButton.IsEnabled = !busy;
+        ChooseModelButton.IsEnabled = !busy;
         TestButton.IsEnabled = !busy;
         SaveButton.IsEnabled = !busy;
+    }
+
+    private async void OnFetchModelsClick(object? sender, RoutedEventArgs e)
+    {
+        var settings = ReadSettings();
+        if (!Uri.TryCreate(settings.BaseUrl, UriKind.Absolute, out var endpoint)
+            || endpoint.Scheme is not ("http" or "https"))
+        {
+            ShowStatus("请输入有效的接口地址");
+            return;
+        }
+        SetBusy(true);
+        ShowStatus("正在获取模型列表…");
+        try
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+            timeout.CancelAfter(TimeSpan.FromSeconds(15));
+            var models = await _modules!.Ai.ChatClient.ListModelsAsync(settings, timeout.Token);
+            _fetchedModels = models;
+            ChooseModelButton.IsVisible = models.Count > 0;
+            if (models.Count == 0)
+            {
+                ShowStatus("未获取到可用模型，请手动填写模型名称。");
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(ModelBox.Text))
+                ModelBox.Text = models[0];
+            ShowStatus($"已获取 {models.Count} 个模型，请选择。");
+            OpenModelPicker();
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
+        {
+        }
+        catch (OperationCanceledException)
+        {
+            ShowStatus("模型获取失败：请求超时。");
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            ShowStatus("模型获取失败：" + UiText.Localize(exception.Message));
+        }
+        finally
+        {
+            SetBusy(false);
+        }
+    }
+
+    private void OnChooseModelClick(object? sender, RoutedEventArgs e) => OpenModelPicker();
+
+    private void OpenModelPicker()
+    {
+        if (_shell is null || _fetchedModels.Count == 0) return;
+        var current = ModelBox.Text?.Trim() ?? string.Empty;
+        var items = _fetchedModels.Select(model => new ChoiceItem(
+            model,
+            Selected: string.Equals(model, current, StringComparison.OrdinalIgnoreCase),
+            Tag: model)).ToArray();
+        _shell.ShowSheet("选择模型", new ChoiceSheet(items, item =>
+        {
+            if (item.Tag is string selected)
+                ModelBox.Text = selected;
+            _shell.HideSheet();
+        }));
     }
 
     private async void OnTestClick(object? sender, RoutedEventArgs e)

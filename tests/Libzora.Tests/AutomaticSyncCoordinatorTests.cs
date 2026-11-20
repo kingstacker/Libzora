@@ -12,8 +12,9 @@ public sealed class AutomaticSyncCoordinatorTests
         Assert.True(AutomaticSyncCoordinator.IsDue(true, now, now, 30));
         Assert.True(AutomaticSyncCoordinator.IsDue(false, now.AddMinutes(-30), now, 30));
         Assert.False(AutomaticSyncCoordinator.IsReady(new S3SyncSettings(), true, true, false, false, false));
-        var configured = new S3SyncSettings { Provider = SyncProvider.WebDav, WebDavEndpoint = "https://example.test", Enabled = true };
+        var configured = new S3SyncSettings { Provider = SyncProvider.WebDav, WebDavEndpoint = "https://example.test", EncryptionKey = "sync-key", Enabled = true };
         Assert.True(AutomaticSyncCoordinator.IsReady(configured, true, true, false, false, false));
+        Assert.False(AutomaticSyncCoordinator.IsReady(configured with { EncryptionKey = "" }, true, true, false, false, false));
         Assert.False(AutomaticSyncCoordinator.IsReady(configured, true, true, true, false, false));
         Assert.False(AutomaticSyncCoordinator.IsReady(configured, true, true, false, true, false));
         Assert.False(AutomaticSyncCoordinator.IsReady(configured, true, true, false, false, true));

@@ -14,14 +14,40 @@ public sealed partial class NativePdfReaderHost
     internal static Rect? DetectContentCropBox(byte[] pixels, int width, int height)
     {
         if (width < 16 || height < 16 || pixels.Length < width * height * 4) return null;
-        var minX = width;
-        var minY = height;
-        var maxX = -1;
-        var maxY = -1;
         // Sample every 2nd pixel on larger rasters for sub-millisecond scans.
         var step = width >= 400 ? 2 : 1;
+        var rows = new int[(height + step - 1) / step];
         const int inkThreshold = 242;
+        long totalInk = 0;
         for (var y = 0; y < height; y += step)
+        {
+            var rowOffset = y * width * 4;
+            var rowIndex = y / step;
+            for (var x = 0; x < width; x += step)
+            {
+                var idx = rowOffset + x * 4;
+                if (pixels[idx] >= inkThreshold && pixels[idx + 1] >= inkThreshold && pixels[idx + 2] >= inkThreshold)
+                    continue;
+                rows[rowIndex]++;
+                totalInk++;
+            }
+        }
+        if (totalInk == 0) return null;
+        var (firstRow, lastRow) = TrimOuterIslands(rows, totalInk);
+        if (firstRow < 0) return null;
+
+        // Measure the horizontal bounds only across the main content rows: a
+        // page number or scanner mark far below the text block must not widen
+        // the crop back to the page edge. The outermost sliver is ignored even
+        // when it is too close to the text for the gap test above, because
+        // printed page numbers live there.
+        var columns = new int[(width + step - 1) / step];
+        long bandInk = 0;
+        var inset = Math.Max(1, (int)Math.Round(rows.Length * 0.02));
+        var bandFirst = Math.Max(firstRow, inset);
+        var bandLast = Math.Min(lastRow, rows.Length - 1 - inset);
+        if (bandFirst > bandLast) { bandFirst = firstRow; bandLast = lastRow; }
+        for (var y = bandFirst * step; y <= bandLast * step && y < height; y += step)
         {
             var rowOffset = y * width * 4;
             for (var x = 0; x < width; x += step)
@@ -29,19 +55,18 @@ public sealed partial class NativePdfReaderHost
                 var idx = rowOffset + x * 4;
                 if (pixels[idx] < inkThreshold || pixels[idx + 1] < inkThreshold || pixels[idx + 2] < inkThreshold)
                 {
-                    if (x < minX) minX = x;
-                    if (x > maxX) maxX = x;
-                    if (y < minY) minY = y;
-                    if (y > maxY) maxY = y;
+                    columns[x / step]++;
+                    bandInk++;
                 }
             }
         }
+        var (firstColumn, lastColumn) = TrimOuterIslands(columns, bandInk);
+        if (firstColumn < 0) return null;
 
-        if (maxX <= minX || maxY <= minY) return null;
-        var left = (double)minX / width;
-        var top = (double)minY / height;
-        var right = (double)(maxX + step) / width;
-        var bottom = (double)(maxY + step) / height;
+        var left = firstColumn * step / (double)width;
+        var top = firstRow * step / (double)height;
+        var right = Math.Min(1, (lastColumn * step + step) / (double)width);
+        var bottom = Math.Min(1, (lastRow * step + step) / (double)height);
 
         // Add gentle breathing padding around detected ink and cap maximum trim
         // so sparse pages (e.g. a centered chapter title) never zoom excessively.
@@ -56,6 +81,52 @@ public sealed partial class NativePdfReaderHost
         if (cropW >= 0.96 && cropH >= 0.96) return null;
         if (cropW < 0.40 || cropH < 0.40) return null;
         return new Rect(left, top, cropW, cropH);
+    }
+
+    /// <summary>
+    /// Returns the first and last rows/columns that belong to the main content
+    /// block. A tiny ink island behind a wide blank gap at the page edge (a page
+    /// number in the outer margin, a scanner edge or a stray rule) must not pin
+    /// that side while the opposite margin is trimmed: that asymmetry pushed the
+    /// text block against the other edge of the screen.
+    /// </summary>
+    private static (int First, int Last) TrimOuterIslands(int[] counts, long totalInk)
+    {
+        var first = 0;
+        var last = counts.Length - 1;
+        while (first < last && counts[first] == 0) first++;
+        while (last > first && counts[last] == 0) last--;
+        if (counts[first] == 0) return (-1, -1);
+
+        // Ignore only a genuinely tiny island (under 1% of the page ink) whose
+        // gap is wide enough not to be ordinary word or line spacing.
+        var gapMin = Math.Max(3, (int)Math.Round(counts.Length * 0.03));
+        var islandLimit = Math.Max(4, totalInk / 100);
+        while (first < last)
+        {
+            var groupEnd = first;
+            while (groupEnd <= last && counts[groupEnd] > 0) groupEnd++;
+            var gapEnd = groupEnd;
+            while (gapEnd <= last && counts[gapEnd] == 0) gapEnd++;
+            if (gapEnd > last) break;
+            long islandInk = 0;
+            for (var index = first; index < groupEnd; index++) islandInk += counts[index];
+            if (gapEnd - groupEnd < gapMin || islandInk > islandLimit) break;
+            first = gapEnd;
+        }
+        while (last > first)
+        {
+            var groupStart = last;
+            while (groupStart >= first && counts[groupStart] > 0) groupStart--;
+            var gapStart = groupStart;
+            while (gapStart >= first && counts[gapStart] == 0) gapStart--;
+            if (gapStart < first) break;
+            long islandInk = 0;
+            for (var index = groupStart + 1; index <= last; index++) islandInk += counts[index];
+            if (groupStart - gapStart < gapMin || islandInk > islandLimit) break;
+            last = gapStart;
+        }
+        return (first, last);
     }
 
     internal static void ApplyPageColors(byte[] pixels, ReaderPalette palette)

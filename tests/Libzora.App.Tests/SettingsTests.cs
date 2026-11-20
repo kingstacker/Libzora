@@ -204,7 +204,7 @@ public sealed partial class SettingsTests(SettingsUiSession session)
     [Fact]
     public Task S3ChangesAreDraftsUntilExplicitSaveAndSurviveNavigationAndRefresh() => Run(async () =>
     {
-        await using var scope = await TestWindow.Create();
+        await using var scope = await TestWindow.Create(initialSyncSettings: new S3SyncSettings { EncryptionKey = "test-sync-key" });
         var original = await scope.Sync.LoadSettingsAsync();
         scope.Call("SystemS3SyncNavigationButton_Click", null, new RoutedEventArgs());
         scope.Get<ToggleSwitch>("S3SyncEnabledCheck").IsChecked = true;
@@ -237,7 +237,7 @@ public sealed partial class SettingsTests(SettingsUiSession session)
     [Fact]
     public Task WebDavChoicePersistsWithoutLosingS3AndDraftsDoNotChangeSavedProvider() => Run(async () =>
     {
-        await using var scope = await TestWindow.Create();
+        await using var scope = await TestWindow.Create(initialSyncSettings: new S3SyncSettings { EncryptionKey = "test-sync-key" });
         scope.Call("SystemS3SyncNavigationButton_Click", null, new RoutedEventArgs());
         scope.Get<ToggleSwitch>("S3SyncEnabledCheck").IsChecked = true;
         scope.Get<ToggleSwitch>("S3AutomaticSyncCheck").IsChecked = false;

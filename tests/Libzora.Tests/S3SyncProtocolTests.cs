@@ -273,7 +273,7 @@ public sealed partial class S3SyncIntegrationTests
         });
         await a.Library.DeleteAsync(book.BookId);
         await a.SyncAsync();
-        var key = Assert.Single(bucket.Objects.Keys, key => key.EndsWith(hash, StringComparison.OrdinalIgnoreCase));
+        var key = Assert.Single(bucket.Objects.Keys, k => k.Contains("/objects/", StringComparison.Ordinal));
         Assert.True(bucket.Objects.TryRemove(key, out var blob));
         await using var b = await Device.CreateAsync(bucket);
         await b.SyncAsync();

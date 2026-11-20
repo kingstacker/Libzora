@@ -1132,6 +1132,16 @@ public sealed class LibzoraLayoutEngineTests : IDisposable
         Assert.Equal("第一条注释说明。", markers[0].FootnoteText);
         Assert.Equal("[2]", markers[1].Text);
         Assert.Equal("第二条注释说明。", markers[1].FootnoteText);
+        // Plain notes have no element anchor; the synthetic fragment carries
+        // the note's body-text offset so the reader can jump to its definition.
+        foreach (var (marker, definition) in markers.Zip(new[] { "（1）", "[2]" }))
+        {
+            Assert.NotNull(marker.FootnoteHref);
+            Assert.Contains("__libzora-plain-footnote-", marker.FootnoteHref, StringComparison.Ordinal);
+            var offset = int.Parse(marker.FootnoteHref!.Split('-')[^1], System.Globalization.CultureInfo.InvariantCulture);
+            Assert.InRange(offset, 0, content.BodyText.Length - definition.Length);
+            Assert.StartsWith(definition, content.BodyText[offset..]);
+        }
         var firstNoteBlock = Assert.Single(content.Blocks, block =>
             block.Items.Any(item => item.Text == "第一条注释说明。"));
         Assert.Contains(firstNoteBlock.Items, item => item.Text == "（1）");

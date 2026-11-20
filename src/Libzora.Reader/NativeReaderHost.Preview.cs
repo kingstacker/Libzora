@@ -45,6 +45,20 @@ public sealed partial class NativeReaderHost
         }
     }
 
+    private bool IsBlockImageAt(int page, SKPoint point) =>
+        _layout?.GetBlockImageAt(page, point) is { } image && File.Exists(image.Path);
+
+    private bool TryEmitImageZoom(int page, SKPoint point)
+    {
+        if (_layout?.GetBlockImageAt(page, point) is { } image && File.Exists(image.Path))
+        {
+            Emit(new { type = "imageZoom", path = image.Path });
+            return true;
+        }
+
+        return false;
+    }
+
     /// <summary>
     /// Emits the tap target under a page point. Images win over tables, and a
     /// table's painted segment wins over its text range; the text range keeps

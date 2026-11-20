@@ -1,6 +1,8 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
+using Avalonia.VisualTree;
 using Libzora.Core;
 using Libzora.Infrastructure;
 using Libzora.TestFixtures;
@@ -29,16 +31,25 @@ public sealed partial class SettingsTests
         {
             window.Show();
             await Render();
-            Assert.Equal("https://github.com/kingstacker/Libzora/issues", window.FindControl<TextBlock>("IssuesUrlText")!.Text);
-            var explanation = window.FindControl<TextBlock>("FeedbackServiceNote")!.Text!;
-            Assert.Contains("GitHub Issues", explanation);
-            Assert.Contains(language == "en-US" ? "does not accept" : "不接收", explanation);
+            Assert.Null(window.FindControl<TextBlock>("IssuesUrlText"));
+            Assert.Null(window.FindControl<TextBlock>("FeedbackServiceNote"));
+            Assert.Null(window.FindControl<Button>("OpenAccountCenterButton"));
             Assert.True(window.FindControl<Button>("OpenIssuesButton")!.IsEnabled);
-            foreach (var name in new[] { "LoginPanel", "OpenAccountCenterButton", "FormPanel", "ContentBox", "ContactBox",
+            var group = window.FindControl<Button>("CopyUserGroupButton")!;
+            Assert.True(group.IsEnabled);
+            Assert.Contains(group.GetVisualDescendants().OfType<TextBlock>(),
+                text => text.Text?.Contains("1109898894") == true);
+            foreach (var name in new[] { "LoginPanel", "FormPanel", "ContentBox", "ContactBox",
                          "AddScreenshotButton", "ScreenshotPanel", "AttachSoftwareLogCheckBox", "SubmitButton", "SuccessPanel" })
                 Assert.Null(window.FindControl<Control>(name));
             Assert.Equal(requests, handler.RequestCount);
             Assert.Equal(signedIn, (await service.GetStatusAsync()).IsLoggedIn);
+            group.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Until(() => window.FindControl<TextBlock>("StatusText")!.IsVisible);
+            Assert.Equal("1109898894", await window.Clipboard!.TryGetTextAsync());
+            Assert.Equal(language == "en-US" ? "Group number copied to clipboard." : "群号已复制到剪贴板。",
+                window.FindControl<TextBlock>("StatusText")!.Text);
+            Capture(window, $"{language}-{(signedIn ? "signed-in" : "signed-out")}-feedback");
             window.FindControl<Button>("CloseButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Assert.False(window.IsVisible);
         }

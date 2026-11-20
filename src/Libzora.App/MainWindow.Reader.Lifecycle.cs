@@ -223,6 +223,7 @@ public partial class MainWindow
         LibraryRoot.IsVisible = true;
         WindowBrandText.IsVisible = false;
         ReaderLayoutSettingsPopup.IsOpen = false;
+        CloseReaderImageZoom();
         ReaderInPageSearchBar.IsVisible = false;
         ReaderLinuxTextFallbackOverlay.IsVisible = false;
         ReaderLinuxTextFallbackText.Text = string.Empty;

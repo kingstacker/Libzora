@@ -180,6 +180,18 @@ final class NativeReaderSession: ObservableObject {
     /// older-looking counter would make the renderer ignore appearance changes.
     var appearanceRevision = 0
     var appearanceColorScheme: ColorScheme?
+
+    func reset() {
+        state = ReaderSnapshot()
+        dialog = nil
+        media = nil
+        footnote = nil
+        searchBatch = nil
+        aiStreams.removeAll()
+        appearanceSessionId = ""
+        appearanceRevision = 0
+        appearanceColorScheme = nil
+    }
 }
 
 @MainActor
@@ -213,6 +225,7 @@ final class NativeStore: ObservableObject {
     /// proves there is nothing to restore, so the library never flashes first.
     @Published var restoringReader = false
     @Published var developerMode = false
+    @Published var syncEntitlementsEnforced = false
     @Published var account: AccountStatus?
     let session = NativeReaderSession()
     @Published var prompt: NativePrompt?
@@ -234,13 +247,17 @@ final class NativeStore: ObservableObject {
     private var nextId: Int64 = 0
     private var pending: [Int64: (Data) -> Void] = [:]
     private var toastTask: Task<Void, Never>?
-    private var preferenceRevision = 0
+    private var preferenceEdits = NativePreferenceEdits(MobilePreferences())
+    private var preferenceRevision: Int { preferenceEdits.revision }
     private var preferenceWrites = 0
     private var preferenceSaveTask: Task<Void, Never>?
     private static let localizedCommands: Set<String> = [
         "settings.profile", "dashboard.get", "materials.get", "reader.toc", "reader.fonts"
     ]
     private var libraryRefreshRevision = 0
+    private var appliedLibraryRevision = 0
+    private var pendingBookRequiredRevision = 0
+    private var pendingBookRefreshTask: Task<Void, Never>?
     private var launchStarted = false
     private var libraryChangedDuringLaunch = false
 
@@ -309,14 +326,16 @@ final class NativeStore: ObservableObject {
 
     func receive(_ json: String) {
         guard let event = try? JSONDecoder().decode(NativeEvent.self, from: Data(json.utf8)) else { return }
+        if event.type.hasPrefix("reader"), event.sessionId != session.appearanceSessionId { return }
         switch event.type {
         case "reader": if let reader = event.reader, reader != session.state { session.state = reader }
-        case "preferences": if let value = event.preferences, value != preferences { preferences = value }
+        case "preferences": if let value = event.preferences { receivePreferences(value) }
         case "language":
             // An older save may still be returning while the user makes a
             // newer choice. Its locale must not undo the optimistic selection.
             if preferenceWrites == 0, let language = event.language { applyUiLanguage(language) }
         case "developer": developerMode = event.enabled ?? false
+        case "syncEntitlements": syncEntitlementsEnforced = event.enabled ?? false
         case "libraryChanged":
             // Keep a single owner for the first snapshot. A sync notification
             // must not supersede it and release the splash before data arrives.
@@ -422,9 +441,8 @@ final class NativeStore: ObservableObject {
         // Every assignment re-renders all tabs, even with an equal value.
         if library != value.books { library = value.books }
         if folders != value.collections { folders = value.collections }
-        if revision == preferenceRevision && preferenceWrites == 0 && preferences != value.preferences {
-            preferences = value.preferences
-        }
+        if revision == preferenceRevision && preferenceWrites == 0 { receivePreferences(value.preferences) }
+        appliedLibraryRevision = refreshRevision
         if continueBookId != value.continueBookId { continueBookId = value.continueBookId }
         libraryLoadError = nil
         if !libraryLoaded { libraryLoaded = true }
@@ -438,6 +456,7 @@ final class NativeStore: ObservableObject {
     /// snapshot can resolve it and the reader is free.
     func openRequestedBook(_ bookId: String) {
         pendingOpenBookId = bookId
+        pendingBookRequiredRevision = libraryRefreshRevision + 1
         pendingReaderRestore = nil
         guard !preparingLibrary else { return }
         if readerBook != nil {
@@ -461,15 +480,31 @@ final class NativeStore: ObservableObject {
     }
 
     private func openPendingReaderIfNeeded() {
-        guard let bookId = pendingOpenBookId, !library.isEmpty,
+        guard let bookId = pendingOpenBookId, libraryLoaded,
               readerBook == nil, !openingReader, !restartRequired else { return }
-        pendingOpenBookId = nil
-        guard let book = library.first(where: { $0.id == bookId }) else {
+        let book = library.first(where: { $0.id == bookId })
+        switch NativeBookLinkResolution.decide(found: book != nil, snapshotRevision: appliedLibraryRevision,
+                                              requiredRevision: pendingBookRequiredRevision) {
+        case .refresh:
+            guard pendingBookRefreshTask == nil else { return }
+            pendingBookRefreshTask = Task {
+                var refreshed = false
+                do { try await refreshLibrary(); refreshed = true }
+                catch { if !Task.isCancelled { failure = error.localizedDescription } }
+                pendingBookRefreshTask = nil
+                // A newer link may require a snapshot newer than this refresh.
+                if refreshed { openPendingReaderIfNeeded() }
+            }
+        case .missing:
+            pendingOpenBookId = nil
             restoringReader = false
-            return
+            showToast(L("书籍已不存在。"))
+        case .open:
+            guard let book else { return }
+            pendingOpenBookId = nil
+            // An explicit widget tap wins over restoring the last reader session.
+            perform { try await self.openReader(book) }
         }
-        // An explicit widget tap wins over restoring the last reader session.
-        Task { try? await self.openReader(book) }
     }
 
     /// The shelf's first successful load is the safe moment to reopen the
@@ -506,14 +541,22 @@ final class NativeStore: ObservableObject {
         if uiLanguage != effective { uiLanguage = effective }
     }
 
+    private func receivePreferences(_ value: MobilePreferences) {
+        do {
+            try preferenceEdits.receive(value)
+            if preferences != preferenceEdits.value { preferences = preferenceEdits.value }
+        } catch { failure = error.localizedDescription }
+    }
+
     /// A Binding setter updates the native control immediately. Persistence and
     /// reader reflow complete asynchronously; older replies cannot undo a tap.
     func setPreferences(_ value: MobilePreferences) {
         guard value != preferences else { return }
         let previous = preferences
-        preferenceRevision += 1
+        do { try preferenceEdits.select(value) }
+        catch { failure = error.localizedDescription; return }
         let revision = preferenceRevision
-        preferences = value
+        preferences = preferenceEdits.value
         preferenceWrites += 1
         let precedingSave = preferenceSaveTask
         preferenceSaveTask = Task { [weak self] in
@@ -527,10 +570,12 @@ final class NativeStore: ObservableObject {
             // starts, so an older request cannot become the persisted choice.
             guard self.preferenceRevision == revision else { return }
             do {
-                let object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(value))
-                let saved: MobilePreferences = try await self.request("preferences.save", ["preferences": object])
+                // Send only user-edited fields; renderer-owned changes such as
+                // PDF pinch zoom must not be overwritten by a stale native copy.
+                let saved: MobilePreferences = try await self.request("preferences.save", ["preferences": self.preferenceEdits.changes])
+                try self.preferenceEdits.saved(saved, revision: revision)
+                self.preferences = self.preferenceEdits.value
                 if self.preferenceRevision == revision {
-                    self.preferences = saved
                     // A second setting may have superseded the request that enabled badges.
                     if saved.showBookSyncStatus || previous.showBookSyncStatus {
                         do { try await self.refreshLibrary() }
@@ -538,7 +583,8 @@ final class NativeStore: ObservableObject {
                     }
                 }
             } catch {
-                if self.preferenceRevision == revision { self.preferences = previous }
+                self.preferenceEdits.failed(revision: revision)
+                self.preferences = self.preferenceEdits.value
                 if !Task.isCancelled { self.failure = error.localizedDescription }
             }
         }
@@ -549,8 +595,7 @@ final class NativeStore: ObservableObject {
         openingReader = true
         defer { openingReader = false }
         let generation = readerOpenGeneration
-        session.state = ReaderSnapshot()
-        session.dialog = nil
+        session.reset()
         session.appearanceSessionId = UUID().uuidString
         session.appearanceRevision = 0
         session.appearanceColorScheme = nil
@@ -568,6 +613,8 @@ final class NativeStore: ObservableObject {
                 // should replace it, so close the stale reader first.
                 openingReader = false
                 let _: Done? = try? await request("reader.close")
+                readerBook = nil
+                session.reset()
                 openPendingReaderIfNeeded()
                 return
             }
@@ -591,6 +638,7 @@ final class NativeStore: ObservableObject {
         do { let _: Done = try await request("reader.close") }
         catch { if !Task.isCancelled { failure = error.localizedDescription }; return }
         readerBook = nil
+        session.reset()
         UserDefaults.standard.removeObject(forKey: Self.lastReaderKey)
         do { try await refreshLibrary() }
         catch { if !Task.isCancelled { failure = error.localizedDescription } }

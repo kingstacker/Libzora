@@ -11,7 +11,7 @@ final class ReaderFootnoteTests: XCTestCase {
         app.launchArguments = ["--libzora-disable-restore"]
         app.launch()
         XCTAssertTrue(app.scrollViews["library.ready"].waitForExistence(timeout: 40), app.debugDescription)
-        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'book.' AND label CONTAINS '脚注回归·'")).count, 4)
+        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'book.' AND label CONTAINS '脚注回归·'")).count, 5)
     }
 
     override func tearDownWithError() throws { app.terminate() }
@@ -44,6 +44,20 @@ final class ReaderFootnoteTests: XCTestCase {
         back.tap()
         XCTAssertTrue(waitUntil { self.position.label == original && !back.exists }, app.debugDescription)
         checkpoint("脚注回归-返回原文保留位置")
+    }
+
+    func testPlainNumberedNoteJumpsToItsDefinition() {
+        let original = openBook("纯文本注释")
+        showFirstFootnote(x: 76)
+        XCTAssertTrue(noteText("纯文本注释内容。").waitForExistence(timeout: 10), app.debugDescription)
+        checkpoint("脚注回归-纯文本注释卡片")
+        app.buttons["reader.footnote.jump"].tap()
+        let back = app.buttons["reader.footnote.return"]
+        XCTAssertTrue(back.waitForExistence(timeout: 15), app.debugDescription)
+        checkpoint("脚注回归-纯文本注释定位")
+        back.tap()
+        XCTAssertTrue(waitUntil { self.position.label == original && !back.exists }, app.debugDescription)
+        checkpoint("脚注回归-纯文本注释返回")
     }
 
     func testImagePayloadUsesDataAttributeWhenAltIsEmpty() {

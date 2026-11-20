@@ -38,7 +38,7 @@ public sealed partial class NativePdfReaderHost
             foreach (var page in visible)
             {
                 if (!_pages.TryGetValue(page, out var cached)) continue;
-                var needsCrop = AutoCropMargins && page - 1 < _cropBoxes.Length && _cropBoxes[page - 1] is null && cached.CropBox is null;
+                var needsCrop = AutoCropMargins && page - 1 < _cropBoxes.Length && !cached.CropChecked;
                 var needsPreview = cached.PreviewBitmap is null || cached.PreviewPalette != palette || cached.PreviewRotation != rotation;
                 if (!needsCrop && !needsPreview) continue;
 
@@ -62,7 +62,7 @@ public sealed partial class NativePdfReaderHost
                 if (needsCrop && rotation == 0)
                 {
                     var detected = DetectContentCropBox(previewRaster.Pixels, previewRaster.Width, previewRaster.Height);
-                    cached.CropBox = detected;
+                    cached.CropChecked = true;
                     if (detected is not null && page - 1 < _cropBoxes.Length)
                     {
                         _cropBoxes[page - 1] = detected;
@@ -88,7 +88,7 @@ public sealed partial class NativePdfReaderHost
                     token.ThrowIfCancellationRequested();
                     if (_disposed || version != _version || rasterVersion != _rasterVersion) return;
                     var detected = DetectContentCropBox(unrot.Pixels, unrot.Width, unrot.Height);
-                    cached.CropBox = detected;
+                    cached.CropChecked = true;
                     if (detected is not null && page - 1 < _cropBoxes.Length)
                     {
                         _cropBoxes[page - 1] = detected;
@@ -261,10 +261,10 @@ public sealed partial class NativePdfReaderHost
                 }, token);
                 token.ThrowIfCancellationRequested();
                 if (_disposed || version != _version || rasterVersion != _rasterVersion) return;
-                if (AutoCropMargins && rotation == 0 && page - 1 < _cropBoxes.Length && _cropBoxes[page - 1] is null)
+                if (AutoCropMargins && rotation == 0 && page - 1 < _cropBoxes.Length && !cached.CropChecked)
                 {
                     var detected = DetectContentCropBox(previewRaster.Pixels, previewRaster.Width, previewRaster.Height);
-                    cached.CropBox = detected;
+                    cached.CropChecked = true;
                     if (detected is not null) _cropBoxes[page - 1] = detected;
                 }
                 ReplacePreviewBitmap(cached, previewRaster, palette, rotation);

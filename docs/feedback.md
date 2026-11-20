@@ -2,14 +2,14 @@
 
 账号服务仅用于必要身份、设备安全和功能权益验证，**不接收反馈正文、联系方式、截图或软件日志**。旧反馈上传、查询、附件存储及管理后台已退役；不再提供内置表单上传，也不会自动附加本地日志。
 
-## 提交问题
+## 反馈渠道
 
-桌面“关于 → 问题反馈”和 iOS“我的 → 关于 → 问题反馈”提供支持说明及 [GitHub Issues](https://github.com/kingstacker/Libzora/issues) 链接。查看说明不需要登录 Libzora，也不会请求账号服务。
+桌面“设置 → 关于 → 问题反馈”、iOS“我的 → 问题反馈”以及移动端“我的 → 关于 → 问题反馈”都只提供两个渠道：
 
-1. 先准备 Libzora 版本、操作系统、复现步骤、期望结果及实际结果。
-2. 如需日志，在“设置 → 高级与集成”中使用“导出软件日志”，只保存到自己选择的本地位置。
-3. 分享前自行检查日志、截图和描述，移除密码、Token、邮箱、书籍内容、路径及其他不想公开的信息。
-4. 自行打开 GitHub Issues 并决定是否提交。GitHub 是外部服务，公开 Issue 及附件可能被其他人查看、缓存或索引；Libzora 不代为上传内容。
+- [GitHub Issues](https://github.com/kingstacker/Libzora/issues)：自行打开并决定是否提交。
+- QQ 交流群：`1109898894`，点击即可复制群号。
+
+查看反馈页不需要登录 Libzora，也不会请求账号服务。如需日志，在“设置 → 高级与集成”中使用“导出软件日志”，只保存到自己选择的本地位置。分享前请自行移除密码、Token、邮箱、书籍内容、路径及其他不想公开的信息；GitHub 是外部服务，公开 Issue 及附件可能被其他人查看、缓存或索引。
 
 ## 本地软件日志
 
@@ -21,8 +21,8 @@
 
 - `src/Libzora.Infrastructure/SoftwareLog.cs`：本地日志、脱敏和轮转。
 - `src/Libzora.Infrastructure/SoftwareLogExportService.cs`：将日志及诊断导出到本地 ZIP。
-- `src/Libzora.App/FeedbackWindow.axaml(.cs)`：支持说明，不收集表单或附件。
-- `src/Libzora.Mobile.iOS/NativeUI/NativeFeedback.swift`：原生支持说明。
+- `src/Libzora.App/FeedbackWindow.axaml(.cs)`：仅列出 GitHub Issues 与 QQ 群两个渠道。
+- `src/Libzora.Mobile.iOS/NativeUI/NativeFeedback.swift`：原生反馈页，同样只列出这两个渠道。
 
 ## 退役接口与历史数据
 
@@ -34,6 +34,6 @@
 
 ## 验证范围
 
-桌面界面测试验证中英文支持说明、无表单/截图/日志上传控件，以及查看说明不请求账号服务。客户端协议测试验证旧反馈调用不联网；SQLite 集成测试验证端点失败关闭、请求体不读取、新库无反馈表、历史记录和文件保留。
+桌面界面测试验证中英文反馈页只提供 GitHub Issues 和 QQ 群两个渠道、无表单/截图/日志上传控件，以及查看反馈不请求账号服务。客户端协议测试验证旧反馈调用不联网；SQLite 集成测试验证端点失败关闭、请求体不读取、新库无反馈表、历史记录和文件保留。
 
 这些本机测试不等于向 GitHub 真实提交、iOS UI 执行或生产部署验证。

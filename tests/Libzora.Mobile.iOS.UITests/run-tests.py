@@ -66,6 +66,9 @@ def main() -> int:
         command.append("-skip-testing:NativeFrontendUITests/ReaderFootnoteTests")
         # Layout compatibility uses its own isolated bundle as well.
         command.append("-skip-testing:NativeFrontendUITests/ReaderLayoutTests")
+        # Review regressions need the fictional AI/dictionary/PDF-zoom fixture
+        # described in the class doc comment; select them with --only.
+        command.append("-skip-testing:NativeFrontendUITests/NativeReviewRegressionTests")
         # Upgrade setup deliberately uses another preview installation and is
         # run separately after the host has installed the legacy then native UI.
         command.append("-skip-testing:NativeFrontendUITests/NativeFrontendTests/testLegacyUpgradePreservesLibraryAndPreferences")

@@ -87,7 +87,8 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
             UpdateFootnoteHover(position, footnote);
         }
 
-        if (_pointerDownOffset >= 0 && _pointerHotZone is null)
+        var downOverImage = mapped is { } downImgMap && IsBlockImageAt(downImgMap.Page, downImgMap.Local);
+        if (_pointerDownOffset >= 0 && _pointerHotZone is null && !downOverImage)
         {
             _selectionAnchor = _pointerDownOffset;
             SetActiveSelectionOffset(_pointerDownOffset);
@@ -283,11 +284,28 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         // Resolve a mouse double-click only after release. Opening the popup
         // on press would steal input from a possible drag on the second click.
         if (!wasDrag && insideSurface && e.Pointer.Type == PointerType.Mouse
-            && _pointerClickCount >= 2 && SelectWordAt(position.X, position.Y))
+            && _pointerClickCount >= 2)
         {
-            _wordSelectionActive = false;
-            e.Handled = true;
-            return;
+            if (releasedMap is { } zoomMap && TryEmitImageZoom(zoomMap.Page, zoomMap.Local))
+            {
+                _wordSelectionActive = false;
+                _selectionAnchor = -1;
+                _selectionActiveOffset = -1;
+                _selectionStart = -1;
+                _selectionEnd = -1;
+                _pointerDownOffset = -1;
+                _bitmapDirty = true;
+                InvalidateVisual();
+                e.Handled = true;
+                return;
+            }
+
+            if (SelectWordAt(position.X, position.Y))
+            {
+                _wordSelectionActive = false;
+                e.Handled = true;
+                return;
+            }
         }
 
         var clickedAnnotation = releasedMap is { } annotationMap
@@ -309,7 +327,10 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         }
         else if (clickSide is not null)
         {
-            EmitPageClick(clickSide, IsPaginated && _pointerDownOffset >= 0
+            var overBlockImage = releasedMap is { } imageMap
+                && IsBlockImageAt(imageMap.Page, imageMap.Local);
+            EmitPageClick(clickSide, IsPaginated
+                && (_pointerDownOffset >= 0 || overBlockImage)
                 && e.Pointer.Type == PointerType.Mouse);
         }
         else if (_pointerDownOffset >= 0)

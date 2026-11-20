@@ -241,10 +241,12 @@ public sealed class S3SyncTests
             AccessKey = "access",
             SecretKey = "secret",
             Bucket = "books",
-            Endpoint = "https://s3.amazonaws.com"
+            Endpoint = "https://s3.amazonaws.com",
+            EncryptionKey = "sync-key"
         };
 
         Assert.Null(configured.Validate());
+        Assert.Equal("请先设置同步密钥。", (configured with { EncryptionKey = "" }).Validate());
         Assert.Equal(string.Empty, S3SyncSettings.Normalize(configured).Endpoint);
     }
 

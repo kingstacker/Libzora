@@ -11,7 +11,16 @@ namespace Libzora.iOSHead;
 /// </summary>
 public sealed class IOSFileImportSource : IFileImportSource
 {
+    private readonly SemaphoreSlim _pickerGate = new(1, 1);
+
     public async Task<IReadOnlyList<string>> PickFilesAsync(CancellationToken cancellationToken = default)
+    {
+        await _pickerGate.WaitAsync(cancellationToken);
+        try { return await PickFilesCoreAsync(cancellationToken); }
+        finally { _pickerGate.Release(); }
+    }
+
+    private static async Task<IReadOnlyList<string>> PickFilesCoreAsync(CancellationToken cancellationToken)
     {
         var picked = new TaskCompletionSource<IReadOnlyList<NSUrl>>(
             TaskCreationOptions.RunContinuationsAsynchronously);
@@ -21,6 +30,7 @@ public sealed class IOSFileImportSource : IFileImportSource
         {
             try
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var presenter = TopViewController()
                     ?? throw new InvalidOperationException("无法找到可显示文件选择器的窗口，请重新打开应用后重试。");
                 picker = new UIDocumentPickerViewController([UTTypes.Item], asCopy: true)
@@ -32,6 +42,7 @@ public sealed class IOSFileImportSource : IFileImportSource
                 picker.DidPickDocumentAtUrls += (_, args) =>
                     picked.TrySetResult(args.Urls ?? []);
                 picker.WasCancelled += (_, _) => picked.TrySetResult([]);
+                cancellationToken.ThrowIfCancellationRequested();
                 presenter.PresentViewController(picker, animated: true, completionHandler: null);
             }
             catch (Exception exception)
@@ -47,7 +58,19 @@ public sealed class IOSFileImportSource : IFileImportSource
         }
         finally
         {
-            GC.KeepAlive(picker);
+            // Finish dismissal before another request can acquire the picker gate.
+            var dismissed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            NSRunLoop.Main.BeginInvokeOnMainThread(() =>
+            {
+                try
+                {
+                    if (picker?.PresentingViewController is not null)
+                        picker.DismissViewController(animated: false, () => { picker.Dispose(); dismissed.TrySetResult(); });
+                    else { picker?.Dispose(); dismissed.TrySetResult(); }
+                }
+                catch (Exception exception) { dismissed.TrySetException(exception); }
+            });
+            await dismissed.Task;
         }
     }
 

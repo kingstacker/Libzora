@@ -96,6 +96,7 @@ public partial class MainWindow
         var sent = 0;
         var skipped = cards.Count - pending.Length;
         var transferTitle = T("发送到 Kindle 邮箱");
+        ClearBookMultiSelection();
         ShowTransferToast(transferTitle, T("正在发送邮件…"), progress: 0);
         for (var index = 0; index < pending.Length; index++)
         {
@@ -211,6 +212,7 @@ public partial class MainWindow
             transferStarted = true;
             _isTransferring = true;
             _transferStopRequested = false;
+            ClearBookMultiSelection();
             SetTransferNavigationEnabled(false);
             _transferCancellation?.Dispose();
             _transferCancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCancellation.Token);
@@ -224,9 +226,13 @@ public partial class MainWindow
                 using var progress = new CoalescingUiProgress<TransferProgress>(value =>
                 {
                     if (!acceptProgressUpdates) return;
+                    var detail = UiText.Localize(value.Message);
+                    var stageMessage = string.IsNullOrWhiteSpace(detail)
+                        ? T("正在发送《{0}》…", card.Title)
+                        : $"{T("正在发送《{0}》…", card.Title).TrimEnd('…', '.')} · {detail}";
                     TaskProgressPopupBar.Value = value.Percentage;
-                    TaskProgressPopupText.Text = UiText.Localize(value.Message);
-                    ShowTransferToast(T("发送到设备"), UiText.Localize(value.Message), progress: value.Percentage);
+                    TaskProgressPopupText.Text = stageMessage;
+                    ShowTransferToast(T("发送到设备"), stageMessage, progress: value.Percentage);
                 });
                 using var prepared = await PrepareKindleTransferAsync(
                     device,

@@ -333,13 +333,18 @@ public partial class MainWindow
         var card = control.DataContext as BookCardViewModel;
         if (_bookCardControls.TryGetValue(control, out var previous))
         {
-            if (ReferenceEquals(previous, card)) return;
+            if (ReferenceEquals(previous, card))
+            {
+                card.LoadSeriesCovers();
+                return;
+            }
             ReleaseBookCardControl(control, previous);
         }
         if (card is null) return;
 
         _bookCardControls[control] = card;
         _visibleBookCards.Add(card);
+        card.LoadSeriesCovers();
         card.LoadCover();        if (card.CoverImage is null
             && card.Book.Files.Any(file => string.Equals(file.Format, "pdf", StringComparison.OrdinalIgnoreCase)))
         {
@@ -365,7 +370,10 @@ public partial class MainWindow
         // container was virtualized away. Keep that one bitmap alive until
         // the selection changes; every other off-screen card can release it.
         if (!ReferenceEquals(card, _selectedCard))
+        {
             card.UnloadCover();
+            card.UnloadSeriesCovers(_selectedCard);
+        }
     }
 
     private async Task RestoreVisiblePdfCoverAsync(BookCardViewModel card)

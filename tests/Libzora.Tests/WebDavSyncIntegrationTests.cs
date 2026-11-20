@@ -11,14 +11,12 @@ namespace Libzora.Tests;
 
 public sealed class WebDavSyncIntegrationTests
 {
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task RealHttpTwoDevicesSyncBooksAnnotationsProgressSettingsAndDeletions(bool encrypted)
+    [Fact]
+    public async Task RealHttpTwoDevicesSyncBooksAnnotationsProgressSettingsAndDeletions()
     {
         var server = new WebDavTestServer { AbsoluteHrefs = true };
         await using var listener = server.Listen();
-        var settings = server.Settings(listener.Origin) with { EncryptionKey = encrypted ? "shared-key" : "" };
+        var settings = server.Settings(listener.Origin) with { EncryptionKey = "shared-key" };
         await using var a = await Device.CreateAsync(server, settings, realHttp: true);
         await using var b = await Device.CreateAsync(server, settings, realHttp: true);
         var book = await a.AddBookAsync(large: true);
@@ -45,17 +43,8 @@ public sealed class WebDavSyncIntegrationTests
         Assert.Equal(annotation.Note, remoteAnnotation.Note);
         Assert.Equal(45, (await b.Reader.GetProgressAsync(book.FileId))!.ProgressPercent);
         Assert.Equal(17, (await new AppSettingsStore(b.Paths).LoadAsync()).AutoBackupRetention);
-        if (encrypted)
-        {
-            Assert.True(server.Files[a.SnapshotPath].AsSpan().StartsWith("LIBZORA-SYNC1"u8));
-            Assert.True(Assert.Single(server.Files, pair => pair.Key.Contains("/objects/", StringComparison.Ordinal)).Value.AsSpan().StartsWith("LIBZORA-SYNC3"u8));
-        }
-        else
-        {
-            var snapshotJson = JsonSerializer.Serialize(Decode(server.Files[a.SnapshotPath]));
-            Assert.DoesNotContain(WebDavTestServer.Username, snapshotJson, StringComparison.Ordinal);
-            Assert.DoesNotContain("app:password", snapshotJson, StringComparison.Ordinal);
-        }
+        Assert.True(server.Files[a.SnapshotPath].AsSpan().StartsWith("LIBZORA-SYNC1"u8));
+        Assert.True(Assert.Single(server.Files, pair => pair.Key.Contains("/objects/", StringComparison.Ordinal)).Value.AsSpan().StartsWith("LIBZORA-SYNC3"u8));
         var objectPuts = server.Requests.Count(request => request.Method == "PUT" && request.Path.Contains("/objects/", StringComparison.Ordinal));
         remoteAnnotation.Note = "来自设备 B";
         remoteAnnotation.UpdatedAt = DateTimeOffset.UtcNow.AddSeconds(1);
@@ -74,18 +63,18 @@ public sealed class WebDavSyncIntegrationTests
         Assert.DoesNotContain(server.Files.Keys, path => path.EndsWith(".tmp", StringComparison.Ordinal));
     }
 
-    [Theory]
-    [InlineData("")]
-    [InlineData("wrong-key")]
-    public async Task MismatchedEncryptionFailsBeforeSyncOrConnectionProbeWrites(string key)
+    [Fact]
+    public async Task MismatchedEncryptionFailsBeforeSyncOrConnectionProbeWrites()
     {
         var server = new WebDavTestServer();
         await using var a = await Device.CreateAsync(server, server.Settings() with { EncryptionKey = "original-key" });
         await a.SyncAsync();
-        await using var b = await Device.CreateAsync(server, server.Settings() with { EncryptionKey = key });
+        await using var b = await Device.CreateAsync(server, server.Settings() with { EncryptionKey = "wrong-key" });
         var writes = server.Requests.Count(request => request.Method == "PUT");
         await Assert.ThrowsAsync<InvalidDataException>(() => b.SyncAsync());
         await Assert.ThrowsAsync<InvalidDataException>(() => b.Service.TestConnectionAsync(b.Settings));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => b.Service.SyncAsync(b.Id, b.Settings with { EncryptionKey = "" }));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => b.Service.TestConnectionAsync(b.Settings with { EncryptionKey = "" }));
         Assert.Equal(writes, server.Requests.Count(request => request.Method == "PUT"));
     }
 
@@ -211,6 +200,12 @@ public sealed class WebDavSyncIntegrationTests
 
     private static S3SyncSnapshot Decode(byte[] bytes)
     {
+        if (bytes.AsSpan().StartsWith("LIBZORA-SYNC1"u8))
+        {
+            var unprotect = typeof(S3SyncService).GetMethods(System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)
+                .Single(method => method.Name == "UnprotectPayload" && method.GetParameters() is var p && p.Length == 2 && p[1].ParameterType == typeof(string));
+            bytes = (byte[])unprotect.Invoke(null, [bytes, "webdav-test-key"])!;
+        }
         using var memory = new MemoryStream(bytes);
         using var gzip = new GZipStream(memory, CompressionMode.Decompress);
         return JsonSerializer.Deserialize<S3SyncSnapshot>(gzip)!;

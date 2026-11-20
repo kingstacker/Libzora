@@ -260,6 +260,8 @@ public partial class MainWindow
         _libraryPresenceComparison = null;
         _filteredDeviceBooks = [];
         VisibleDeviceBooks.Clear();
+        VisibleDeviceShelfBooks.Clear();
+        _deviceSeriesFronts.Clear();
         _devicePageIndex = 0;
         _devicePageCount = 1;
         UpdateDeviceBookPaginationUi();

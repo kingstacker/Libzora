@@ -133,7 +133,7 @@ struct NativeLibraryPage: View {
                                                  store: store, actions: bookActions(book, beforeReading: closeSeries),
                                                  beforeNavigation: closeSeries)
                 }
-                .transition(.opacity)
+                .transition(.scale(scale: 0.72).combined(with: .opacity))
             }
         }
         .onChange(of: isActive) { active in if !active { closeSeries() } }
@@ -151,7 +151,7 @@ struct NativeLibraryPage: View {
             if let filterOptions {
                 NativeLibraryFilterSheet(options: filterOptions, selection: advancedFilter, quickFilter: filter,
                                          books: store.library, query: query) { selection in
-                    if selection.readingStatus != nil && (filter == 1 || filter == 3) { filter = 0 }
+                    filter = NativeLibraryFilterPolicy.effectiveQuickFilter(filter, readingStatus: selection.readingStatus)
                     advancedFilter = selection
                 }
             }
@@ -276,7 +276,7 @@ struct NativeLibraryPage: View {
                     NativeBookShelf(store: store, books: books, pageWidth: pageWidth, tracksVisibleCovers: true,
                                     stackSeries: store.preferences.stackBookSeries && query.isEmpty
                                         && filter == 0 && advancedFilter.count == 0,
-                                    expandSeries: { id in withAnimation(.easeOut(duration: 0.2)) { expandedSeriesID = id } },
+                                    expandSeries: { id in withAnimation(.spring(response: 0.36, dampingFraction: 0.70)) { expandedSeriesID = id } },
                                     destinations: bookDestinations, actions: { bookActions($0) })
                 }
             }

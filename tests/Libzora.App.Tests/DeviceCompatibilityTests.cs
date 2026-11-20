@@ -281,6 +281,8 @@ public sealed partial class SettingsTests
         scope.Get<Button>("ConfirmationCancelButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         await cancelled;
         Assert.True(scope.Get<Border>("DeviceBookSelectionBar").IsVisible);
+        Assert.Contains("multiSelectDelete", scope.Get<Button>("DeleteSelectedDeviceBooksButton").Classes);
+        Assert.Contains("multiSelectCancel", scope.Get<Button>("ClearDeviceBookSelectionButton").Classes);
         Assert.All(cards, card => Assert.True(card.IsSelected));
 
         var exporting = scope.Call<Task>("ExportSelectedDeviceBooksAsync");
@@ -297,7 +299,77 @@ public sealed partial class SettingsTests
         scope.Get<Button>("MessageOkButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         await exporting.WaitAsync(TimeSpan.FromSeconds(20));
         Assert.True(scope.Get<Border>("DeviceBookSelectionBar").IsVisible);
+        Assert.Contains("multiSelectDelete", scope.Get<Button>("DeleteSelectedDeviceBooksButton").Classes);
+        Assert.Contains("multiSelectCancel", scope.Get<Button>("ClearDeviceBookSelectionButton").Classes);
         Assert.All(cards, card => Assert.True(card.IsSelected));
+    });
+
+    [Fact]
+    public Task MultiSelectionSuppressesDeviceBookTooltips() => Run(async () =>
+    {
+        await using var scope = await TestWindow.Create();
+        var device = Reader(scope, "TOOLTIP-SUPPRESS", ReaderDeviceProfiles.Kindle);
+        var books = new[]
+        {
+            new KindleBook { RelativePath = "documents/one.azw3", Title = "One", Authors = "Author 1", Format = "azw3" },
+            new KindleBook { RelativePath = "documents/two.azw3", Title = "Two", Authors = "Author 2", Format = "azw3" }
+        };
+        await UseReaderServiceAsync(scope, new ReaderService
+        {
+            Devices = [device],
+            BooksReader = _ => Task.FromResult<IReadOnlyList<KindleBook>>(books)
+        });
+        await scope.Call<Task>("RefreshDevicesAsync", false, CancellationToken.None);
+        await scope.Field<Task>("_deviceWarmTask");
+        await scope.Call<Task>("OpenKindlePageAsync");
+        await Until(() => scope.Window.DeviceBooks.Count == 2);
+        await Render();
+
+        var cards = scope.Window.DeviceBooks.ToArray();
+        Assert.All(cards, card => Assert.True(card.IsTooltipEnabled));
+
+        var covers = scope.Get<ItemsControl>("DeviceBookGridItems")
+            .GetVisualDescendants()
+            .OfType<Border>()
+            .Where(border => border.Classes.Contains("bookCover"))
+            .ToArray();
+        Assert.Equal(2, covers.Length);
+        Assert.All(covers, cover => Assert.True(ToolTip.GetServiceEnabled(cover)));
+
+        // Single selection keeps tooltips enabled.
+        cards[0].IsSelected = true;
+        scope.Call("UpdateDeviceBookSelectionUi");
+        await Render();
+        Assert.All(cards, card => Assert.True(card.IsTooltipEnabled));
+        Assert.All(covers, cover => Assert.True(ToolTip.GetServiceEnabled(cover)));
+
+        // Selecting a second book disables tooltips and closes any open tooltip.
+        ToolTip.SetIsOpen(covers[0], true);
+        cards[1].IsSelected = true;
+        scope.Call("UpdateDeviceBookSelectionUi");
+        await Render();
+        Assert.All(cards, card => Assert.False(card.IsTooltipEnabled));
+        Assert.All(covers, cover =>
+        {
+            Assert.False(ToolTip.GetServiceEnabled(cover));
+            Assert.False(ToolTip.GetIsOpen(cover));
+        });
+
+        // Clearing back to 0/1 restores tooltips.
+        scope.Call("ClearDeviceBookSelection");
+        await Render();
+        Assert.All(cards, card => Assert.True(card.IsTooltipEnabled));
+        Assert.All(covers, cover => Assert.True(ToolTip.GetServiceEnabled(cover)));
+
+        // Rubber-band drag suppresses tooltips even before two cards are hit.
+        scope.Set("_deviceRubberBandSelecting", true);
+        scope.Call("UpdateDeviceBookSelectionUi");
+        await Render();
+        Assert.All(cards, card => Assert.False(card.IsTooltipEnabled));
+        scope.Set("_deviceRubberBandSelecting", false);
+        scope.Call("UpdateDeviceBookSelectionUi");
+        await Render();
+        Assert.All(cards, card => Assert.True(card.IsTooltipEnabled));
     });
 
     [Fact]

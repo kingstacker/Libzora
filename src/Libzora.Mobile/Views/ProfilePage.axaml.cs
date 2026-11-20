@@ -236,21 +236,43 @@ public partial class ProfilePage : UserControl
             _shell.ShowSheet("回收站", new TrashSheet(_modules.Library.Books, _shell));
     }
 
-    private async void OnDeveloperClick(object? sender, RoutedEventArgs e)
+    private void OnFeedbackClick(object? sender, RoutedEventArgs e)
+    {
+        if (_shell is not { } shell) return;
+        shell.ShowSheet("问题反馈", new ChoiceSheet(
+        [
+            new ChoiceItem("GitHub Issues", "github.com/kingstacker/Libzora/issues", Tag: "issues"),
+            new ChoiceItem("QQ 交流群", "1109898894", Tag: "qq")
+        ],
+        choice =>
+        {
+            shell.HideSheet();
+            if (choice.Tag is "issues") _ = OpenIssuesAsync();
+            else _ = CopyGroupAsync();
+        }));
+    }
+
+    private async void OnDeveloperClick(object? sender, RoutedEventArgs e) =>
+        await OpenUriAsync("https://github.com/kingstacker", "无法打开开发者主页");
+
+    private async Task OpenIssuesAsync() =>
+        await OpenUriAsync("https://github.com/kingstacker/Libzora/issues", "无法打开 GitHub Issues");
+
+    private async Task OpenUriAsync(string uri, string failure)
     {
         try
         {
             var launcher = TopLevel.GetTopLevel(this)?.Launcher;
-            if (launcher is null || !await launcher.LaunchUriAsync(new Uri("https://github.com/kingstacker")))
-                _shell?.ShowToast("无法打开开发者主页");
+            if (launcher is null || !await launcher.LaunchUriAsync(new Uri(uri)))
+                _shell?.ShowToast(failure);
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
-            _shell?.ShowToast("无法打开开发者主页");
+            _shell?.ShowToast(failure);
         }
     }
 
-    private async void OnGroupClick(object? sender, RoutedEventArgs e)
+    private async Task CopyGroupAsync()
     {
         try
         {

@@ -135,6 +135,8 @@ public sealed partial class XhtmlChapterLoader
         public required int DefinitionStartOffset { get; init; }
         public required int DefinitionEndOffset { get; init; }
         public required IReadOnlyDictionary<string, string> Notes { get; init; }
+        /// <summary>Body-text offset of each note's first block, used to jump to the definition.</summary>
+        public required IReadOnlyDictionary<string, int> DefinitionOffsets { get; init; }
     }
 
     /// <summary>Shared by sibling list items; nested lists own a fresh counter.</summary>

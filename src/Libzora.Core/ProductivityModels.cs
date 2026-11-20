@@ -103,6 +103,7 @@ public sealed record AppSettings
     public bool AutoConnectDevice { get; init; } = true;
     public bool CompareKindleLibraryEnabled { get; init; } = true;
     public bool GridGalleryDisplay { get; init; }
+    public bool StackBookSeries { get; init; } = true;
     public bool ShowSyncStatusIcon { get; init; } = true;
     public bool ShowLibraryPresenceIcon { get; init; } = true;
     public bool ShowUnearnedReadingMedals { get; init; }

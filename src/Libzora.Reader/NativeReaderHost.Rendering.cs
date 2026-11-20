@@ -215,10 +215,43 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
     }
 
     /// <summary>
+    /// Decodes an illustration into an Avalonia <see cref="WriteableBitmap"/>
+    /// for the desktop lightbox viewer, bounded to <paramref name="maxDimension"/>.
+    /// </summary>
+    public static WriteableBitmap? DecodePreviewBitmap(string path, int maxDimension = 4096)
+    {
+        using var bitmap = DecodeSkBitmap(path, maxDimension);
+        if (bitmap is null || bitmap.Width <= 0 || bitmap.Height <= 0) return null;
+
+        var info = new SKImageInfo(bitmap.Width, bitmap.Height, SKColorType.Bgra8888, SKAlphaType.Premul);
+        var output = new WriteableBitmap(
+            new PixelSize(bitmap.Width, bitmap.Height),
+            new Vector(96, 96),
+            PixelFormat.Bgra8888,
+            AlphaFormat.Premul);
+        using var frame = output.Lock();
+        using var pixmap = bitmap.PeekPixels();
+        if (pixmap is null || !pixmap.ReadPixels(info, frame.Address, frame.RowBytes, 0, 0))
+        {
+            output.Dispose();
+            return null;
+        }
+        return output;
+    }
+
+    /// <summary>
     /// Decode at the size the page can actually show. A 4000px scan used to be
     /// decoded in full on the UI thread and then scaled down per frame.
     /// </summary>
     private static SKImage? DecodeImageScaled(string path)
+    {
+        using var bitmap = DecodeSkBitmap(path, ImageDecodeMaxDimension);
+        return bitmap is null
+            ? null
+            : SKImage.FromPixelCopy(bitmap.Info, bitmap.GetPixels(), bitmap.RowBytes);
+    }
+
+    private static SKBitmap? DecodeSkBitmap(string path, int maxDimension)
     {
         SKCodecResult scaledResult = default;
         try
@@ -229,11 +262,12 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
             var source = codec.Info;
             if (source.Width <= 0 || source.Height <= 0) return null;
 
-            var target = ScaledImageInfo(codec, source);
-            using var bitmap = new SKBitmap(target);
+            var target = ScaledImageInfo(codec, source, maxDimension);
+            var bitmap = new SKBitmap(target);
             scaledResult = codec.GetPixels(target, bitmap.GetPixels());
             if (scaledResult is SKCodecResult.Success or SKCodecResult.IncompleteInput)
-                return SKImage.FromPixelCopy(target, bitmap.GetPixels(), bitmap.RowBytes);
+                return bitmap;
+            bitmap.Dispose();
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
@@ -270,12 +304,10 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
                 return null;
             }
 
-            var target = FitImageInfo(source);
-            using var scaled = bitmap.Resize(
+            var target = FitImageInfo(source, maxDimension);
+            return bitmap.Resize(
                 target,
                 new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Linear));
-            if (scaled is null) return null;
-            return SKImage.FromPixelCopy(target, scaled.GetPixels(), scaled.RowBytes);
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
@@ -284,9 +316,9 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         }
     }
 
-    private static SKImageInfo ScaledImageInfo(SKCodec codec, SKImageInfo source)
+    private static SKImageInfo ScaledImageInfo(SKCodec codec, SKImageInfo source, int maxDimension)
     {
-        var requested = FitImageInfo(source);
+        var requested = FitImageInfo(source, maxDimension);
         var supported = codec.GetScaledDimensions(
             Math.Min(requested.Width / (float)source.Width, requested.Height / (float)source.Height));
         return new SKImageInfo(
@@ -296,9 +328,9 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
             SKAlphaType.Premul);
     }
 
-    private static SKImageInfo FitImageInfo(SKImageInfo source)
+    private static SKImageInfo FitImageInfo(SKImageInfo source, int maxDimension)
     {
-        var scale = Math.Min(1d, ImageDecodeMaxDimension / (double)Math.Max(source.Width, source.Height));
+        var scale = Math.Min(1d, maxDimension / (double)Math.Max(source.Width, source.Height));
         return new SKImageInfo(
             Math.Max(1, (int)Math.Round(source.Width * scale)),
             Math.Max(1, (int)Math.Round(source.Height * scale)),

@@ -127,22 +127,42 @@ public partial class ReaderPage
     public bool IsPowerSavingActive => _shell.Preferences.Current.ResolvePowerSaving(
         _shell.Services.IsSystemLowPowerMode?.Invoke() == true);
 
-    private void ApplyPowerSavingToHost()
+    private bool _powerSavingApplied;
+    private bool _powerSavingActive;
+
+    /// <summary>
+    /// Single transition point for power saving. The host flag is mirrored on
+    /// every refresh because the host can be rebuilt while the resolved state
+    /// stays the same; the background work is only touched when the state
+    /// actually changes, so unrelated appearance refreshes cannot pause or
+    /// restart it.
+    /// </summary>
+    private void ApplyPowerSavingState()
     {
         var powerSaving = IsPowerSavingActive;
         if (_readerHost is NativeReaderHost epub) epub.SetPowerSavingMode(powerSaving);
         else if (_readerHost is NativePdfReaderHost pdf) pdf.SetPowerSavingMode(powerSaving);
+
+        if (_powerSavingApplied && _powerSavingActive == powerSaving) return;
+        var wasPowerSaving = _powerSavingApplied && _powerSavingActive;
+        _powerSavingApplied = true;
+        _powerSavingActive = powerSaving;
         if (powerSaving)
         {
+            // Stop the two background jobs that can keep the CPU and radios
+            // awake; both are restarted from the exit path below.
             _bookPageCountCancellation?.Cancel();
             StopReadingStatsTimer();
+            return;
         }
+        if (!wasPowerSaving) return;
+        ResumeReadingStatsTimer();
+        ResumeBookPageCountsAfterPowerSaving();
     }
 
     public void RefreshPowerSavingState()
     {
         if (_disposed) return;
-        ApplyPowerSavingToHost();
         RefreshReaderAppearance();
     }
 
@@ -217,7 +237,7 @@ public partial class ReaderPage
 
     private void RefreshReaderAppearance()
     {
-        ApplyPowerSavingToHost();
+        ApplyPowerSavingState();
         ApplyTheme();
         ReaderFooter.IsVisible = !_usesNativeFrontend
             && _shell.Preferences.Current.ReaderProgressDisplay != MobileReaderProgressDisplay.Off;

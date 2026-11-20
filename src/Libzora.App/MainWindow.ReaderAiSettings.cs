@@ -20,6 +20,23 @@ namespace Libzora;
 /// </summary>
 public partial class MainWindow
 {
+    private void MainReaderAiBaseUrlBox_TextChanged(object? sender, TextChangedEventArgs e)
+    {
+        if (_suppressMainAiProviderChange || _readerAiAvailableModels.Count == 0) return;
+        _readerAiAvailableModels = [];
+        ApplyReaderAiModelSelectors(GetSelectedMainReaderAiProvider(), MainReaderAiModelBox.Text ?? string.Empty);
+    }
+
+    private void ReaderAiBaseUrlBox_TextChanged(object? sender, TextChangedEventArgs e)
+    {
+        if (_suppressAiProviderChange || _readerAiAvailableModels.Count == 0) return;
+        _readerAiAvailableModels = [];
+        ApplyReaderAiModelSelectors(GetSelectedReaderAiProvider(), ReaderAiModelBox.Text ?? string.Empty);
+    }
+
+    private string GetSelectedMainReaderAiProvider() =>
+        (MainReaderAiProviderBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "deepseek";
+
     private void ReaderAiSettingsOpenButton_Click(object? sender, RoutedEventArgs e)
         => ReaderAiSettingsButton_Click(sender, e);
 

@@ -262,8 +262,8 @@ public partial class MainWindow
         {
             foreach (var (index, container) in _bookGridPanel.EnumerateRealizedContainers())
             {
-                if (index < 0 || index >= ViewModel.Books.Count) continue;
-                var card = ViewModel.Books[index];
+                if (index < 0 || index >= ViewModel.ShelfBooks.Count) continue;
+                var card = ViewModel.ShelfBooks[index];
                 var origin = container.TranslatePoint(default, BookGrid);
                 if (origin is not { } point) continue;
                 var bounds = new Rect(
@@ -359,7 +359,7 @@ public partial class MainWindow
 
     private void ApplyCardRangeSelection(BookCardViewModel clicked)
     {
-        var cards = ViewModel.Books.ToList();
+        var cards = ViewModel.ShelfBooks.ToList();
         var clickedIndex = cards.FindIndex(card => ReferenceEquals(card, clicked));
         if (clickedIndex < 0) return;
 

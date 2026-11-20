@@ -19,7 +19,9 @@ public sealed partial class S3SyncIntegrationTests
         await using var a = await Device.CreateAsync(bucket);
         await a.SyncAsync();
         var snapshot = bucket.Snapshot(a.SnapshotKey);
-        var key = $"sync/objects/plain/{new string('a', 64)}";
+        var identity = "LIBZORA-CUSTOM-OBJECTS3|" + snapshot.BlobNamingSalts!.Order(StringComparer.Ordinal).First();
+        var objectNamespace = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(identity))).ToLowerInvariant();
+        var key = $"sync/objects/encrypted/{objectNamespace}/{new string('a', 64)}";
         bucket.Objects[key] = [1, 2, 3];
         bucket.ModifiedTimes[key] = DateTime.UtcNow.AddDays(-400);
         bucket.ModifiedTimes[a.SnapshotKey] = DateTime.UtcNow.AddDays(-400);

@@ -1,12 +1,13 @@
 using System.Security.Cryptography;
+using Foundation;
+using Security;
 using Libzora.Core;
 
 namespace Libzora.iOSHead;
 
 /// <summary>
-/// AES-GCM encryption for API keys and SMTP passwords. The key lives inside the
-/// app sandbox under Library, which iOS excludes from the Files app and
-/// protects with Data Protection while the device is locked.
+/// AES-GCM encryption backed by a non-synchronizing, device-only Keychain key.
+/// Existing sandbox keys are migrated without changing protected secret bytes.
 /// </summary>
 /// <remarks>
 /// Deliberately standalone rather than deriving from <c>AesGcmSecretProtector</c>:
@@ -64,7 +65,7 @@ public sealed class IOSSecretProtector : ISecretProtector
             throw new CryptographicException("The protected secret has an unsupported format.");
         }
 
-        var key = GetOrCreateKey();
+        var key = GetOrCreateKey(createIfMissing: false);
         try
         {
             var nonce = value.AsSpan(Header.Length, NonceSize);
@@ -81,27 +82,55 @@ public sealed class IOSSecretProtector : ISecretProtector
         }
     }
 
-    private byte[] GetOrCreateKey()
+    private byte[] GetOrCreateKey(bool createIfMissing = true)
     {
         lock (Gate)
         {
-            Directory.CreateDirectory(_keyDirectory);
-            if (File.Exists(_keyPath))
-            {
-                try
-                {
-                    var stored = Convert.FromBase64String(File.ReadAllText(_keyPath).Trim());
-                    if (stored.Length == KeySize) return stored;
-                }
-                catch (FormatException)
-                {
-                    // A corrupt key only invalidates stored secrets.
-                }
-            }
-
-            var key = RandomNumberGenerator.GetBytes(KeySize);
-            File.WriteAllText(_keyPath, Convert.ToBase64String(key));
-            return key;
+            // Exclude the old directory even when migration cannot finish, e.g.
+            // while Keychain access is temporarily unavailable.
+            if (Directory.Exists(_keyDirectory))
+                NSFileManager.SetSkipBackupAttribute(_keyDirectory, true);
+            return IOSSecretKeyMigration.GetOrCreate(ReadDeviceKey, SaveDeviceKey,
+                ReadLegacyKey, () => File.Delete(_keyPath), createIfMissing);
         }
+    }
+
+    private byte[]? ReadLegacyKey()
+    {
+        if (!File.Exists(_keyPath)) return null;
+        try { return Convert.FromBase64String(File.ReadAllText(_keyPath).Trim()); }
+        catch (FormatException)
+        {
+            // A corrupt legacy key only invalidates secrets it protected.
+            return null;
+        }
+    }
+
+    private static SecRecord KeyRecord() => new(SecKind.GenericPassword)
+    {
+        Service = NSBundle.MainBundle.BundleIdentifier ?? "com.kingstacker.libzora",
+        Account = "sandbox-master-key-v1",
+        Synchronizable = false
+    };
+
+    private static byte[]? ReadDeviceKey()
+    {
+        using var query = KeyRecord();
+        using var data = SecKeyChain.QueryAsData(query, false, out var status);
+        if (status == SecStatusCode.ItemNotFound) return null;
+        if (status != SecStatusCode.Success || data is null)
+            throw new SecretStoreUnavailableException($"Unable to access the device Keychain: {status}.");
+        return data.ToArray();
+    }
+
+    private static void SaveDeviceKey(byte[] key)
+    {
+        using var record = KeyRecord();
+        record.Accessible = SecAccessible.AfterFirstUnlockThisDeviceOnly;
+        using var data = NSData.FromArray(key);
+        record.ValueData = data;
+        var status = SecKeyChain.Add(record);
+        if (status != SecStatusCode.Success)
+            throw new SecretStoreUnavailableException($"Unable to store the device Keychain key: {status}.");
     }
 }

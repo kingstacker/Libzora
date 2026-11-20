@@ -427,7 +427,7 @@ public partial class SyncSettingsPage : UserControl, IShellPage
     {
         var iCloudAvailable = _modules?.Sync.Service.AvailableProviders.Any(provider => provider.Provider == SyncProvider.ICloud) == true;
         ProviderICloud.IsVisible = iCloudAvailable;
-        ProviderColumns.ColumnDefinitions = new ColumnDefinitions(iCloudAvailable ? "*,*,*" : "*,*,0");
+        ProviderColumns.ColumnDefinitions = new ColumnDefinitions(iCloudAvailable ? "*,*,*" : "0,*,*");
         var s3 = _provider == SyncProvider.S3;
         var webDav = _provider == SyncProvider.WebDav;
         var iCloud = _provider == SyncProvider.ICloud;

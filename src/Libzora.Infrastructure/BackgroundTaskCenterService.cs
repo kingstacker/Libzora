@@ -28,6 +28,7 @@ public sealed class BackgroundTaskCenterService
     private readonly SemaphoreSlim _persistGate = new(1, 1);
     private readonly string _historyPath;
     private readonly Dictionary<Guid, TaskState> _tasks = [];
+    private long _nextSequence;
 
     public BackgroundTaskCenterService(string historyPath, bool clearHistoryOnStartup = false)
     {
@@ -52,6 +53,7 @@ public sealed class BackgroundTaskCenterService
         {
             return _tasks.Values
                 .OrderByDescending(task => task.CreatedAtUtc)
+                .ThenByDescending(task => task.Sequence)
                 .Select(ToSnapshot)
                 .ToArray();
         }
@@ -79,7 +81,7 @@ public sealed class BackgroundTaskCenterService
         int generation;
         lock (_sync)
         {
-            state = new TaskState(id, SafeText(title, 160), kind, now)
+            state = new TaskState(id, SafeText(title, 160), kind, now, ++_nextSequence)
             {
                 Status = BackgroundTaskStatus.Running,
                 UpdatedAtUtc = now,
@@ -430,9 +432,10 @@ public sealed class BackgroundTaskCenterService
         catch { /* A UI subscriber must not break operation tracking. */ }
     }
 
-    private sealed class TaskState(Guid id, string? title, BackgroundTaskKind kind, DateTimeOffset createdAtUtc)
+    private sealed class TaskState(Guid id, string? title, BackgroundTaskKind kind, DateTimeOffset createdAtUtc, long sequence = 0)
     {
         public Guid Id { get; } = id;
+        public long Sequence { get; } = sequence;
         public string Title { get; } = title ?? "后台任务";
         public BackgroundTaskKind Kind { get; } = kind;
         public BackgroundTaskStatus Status { get; set; } = BackgroundTaskStatus.Queued;

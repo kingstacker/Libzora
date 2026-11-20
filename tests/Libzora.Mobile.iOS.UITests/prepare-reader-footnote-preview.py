@@ -27,6 +27,14 @@ FIXTURES = (
      "<aside epub:type='footnote' id='note1'><p>图片数据属性中的完整注释。</p></aside>"),
     ("普通链接", "<p>普通<a href='notes.xhtml#chapter2'>章节链接</a>。</p>",
      "<h2 id='chapter2'>第二章</h2><p>这是普通章节，不是脚注。</p>"),
+    # Ordinary Chinese EPUBs often keep notes as plain numbered paragraphs
+    # inside the same chapter, with no link for the reader to follow.
+    ("纯文本注释",
+     "<p>原文（1）此处有注。</p>"
+     "<p>正文第二段。</p>"
+     "<p>【注释】</p>"
+     "<p>（1）纯文本注释内容。</p>",
+     "<p>没有链接的纯文本脚注。</p>"),
 )
 
 
@@ -46,7 +54,7 @@ def covers_from(directory):
                 covers.append(book.read(image))
         if len(covers) == len(FIXTURES):
             return covers
-    raise ValueError("Provide at least four public-domain EPUBs with JPEG book covers.")
+    raise ValueError("Provide at least five public-domain EPUBs with JPEG book covers.")
 
 
 def make_epub(path, title, body, notes, image):

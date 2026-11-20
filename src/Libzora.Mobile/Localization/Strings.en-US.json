@@ -1,4 +1,6 @@
 {
+  "S3 / WebDAV 多端同步免费使用，无需注册。": "S3 and WebDAV sync is free to use, with no account required.",
+  "书籍已不存在。": "This book no longer exists.",
   "账号操作": "Account Actions",
   "输入发送到注册邮箱的验证码，然后设置新密码。": "Enter the code sent to your registered email, then choose a new password.",
   "注册后可在多台设备同步书籍和阅读进度。": "Create an account to sync books and reading progress across devices.",
@@ -340,7 +342,7 @@
   "目录前缀": "Path Prefix",
   "同步时下载书籍文件": "Download Book Files During Sync",
   "跳过 TLS 验证": "Skip TLS Verification",
-  "同步密钥（备份必填，同步建议加密）": "Sync key (required for backups)",
+  "同步密钥（云同步与备份必填）": "Sync key (required for cloud sync & backups)",
   "再次输入同步密钥": "Confirm sync key",
   "设置或更改密钥时需要输入两次，并在弹窗中确认。密钥由你自行牢记，不会上传或写入备份。遗忘后无法解密已有数据，设置新密钥也无法恢复旧数据。": "Enter a new or changed key twice, then confirm it in the alert. Keep the key safe yourself: it is never uploaded or included in backups. If you forget it, your existing data cannot be decrypted. A new key cannot restore old data.",
   "两次输入的同步密钥不一致，请重新输入。": "The sync keys do not match. Please enter them again.",
@@ -388,5 +390,13 @@
   "添加格式": "Add Format",
   "跳过": "Skip",
   "这条阅读位置不属于当前书籍。": "This reading position belongs to a different book.",
-  "无法保存阅读进度，请稍后重试。": "Could not save your reading position. Please try again."
+  "无法保存阅读进度，请稍后重试。": "Could not save your reading position. Please try again.",
+  "获取模型": "Fetch Models",
+  "选择模型": "Choose Model",
+  "{0} 个可用": "{0} available",
+  "正在获取模型列表…": "Fetching models…",
+  "未获取到可用模型，请手动填写模型名称。": "No models were returned. Enter a model name manually.",
+  "已获取 {0} 个模型，请选择。": "Fetched {0} models. Choose one.",
+  "搜索模型": "Search models",
+  "没有匹配的模型": "No matching models"
 }

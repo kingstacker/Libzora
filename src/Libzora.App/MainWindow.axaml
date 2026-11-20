@@ -1058,9 +1058,9 @@
                     </Border>
 
                     <Grid Grid.Row="1">
-                        <ListBox x:Name="BookGrid" Classes="bookGrid" ItemsSource="{Binding ViewModel.Books}" SelectionMode="Multiple" SelectionChanged="BookList_SelectionChanged" PointerPressed="BookGrid_PointerPressed" PointerMoved="BookGrid_PointerMoved" PointerReleased="BookGrid_PointerReleased" PointerCaptureLost="BookGrid_PointerCaptureLost" KeyDown="BookGrid_KeyDown" Focusable="True" Background="Transparent" BorderThickness="0" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Disabled"><ListBox.ItemsPanel><ItemsPanelTemplate><local:VirtualizingWrapPanel Orientation="Horizontal" ItemWidth="166" ItemHeight="304" CacheLength="0.5" /></ItemsPanelTemplate></ListBox.ItemsPanel><ListBox.ItemTemplate>                                 <DataTemplate x:DataType="local:BookCardViewModel">                                     <Grid Width="154"                                           Height="{Binding CardHeight}"                                           Margin="6"                                           RowDefinitions="214,Auto"                                           PointerPressed="BookCard_PointerPressed"                                           PointerEntered="BookCard_PointerEntered"                                           PointerExited="BookCard_PointerExited"                                           ContextRequested="BookCard_ContextRequested"                                           DoubleTapped="BookCard_DoubleTapped" AttachedToVisualTree="BookCard_AttachedToVisualTree" DetachedFromVisualTree="BookCard_DetachedFromVisualTree">                                         <Border Grid.Row="0"                                                 Classes="bookCover"                                                 Classes.hover="{Binding IsHovered}"                                                 Background="{DynamicResource PressedBrush}"                                                 BorderThickness="1">                                             <Grid Background="Transparent">                                                 <TextBlock Text="BOOK"                                                            HorizontalAlignment="Center"                                                            VerticalAlignment="Center"                                                            Foreground="{DynamicResource MutedInkBrush}"                                                            FontSize="17"                                                            IsHitTestVisible="False" />                                                 <Image Source="{Binding CoverImage}" Stretch="UniformToFill" /><Button IsVisible="{Binding IsReadActionVisible}" Classes="coverReadAction bookCoverRead"
+                        <ListBox x:Name="BookGrid" Classes="bookGrid" ItemsSource="{Binding ViewModel.ShelfBooks}" SelectionMode="Multiple" SelectionChanged="BookList_SelectionChanged" PointerPressed="BookGrid_PointerPressed" PointerMoved="BookGrid_PointerMoved" PointerReleased="BookGrid_PointerReleased" PointerCaptureLost="BookGrid_PointerCaptureLost" KeyDown="BookGrid_KeyDown" Focusable="True" Background="Transparent" BorderThickness="0" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Disabled"><ListBox.ItemsPanel><ItemsPanelTemplate><local:VirtualizingWrapPanel Orientation="Horizontal" ItemWidth="166" ItemHeight="304" CacheLength="0.5" /></ItemsPanelTemplate></ListBox.ItemsPanel><ListBox.ItemTemplate>                                 <DataTemplate x:DataType="local:BookCardViewModel">                                     <Grid Width="154"                                           Height="{Binding CardHeight}"                                           Margin="6"                                           RowDefinitions="214,Auto"                                           PointerPressed="BookCard_PointerPressed"                                           PointerEntered="BookCard_PointerEntered"                                           PointerExited="BookCard_PointerExited"                                           ContextRequested="BookCard_ContextRequested"                                           DoubleTapped="BookCard_DoubleTapped" AttachedToVisualTree="BookCard_AttachedToVisualTree" DetachedFromVisualTree="BookCard_DetachedFromVisualTree">                                         <Border Grid.Row="0"                                                 Classes="bookCover"                                                 Classes.hover="{Binding IsHovered}"                                                 Background="{DynamicResource PressedBrush}"                                                 BorderThickness="1">                                             <Grid Background="Transparent">                                                 <TextBlock Text="BOOK"                                                            HorizontalAlignment="Center"                                                            VerticalAlignment="Center"                                                            Foreground="{DynamicResource MutedInkBrush}"                                                            FontSize="17"                                                            IsHitTestVisible="False" />                                                 <Image Classes="seriesLayer" Source="{Binding SeriesCover3}" Stretch="UniformToFill" HorizontalAlignment="Left" VerticalAlignment="Stretch" Width="154" IsVisible="{Binding SeriesCover3Visibility}" /><Image Classes="seriesLayer" Source="{Binding SeriesCover2}" Stretch="UniformToFill" HorizontalAlignment="Left" VerticalAlignment="Stretch" Width="{Binding RearCover1Width}" IsVisible="{Binding SeriesCover2Visibility}" /><Image Classes.seriesFront="{Binding IsSeriesStack}" Source="{Binding CoverImage}" Stretch="UniformToFill" HorizontalAlignment="Left" Width="{Binding FrontCoverWidth}" /><Button IsVisible="{Binding IsReadActionVisible}" Classes="coverReadAction bookCoverRead"
                                                 Content="{DynamicResource Ui.Auto.CE9B12499C471759}"
-                                                Click="BookCoverReadButton_Click" /></Grid>                                         </Border>                                         <Grid Grid.Row="1" Margin="2,8,2,0" ColumnDefinitions="*,58" RowDefinitions="40,16,14" IsVisible="{Binding GalleryTextVisibility}">                                             <TextBlock Grid.Row="0" Grid.ColumnSpan="2" Text="{Binding Title}" FontSize="15" LineHeight="18" FontWeight="SemiBold" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" />                                             <TextBlock Grid.Row="1" Text="{Binding Authors}" FontSize="11" LineHeight="14" Foreground="{DynamicResource MutedInkBrush}" TextTrimming="CharacterEllipsis" />                                             <TextBlock Grid.Row="2" Text="{Binding FormatLabel}" FontSize="10" LineHeight="12" Foreground="{DynamicResource SubtleInkBrush}" TextTrimming="CharacterEllipsis" />                                         <Grid Grid.Row="1" Grid.RowSpan="2" Grid.Column="1" Width="52" ColumnDefinitions="24,24" ColumnSpacing="4" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                                Click="BookCoverReadButton_Click" /><Button Classes="seriesBadge" Content="{Binding SeriesCountLabel}" IsVisible="{Binding SeriesBadgeVisibility}" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,6,6" ToolTip.Tip="{Binding SeriesBadgeTip}" AutomationProperties.Name="{Binding SeriesBadgeTip}" Click="BookSeriesBadge_Click" /></Grid>                                         </Border>                                         <Grid Grid.Row="1" Margin="2,8,2,0" ColumnDefinitions="*,58" RowDefinitions="40,16,14" IsVisible="{Binding GalleryTextVisibility}">                                             <TextBlock Grid.Row="0" Grid.ColumnSpan="2" Text="{Binding DisplayTitle}" FontSize="15" LineHeight="18" FontWeight="SemiBold" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" />                                             <TextBlock Grid.Row="1" Text="{Binding Authors}" FontSize="11" LineHeight="14" Foreground="{DynamicResource MutedInkBrush}" TextTrimming="CharacterEllipsis" />                                             <TextBlock Grid.Row="2" Text="{Binding DisplayMetaLabel}" FontSize="10" LineHeight="12" Foreground="{DynamicResource SubtleInkBrush}" TextTrimming="CharacterEllipsis" />                                         <Grid Grid.Row="1" Grid.RowSpan="2" Grid.Column="1" Width="52" ColumnDefinitions="24,24" ColumnSpacing="4" HorizontalAlignment="Right" VerticalAlignment="Center">
                                              <ContentControl Grid.Column="0" Width="24" Height="24" Content="{Binding}" Padding="0" HorizontalAlignment="Center" VerticalAlignment="Center" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ContentTemplate="{StaticResource BookSyncStatusGlyph}" ToolTip.Tip="{Binding SyncStatusLabel}" AutomationProperties.Name="{Binding SyncStatusLabel}" Tapped="BookSyncStatusIcon_Tapped" IsVisible="{Binding SyncStatusVisibility}" />
                                              <ContentControl Grid.Column="1" Width="24" Height="24" Content="{Binding}" Padding="0" HorizontalAlignment="Center" VerticalAlignment="Center" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ContentTemplate="{StaticResource LibraryPresenceGlyph}" ToolTip.Tip="{Binding PresenceLabel}" AutomationProperties.Name="{Binding PresenceLabel}" IsVisible="{Binding PresenceVisibility}" />
                                          </Grid>                                         </Grid>                                                                                  <Border Grid.RowSpan="2"                                                 Classes="bookOutline"                                                 BorderBrush="{DynamicResource HairlineBrush}"                                                 BorderThickness="1"                                                 IsHitTestVisible="False" />                                         <Border Width="20" Height="20" Margin="6" HorizontalAlignment="Left" VerticalAlignment="Top" CornerRadius="10" Background="{DynamicResource InkBrush}" IsVisible="{Binding IsMultiSelected}" IsHitTestVisible="False">                                             <TextBlock Text="✓"                                                            Foreground="{DynamicResource PaperBrush}"                                                            FontSize="12"                                                            FontWeight="Bold"                                                            HorizontalAlignment="Center"                                                            VerticalAlignment="Center" />                                         </Border>                                     </Grid></DataTemplate>                             </ListBox.ItemTemplate>
@@ -1076,7 +1076,7 @@
 
                         <ListBox x:Name="BookList"
                                  Classes="bookList"
-                                 ItemsSource="{Binding ViewModel.Books}"
+                                 ItemsSource="{Binding ViewModel.ShelfBooks}"
                                  SelectionMode="Multiple"
                                  SelectionChanged="BookList_SelectionChanged"
                                  IsVisible="False"
@@ -1121,21 +1121,21 @@
                                                 </Grid>
                                              </Border>
                                             <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3">
-                                                <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" MaxLines="2" ToolTip.Tip="{Binding Title}" />
-                                                <TextBlock Text="{Binding Authors}" Foreground="{DynamicResource MutedInkBrush}" FontSize="11" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Authors}" />
-                                                <TextBlock Text="{Binding FileSummaryLabel}" FontSize="10" Foreground="{DynamicResource SubtleInkBrush}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding FileSummaryLabel}" />
+                                                <TextBlock Text="{Binding DisplayTitle}" FontWeight="SemiBold" TextWrapping="Wrap" MaxLines="2" ToolTip.Tip="{Binding DisplayTitle}" ToolTip.ServiceEnabled="{Binding IsTooltipEnabled}" />
+                                                <TextBlock Text="{Binding Authors}" Foreground="{DynamicResource MutedInkBrush}" FontSize="11" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Authors}" ToolTip.ServiceEnabled="{Binding IsTooltipEnabled}" />
+                                                <TextBlock Text="{Binding DisplayFileSummaryLabel}" FontSize="10" Foreground="{DynamicResource SubtleInkBrush}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding DisplayFileSummaryLabel}" ToolTip.ServiceEnabled="{Binding IsTooltipEnabled}" />
                                             </StackPanel>
                                             <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="3">
-                                                <TextBlock Text="{Binding OrganizationLabel}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding OrganizationLabel}" />
-                                                <TextBlock Text="{Binding PublicationLabel}" Foreground="{DynamicResource SubtleInkBrush}" FontSize="10" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding PublicationLabel}" />
-                                                <TextBlock Text="{Binding IdentifierLabel}" Foreground="{DynamicResource SubtleInkBrush}" FontSize="10" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding IdentifierLabel}" />
+                                                <TextBlock Text="{Binding OrganizationLabel}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding OrganizationLabel}" ToolTip.ServiceEnabled="{Binding IsTooltipEnabled}" />
+                                                <TextBlock Text="{Binding PublicationLabel}" Foreground="{DynamicResource SubtleInkBrush}" FontSize="10" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding PublicationLabel}" ToolTip.ServiceEnabled="{Binding IsTooltipEnabled}" />
+                                                <TextBlock Text="{Binding IdentifierLabel}" Foreground="{DynamicResource SubtleInkBrush}" FontSize="10" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding IdentifierLabel}" ToolTip.ServiceEnabled="{Binding IsTooltipEnabled}" />
                                             </StackPanel>
                                             <StackPanel Grid.Column="3" VerticalAlignment="Center" Spacing="3">
-                                                <TextBlock Text="{Binding ReadingStateLabel}" Foreground="{DynamicResource MutedInkBrush}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding ReadingStateLabel}" />
-                                                <TextBlock Text="{Binding DescriptionSummaryLabel}" Foreground="{DynamicResource SubtleInkBrush}" FontSize="10" TextTrimming="CharacterEllipsis" MaxLines="2" ToolTip.Tip="{Binding DescriptionSummaryLabel}" />
+                                                <TextBlock Text="{Binding ReadingStateLabel}" Foreground="{DynamicResource MutedInkBrush}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding ReadingStateLabel}" ToolTip.ServiceEnabled="{Binding IsTooltipEnabled}" />
+                                                <TextBlock Text="{Binding DescriptionSummaryLabel}" Foreground="{DynamicResource SubtleInkBrush}" FontSize="10" TextTrimming="CharacterEllipsis" MaxLines="2" ToolTip.Tip="{Binding DescriptionSummaryLabel}" ToolTip.ServiceEnabled="{Binding IsTooltipEnabled}" />
                                             </StackPanel>
                                             <StackPanel Grid.Column="4" VerticalAlignment="Center" HorizontalAlignment="Right" Spacing="5">
-                                                <TextBlock Text="{Binding UpdatedLabel}" Foreground="{DynamicResource SubtleInkBrush}" FontSize="10" HorizontalAlignment="Right" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding UpdatedLabel}" />
+                                                <TextBlock Text="{Binding UpdatedLabel}" Foreground="{DynamicResource SubtleInkBrush}" FontSize="10" HorizontalAlignment="Right" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding UpdatedLabel}" ToolTip.ServiceEnabled="{Binding IsTooltipEnabled}" />
                                                 <Grid Width="52" ColumnDefinitions="24,24" ColumnSpacing="4" HorizontalAlignment="Right">
                                                     <ContentControl Width="24"
                                                                     Grid.Column="0"
@@ -1148,6 +1148,7 @@
                                                                     VerticalContentAlignment="Center"
                                                                     ContentTemplate="{StaticResource BookSyncStatusGlyph}"
                                                                     ToolTip.Tip="{Binding SyncStatusLabel}"
+                                                                    ToolTip.ServiceEnabled="{Binding IsTooltipEnabled}"
                                                                     AutomationProperties.Name="{Binding SyncStatusLabel}"
                                                                     Tapped="BookSyncStatusIcon_Tapped"
                                                                     IsVisible="{Binding SyncStatusVisibility}" />
@@ -1162,6 +1163,7 @@
                                                                     VerticalContentAlignment="Center"
                                                                     ContentTemplate="{StaticResource LibraryPresenceGlyph}"
                                                                     ToolTip.Tip="{Binding PresenceLabel}"
+                                                                    ToolTip.ServiceEnabled="{Binding IsTooltipEnabled}"
                                                                     AutomationProperties.Name="{Binding PresenceLabel}"
                                                                     IsVisible="{Binding PresenceVisibility}" />
                                                 </Grid>
@@ -1913,7 +1915,7 @@
                               PointerMoved="DeviceBookGrid_PointerMoved"
                               PointerReleased="DeviceBookGrid_PointerReleased"
                               PointerCaptureLost="DeviceBookGrid_PointerCaptureLost">
-                    <ItemsControl x:Name="DeviceBookGridItems" ItemsSource="{Binding VisibleDeviceBooks}" HorizontalAlignment="Stretch">
+                    <ItemsControl x:Name="DeviceBookGridItems" ItemsSource="{Binding VisibleDeviceShelfBooks}" HorizontalAlignment="Stretch">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
                                 <WrapPanel Orientation="Horizontal" ItemWidth="166" />
@@ -1929,7 +1931,7 @@
                                       PointerEntered="DeviceBook_PointerEntered"
                                       PointerExited="DeviceBook_PointerExited"
                                       ContextRequested="DeviceBook_ContextRequested">
-                                    <Border Grid.Row="0" Classes="bookCover" Classes.hover="{Binding IsHovered}" Background="{DynamicResource PressedBrush}" BorderThickness="1">
+                                    <Border Grid.Row="0" Classes="bookCover" Classes.hover="{Binding IsHovered}" Background="{DynamicResource PressedBrush}" BorderThickness="1" ToolTip.ServiceEnabled="{Binding IsTooltipEnabled}">
                                         <ToolTip.Tip>
                                             <ToolTip>
                                                 <StackPanel MaxWidth="360" Spacing="4">
@@ -1941,13 +1943,16 @@
                                         </ToolTip.Tip>
                                         <Grid Background="Transparent">
                                             <TextBlock Text="BOOK" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{DynamicResource MutedInkBrush}" FontSize="17" IsHitTestVisible="False" />
-                                            <Image Source="{Binding CoverImage}" Stretch="UniformToFill" />
+                                            <Image Classes="seriesLayer" Source="{Binding SeriesCover3}" Stretch="UniformToFill" HorizontalAlignment="Left" VerticalAlignment="Stretch" Width="154" IsVisible="{Binding SeriesCover3Visibility}" />
+                                            <Image Classes="seriesLayer" Source="{Binding SeriesCover2}" Stretch="UniformToFill" HorizontalAlignment="Left" VerticalAlignment="Stretch" Width="{Binding RearCover1Width}" IsVisible="{Binding SeriesCover2Visibility}" />
+                                            <Image Classes.seriesFront="{Binding IsSeriesStack}" Source="{Binding CoverImage}" Stretch="UniformToFill" HorizontalAlignment="Left" Width="{Binding FrontCoverWidth}" />
+                                            <Button Classes="seriesBadge" Content="{Binding SeriesCountLabel}" IsVisible="{Binding SeriesBadgeVisibility}" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,6,6" ToolTip.Tip="{Binding SeriesBadgeTip}" ToolTip.ServiceEnabled="{Binding IsTooltipEnabled}" AutomationProperties.Name="{Binding SeriesBadgeTip}" Click="DeviceSeriesBadge_Click" />
                                         </Grid>
                                          </Border>
                                           <Grid Grid.Row="1" Margin="2,8,2,0" ColumnDefinitions="*,30" RowDefinitions="40,16,14" IsVisible="{Binding GalleryTextVisibility}">
-                                        <TextBlock Grid.Row="0" Grid.ColumnSpan="2" Text="{Binding Title}" FontSize="15" LineHeight="18" FontWeight="SemiBold" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Title}" />
-                                        <TextBlock Grid.Row="1" Text="{Binding Authors}" FontSize="11" LineHeight="14" Foreground="{DynamicResource MutedInkBrush}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Authors}" />
-                                        <TextBlock Grid.Row="2" Text="{Binding FormatLabel}" FontSize="10" LineHeight="12" Foreground="{DynamicResource SubtleInkBrush}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding FormatLabel}" />
+                                        <TextBlock Grid.Row="0" Grid.ColumnSpan="2" Text="{Binding DisplayTitle}" FontSize="15" LineHeight="18" FontWeight="SemiBold" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding DisplayTitle}" ToolTip.ServiceEnabled="{Binding IsTooltipEnabled}" />
+                                        <TextBlock Grid.Row="1" Text="{Binding Authors}" FontSize="11" LineHeight="14" Foreground="{DynamicResource MutedInkBrush}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Authors}" ToolTip.ServiceEnabled="{Binding IsTooltipEnabled}" />
+                                        <TextBlock Grid.Row="2" Text="{Binding DisplayMetaLabel}" FontSize="10" LineHeight="12" Foreground="{DynamicResource SubtleInkBrush}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding DisplayMetaLabel}" ToolTip.ServiceEnabled="{Binding IsTooltipEnabled}" />
                                     </Grid>
                                     <ContentControl Grid.RowSpan="2"
                                                     Width="24"
@@ -1961,6 +1966,7 @@
                                                     VerticalContentAlignment="Center"
                                                     ContentTemplate="{StaticResource LibraryPresenceGlyph}"
                                                     ToolTip.Tip="{Binding PresenceLabel}"
+                                                    ToolTip.ServiceEnabled="{Binding IsTooltipEnabled}"
                                                     AutomationProperties.Name="{Binding PresenceLabel}"
                                                     IsVisible="{Binding PresenceVisibility}" />
                                     <Border Grid.RowSpan="2"
@@ -1992,7 +1998,7 @@
                             IsVisible="False" />
                 </Canvas>
                 <ScrollViewer x:Name="DeviceBookListScroll" Grid.Row="3" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" IsVisible="False">
-                    <ItemsControl x:Name="DeviceBookListItems" ItemsSource="{Binding VisibleDeviceBooks}">
+                    <ItemsControl x:Name="DeviceBookListItems" ItemsSource="{Binding VisibleDeviceShelfBooks}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="local:KindleBookCardViewModel">
                                 <Border Classes="deviceBookRow"
@@ -2035,6 +2041,7 @@
                                                     BorderThickness="1"
                                                     IsVisible="{Binding PresenceVisibility}"
                                                     ToolTip.Tip="{Binding PresenceLabel}"
+                                                    ToolTip.ServiceEnabled="{Binding IsTooltipEnabled}"
                                                     AutomationProperties.Name="{Binding PresenceLabel}">
                                                 <ContentControl Content="{Binding}"
                                                                 Padding="0"
@@ -2051,17 +2058,17 @@
                                             </Border>
                                         </Grid>
                                         <StackPanel Grid.Column="1" Margin="12,0,12,0" VerticalAlignment="Center" Spacing="2" IsVisible="{Binding GalleryTextVisibility}">
-                                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" MaxLines="2" ToolTip.Tip="{Binding Title}" />
-                                            <TextBlock Text="{Binding Authors}" Foreground="{DynamicResource MutedInkBrush}" FontSize="11" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Authors}" />
-                                            <TextBlock Text="{Binding FileName}" Foreground="{DynamicResource SubtleInkBrush}" FontSize="10" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding FileName}" />
+                                            <TextBlock Text="{Binding DisplayTitle}" FontWeight="SemiBold" TextWrapping="Wrap" MaxLines="2" ToolTip.Tip="{Binding DisplayTitle}" ToolTip.ServiceEnabled="{Binding IsTooltipEnabled}" />
+                                            <TextBlock Text="{Binding Authors}" Foreground="{DynamicResource MutedInkBrush}" FontSize="11" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Authors}" ToolTip.ServiceEnabled="{Binding IsTooltipEnabled}" />
+                                            <TextBlock Text="{Binding DisplayFileName}" Foreground="{DynamicResource SubtleInkBrush}" FontSize="10" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding DisplayFileName}" ToolTip.ServiceEnabled="{Binding IsTooltipEnabled}" />
                                         </StackPanel>
                                         <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="2">
-                                            <TextBlock Text="{Binding InfoLabel}" Foreground="{DynamicResource MutedInkBrush}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding InfoLabel}" />
-                                            <TextBlock Text="{Binding ModifiedLabel}" Foreground="{DynamicResource SubtleInkBrush}" FontSize="10" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding ModifiedLabel}" />
+                                            <TextBlock Text="{Binding DisplayInfoLabel}" Foreground="{DynamicResource MutedInkBrush}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding DisplayInfoLabel}" ToolTip.ServiceEnabled="{Binding IsTooltipEnabled}" />
+                                            <TextBlock Text="{Binding ModifiedLabel}" Foreground="{DynamicResource SubtleInkBrush}" FontSize="10" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding ModifiedLabel}" ToolTip.ServiceEnabled="{Binding IsTooltipEnabled}" />
                                         </StackPanel>
                                         <StackPanel Grid.Column="3" VerticalAlignment="Center" Spacing="2">
-                                            <TextBlock Text="{Binding RelativePath}" Foreground="{DynamicResource SubtleInkBrush}" FontSize="10" TextTrimming="CharacterEllipsis" HorizontalAlignment="Right" ToolTip.Tip="{Binding RelativePath}" />
-                                            <TextBlock Text="{Binding HashLabel}" Foreground="{DynamicResource SubtleInkBrush}" FontSize="10" TextTrimming="CharacterEllipsis" HorizontalAlignment="Right" ToolTip.Tip="{Binding HashLabel}" />
+                                            <TextBlock Text="{Binding RelativePath}" Foreground="{DynamicResource SubtleInkBrush}" FontSize="10" TextTrimming="CharacterEllipsis" HorizontalAlignment="Right" ToolTip.Tip="{Binding RelativePath}" ToolTip.ServiceEnabled="{Binding IsTooltipEnabled}" />
+                                            <TextBlock Text="{Binding HashLabel}" Foreground="{DynamicResource SubtleInkBrush}" FontSize="10" TextTrimming="CharacterEllipsis" HorizontalAlignment="Right" ToolTip.Tip="{Binding HashLabel}" ToolTip.ServiceEnabled="{Binding IsTooltipEnabled}" />
                                         </StackPanel>
                                     </Grid>
                                 </Border>
@@ -2083,9 +2090,9 @@
                         ZIndex="20">
                     <StackPanel Orientation="Horizontal" Spacing="10">
                         <TextBlock x:Name="DeviceBookSelectionText" VerticalAlignment="Center" FontWeight="SemiBold" />
-                        <Button Content="{DynamicResource Ui.Auto.CFE6A637EB2B50A8}" Padding="11,6" Click="ExportSelectedDeviceBooksButton_Click" />
-                        <Button Content="{DynamicResource Ui.Auto.435BF8A234FDE6F2}" Padding="11,6" Click="DeleteSelectedDeviceBooksButton_Click" />
-                        <Button Content="{DynamicResource Ui.Auto.74966E20DF2EA9FD}" Padding="11,6" Click="ClearDeviceBookSelectionButton_Click" />
+                        <Button Content="{DynamicResource Ui.Auto.CFE6A637EB2B50A8}" Padding="12,6" Click="ExportSelectedDeviceBooksButton_Click" />
+                        <Button x:Name="DeleteSelectedDeviceBooksButton" Classes="multiSelectDelete" Content="{DynamicResource Ui.Auto.435BF8A234FDE6F2}" Padding="12,6" Click="DeleteSelectedDeviceBooksButton_Click" />
+                        <Button x:Name="ClearDeviceBookSelectionButton" Classes="multiSelectCancel" Content="{DynamicResource Ui.Auto.74966E20DF2EA9FD}" Padding="12,6" Click="ClearDeviceBookSelectionButton_Click" />
                     </StackPanel>
                 </Border>
                 <Border x:Name="DeviceBookEmptyState" Grid.Row="3" Background="Transparent" IsVisible="True" ZIndex="10">
@@ -2743,6 +2750,7 @@
                             <StackPanel Spacing="8" x:Name="SettingsLibrarySection" IsVisible="False">
                                 <TextBlock Text="{DynamicResource Ui.Auto.A183CEACD829707F}" Classes="settingsSectionTitle" TextWrapping="Wrap" />
                                 <ToggleSwitch x:Name="GridGalleryDisplayCheck" VerticalAlignment="Center" ToolTip.Tip="{DynamicResource Ui.Auto.694BA13A98D0252A}" Classes="settingsToggle" Content="{DynamicResource Ui.Auto.DA96E037499D9296}" AutomationProperties.Name="{DynamicResource Ui.Auto.DA96E037499D9296}" />
+                                <ToggleSwitch x:Name="StackBookSeriesCheck" VerticalAlignment="Center" ToolTip.Tip="{DynamicResource Ui.Library.StackSeriesHelp}" Classes="settingsToggle" Content="{DynamicResource Ui.Library.StackSeries}" AutomationProperties.Name="{DynamicResource Ui.Library.StackSeries}" />
                                 <ToggleSwitch x:Name="ShowSyncStatusIconCheck" VerticalAlignment="Center" ToolTip.Tip="{DynamicResource Ui.Library.ShowSyncStatusIconHelp}" Classes="settingsToggle" Content="{DynamicResource Ui.Library.ShowSyncStatusIcon}" AutomationProperties.Name="{DynamicResource Ui.Library.ShowSyncStatusIcon}" />
                                 <ToggleSwitch x:Name="ShowLibraryPresenceIconCheck" VerticalAlignment="Center" ToolTip.Tip="{DynamicResource Ui.Library.ShowPresenceIconHelp}" Classes="settingsToggle" Content="{DynamicResource Ui.Library.ShowPresenceIcon}" AutomationProperties.Name="{DynamicResource Ui.Library.ShowPresenceIcon}" />
                                 <ToggleSwitch x:Name="CollectionsMutuallyExclusiveCheck" VerticalAlignment="Center" ToolTip.Tip="{DynamicResource Ui.Library.CollectionsMutuallyExclusiveHelp}" Classes="settingsToggle" Content="{DynamicResource Ui.Auto.F6A273284E344858}" AutomationProperties.Name="{DynamicResource Ui.Auto.F6A273284E344858}" />
@@ -2874,14 +2882,14 @@
                                             </StackPanel>
                                             <StackPanel Spacing="5">
                                                 <TextBlock Text="Base URL" FontSize="12" TextWrapping="Wrap" />
-                                                <TextBox x:Name="MainReaderAiBaseUrlBox" PlaceholderText="https://api.deepseek.com" AutomationProperties.Name="Base URL" FontSize="14" />
+                                                <TextBox x:Name="MainReaderAiBaseUrlBox" PlaceholderText="https://api.deepseek.com" AutomationProperties.Name="Base URL" FontSize="14" TextChanged="MainReaderAiBaseUrlBox_TextChanged" />
                                             </StackPanel>
                                             <StackPanel Spacing="5">
                                                 <TextBlock Text="{DynamicResource Ui.Auto.C98E118E0A43F078}" FontSize="12" TextWrapping="Wrap" />
                                                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
                                                     <TextBox x:Name="MainReaderAiModelBox" PlaceholderText="{DynamicResource Ui.Auto.CB2F1709F983D2F4}" AutomationProperties.Name="{DynamicResource Ui.Auto.C98E118E0A43F078}" FontSize="14" />
                                                     <ComboBox x:Name="MainReaderAiModelSelectorBox" Grid.Column="0" Classes="aiModelSelector" IsVisible="False" PlaceholderText="{DynamicResource Ui.Auto.1AFED6A81A2512D2}" SelectionChanged="MainReaderAiModelSelectorBox_SelectionChanged" AutomationProperties.Name="{DynamicResource Ui.Auto.C98E118E0A43F078}" FontSize="14" />
-                                                    <Button x:Name="MainReaderAiFetchModelsButton" Grid.Column="1" Classes="quiet libraryToolbar" ContentTemplate="{StaticResource LibraryRefreshActionContent}" Content="{DynamicResource Ui.Auto.83FCFB4C1F2C1641}" Click="MainReaderAiFetchModelsButton_Click" />
+                                                    <Button x:Name="MainReaderAiFetchModelsButton" Grid.Column="1" Classes="quiet libraryToolbar" ContentTemplate="{StaticResource LibraryRefreshActionContent}" Content="{DynamicResource Ui.Auto.83FCFB4C1F2C1641}" ToolTip.Tip="{DynamicResource Ui.Auto.83FCFB4C1F2C1641}" AutomationProperties.Name="{DynamicResource Ui.Auto.83FCFB4C1F2C1641}" Click="MainReaderAiFetchModelsButton_Click" />
                                                 </Grid>
                                             </StackPanel>
                                             <StackPanel Spacing="5">
@@ -3165,13 +3173,6 @@
                                 <Expander x:Name="SettingsTrashExpander" Classes="settingsExpander" Header="{DynamicResource Ui.Auto.BA35DC23B245E61E}" Tag="{DynamicResource Ui.Auto.B05633D82AC7B603}" AutomationProperties.Name="{DynamicResource Ui.Auto.BA35DC23B245E61E}" Expanded="SettingsExpander_Expanded" Collapsed="SettingsExpander_Collapsed">
                                     <Border>
                                         <StackPanel Spacing="9">
-                                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                                                <StackPanel Spacing="3">
-                                                    <TextBlock x:Name="SettingsTrashTitleText" Text="回收站" FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap" />
-                                                    <TextBlock x:Name="SettingsTrashDescriptionText" Text="删除的书籍和格式会暂存于此，可恢复或永久清理。" FontSize="12" Foreground="{DynamicResource MutedInkBrush}" TextWrapping="Wrap" />
-                                                </StackPanel>
-                                                <Button x:Name="RefreshTrashButton" Grid.Column="1" Content="{DynamicResource Ui.Auto.AEE88743413144A2}" ContentTemplate="{StaticResource LibraryRefreshActionContent}" Classes="quiet libraryToolbar" ToolTip.Tip="{DynamicResource Ui.Auto.AEE88743413144A2}" AutomationProperties.Name="{DynamicResource Ui.Auto.AEE88743413144A2}" Click="RefreshTrashButton_Click" />
-                                            </Grid>
                                             <StackPanel Spacing="3">
                                                 <ToggleSwitch x:Name="DeleteBookAnnotationsCheck" VerticalAlignment="Center" Classes="settingsToggle" Content="{DynamicResource Ui.Library.DeleteAnnotationsWhenDeletingBook}" AutomationProperties.Name="{DynamicResource Ui.Library.DeleteAnnotationsWhenDeletingBook}" />
                                                 <TextBlock Text="{DynamicResource Ui.Library.DeleteAnnotationsWhenDeletingBookHelp}" FontSize="12" Foreground="{DynamicResource MutedInkBrush}" TextWrapping="Wrap" />
@@ -3191,7 +3192,16 @@
                                                 </ListBox.ItemTemplate>
                                             </ListBox>
                                             <TextBlock x:Name="LibraryTrashEmptyText" Text="回收站为空。" FontSize="12" Foreground="{DynamicResource MutedInkBrush}" IsVisible="True" TextWrapping="Wrap" />
-                                            <TextBlock x:Name="LibraryTrashStatusText" FontSize="12" Foreground="{DynamicResource MutedInkBrush}" TextWrapping="Wrap" />
+                                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                                                <TextBlock x:Name="LibraryTrashStatusText" Grid.Column="0" FontSize="12" Foreground="{DynamicResource MutedInkBrush}" TextWrapping="Wrap" VerticalAlignment="Center" />
+                                                <Button x:Name="PurgeAllTrashButton"
+                                                        Grid.Column="1"
+                                                        Classes="quiet detailDelete"
+                                                        Content="{DynamicResource Ui.Trash.PurgeAll}"
+                                                        AutomationProperties.Name="{DynamicResource Ui.Trash.PurgeAll}"
+                                                        IsVisible="False"
+                                                        Click="PurgeAllTrashButton_Click" />
+                                            </Grid>
                                         </StackPanel>
                                     </Border>
                                 </Expander>
@@ -3417,7 +3427,6 @@
                                         <StackPanel Spacing="18">
                                             <TextBlock Text="{DynamicResource Ui.Auto.52D25A9E30BA94F1}" Classes="settingsSectionTitle" TextWrapping="Wrap" />
                                             <Button x:Name="FeedbackButton" Content="{DynamicResource Ui.Feedback.Entry}" Classes="quiet" FontSize="12" MinWidth="0" MinHeight="0" Padding="0" BorderThickness="0" HorizontalAlignment="Left" Click="OpenFeedbackButton_Click" />
-                                            <Button x:Name="AboutUserGroupButton" Content="{DynamicResource Ui.About.UserGroup}" Classes="quiet" FontSize="12" Foreground="{DynamicResource MutedInkBrush}" HorizontalAlignment="Left" MinWidth="0" MinHeight="0" Padding="0" BorderThickness="0" Cursor="Hand" ToolTip.Tip="{DynamicResource Ui.About.CopyUserGroup}" Click="AboutUserGroupButton_Click" />
                                             <TextBlock x:Name="AboutVersionText" Text="{DynamicResource Ui.Auto.DC730979055D9FEF}" FontSize="12" Foreground="{DynamicResource MutedInkBrush}" TextWrapping="Wrap" />
                                         </StackPanel>
                                         <Button x:Name="AboutDeveloperButton" Grid.Column="1" Classes="quiet" Padding="12,9" MinWidth="0" MinHeight="0" BorderThickness="0" Background="{DynamicResource SoftHoverBrush}" CornerRadius="0" VerticalAlignment="Top" Margin="0,26,0,0" Cursor="Hand" ToolTip.Tip="https://github.com/kingstacker" AutomationProperties.Name="kingstacker GitHub" Click="AboutDeveloperButton_Click">
@@ -5698,7 +5707,8 @@
                                     <TextBlock Text="Base URL" FontSize="11" />
                                     <TextBox x:Name="ReaderAiBaseUrlBox"
                                              Classes="readerSettingsField"
-                                             PlaceholderText="https://api.deepseek.com" />
+                                             PlaceholderText="https://api.deepseek.com"
+                                             TextChanged="ReaderAiBaseUrlBox_TextChanged" />
                                 </StackPanel>
                                 <StackPanel Spacing="5">
                                     <TextBlock Text="{DynamicResource Ui.Auto.C98E118E0A43F078}" FontSize="11" />
@@ -6846,6 +6856,88 @@
                     </StackPanel>
                 </Border>
             </Popup>
+
+            <!-- Lightbox overlay opened by double-clicking an illustration in the reader body. -->
+            <Grid x:Name="ReaderImageZoomOverlay"
+                  Grid.ColumnSpan="3"
+                  Background="#D9101010"
+                  IsVisible="False"
+                  Focusable="True"
+                  ZIndex="180"
+                  KeyDown="ReaderImageZoomOverlay_KeyDown">
+                <Grid x:Name="ReaderImageZoomViewport"
+                      Background="Transparent"
+                      ClipToBounds="True"
+                      PointerPressed="ReaderImageZoomViewport_PointerPressed"
+                      PointerMoved="ReaderImageZoomViewport_PointerMoved"
+                      PointerReleased="ReaderImageZoomViewport_PointerReleased"
+                      PointerWheelChanged="ReaderImageZoomViewport_PointerWheelChanged">
+                    <Image x:Name="ReaderImageZoomImage"
+                           Stretch="Uniform"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center"
+                           Margin="48,56,48,68"
+                           RenderTransformOrigin="50%,50%" />
+                </Grid>
+
+                <Button x:Name="ReaderImageZoomCloseButton"
+                        HorizontalAlignment="Right"
+                        VerticalAlignment="Top"
+                        Margin="0,16,18,0"
+                        Width="34"
+                        Height="34"
+                        Padding="0"
+                        Background="{DynamicResource ReaderPageBrush}"
+                        Foreground="{DynamicResource ReaderInkBrush}"
+                        BorderBrush="{DynamicResource ReaderBorderBrush}"
+                        BorderThickness="1"
+                        CornerRadius="0"
+                        Content="×"
+                        FontSize="16"
+                        AutomationProperties.Name="{DynamicResource Ui.Reader.ImageZoomClose}"
+                        ToolTip.Tip="{DynamicResource Ui.Reader.ImageZoomClose}"
+                        Click="ReaderImageZoomCloseButton_Click" />
+
+                <Border HorizontalAlignment="Center"
+                        VerticalAlignment="Bottom"
+                        Margin="0,0,0,18"
+                        Padding="6,4"
+                        Background="{DynamicResource ReaderPageBrush}"
+                        BorderBrush="{DynamicResource ReaderBorderBrush}"
+                        BorderThickness="1">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <Button x:Name="ReaderImageZoomOutButton"
+                                Classes="readerToolbar"
+                                Content="−"
+                                Width="32"
+                                Height="30"
+                                AutomationProperties.Name="{DynamicResource Ui.Reader.ImageZoomOut}"
+                                ToolTip.Tip="{DynamicResource Ui.Reader.ImageZoomOut}"
+                                Click="ReaderImageZoomOutButton_Click" />
+                        <TextBlock x:Name="ReaderImageZoomLabel"
+                                   Text="100%"
+                                   MinWidth="48"
+                                   FontSize="12"
+                                   Foreground="{DynamicResource ReaderInkBrush}"
+                                   VerticalAlignment="Center"
+                                   TextAlignment="Center" />
+                        <Button x:Name="ReaderImageZoomInButton"
+                                Classes="readerToolbar"
+                                Content="+"
+                                Width="32"
+                                Height="30"
+                                AutomationProperties.Name="{DynamicResource Ui.Reader.ImageZoomIn}"
+                                ToolTip.Tip="{DynamicResource Ui.Reader.ImageZoomIn}"
+                                Click="ReaderImageZoomInButton_Click" />
+                        <Button x:Name="ReaderImageZoomResetButton"
+                                Classes="readerToolbar"
+                                Content="{DynamicResource Ui.Reader.ImageZoomReset}"
+                                Padding="10,0"
+                                Height="30"
+                                Click="ReaderImageZoomResetButton_Click" />
+                    </StackPanel>
+                </Border>
+            </Grid>
         </Grid>
         </ThemeVariantScope>
         </Grid>
@@ -7178,10 +7270,20 @@
                                    LineHeight="20"
                                    TextWrapping="Wrap" />
                     </ScrollViewer>
-                    <Grid Grid.Row="2"
+                    <Grid x:Name="MessageActionsGrid"
+                          Grid.Row="2"
+                          ColumnDefinitions="0,0,*"
                           Margin="24,14,24,20"
                           Background="{DynamicResource PaperBrush}">
+                        <Button x:Name="MessageSecondaryButton"
+                                Grid.Column="0"
+                                Classes="quiet"
+                                IsVisible="False"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Center"
+                                Click="MessageSecondaryButton_Click" />
                         <Button x:Name="MessageOkButton"
+                                Grid.Column="2"
                                 Content="{DynamicResource Ui.Auto.DE32E20193AD1042}"
                                 HorizontalAlignment="Stretch"
                                 HorizontalContentAlignment="Center"

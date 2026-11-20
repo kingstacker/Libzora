@@ -54,6 +54,7 @@ pattern: `MainWindow.<Area><Aspect>.cs`.
 | `MainWindow.ReaderToolbar.cs` | Toolbar menus (flow, animation, bookmarks). |
 | `MainWindow.ReaderZenMode.cs` | Zen mode and window chrome. |
 | `MainWindow.ReaderSelectionPopup.cs` | Selection action bar. |
+| `MainWindow.ReaderImageZoom.cs` | Double-click illustration lightbox and zoom/pan overlay. |
 | `MainWindow.ReaderFootnotes.cs` | Footnote and annotation popovers. |
 | `MainWindow.ReaderBridge.cs` | WebView bridge message dispatch. |
 | `MainWindow.ReaderFeatures*.cs` | Shortcuts, PDF navigation, tabs, bookmarks, whole-book search, progress slider and layout panel. |
@@ -98,10 +99,11 @@ pattern: `MainWindow.<Area><Aspect>.cs`.
 | `MainWindow.BookMutations.cs` | Favourite, reading status, collections, conversion. |
 | `MainWindow.LibraryDialogs.cs` | Confirmation, message and collection overlays. |
 | `MainWindow.LibraryFiltering.cs` | Search, filters, view mode, pagination. |
+| `MainWindow.LibrarySeries.cs` | Series stack expansion and front-volume promotion on the computer and device shelves. |
 | `MainWindow.BookInteractions*.cs` | Card/grid pointer handling, rubber band, collection drag, detail actions. |
 | `MainWindow.WindowChrome.cs` | Title bar, window-state animation, accessibility tooltips. |
 | `MainWindow.Settings*.cs`, `MainWindow.Plugins.cs` | Settings page shell (expanders, search, persistence, Kindle email) and plugin UI. |
-| `LibraryViewModel.cs`, `BookCardViewModel.cs`, `BulkObservableCollection.cs`, `BookCollectionFolderViewModel.cs` | Library view models. |
+| `LibraryViewModel.cs`, `BookCardViewModel.cs`, `SeriesShelfProjection.cs`, `BulkObservableCollection.cs`, `BookCollectionFolderViewModel.cs` | Library view models and series shelf projection. |
 
 ### Reflection editor
 
@@ -164,6 +166,10 @@ Large services are split by responsibility so one change opens one file:
 - `src/Libzora.Mobile.iOS/IOSNativeFrontend.*.cs` — C# side of the bridge,
   split by area (`Library`, `Reader`, `Settings`, `Fonts`).
 - `src/Libzora.Mobile.iOS/IOSMobileHost.cs` — host wiring.
+- `src/Libzora.Mobile.iOS/IOSSecretProtector.cs`, `IOSSecretKeyMigration.cs` —
+  device-only Keychain protection and verified migration of legacy sandbox keys.
+- `src/Libzora.Mobile.iOS/NativeUI/NativePreferenceEdits.swift` — field-level
+  optimistic preference writes, rollback baselines, widget-link and filter policies.
 - `tests/Libzora.Mobile.iOS.UITests/` and `.LogicTests/` — behaviour contracts.
 
 ## Where to look for common tasks
@@ -174,6 +180,7 @@ Large services are split by responsibility so one change opens one file:
 | EPUB parsing or pagination | `src/Libzora.Layout/IO/`, `src/Libzora.Layout/Layout/` |
 | PDF viewing, zoom, auto-crop | `src/Libzora.Reader/NativePdfReaderHost*.cs`, `PdfReaderLayout.cs` |
 | Book library list, grid, selection | `MainWindow.Library*.cs` |
+| Series stacking and volume promotion | `src/Libzora.Core/BookSeriesGrouping.cs`, `src/Libzora.App/SeriesShelfProjection.cs`, `MainWindow.LibrarySeries.cs` |
 | Book import pipeline | `MainWindow.LibraryImport.cs`, `src/Libzora.Application/` |
 | Kindle device transfer | `MainWindow.Stage3Device*.cs`, `src/Libzora.Infrastructure/` |
 | S3 / WebDAV / iCloud sync | `S3SyncService*.cs`, `MainWindow.Stage3SettingsS3*.cs`, `docs/icloud-sync.md` |

@@ -63,11 +63,13 @@ public partial class ReaderPage
 
         if (!string.IsNullOrWhiteSpace(inlineText))
         {
-            // Synthetic inline/plain notes have no real destination; every
-            // other reference can still be inspected at its original location.
+            // Synthetic inline/plain notes have no real destination; plain
+            // numbered notes carry the definition offset so they can still
+            // scroll to their note inside this chapter.
             var canJump = jumpable
                 && !href.Contains("__libzora-inline-footnote", StringComparison.Ordinal)
-                && !href.Contains("__libzora-plain-footnote", StringComparison.Ordinal);
+                && (!href.Contains(PlainFootnoteFragmentPrefix, StringComparison.Ordinal)
+                    || TryParsePlainFootnoteOffset(target!.Fragment, out _));
             PublishFootnote(new NativeReaderFootnote(
                 id, true, title, href, StripFootnoteLabel(inlineText, marker), false, canJump, anchor, null));
             _activeFootnoteBacklink = null;
@@ -192,6 +194,7 @@ public partial class ReaderPage
 
         var backlink = _activeFootnoteBacklink;
         var fragment = Uri.UnescapeDataString(target.Fragment.TrimStart('#'));
+        var plainFootnoteOffset = TryParsePlainFootnoteOffset(fragment, out var noteOffset) ? noteOffset : (int?)null;
         var returnPoint = new FootnoteReturnPoint(
             _chapterIndex,
             host.CaptureContentPosition(),
@@ -220,9 +223,11 @@ public partial class ReaderPage
         _footnoteNavigationInFlight = true;
         try
         {
-            var navigated = chapter == _chapterIndex
-                ? await RevealFootnoteInChapterAsync(host, fragment)
-                : await NavigateToChapterAsync(host, chapter, new Uri(target.AbsoluteUri));
+            var navigated = plainFootnoteOffset is { } definitionOffset && chapter == _chapterIndex
+                ? await RevealPlainFootnoteAsync(host, definitionOffset)
+                : chapter == _chapterIndex
+                    ? await RevealFootnoteInChapterAsync(host, fragment)
+                    : await NavigateToChapterAsync(host, chapter, new Uri(target.AbsoluteUri));
             if (!navigated)
             {
                 _footnoteReturn.RemoveAt(_footnoteReturn.Count - 1);
@@ -265,6 +270,36 @@ public partial class ReaderPage
         if (string.IsNullOrWhiteSpace(fragment)) return false;
         await host.RevealFootnoteAsync(fragment);
         return true;
+    }
+
+    /// <summary>
+    /// Plain numbered notes live in the same chapter with no element anchor.
+    /// The layout encodes the definition's body-text offset in the synthetic
+    /// fragment, so the jump can scroll straight to the note paragraph.
+    /// </summary>
+    private static async Task<bool> RevealPlainFootnoteAsync(NativeReaderHost host, int offset)
+    {
+        // A partially composed chapter would clamp the offset to its last
+        // page, so finish the layout before resolving the definition page.
+        await host.EnsureCompleteLayoutAsync();
+        host.ScrollToOffset(offset);
+        return true;
+    }
+
+    private const string PlainFootnoteFragmentPrefix = "__libzora-plain-footnote-";
+
+    private static bool TryParsePlainFootnoteOffset(string? fragment, out int offset)
+    {
+        offset = -1;
+        if (string.IsNullOrWhiteSpace(fragment)) return false;
+        var value = Uri.UnescapeDataString(fragment.TrimStart('#'));
+        if (!value.StartsWith(PlainFootnoteFragmentPrefix, StringComparison.Ordinal)) return false;
+        // Format: <section>-<key>-<definition offset>. Older synthetic
+        // fragments without the offset have only two parts and cannot jump.
+        var parts = value[PlainFootnoteFragmentPrefix.Length..].Split('-');
+        return parts.Length >= 3
+            && int.TryParse(parts[^1], NumberStyles.None, CultureInfo.InvariantCulture, out offset)
+            && offset >= 0;
     }
 
     /// <summary>Returns from a note jump, exactly restoring the pre-jump view.</summary>

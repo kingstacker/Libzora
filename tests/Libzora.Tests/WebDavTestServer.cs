@@ -27,7 +27,7 @@ internal sealed class WebDavTestServer
         Provider = SyncProvider.WebDav, Enabled = true, AutomaticSyncEnabled = false,
         WebDavEndpoint = origin + EncodePath(RootPath),
         WebDavUsername = Username, WebDavPassword = Password,
-        Prefix = "阅读 同步/#%", ConcurrentRequests = 4, TimeoutSeconds = 10
+        Prefix = "阅读 同步/#%", EncryptionKey = "webdav-test-key", ConcurrentRequests = 4, TimeoutSeconds = 10
     };
 
     public string PathFor(string key) => RootPath + "/" + key.TrimEnd('/');

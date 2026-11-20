@@ -88,26 +88,6 @@ public sealed partial class SettingsTests
         Assert.Equal(cover, await File.ReadAllBytesAsync(Path.Combine(scope.Paths.Data, saved.CoverPath)));
     });
 
-    [Theory]
-    [InlineData("zh-CN")]
-    [InlineData("en-US")]
-    public Task AboutUserGroupClickCopiesOnlyGroupNumber(string language) => Run(async () =>
-    {
-        await using var scope = await TestWindow.Create();
-        ((Libzora.App)Application.Current!).ApplyLanguage(language);
-        scope.Call("ShowStage3Page", scope.Get<Grid>("SettingsPage"), null);
-        scope.Call("ShowSettingsSection", "About");
-        var button = scope.Get<Button>("AboutUserGroupButton");
-        await Render();
-        Assert.True(button.IsEffectivelyVisible);
-        button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-        await Until(() => scope.Get<Control>("SettingsSavedCapsule").IsVisible);
-        Assert.Equal("1109898894", await scope.Window.Clipboard!.TryGetTextAsync());
-        Assert.Equal(language == "en-US" ? "Group number copied to clipboard." : "群号已复制到剪贴板。", scope.Get<TextBlock>("SettingsSavedCapsuleText").Text);
-        await Render();
-        Capture(scope.Window, $"{language}-about-user-group-copy");
-    });
-
     [Fact]
     public Task DeletedBookNotesDisplayOriginalTitleAndCover() => Run(async () =>
     {
@@ -235,5 +215,42 @@ public sealed partial class SettingsTests
         await lastRemoval.WaitAsync(TimeSpan.FromSeconds(10));
         Assert.NotNull(await library.GetBookAsync(bookId));
         Assert.True(File.Exists(library.GetAbsoluteFilePath(epub)));
+    });
+
+    [Fact]
+    public Task PurgeAllTrashRequiresConfirmationAndEmptiesAllItems() => Run(async () =>
+    {
+        await using var scope = await TestWindow.Create();
+        await SeedLayoutLibrary(scope);
+        var library = scope.Field<IBookLibraryService>("_library");
+        foreach (var card in scope.Window.ViewModel.Books.ToArray())
+            scope.Field<HashSet<Guid>>("_selectedBookIds").Add(card.Book.Id);
+
+        var removal = scope.Call<Task>("DeleteSelectedBooksAsync");
+        await Until(() => scope.Get<Control>("ConfirmationOverlay").IsVisible);
+        scope.Get<Button>("ConfirmationOkButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await removal;
+
+        scope.Call("OpenSettingsExpander", "Data", scope.Get<Expander>("SettingsTrashExpander"));
+        await Until(() => scope.Window.LibraryTrashItems.Count == 2);
+        var purgeAll = scope.Get<Button>("PurgeAllTrashButton");
+        Assert.True(purgeAll.IsVisible);
+
+        purgeAll.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await Until(() => scope.Get<Control>("ConfirmationOverlay").IsVisible);
+        Assert.Contains("2", scope.Get<TextBlock>("ConfirmationMessageText").Text!);
+        scope.Get<Button>("ConfirmationCancelButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await Render();
+        Assert.Equal(2, (await library.GetTrashItemsAsync()).Count);
+        Assert.True(purgeAll.IsVisible);
+
+        purgeAll.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await Until(() => scope.Get<Control>("ConfirmationOverlay").IsVisible);
+        scope.Get<Button>("ConfirmationOkButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await Until(() => scope.Window.LibraryTrashItems.Count == 0);
+
+        Assert.Empty(await library.GetTrashItemsAsync());
+        Assert.False(purgeAll.IsVisible);
+        Assert.True(scope.Get<TextBlock>("LibraryTrashEmptyText").IsVisible);
     });
 }

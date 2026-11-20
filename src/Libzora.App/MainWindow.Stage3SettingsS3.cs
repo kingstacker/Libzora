@@ -47,6 +47,7 @@ public partial class MainWindow
             CompareKindleLibraryCheck.IsChecked = _appSettings.CompareKindleLibraryEnabled;
             SendToKindleWebEnabledCheck.IsChecked = _appSettings.SendToKindleWebEnabled;
             GridGalleryDisplayCheck.IsChecked = _appSettings.GridGalleryDisplay;
+            StackBookSeriesCheck.IsChecked = _appSettings.StackBookSeries;
             ShowSyncStatusIconCheck.IsChecked = _appSettings.ShowSyncStatusIcon;
             ShowLibraryPresenceIconCheck.IsChecked = _appSettings.ShowLibraryPresenceIcon;
             _showUnearnedReadingMedals = _appSettings.ShowUnearnedReadingMedals;

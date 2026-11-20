@@ -309,10 +309,9 @@ final class NativeFrontendTests: XCTestCase {
         XCTAssertTrue(feedback.exists && feedback.isHittable)
         feedback.tap()
         XCTAssertTrue(app.navigationBars["问题反馈"].waitForExistence(timeout: 10))
-        let notice = app.staticTexts["feedback.serviceBoundary"]
-        XCTAssertTrue(notice.waitForExistence(timeout: 10))
-        XCTAssertTrue(notice.label.contains("不接收反馈"))
         XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "feedback.issues").firstMatch.exists)
+        XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "feedback.qqGroup").firstMatch.exists)
+        XCTAssertFalse(app.staticTexts["feedback.serviceBoundary"].exists)
         XCTAssertFalse(app.staticTexts["feedback.loginRequired"].exists)
         XCTAssertFalse(app.buttons["feedback.openAccount"].exists)
         XCTAssertFalse(app.buttons["feedback.submit"].exists)
@@ -1048,16 +1047,15 @@ final class NativeFrontendTests: XCTestCase {
     func testCustomSyncShowsAppleProvidersAndKeepsStorageToolsAvailable() {
         app.tabBars.buttons["我的"].tap()
         XCTAssertTrue(app.staticTexts["page.profile"].waitForExistence(timeout: 15))
-        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "QQ 交流群")).firstMatch.exists)
         XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "开发者")).firstMatch.exists)
         app.buttons["profile.sync"].tap()
         let providers = app.segmentedControls["sync.provider"]
         XCTAssertTrue(providers.waitForExistence(timeout: 15))
         XCTAssertTrue(providers.buttons["iCloud"].waitForExistence(timeout: 15))
         XCTAssertEqual(providers.buttons.count, 3)
-        XCTAssertEqual(providers.buttons.element(boundBy: 0).label, "S3")
-        XCTAssertEqual(providers.buttons.element(boundBy: 1).label, "WebDAV")
-        XCTAssertEqual(providers.buttons.element(boundBy: 2).label, "iCloud")
+        XCTAssertEqual(providers.buttons.element(boundBy: 0).label, "iCloud")
+        XCTAssertEqual(providers.buttons.element(boundBy: 1).label, "S3")
+        XCTAssertEqual(providers.buttons.element(boundBy: 2).label, "WebDAV")
         XCTAssertFalse(providers.buttons["账号云同步"].exists)
         providers.buttons["S3"].tap()
         let prefix = app.textFields["目录前缀"]

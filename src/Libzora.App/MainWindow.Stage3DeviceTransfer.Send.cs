@@ -114,6 +114,7 @@ public partial class MainWindow
 
         _isTransferring = true;
         _transferStopRequested = false;
+        ClearBookMultiSelection();
         SetTransferNavigationEnabled(false);
         _transferCancellation?.Dispose();
         _transferCancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCancellation.Token);
@@ -149,23 +150,38 @@ public partial class MainWindow
             lookaheadCancellation = null;
         }
 
+        var currentBookIndex = 0;
+        var currentBookTitle = cards[0].Title;
         try
         {
             using var progress = new CoalescingUiProgress<TransferProgress>(value =>
             {
                 if (!acceptProgressUpdates) return;
-                TaskProgressPopupBar.Value = value.Percentage;
-                TaskProgressPopupText.Text = UiText.Localize(value.Message);
-                ShowTransferToast(T("发送到设备"), UiText.Localize(value.Message), progress: value.Percentage);
+                var bookPercent = Math.Clamp(value.Percentage, 0d, 100d);
+                var overallPercent = cards.Count > 1
+                    ? (currentBookIndex * 100d + bookPercent) / cards.Count
+                    : bookPercent;
+                var detail = UiText.Localize(value.Message);
+                var stagePrefix = cards.Count > 1
+                    ? T("正在发送《{0}》（{1}/{2}）…", currentBookTitle, currentBookIndex + 1, cards.Count)
+                    : T("正在发送《{0}》…", currentBookTitle);
+                var stageMessage = string.IsNullOrWhiteSpace(detail)
+                    ? stagePrefix
+                    : $"{stagePrefix.TrimEnd('…', '.')} · {detail}";
+                TaskProgressPopupBar.Value = overallPercent;
+                TaskProgressPopupText.Text = stageMessage;
+                ShowTransferToast(T("发送到设备"), stageMessage, progress: overallPercent);
             });
             for (var index = 0; index < cards.Count; index++)
             {
                 if (_transferStopRequested) break;
                 var card = cards[index];
+                currentBookIndex = index;
+                currentBookTitle = card.Title;
                 ShowTransferToast(
                     T("发送到设备"),
                     T("正在发送《{0}》（{1}/{2}）…", card.Title, index + 1, cards.Count),
-                    progress: index * 100 / cards.Count);
+                    progress: index * 100d / cards.Count);
                 PreparedKindleTransfer? prepared = null;
                 try
                 {

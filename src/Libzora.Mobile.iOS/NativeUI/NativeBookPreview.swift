@@ -120,6 +120,8 @@ struct NativeBookPreviewOverlay: View {
                 }
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("book.preview.menu")
+                .scaleEffect(expanded ? 1 : 0.52, anchor: opensBelow ? .top : .bottom)
+                .opacity(expanded ? 1 : 0)
                 .position(x: menuX, y: menuCenter)
             }
             .onPreferenceChange(NativeBookPreviewHeightKey.self) { height in
@@ -128,7 +130,7 @@ struct NativeBookPreviewOverlay: View {
             .onPreferenceChange(NativeBookPreviewMenuHeightKey.self) { height in
                 if height > 0 && abs(height - measuredMenuHeight) > 0.5 { measuredMenuHeight = height }
             }
-            .onAppear { withAnimation(.easeOut(duration: 0.18)) { expanded = true } }
+            .onAppear { withAnimation(.spring(response: 0.36, dampingFraction: 0.68)) { expanded = true } }
         }
     }
 }
@@ -185,7 +187,7 @@ private struct NativeBookPreviewMenu: View {
     var body: some View {
         if #available(iOS 26.0, *) {
             panel
-                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+                .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
                 .shadow(color: .black.opacity(0.10), radius: 18, y: 8)
         } else {
             panel

@@ -183,6 +183,7 @@ struct AiForm: Codable {
     var apiKey = ""
 }
 struct AiDefaults: Decodable { let baseUrl: String; let model: String }
+struct AiModelListResult: Decodable { let models: [String] }
 
 struct EmailForm: Codable {
     var kindleEmailAddress = ""

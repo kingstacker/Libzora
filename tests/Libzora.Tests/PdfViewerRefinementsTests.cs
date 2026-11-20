@@ -35,6 +35,44 @@ public sealed class PdfViewerRefinementsTests
     }
 
     [Fact]
+    public void DetectContentCropBoxIgnoresIsolatedPageNumberInTheOuterMargin()
+    {
+        const int w = 200;
+        const int h = 200;
+        var pixels = new byte[w * h * 4];
+        Array.Fill(pixels, (byte)255);
+        // Main text block x:[40..160], y:[40..150].
+        for (var y = 40; y < 150; y++)
+            for (var x = 40; x < 160; x++)
+            {
+                var idx = (y * w + x) * 4;
+                pixels[idx] = 20;
+                pixels[idx + 1] = 20;
+                pixels[idx + 2] = 20;
+                pixels[idx + 3] = 255;
+            }
+        // A printed page number sits far below the text because the PDF places
+        // it in the outer margin. It must not pin the left/bottom bounds while
+        // the right margin is trimmed, which pushed the text off the screen.
+        for (var y = 190; y < 193; y++)
+            for (var x = 24; x < 44; x++)
+            {
+                var idx = (y * w + x) * 4;
+                pixels[idx] = 20;
+                pixels[idx + 1] = 20;
+                pixels[idx + 2] = 20;
+                pixels[idx + 3] = 255;
+            }
+
+        var crop = NativePdfReaderHost.DetectContentCropBox(pixels, w, h);
+        Assert.NotNull(crop);
+        Assert.InRange(crop!.Value.X, 0.15, 0.20);
+        Assert.InRange(crop.Value.Y, 0.15, 0.20);
+        Assert.InRange(crop.Value.Right, 0.80, 0.85);
+        Assert.InRange(crop.Value.Bottom, 0.70, 0.80);
+    }
+
+    [Fact]
     public void DetectContentCropBoxReturnsNullForBlankPage()
     {
         var pixels = new byte[100 * 100 * 4];

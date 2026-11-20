@@ -202,7 +202,13 @@ struct NativeReaderPage: View {
         // previous view, whose captured appColorScheme is one change behind.
         .onChange(of: appColorScheme) { syncAppAppearance($0) }
         .onChange(of: store.preferences.readerThemeFollowsAppearance) { _ in resyncAppAppearance() }
-        .onChange(of: scenePhase) { if $0 == .active { resyncAppAppearance() } }
+        .onChange(of: scenePhase) { phase in
+            guard phase == .active else { return }
+            resyncAppAppearance()
+            // Power-state notifications are not delivered while suspended, so
+            // re-read the flag when the app becomes active again.
+            syncSystemLowPowerMode()
+        }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
             guard let frame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
             guard let window = store.readerController.viewIfLoaded?.window else {
@@ -281,6 +287,12 @@ struct NativeReaderPage: View {
         guard let colorScheme = session.appearanceColorScheme else { return }
         syncAppAppearance(colorScheme)
     }
+    private func syncSystemLowPowerMode() {
+        let lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
+        guard lowPower != systemLowPowerMode else { return }
+        systemLowPowerMode = lowPower
+        run("refreshPowerState")
+    }
     private func syncAppAppearance(_ colorScheme: ColorScheme) {
         session.appearanceColorScheme = colorScheme
         session.appearanceRevision += 1
@@ -318,8 +330,7 @@ struct NativeReaderPage: View {
                     }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .NSProcessInfoPowerStateDidChange)) { _ in
-                    systemLowPowerMode = ProcessInfo.processInfo.isLowPowerModeEnabled
-                    run("refreshPowerState")
+                    syncSystemLowPowerMode()
                 }
             if !reader.ready {
                 VStack(spacing: 16) {

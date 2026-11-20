@@ -231,14 +231,15 @@ public sealed class SyncProviderRegistry
             ? factory
             : throw new NotSupportedException($"同步方式 {settings.ProviderName} 尚未注册。");
 
-    /// <summary>Registered descriptors, ordered by their persisted provider value then stable id.</summary>
+    /// <summary>Registered descriptors, putting iCloud first when available, then ordered by persisted provider value and stable id.</summary>
     public IReadOnlyList<SyncProviderDescriptor> Descriptors
     {
         get
         {
             lock (_gate)
                 return _byId.Values.Select(factory => factory.Descriptor)
-                    .OrderBy(descriptor => descriptor.Provider)
+                    .OrderBy(descriptor => descriptor.Provider == SyncProvider.ICloud ? 0 : 1)
+                    .ThenBy(descriptor => descriptor.Provider)
                     .ThenBy(descriptor => descriptor.Id, StringComparer.OrdinalIgnoreCase)
                     .ToArray();
         }

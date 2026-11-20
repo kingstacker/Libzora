@@ -26,7 +26,8 @@ public sealed partial class NativePdfReaderHost : Control, IReaderHost, IReaderP
         public WriteableBitmap? PreviewBitmap { get; set; }
         public ReaderPalette? PreviewPalette { get; set; }
         public int PreviewRotation { get; set; }
-        public Rect? CropBox { get; set; }
+        /// <summary>True once the crop was probed, including pages that need no crop.</summary>
+        public bool CropChecked { get; set; }
         public void Dispose()
         {
             Bitmap?.Dispose();

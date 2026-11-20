@@ -247,7 +247,7 @@ public sealed partial class SettingsTests
         await Render();
         Assert.True(scope.Get<TextBox>("S3EncryptionKeyBox").IsEffectivelyVisible);
         var help = scope.Get<TextBlock>("S3EncryptionKeyHelpText").Text ?? "";
-        Assert.Contains(language == "en-US" ? "encryption is recommended" : "建议启用加密", help);
+        Assert.Contains(language == "en-US" ? "cloud sync and data backups require a sync key" : "云同步与数据备份都必须设置同步密钥", help);
         Assert.DoesNotContain("Plus", help);
     });
 

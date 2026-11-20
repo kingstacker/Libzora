@@ -343,6 +343,17 @@ public partial class MainWindow
                 case "bookmarkToggle":
                     _ = ObserveReaderTaskAsync(ToggleReaderBookmarkAsync());
                     break;
+                case "imageZoom":
+                {
+                    var imagePath = ReadString(root, "path");
+                    if (!_readerIsPdf && _readerDocument is not null
+                        && !string.IsNullOrWhiteSpace(imagePath)
+                        && IsPathInside(_readerDocument.RootPath, imagePath))
+                    {
+                        OpenReaderImageZoom(imagePath);
+                    }
+                    break;
+                }
                 case "footnoteHover":
                     if (root.TryGetProperty("href", out var footnoteHref))
                     {

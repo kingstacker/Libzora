@@ -16,7 +16,7 @@ public sealed partial class SettingsTests
     {
         var initial = new S3SyncSettings
         {
-            Provider = SyncProvider.S3, ProviderChosenByUser = true,
+            Provider = SyncProvider.S3, ProviderChosenByUser = true, EncryptionKey = "test-icloud-key",
             AccessKey = "retained-s3-access", SecretKey = "retained-s3-secret", Bucket = "retained-s3-bucket",
             WebDavEndpoint = "https://example.invalid/dav", WebDavUsername = "retained-user", WebDavPassword = "retained-dav-password"
         };
@@ -24,8 +24,9 @@ public sealed partial class SettingsTests
         ((Libzora.App)Application.Current!).ApplyLanguage(language);
         scope.Call("SystemS3SyncNavigationButton_Click", null, new RoutedEventArgs());
         var providers = scope.Get<ComboBox>("SyncProviderBox");
-        Assert.Equal(3, providers.Items.Count);
-        providers.SelectedIndex = 2;
+        Assert.Equal(new object[] { SyncProvider.ICloud, SyncProvider.S3, SyncProvider.WebDav },
+            providers.Items.OfType<ComboBoxItem>().Select(item => item.Tag!).ToArray());
+        providers.SelectedIndex = 0;
         Assert.Equal(SyncProvider.ICloud, ((ComboBoxItem)providers.SelectedItem!).Tag);
         foreach (var name in new[] { "S3ConnectionPanel", "WebDavConnectionPanel", "S3RegionRow", "S3PathStyleCheck",
                      "S3SkipTlsVerifyCheck", "S3ConcurrencyRow", "SettingsS3ProfileExpander" })
@@ -51,12 +52,12 @@ public sealed partial class SettingsTests
         Assert.False(scope.Get<Button>("S3SaveSettingsButton").IsEnabled);
         Assert.True(scope.Get<Button>("S3SyncNowButton").IsEnabled);
         Assert.Equal(SyncProvider.ICloud, scope.Call<S3SyncSettings>("ReadS3SyncSettingsFromControls").Provider);
-        providers.SelectedIndex = 0;
+        providers.SelectedIndex = 1;
         Assert.False(scope.Get<Control>("ICloudConnectionPanel").IsVisible);
         Assert.True(scope.Get<Control>("S3ConnectionPanel").IsVisible);
         Assert.Equal(initial.SecretKey, scope.Get<TextBox>("S3SecretKeyBox").Text);
         scope.Call("S3DiscardSettingsButton_Click", null, new RoutedEventArgs());
-        Assert.Equal(2, providers.SelectedIndex);
+        Assert.Equal(0, providers.SelectedIndex);
     });
 
     [Fact]
@@ -65,7 +66,7 @@ public sealed partial class SettingsTests
         var saved = new S3SyncSettings { Provider = SyncProvider.ICloud, ProviderChosenByUser = true, Enabled = false };
         await using var scope = await TestWindow.Create(syncProviders: AppleProviders(), initialSyncSettings: saved);
         var providers = scope.Get<ComboBox>("SyncProviderBox");
-        Assert.Equal(2, providers.SelectedIndex);
+        Assert.Equal(0, providers.SelectedIndex);
         Assert.Equal(SyncProvider.ICloud, ((ComboBoxItem)providers.SelectedItem!).Tag);
         Assert.Equal(saved, scope.Call<S3SyncSettings>("ReadS3SyncSettingsFromControls"));
         Assert.False(scope.Get<Button>("S3SaveSettingsButton").IsEnabled);

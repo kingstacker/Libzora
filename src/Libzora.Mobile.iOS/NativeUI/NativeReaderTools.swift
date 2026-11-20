@@ -65,6 +65,7 @@ struct NativeDictionary: View {
                 ForEach(dictionaries) { dictionary in
                     VStack(alignment: .leading, spacing: 8) {
                         Toggle(dictionary.name + L(" · {0} 条", dictionary.entryCount), isOn: Binding(get: { dictionary.enabled }, set: { enabled in action("toggle", ["id": dictionary.id, "enabled": enabled]) })).tint(NativeTheme.systemSwitchTint)
+                            .accessibilityIdentifier("dictionary.enabled.\(dictionary.id)")
                         Button(L("移除"), role: .destructive) { action("remove", ["id": dictionary.id]) }.buttonStyle(.borderless)
                     }
                 }
@@ -132,6 +133,7 @@ struct NativeDictionary: View {
             defer { managementBusy = false }
             try await store.command("dictionary.\(command)", args)
             dictionaries = try await store.request("dictionary.get")
+            managementBusy = false
             if !term.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { lookup() }
         }
     }

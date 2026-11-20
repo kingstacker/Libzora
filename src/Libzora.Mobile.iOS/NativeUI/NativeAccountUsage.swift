@@ -11,10 +11,12 @@ struct NativeAccountHeader: View {
     let accountStatus: String
     let refresh: () -> Void
     let signOut: (() -> Void)?
+    let syncEntitlementsEnforced: Bool
 
     private var plan: String { membership?.plan ?? "free" }
     private var accent: Color { NativeTheme.planAccent(plan) }
     private var summary: String {
+        if !syncEntitlementsEnforced { return L("S3 / WebDAV 多端同步免费使用，无需注册。") }
         guard let membership else { return L("正在读取会员信息…") }
         switch membership.plan {
         case "trial": return L("试用中 · 自备存储同步已解锁")
@@ -184,11 +186,13 @@ struct NativeDeviceRow: View {
 struct NativeSyncEntitlements: View {
     @Environment(\.locale) private var uiLocale
     let status: DeviceFeatureStatus
+    let enforced: Bool
     var body: some View {
         let _ = uiLocale
 
         Section(L("同步功能")) {
-            Text(status.canUseFeatures ? L("自备 S3 / WebDAV 多端同步已解锁")
+            Text(!enforced ? L("S3 / WebDAV 多端同步免费使用，无需注册。")
+                 : status.canUseFeatures ? L("自备 S3 / WebDAV 多端同步已解锁")
                  : L("领取试用或购买买断订阅，即可使用自备 S3 / WebDAV 多端同步。"))
                 .font(NativeTheme.font(13)).accessibilityIdentifier("membership.sync.features")
             Text(L("所有方案均不提供官方云存储或官方云同步；存储与流量费用由用户承担。"))

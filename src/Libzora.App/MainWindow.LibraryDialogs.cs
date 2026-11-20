@@ -111,19 +111,40 @@ public partial class MainWindow
         Dispatcher.UIThread.Post(() => page.Opacity = 1);
     }
 
+    private Action? _messageSecondaryAction;
+
     // Monochrome information dialog (WinUI ShowMessageAsync). Fire-and-forget
     // callers can use "_ = ShowMessageAsync(...)"; the awaited task completes
     // when the user dismisses the dialog.
-    private Task ShowMessageAsync(string title, string message, string? actionText = null)
+    private Task ShowMessageAsync(
+        string title,
+        string message,
+        string? actionText = null,
+        string? secondaryActionText = null,
+        Action? secondaryAction = null)
     {
         MessageTitleText.Text = UiText.Localize(title);
         MessageBodyText.Text = UiText.Localize(message);
         MessageOkButton.Content = actionText ?? T("知道了");
+        _messageSecondaryAction = secondaryAction;
+        var hasSecondary = !string.IsNullOrWhiteSpace(secondaryActionText) && secondaryAction is not null;
+        MessageSecondaryButton.Content = hasSecondary ? UiText.Localize(secondaryActionText!) : string.Empty;
+        MessageSecondaryButton.IsVisible = hasSecondary;
+        MessageActionsGrid.ColumnDefinitions = hasSecondary
+            ? new ColumnDefinitions("*,10,*")
+            : new ColumnDefinitions("0,0,*");
         ShowOverlay(MessageOverlay);
         MessageOverlay.Focus();
         _messageCompletion?.TrySetResult(true);
         _messageCompletion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         return _messageCompletion.Task;
+    }
+
+    private void MessageSecondaryButton_Click(object? sender, RoutedEventArgs e)
+    {
+        var action = _messageSecondaryAction;
+        CompleteMessage();
+        action?.Invoke();
     }
 
     private void MessageOkButton_Click(object? sender, RoutedEventArgs e) => CompleteMessage();
@@ -138,6 +159,9 @@ public partial class MainWindow
     private void CompleteMessage()
     {
         MessageOverlay.IsVisible = false;
+        _messageSecondaryAction = null;
+        MessageSecondaryButton.IsVisible = false;
+        MessageActionsGrid.ColumnDefinitions = new ColumnDefinitions("0,0,*");
         var completion = _messageCompletion;
         _messageCompletion = null;
         completion?.TrySetResult(true);

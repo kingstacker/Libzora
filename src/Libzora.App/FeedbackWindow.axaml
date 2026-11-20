@@ -1,28 +1,160 @@
 <Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="Libzora.FeedbackWindow" Title="{DynamicResource Ui.Feedback.Title}"
-        Width="560" SizeToContent="Height" MaxHeight="820" CanResize="False" ShowInTaskbar="False"
+        Width="440" SizeToContent="Height" MaxHeight="640" CanResize="False" ShowInTaskbar="False"
         WindowStartupLocation="CenterOwner" Background="{DynamicResource PaperBrush}"
         FontFamily="{StaticResource DefaultAppFontFamily}">
   <Window.Styles>
     <Style Selector="TextBlock"><Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" /></Style>
     <Style Selector="Button"><Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" /></Style>
+    <Style Selector="TextBlock.feedbackTitle">
+      <Setter Property="FontSize" Value="20" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="TextBlock.feedbackSubtitle">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Foreground" Value="{DynamicResource MutedInkBrush}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="TextBlock.feedbackCardTitle">
+      <Setter Property="FontSize" Value="14" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{DynamicResource InkBrush}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
     <Style Selector="TextBlock.feedbackHint">
       <Setter Property="FontSize" Value="12" />
       <Setter Property="Foreground" Value="{DynamicResource MutedInkBrush}" />
       <Setter Property="TextWrapping" Value="Wrap" />
     </Style>
+    <Style Selector="Border.feedbackIconBadge">
+      <Setter Property="Width" Value="36" />
+      <Setter Property="Height" Value="36" />
+      <Setter Property="Background" Value="{DynamicResource SoftHoverBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Path.feedbackCardIcon">
+      <Setter Property="Width" Value="16" />
+      <Setter Property="Height" Value="16" />
+      <Setter Property="Stretch" Value="Uniform" />
+      <Setter Property="Stroke" Value="{DynamicResource InkBrush}" />
+      <Setter Property="StrokeThickness" Value="1.4" />
+      <Setter Property="StrokeLineCap" Value="Round" />
+      <Setter Property="StrokeJoin" Value="Round" />
+      <Setter Property="Fill" Value="Transparent" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Path.feedbackActionGlyph">
+      <Setter Property="Width" Value="14" />
+      <Setter Property="Height" Value="14" />
+      <Setter Property="Stretch" Value="Uniform" />
+      <Setter Property="Stroke" Value="{DynamicResource MutedInkBrush}" />
+      <Setter Property="StrokeThickness" Value="1.3" />
+      <Setter Property="StrokeLineCap" Value="Round" />
+      <Setter Property="StrokeJoin" Value="Round" />
+      <Setter Property="Fill" Value="Transparent" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.feedbackChannel">
+      <Setter Property="Background" Value="{DynamicResource PanelBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource InkBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource CardBorderBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="0" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="Padding" Value="14,13" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="Cursor" Value="Hand" />
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Border Padding="{TemplateBinding Padding}"
+                  Background="{TemplateBinding Background}"
+                  BorderBrush="{TemplateBinding BorderBrush}"
+                  BorderThickness="{TemplateBinding BorderThickness}"
+                  CornerRadius="{TemplateBinding CornerRadius}">
+            <ContentPresenter Content="{TemplateBinding Content}"
+                              ContentTemplate="{TemplateBinding ContentTemplate}"
+                              Foreground="{TemplateBinding Foreground}"
+                              HorizontalAlignment="Stretch"
+                              VerticalAlignment="Center"
+                              HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                              VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" />
+          </Border>
+        </ControlTemplate>
+      </Setter>
+    </Style>
+    <Style Selector="Button.feedbackChannel:pointerover">
+      <Setter Property="Background" Value="{DynamicResource SoftHoverBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource InkBrush}" />
+    </Style>
+    <Style Selector="Button.feedbackChannel:pressed">
+      <Setter Property="Background" Value="{DynamicResource PressedBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource InkBrush}" />
+    </Style>
+    <Style Selector="Button.feedbackChannel:focus-visible">
+      <Setter Property="BorderBrush" Value="{DynamicResource FocusRingBrush}" />
+    </Style>
+    <Style Selector="Button.feedbackChannel:pointerover Path.feedbackActionGlyph">
+      <Setter Property="Stroke" Value="{DynamicResource InkBrush}" />
+    </Style>
   </Window.Styles>
-  <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-    <StackPanel Margin="24" Spacing="14">
-      <TextBlock Text="{DynamicResource Ui.Feedback.Title}" FontSize="21" FontWeight="SemiBold" TextWrapping="Wrap" />
-      <TextBlock Name="FeedbackServiceNote" Text="{DynamicResource Ui.Feedback.Introduction}" FontSize="13" TextWrapping="Wrap" />
-      <TextBlock Text="{DynamicResource Ui.Feedback.PrivacyNote}" Classes="feedbackHint" />
-      <TextBlock Name="IssuesUrlText" Text="https://github.com/kingstacker/Libzora/issues" TextWrapping="Wrap" />
-      <TextBlock Name="StatusText" IsVisible="False" Classes="feedbackHint" />
-      <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right">
-        <Button Name="CloseButton" Content="{DynamicResource Ui.Feedback.Close}" Click="OnCloseClick" />
-        <Button Name="OpenIssuesButton" Content="{DynamicResource Ui.Feedback.OpenIssues}" Click="OnOpenIssuesClick" />
+  <Border Name="WindowFrame" BorderBrush="{DynamicResource InkBrush}" BorderThickness="0" Background="{DynamicResource PaperBrush}">
+    <Grid RowDefinitions="36,*">
+      <Border Name="TitleDragRegion" Grid.Row="0" Background="Transparent" PointerPressed="OnTitleBarPointerPressed" />
+      <StackPanel Grid.Row="1" Margin="24,2,24,24" Spacing="16">
+        <StackPanel Spacing="6">
+          <StackPanel Orientation="Horizontal" Spacing="10">
+            <Rectangle Width="8" Height="18" Fill="{DynamicResource InkBrush}" VerticalAlignment="Center" />
+            <TextBlock Text="{DynamicResource Ui.Feedback.Title}" Classes="feedbackTitle" VerticalAlignment="Center" />
+          </StackPanel>
+          <TextBlock Text="{DynamicResource Ui.Feedback.Subtitle}" Classes="feedbackSubtitle" />
+        </StackPanel>
+
+        <StackPanel Spacing="10">
+          <Button Name="OpenIssuesButton" Classes="feedbackChannel"
+                  AutomationProperties.Name="{DynamicResource Ui.Feedback.OpenIssues}" Click="OnOpenIssuesClick">
+            <Grid ColumnDefinitions="36,*,Auto" ColumnSpacing="12">
+              <Border Classes="feedbackIconBadge">
+                <Path Classes="feedbackCardIcon"
+                      Data="M 12,2 A 10,10 0 1 0 12,22 A 10,10 0 1 0 12,2 Z M 12,10.2 A 1.8,1.8 0 1 0 12,13.8 A 1.8,1.8 0 1 0 12,10.2 Z" />
+              </Border>
+              <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+                <TextBlock Text="{DynamicResource Ui.Feedback.OpenIssues}" Classes="feedbackCardTitle" />
+                <TextBlock Text="github.com/kingstacker/Libzora/issues" Classes="feedbackHint" />
+              </StackPanel>
+              <Path Grid.Column="2" Classes="feedbackActionGlyph"
+                    Data="M 15,3 H 21 V 9 M 10,14 L 21,3 M 18,13 V 21 H 3 V 6 H 11" />
+            </Grid>
+          </Button>
+
+          <Button Name="CopyUserGroupButton" Classes="feedbackChannel"
+                  ToolTip.Tip="{DynamicResource Ui.About.CopyUserGroup}"
+                  AutomationProperties.Name="{DynamicResource Ui.About.UserGroup}" Click="OnCopyUserGroupClick">
+            <Grid ColumnDefinitions="36,*,Auto" ColumnSpacing="12">
+              <Border Classes="feedbackIconBadge">
+                <Path Classes="feedbackCardIcon"
+                      Data="M 21,11.5 A 8.5,8.5 0 0 1 9.1,19.3 L 4,20 L 4.7,14.9 A 8.5,8.5 0 1 1 21,11.5 Z M 8.5,11.5 H 15.5 M 8.5,14.5 H 12.5" />
+              </Border>
+              <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+                <TextBlock Text="{DynamicResource Ui.About.UserGroup}" Classes="feedbackCardTitle" />
+                <TextBlock Text="{DynamicResource Ui.About.CopyUserGroup}" Classes="feedbackHint" />
+              </StackPanel>
+              <Path Grid.Column="2" Classes="feedbackActionGlyph"
+                    Data="M 9,9 H 20 V 20 H 9 Z M 5,15 H 3 V 3 H 15 V 5" />
+            </Grid>
+          </Button>
+        </StackPanel>
+
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12" Margin="0,2,0,0">
+          <TextBlock Name="StatusText" Grid.Column="0" IsVisible="False" Classes="feedbackHint" VerticalAlignment="Center" />
+          <Button Name="CloseButton" Grid.Column="1" Classes="settingsActionCancel"
+                  Content="{DynamicResource Ui.Feedback.Close}" HorizontalAlignment="Right" Click="OnCloseClick" />
+        </Grid>
       </StackPanel>
-    </StackPanel>
-  </ScrollViewer>
+    </Grid>
+  </Border>
 </Window>

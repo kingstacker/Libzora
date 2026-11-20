@@ -64,12 +64,18 @@ public partial class MainWindow
 
     private void UpdateDeviceBookSelectionUi()
     {
-        // 与电脑书库一致：只有真正多选（≥2 本）时卡片才显示 ✓ 徽标。
+        // 与电脑书库一致：只有真正多选（≥2 本）时卡片才显示 ✓ 徽标，并抑制悬停提示。
         var selected = GetSelectedDeviceBooks();
         var multi = selected.Count > 1;
+        var suppressTooltips = multi || _deviceRubberBandSelecting;
         foreach (var book in DeviceBooks)
+        {
             book.IsMultiSelected = book.IsSelected && multi;
-        DeviceBookSelectionBar.IsVisible = selected.Count > 1;
+            book.IsTooltipEnabled = !suppressTooltips;
+        }
+        if (suppressTooltips)
+            CloseOpenToolTips(DeviceBookGridItems, DeviceBookListItems);
+        DeviceBookSelectionBar.IsVisible = selected.Count > 1 && !_isTransferring;
         DeviceBookSelectionText.Text = selected.Count == 0 ? string.Empty : T("已选择 {0} 本书", selected.Count);
     }
 
@@ -179,8 +185,28 @@ public partial class MainWindow
         VisibleDeviceBooks.ReplaceAll(_filteredDeviceBooks
             .Skip(_devicePageIndex * DevicePageSize)
             .Take(DevicePageSize));
+        RebuildDeviceShelfBooks();
         UpdateDeviceBookPaginationUi();
         UpdateDeviceBookEmptyState();
+    }
+
+    private void RebuildDeviceShelfBooks(bool? stackingEnabled = null)
+    {
+        var query = DeviceBookSearchBox?.Text?.Trim() ?? string.Empty;
+        var enabled = (stackingEnabled ?? _appSettings.StackBookSeries) && query.Length == 0;
+        var page = VisibleDeviceBooks.ToArray();
+        var shelf = SeriesShelfProjection.Project(
+            page,
+            enabled,
+            card => new BookSeriesCandidate(
+                card.Book.RelativePath,
+                card.Book.Title,
+                card.Book.Authors,
+                FileTitles: [Path.GetFileNameWithoutExtension(card.Book.FileName)]),
+            card => card.Book.RelativePath,
+            (card, key, title, members) => card.SetSeriesMembers(key, title, members),
+            _deviceSeriesFronts);
+        VisibleDeviceShelfBooks.ReplaceAll(shelf);
     }
 
     private static string DevicePinyinStamp(KindleBookCardViewModel card) =>
@@ -273,6 +299,7 @@ public partial class MainWindow
 
     private void DeviceBook_PointerPressed(object? sender, PointerPressedEventArgs e)
     {
+        if (IsButtonSource(e.Source)) return;
         if (sender is not Control { DataContext: KindleBookCardViewModel card } control
             || !e.GetCurrentPoint(control).Properties.IsLeftButtonPressed)
             return;
@@ -293,7 +320,7 @@ public partial class MainWindow
         }
         else if ((e.KeyModifiers & KeyModifiers.Shift) != 0)
         {
-            var cards = VisibleDeviceBooks.ToList();
+            var cards = VisibleDeviceShelfBooks.ToList();
             var clickedIndex = cards.IndexOf(card);
             var anchorIndex = _deviceMultiSelectAnchor is null ? -1 : cards.IndexOf(_deviceMultiSelectAnchor);
             foreach (var candidate in cards) candidate.IsSelected = false;
@@ -401,7 +428,7 @@ public partial class MainWindow
         DeviceRubberBandRectangle.Width = contentWidth;
         DeviceRubberBandRectangle.Height = Math.Abs(visibleBottom - visibleTop);
 
-        foreach (var card in VisibleDeviceBooks)
+        foreach (var card in VisibleDeviceShelfBooks)
         {
             if (DeviceBookGridItems.ContainerFromItem(card) is not Control container) continue;
             var origin = container.TranslatePoint(default, DeviceBookGridScroll);
@@ -413,7 +440,7 @@ public partial class MainWindow
                 container.Bounds.Height);
             card.IsSelected = bounds.Intersects(selection);
         }
-        _deviceMultiSelectAnchor = VisibleDeviceBooks.FirstOrDefault(card => card.IsSelected);
+        _deviceMultiSelectAnchor = VisibleDeviceShelfBooks.FirstOrDefault(card => card.IsSelected);
         UpdateDeviceBookSelectionUi();
     }
 
@@ -538,6 +565,11 @@ public partial class MainWindow
         var selectedBooks = GetSelectedDeviceBooks().ToArray();
         var selectedCount = selectedBooks.Length;
         var menu = new ContextMenu();
+        if (card.IsSeriesStack)
+        {
+            menu.Items.Add(BuildDeviceSeriesMenu(card));
+            menu.Items.Add(new Separator());
+        }
         menu.Items.Add(CreateMenuItem(
             selectedCount > 1 ? T("导出到电脑书库（{0}）", selectedCount) : T("导出到电脑书库"),
             selectedCount > 1 ? ExportSelectedDeviceBooksAsync : () => ExportDeviceBookAsync(card)));
@@ -623,6 +655,8 @@ public partial class MainWindow
             _deviceCardsByPath.Clear();
             _libraryPresenceComparison = null;
             VisibleDeviceBooks.Clear();
+            VisibleDeviceShelfBooks.Clear();
+            _deviceSeriesFronts.Clear();
             _filteredDeviceBooks = [];
             _devicePageIndex = 0;
             _devicePageCount = 1;

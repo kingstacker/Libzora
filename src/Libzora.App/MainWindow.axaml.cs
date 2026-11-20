@@ -269,6 +269,7 @@ public partial class MainWindow : Window
         _updateService = modules.Integrations.Updates;
         ViewModel = new LibraryViewModel(_library, _paths.Data);
         ViewModel.SortMode = ParseLibrarySortMode(_appSettings.LibrarySortMode);
+        ViewModel.SetStackBookSeries(_appSettings.StackBookSeries);
         ViewModel.ViewChanged += ViewModel_ViewChanged;
 
         InitializeComponent();

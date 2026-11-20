@@ -14,7 +14,7 @@ public sealed class ICloudSyncTests
     {
         var settings = new S3SyncSettings
         {
-            Provider = SyncProvider.ICloud, ProviderChosenByUser = true,
+            Provider = SyncProvider.ICloud, ProviderChosenByUser = true, EncryptionKey = "icloud-test-key",
             Endpoint = "invalid inactive S3 endpoint", WebDavEndpoint = "invalid inactive WebDAV endpoint"
         };
         Assert.Equal(3, (int)SyncProvider.ICloud);
@@ -22,6 +22,7 @@ public sealed class ICloudSyncTests
         Assert.Equal("icloud", SyncProviderIds.FromProvider(settings.Provider));
         Assert.Equal(DeviceFeature.ICloud, MemberEntitlements.SyncFeature(settings.Provider));
         Assert.True(settings.IsConfigured);
+        Assert.False((settings with { EncryptionKey = "" }).IsConfigured);
         Assert.True(settings.HasChosenCustomProvider);
         Assert.Equal("iCloud", settings.ProviderName);
         Assert.False((settings with { Prefix = "books\0invalid" }).IsConfigured);
@@ -161,6 +162,15 @@ public sealed class ICloudSyncTests
     }
 
     [Fact]
+    public async Task EmptyEncryptionKeyIsRejectedForSyncAndConnectionTest()
+    {
+        using var fileSystem = new FakeICloudFileSystem();
+        await using var device = await Device.CreateAsync(fileSystem, Settings() with { EncryptionKey = "" });
+        await Assert.ThrowsAsync<InvalidOperationException>(() => device.SyncAsync());
+        await Assert.ThrowsAsync<InvalidOperationException>(() => device.Service.TestConnectionAsync(device.Settings));
+    }
+
+    [Fact]
     public async Task SavingBindsTheAccountAndSwitchingOrSigningOutDisablesAutomaticSyncWithoutRewritingSettings()
     {
         using var fileSystem = new FakeICloudFileSystem();
@@ -203,13 +213,11 @@ public sealed class ICloudSyncTests
         finally { TestHelpers.TryDelete(root); }
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task TwoDevicesUseTheExistingBookProgressAnnotationEncryptionAndDeletionProtocol(bool encrypted)
+    [Fact]
+    public async Task TwoDevicesUseTheExistingBookProgressAnnotationEncryptionAndDeletionProtocol()
     {
         using var fileSystem = new FakeICloudFileSystem();
-        var settings = Settings() with { EncryptionKey = encrypted ? "shared-icloud-test-key" : "" };
+        var settings = Settings() with { EncryptionKey = "shared-icloud-test-key" };
         await using var a = await Device.CreateAsync(fileSystem, settings);
         await using var b = await Device.CreateAsync(fileSystem, settings);
         var book = await a.AddBookAsync();
@@ -223,15 +231,7 @@ public sealed class ICloudSyncTests
             "chapter.xhtml", "p1", 1, 12, 45, 0, DateTimeOffset.UtcNow));
         Assert.False((await a.SyncAsync()).IsPartial);
         var snapshot = fileSystem.PathFor($"regions/china/libzora/devices/{a.Id}/snapshot.bin");
-        if (encrypted)
-            Assert.True((await File.ReadAllBytesAsync(snapshot)).AsSpan().StartsWith("LIBZORA-SYNC1"u8));
-        else
-        {
-            await using var input = File.OpenRead(snapshot);
-            await using var gzip = new GZipStream(input, CompressionMode.Decompress);
-            using var reader = new StreamReader(gzip);
-            Assert.DoesNotContain(fileSystem.AccountIdentity!, await reader.ReadToEndAsync(), StringComparison.Ordinal);
-        }
+        Assert.True((await File.ReadAllBytesAsync(snapshot)).AsSpan().StartsWith("LIBZORA-SYNC1"u8));
         // Both snapshots and book objects can be dataless on another device.
         fileSystem.Evict(snapshot);
         var blob = Assert.Single(Directory.EnumerateFiles(fileSystem.Root, "*", SearchOption.AllDirectories),
@@ -291,13 +291,11 @@ public sealed class ICloudSyncTests
         finally { TestHelpers.TryDelete(root); }
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task RetryMustConfirmListedLocalObjectsBeforePublishingASnapshot(bool encrypted)
+    [Fact]
+    public async Task RetryMustConfirmListedLocalObjectsBeforePublishingASnapshot()
     {
         using var fileSystem = new FakeICloudFileSystem();
-        var settings = Settings() with { EncryptionKey = encrypted ? "retry-key" : "" };
+        var settings = Settings() with { EncryptionKey = "retry-key" };
         await using var device = await Device.CreateAsync(fileSystem, settings);
         var book = await device.AddBookAsync();
         var snapshot = fileSystem.PathFor($"regions/china/libzora/devices/{device.Id}/snapshot.bin");
@@ -334,7 +332,7 @@ public sealed class ICloudSyncTests
     private static S3SyncSettings Settings() => new()
     {
         Provider = SyncProvider.ICloud, ProviderChosenByUser = true, Enabled = true,
-        AutomaticSyncEnabled = false, Prefix = "libzora"
+        AutomaticSyncEnabled = false, Prefix = "libzora", EncryptionKey = "icloud-test-key"
     };
 
     private static async Task<string> ReadTextAsync(SyncObjectRead read)

@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Text.Json;
 using Avalonia.Controls;
 using Libzora.ApplicationServices;
 using Libzora.Core;
@@ -56,6 +57,49 @@ public sealed class ReaderPersistenceRegressionTests(MobileUiSession session)
         Assert.False(reader.GetNativeState().Ready);
         Assert.Null(Field("_bookFile").GetValue(reader));
         Assert.Null(await state.Modules.Reader.Data.GetProgressAsync(state.File.Id));
+    }, CancellationToken.None);
+
+    [Fact]
+    public Task PlainNumberedFootnoteCardOffersAJumpAndKeepsItsNoteText() => session.Session.Dispatch(async () =>
+    {
+        using var state = await ReaderState.CreateAsync();
+        var reader = state.Reader;
+        NativeReaderFootnote? published = null;
+        reader.NativeFootnoteRequested += footnote => published = footnote;
+        using var document = JsonDocument.Parse(
+            """
+            {"href":"file:///tmp/body.xhtml#__libzora-plain-footnote-0-1-42",
+             "footnoteText":"第一条注释说明。","marker":"（1）","x":10,"y":20}
+            """);
+
+        await (Task)typeof(ReaderPage)
+            .GetMethod("ShowFootnoteAsync", PrivateInstance)!
+            .Invoke(reader, [document.RootElement.Clone()])!;
+
+        Assert.NotNull(published);
+        Assert.True(published!.CanJump);
+        Assert.Equal("第一条注释说明。", published.Text);
+    }, CancellationToken.None);
+
+    [Fact]
+    public Task PlainFootnoteFragmentWithoutDefinitionOffsetCannotJump() => session.Session.Dispatch(async () =>
+    {
+        using var state = await ReaderState.CreateAsync();
+        var reader = state.Reader;
+        NativeReaderFootnote? published = null;
+        reader.NativeFootnoteRequested += footnote => published = footnote;
+        using var document = JsonDocument.Parse(
+            """
+            {"href":"file:///tmp/body.xhtml#__libzora-plain-footnote-0-1",
+             "footnoteText":"旧格式注释。","marker":"（1）","x":10,"y":20}
+            """);
+
+        await (Task)typeof(ReaderPage)
+            .GetMethod("ShowFootnoteAsync", PrivateInstance)!
+            .Invoke(reader, [document.RootElement.Clone()])!;
+
+        Assert.NotNull(published);
+        Assert.False(published!.CanJump);
     }, CancellationToken.None);
 
     [Fact]

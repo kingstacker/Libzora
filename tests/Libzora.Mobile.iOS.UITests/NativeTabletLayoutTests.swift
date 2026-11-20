@@ -57,7 +57,7 @@ final class NativeTabletLayoutTests: XCTestCase {
         XCTAssertTrue(content.waitForExistence(timeout: 15))
         assertCentered(content, maximumWidth: window.frame.width)
         app.buttons["profile.theme"].tap()
-        let menu = element("profile.theme.menu")
+        let menu = app.buttons["深色"]
         XCTAssertTrue(menu.waitForExistence(timeout: 10))
         XCTAssertLessThanOrEqual(menu.frame.width, 251)
         XCTAssertGreaterThanOrEqual(menu.frame.minX, window.frame.minX)

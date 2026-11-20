@@ -13,6 +13,7 @@ public partial class ReaderPage
     private ReaderLayoutSettings? _bookPageCountLayout;
     private double _bookPageCountWidth;
     private double _bookPageCountHeight;
+    private bool _bookPageCountsAreExact;
     private CancellationTokenSource? _bookPageCountCancellation;
 
     /// <summary>
@@ -61,8 +62,7 @@ public partial class ReaderPage
         _bookPageCountHeight = height;
         _bookPageCountCancellation?.Cancel();
         _bookPageCountCancellation?.Dispose();
-        var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
-        _bookPageCountCancellation = cancellation;
+        _bookPageCountCancellation = null;
         var sequence = ++_bookPageCountSequence;
 
         var host = _readerHost as IReaderPageCountHost;
@@ -71,9 +71,28 @@ public partial class ReaderPage
         // to a whole-book page number on the very first turn. In power-saving
         // mode, keep the instant estimate and skip full-book background layout.
         _bookPageCounts = BuildCheapBookPageCounts(document, knownChapter);
+        _bookPageCountsAreExact = false;
         if (IsPowerSavingActive) return;
+
+        // The source is created only once the refresh actually runs; the
+        // power-saving exit path schedules again, so nothing is left linked
+        // to the page lifetime in the meantime.
+        var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+        _bookPageCountCancellation = cancellation;
         _ = RefreshBookPageCountsAsync(
             document, _layout, width, height, host, knownChapter, sequence, cancellation);
+    }
+
+    /// <summary>
+    /// Restarts exact pagination after power saving ends. The cached estimate
+    /// matches the current layout, so the staleness check in
+    /// <see cref="ScheduleBookPageCounts"/> would otherwise keep it forever.
+    /// </summary>
+    private void ResumeBookPageCountsAfterPowerSaving()
+    {
+        if (_disposed || _bookPageCountsAreExact) return;
+        _bookPageCountLayout = null;
+        RefreshPositionLabels();
     }
 
     private async Task RefreshBookPageCountsAsync(
@@ -116,6 +135,7 @@ public partial class ReaderPage
                     || token.IsCancellationRequested)
                     return;
                 _bookPageCounts = counts;
+                _bookPageCountsAreExact = true;
                 RefreshPositionLabels();
             });
         }

@@ -140,6 +140,19 @@ public partial class ReaderPage
         _readingStatsTimer = null;
     }
 
+    /// <summary>
+    /// Restarts the remaining-time refresh that power saving stopped. The load
+    /// callback owns the actual start so a pace that is already learned does
+    /// not bring the timer back.
+    /// </summary>
+    private void ResumeReadingStatsTimer()
+    {
+        if (_disposed || IsPowerSavingActive) return;
+        if (_shell.Preferences.Current.ReaderProgressDisplay != MobileReaderProgressDisplay.BookTimeRemaining) return;
+        if (_readingStats is { } stats && HasLearnedReadingPace(stats)) return;
+        EnsureReadingStatsLoaded(force: true);
+    }
+
     private void RefreshPositionLabels()
     {
         if (_isPdf) UpdatePdfLabels();

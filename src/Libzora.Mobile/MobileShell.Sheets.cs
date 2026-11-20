@@ -18,6 +18,17 @@ public partial class MobileShell
 {
     public Control? CurrentPage => _history.Count > 0 ? _history.Peek().Page : null;
 
+    /// <summary>
+    /// The reader that is currently on screen. Avalonia heads keep it in the
+    /// navigation stack; the iOS native frontend hosts it on its own surface,
+    /// outside <c>_history</c>, and reports it through <see cref="SetActiveReaderPage"/>.
+    /// </summary>
+    public ReaderPage? ActiveReaderPage { get; private set; }
+
+    public void SetActiveReaderPage(ReaderPage? reader) => ActiveReaderPage = reader;
+
+    private ReaderPage? VisibleReaderPage => CurrentPage as ReaderPage ?? ActiveReaderPage;
+
     public bool CanGoBack => SheetScope.IsVisible || _history.Count > 1;
 
     /// <summary>
@@ -70,7 +81,7 @@ public partial class MobileShell
         if (_backupBlocked || DateTimeOffset.UtcNow - Sync.LastRunAt < minimumGap) return;
         // Defer automatic background sync while reading in power-saving mode to
         // avoid waking Wi-Fi/cellular radios; sync resumes when leaving the reader.
-        if (CurrentPage is ReaderPage activeReader && activeReader.IsPowerSavingActive) return;
+        if (VisibleReaderPage is { IsPowerSavingActive: true }) return;
         using var operation = MobileDataCoordinator.TryBeginOperation();
         if (operation is null) return;
         try

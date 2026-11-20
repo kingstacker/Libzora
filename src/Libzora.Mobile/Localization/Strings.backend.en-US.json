@@ -28,6 +28,7 @@
   "上次同步 {0:yyyy/MM/dd HH:mm} · {1} 本": "Last synced {0:yyyy/MM/dd HH:mm} · {1} books",
   " · {0} 个文件待下载": " · {0} files pending download",
   "尚未同步": "Not synced yet",
+  "请先设置同步密钥。": "Set up a sync key first.",
   "导出连接参数": "Export connection profile",
   "参数文件会明文包含当前服务的账号和密码，请只保存或分享给信任的位置。同步加密密钥不会导出。": "The profile will contain this service’s account credentials and password in plain text. Only save or share it to a trusted location. Your sync encryption key will not be exported.",
   "继续导出": "Continue export",
@@ -158,6 +159,10 @@
   "进度 {0:0}%": "Progress {0:0}%",
   "已添加书签": "Bookmark added",
   "不足 1 分钟": "Less than 1 min",
+  "请先配置 AI API Key。": "Configure an AI API key first.",
+  "AI 服务返回的模型列表格式无法识别。": "The AI service returned an unrecognized model list format.",
+  "请先配置 AI 服务、模型和 API Key。": "Configure the AI service, model, and API key first.",
+  "AI 服务返回了空答案。": "The AI service returned an empty answer.",
   "{0:0} 分钟": "{0:0} min",
   "{0:0} 小时": "{0:0} hr",
   "{0:0} 小时 {1:0} 分钟": "{0:0} hr {1:0} min"

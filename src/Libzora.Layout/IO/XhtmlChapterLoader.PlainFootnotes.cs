@@ -39,6 +39,7 @@ public sealed partial class XhtmlChapterLoader
         {
             var headingOffset = GetBodyTextOffsetBefore(body, heading);
             var notes = new Dictionary<string, string>(StringComparer.Ordinal);
+            var definitionOffsets = new Dictionary<string, int>(StringComparer.Ordinal);
             var noteBlocks = new List<XElement>();
             string? currentKey = null;
             var currentText = new StringBuilder();
@@ -63,6 +64,9 @@ public sealed partial class XhtmlChapterLoader
                 if (TryReadPlainFootnoteMarkerAtStart(text, out var key, out var remainder))
                 {
                     FlushPlainFootnote(currentKey, currentText, notes);
+                    // Remember where this note starts so the reader can jump
+                    // from the body marker to its definition.
+                    definitionOffsets.TryAdd(key, GetBodyTextOffsetBefore(body, element));
                     currentKey = key;
                     currentText.Clear();
                     AppendPlainFootnoteText(currentText, remainder);
@@ -99,6 +103,7 @@ public sealed partial class XhtmlChapterLoader
                 DefinitionStartOffset = headingOffset,
                 DefinitionEndOffset = definitionEndOffset,
                 Notes = notes,
+                DefinitionOffsets = definitionOffsets,
             });
             previousDefinitionEndOffset = Math.Max(
                 previousDefinitionEndOffset,
@@ -337,9 +342,13 @@ public sealed partial class XhtmlChapterLoader
                             NoWrap = true,
                         },
                         LinkHref = item.LinkHref,
-                        FootnoteHref = CreatePlainFootnoteHref(
+                        // A real link already knows where the note lives; keep
+                        // it so the card can offer "jump to the note" instead
+                        // of a synthetic, non-navigable fragment.
+                        FootnoteHref = item.LinkHref ?? CreatePlainFootnoteHref(
                             match.SectionIndex,
-                            match.Key),
+                            match.Key,
+                            match.DefinitionOffset),
                         FootnoteText = match.Text,
                     });
                     cursor = match.Index + match.Length;
@@ -454,10 +463,10 @@ public sealed partial class XhtmlChapterLoader
             && !string.IsNullOrWhiteSpace(item.Text));
     }
 
-    private List<(int Index, int Length, string Key, string Text, int SectionIndex)> FindPlainFootnoteMarkers(
+    private List<(int Index, int Length, string Key, string Text, int SectionIndex, int DefinitionOffset)> FindPlainFootnoteMarkers(
         InlineItem item)
     {
-        var matches = new List<(int Index, int Length, string Key, string Text, int SectionIndex)>();
+        var matches = new List<(int Index, int Length, string Key, string Text, int SectionIndex, int DefinitionOffset)>();
         foreach (Match match in PlainFootnoteMarkerPattern.Matches(item.Text))
         {
             var key = NormalizePlainFootnoteKey(match.Groups["number"].Value);
@@ -471,7 +480,8 @@ public sealed partial class XhtmlChapterLoader
             if (sectionIndex >= 0
                 && _plainFootnoteSections[sectionIndex].Notes.TryGetValue(key, out var text))
             {
-                matches.Add((match.Index, match.Length, key, text, sectionIndex));
+                matches.Add((match.Index, match.Length, key, text, sectionIndex,
+                    PlainFootnoteDefinitionOffset(sectionIndex, key)));
             }
         }
 
@@ -492,13 +502,19 @@ public sealed partial class XhtmlChapterLoader
                     && sectionIndex >= 0
                     && _plainFootnoteSections[sectionIndex].Notes.TryGetValue(key, out var text))
                 {
-                    matches.Add((match.Index, match.Length, key, text, sectionIndex));
+                    matches.Add((match.Index, match.Length, key, text, sectionIndex,
+                        PlainFootnoteDefinitionOffset(sectionIndex, key)));
                 }
             }
         }
 
         return matches;
     }
+
+    private int PlainFootnoteDefinitionOffset(int sectionIndex, string key) =>
+        _plainFootnoteSections[sectionIndex].DefinitionOffsets.TryGetValue(key, out var offset)
+            ? offset
+            : -1;
 
     private int FindPlainFootnoteMarkerSectionIndex(int offset)
     {
@@ -530,11 +546,16 @@ public sealed partial class XhtmlChapterLoader
         return -1;
     }
 
-    private string CreatePlainFootnoteHref(int sectionIndex, string key)
+    private string CreatePlainFootnoteHref(int sectionIndex, string key, int definitionOffset)
     {
+        // The definition offset lets the reader jump to the note inside its own
+        // chapter; older fragments without it keep the card but cannot jump.
+        var fragment = definitionOffset >= 0
+            ? $"__libzora-plain-footnote-{sectionIndex}-{key}-{definitionOffset}"
+            : $"__libzora-plain-footnote-{sectionIndex}-{key}";
         return new UriBuilder(new Uri(_chapterPath, UriKind.Absolute))
         {
-            Fragment = $"__libzora-plain-footnote-{sectionIndex}-{key}",
+            Fragment = fragment,
         }.Uri.AbsoluteUri;
     }
 

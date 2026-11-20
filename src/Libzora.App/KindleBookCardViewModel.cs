@@ -32,8 +32,12 @@ public sealed class KindleBookCardViewModel : ObservableObject, IDisposable
     private bool _isSelected;
     private bool _isMultiSelected;
     private bool _isHovered;
+    private bool _isTooltipEnabled = true;
     private double _downloadProgress;
     private string _statusMessage = string.Empty;
+    private IReadOnlyList<KindleBookCardViewModel> _seriesMembers = [];
+    private string? _seriesKey;
+    private string? _seriesTitle;
 
     public KindleBookCardViewModel(KindleBook book)
     {
@@ -65,6 +69,10 @@ public sealed class KindleBookCardViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(RelativePath));
         OnPropertyChanged(nameof(ModifiedLabel));
         OnPropertyChanged(nameof(HashLabel));
+        OnPropertyChanged(nameof(DisplayTitle));
+        OnPropertyChanged(nameof(DisplayMetaLabel));
+        OnPropertyChanged(nameof(DisplayInfoLabel));
+        OnPropertyChanged(nameof(DisplayFileName));
     }
 
     public Bitmap? CoverImage
@@ -117,6 +125,69 @@ public sealed class KindleBookCardViewModel : ObservableObject, IDisposable
         private set => SetProperty(ref _galleryTextVisible, value);
     }
     public double CardHeight => _galleryTextVisible ? 292 : 214;
+
+    public IReadOnlyList<KindleBookCardViewModel> SeriesMembers => _seriesMembers;
+    public string? SeriesKey => _seriesKey;
+    public string? SeriesTitle => _seriesTitle;
+    public bool IsSeriesStack => _seriesMembers.Count > 1;
+    public int SeriesCount => _seriesMembers.Count;
+    public string SeriesCountLabel => UiText.Get("{0} 册", _seriesMembers.Count);
+    public string SeriesBadgeTip => UiText.Get("展开系列：{0}", _seriesTitle ?? Title);
+    public bool SeriesBadgeVisibility => IsSeriesStack;
+    public bool SeriesCover2Visibility => _seriesMembers.Count >= 2;
+    public bool SeriesCover3Visibility => _seriesMembers.Count >= 3;
+
+    public double FrontCoverWidth => _seriesMembers.Count >= 3 ? 142 : IsSeriesStack ? 148 : 154;
+    public double RearCover1Width => _seriesMembers.Count >= 3 ? 148 : 154;
+    public Bitmap? SeriesCover2 => SeriesCover(1);
+    public Bitmap? SeriesCover3 => SeriesCover(2);
+
+    public string DisplayTitle => IsSeriesStack ? _seriesTitle ?? Title : Title;
+    public string DisplayMetaLabel => IsSeriesStack ? SeriesCountLabel : FormatLabel;
+    public string DisplayInfoLabel => IsSeriesStack ? SeriesCountLabel : InfoLabel;
+    public string DisplayFileName => IsSeriesStack ? SeriesCountLabel : FileName;
+
+    public void SetSeriesMembers(
+        string? key,
+        string? title,
+        IReadOnlyList<KindleBookCardViewModel>? members)
+    {
+        var next = members is { Count: > 1 } ? members : Array.Empty<KindleBookCardViewModel>();
+        var unchanged = string.Equals(_seriesKey, key, StringComparison.Ordinal)
+            && string.Equals(_seriesTitle, title, StringComparison.Ordinal)
+            && _seriesMembers.SequenceEqual(next);
+        if (unchanged) return;
+
+        _seriesKey = next.Count > 0 ? key : null;
+        _seriesTitle = next.Count > 0 ? title : null;
+        _seriesMembers = next.Count > 0 ? next.ToArray() : [];
+        NotifySeriesChanged();
+    }
+
+    private Bitmap? SeriesCover(int index) =>
+        index < _seriesMembers.Count ? _seriesMembers[index].CoverImage : null;
+
+    private void NotifySeriesChanged()
+    {
+        OnPropertyChanged(nameof(SeriesMembers));
+        OnPropertyChanged(nameof(SeriesKey));
+        OnPropertyChanged(nameof(SeriesTitle));
+        OnPropertyChanged(nameof(IsSeriesStack));
+        OnPropertyChanged(nameof(SeriesCount));
+        OnPropertyChanged(nameof(SeriesCountLabel));
+        OnPropertyChanged(nameof(SeriesBadgeTip));
+        OnPropertyChanged(nameof(SeriesBadgeVisibility));
+        OnPropertyChanged(nameof(SeriesCover2Visibility));
+        OnPropertyChanged(nameof(SeriesCover3Visibility));
+        OnPropertyChanged(nameof(FrontCoverWidth));
+        OnPropertyChanged(nameof(RearCover1Width));
+        OnPropertyChanged(nameof(SeriesCover2));
+        OnPropertyChanged(nameof(SeriesCover3));
+        OnPropertyChanged(nameof(DisplayTitle));
+        OnPropertyChanged(nameof(DisplayMetaLabel));
+        OnPropertyChanged(nameof(DisplayInfoLabel));
+        OnPropertyChanged(nameof(DisplayFileName));
+    }
 
     public void SetGalleryTextVisible(bool visible)
     {
@@ -178,6 +249,11 @@ public sealed class KindleBookCardViewModel : ObservableObject, IDisposable
         get => _isMultiSelected;
         set => SetProperty(ref _isMultiSelected, value);
     }
+    public bool IsTooltipEnabled
+    {
+        get => _isTooltipEnabled;
+        set => SetProperty(ref _isTooltipEnabled, value);
+    }
     public bool IsHovered
     {
         get => _isHovered;
@@ -204,11 +280,18 @@ public sealed class KindleBookCardViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(ModifiedLabel));
         OnPropertyChanged(nameof(HashLabel));
         OnPropertyChanged(nameof(PresenceLabel));
+        OnPropertyChanged(nameof(SeriesCountLabel));
+        OnPropertyChanged(nameof(SeriesBadgeTip));
+        OnPropertyChanged(nameof(DisplayTitle));
+        OnPropertyChanged(nameof(DisplayMetaLabel));
+        OnPropertyChanged(nameof(DisplayInfoLabel));
+        OnPropertyChanged(nameof(DisplayFileName));
     }
 
     public void Dispose()
     {
         UiText.LanguageChanged -= OnLanguageChanged;
+        _seriesMembers = [];
         _coverImage?.Dispose();
     }
 }

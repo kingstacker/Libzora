@@ -39,6 +39,14 @@ public sealed class LibraryViewModel : ObservableObject, IDisposable
     }
 
     public BulkObservableCollection<BookCardViewModel> Books { get; } = [];
+    /// <summary>
+    /// The cards the shelf actually renders. It equals <see cref="Books"/>
+    /// unless series stacking is on and several books form one stack.
+    /// </summary>
+    public BulkObservableCollection<BookCardViewModel> ShelfBooks { get; } = [];
+    private readonly Dictionary<string, string> _seriesFronts = new(StringComparer.Ordinal);
+    private bool _stackBookSeries;
+    public bool StackBookSeries => _stackBookSeries;
     public IReadOnlyList<Book> LibraryBooks { get; private set; } = [];
     public IReadOnlyList<string> AvailableAuthors { get; private set; } = [];
     public IReadOnlyList<string> AvailableTags { get; private set; } = [];
@@ -240,6 +248,33 @@ public sealed class LibraryViewModel : ObservableObject, IDisposable
             card.Dispose();
         _bookCards.Clear();
         Books.Clear();
+        ShelfBooks.Clear();
+    }
+
+    /// <summary>
+    /// Turns shelf stacking on or off. Book search deliberately disables
+    /// stacking so a matched volume can never hide behind a stack front.
+    /// </summary>
+    public void SetStackBookSeries(bool enabled)
+    {
+        if (_stackBookSeries == enabled) return;
+        _stackBookSeries = enabled;
+        if (!enabled) _seriesFronts.Clear();
+        RebuildShelfBooks();
+    }
+
+    /// <summary>
+    /// Brings a volume of an open stack to the front and keeps it selected by
+    /// the window. The stack keeps its position in the current shelf sort.
+    /// </summary>
+    public void PromoteSeriesVolume(BookCardViewModel stack, BookCardViewModel member)
+    {
+        if (!_stackBookSeries
+            || !stack.IsSeriesStack
+            || string.IsNullOrWhiteSpace(stack.SeriesKey))
+            return;
+        _seriesFronts[stack.SeriesKey!] = member.Book.Id.ToString("N");
+        RebuildShelfBooks();
     }
 
     public async Task<ImportBatchResult> ImportAsync(
@@ -381,6 +416,7 @@ public sealed class LibraryViewModel : ObservableObject, IDisposable
                 orderedCards.Add(card);
             }
             Books.ReplaceAll(orderedCards);
+            RebuildShelfBooks();
             progress?.Invoke("正在刷新书架界面…");
 
             var baseStatus = page.TotalCount == 0
@@ -426,5 +462,27 @@ public sealed class LibraryViewModel : ObservableObject, IDisposable
     {
         if (!SetProperty(ref field, value, propertyName)) return;
         OnPropertyChanged(nameof(HasActiveFilters));
+    }
+
+    private void RebuildShelfBooks()
+    {
+        var cards = Books.ToArray();
+        var stacking = _stackBookSeries && string.IsNullOrWhiteSpace(SearchText);
+        var shelf = SeriesShelfProjection.Project(
+            cards,
+            stacking,
+            card => new BookSeriesCandidate(
+                card.Book.Id.ToString("N"),
+                card.Book.Title,
+                card.Book.Authors,
+                card.Book.Series,
+                card.Book.SeriesIndex,
+                card.Book.Files
+                    .Select(file => Path.GetFileNameWithoutExtension(file.RelativePath))
+                    .ToArray()),
+            card => card.Book.Id.ToString("N"),
+            (card, key, title, members) => card.SetSeriesMembers(key, title, members),
+            _seriesFronts);
+        ShelfBooks.ReplaceAll(shelf);
     }
 }

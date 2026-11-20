@@ -514,24 +514,41 @@ public partial class MainWindow
         // Batch actions need the shelf's full width, especially at 1024px.
         if (selectedCount > 1 && LibraryDetailPane.IsVisible && _selectedCard is not null)
             ClearSelectedBook();
-        MultiSelectionBar.IsVisible = selectedCount > 1;
+        MultiSelectionBar.IsVisible = selectedCount > 1 && !_isTransferring;
         MultiSelectionText.Text = selectedCount > 0 ? T("已选择 {0} 本书", selectedCount) : string.Empty;
     }
 
     private void SyncCardSelectionVisuals()
     {
-        // 单点选中的书显示黑边；只有真正多选（≥2 本）时才附带 ✓ 徽标。
+        // 单点选中的书显示黑边；只有真正多选（≥2 本）时才附带 ✓ 徽标，并抑制悬停提示。
         // 框选过程中不显示封面阅读按钮，避免只圈住一本书时闪烁遮罩。
         var multi = _selectedBookIds.Count > 1;
         var suppressReadAction = _rubberBandSelecting;
+        var suppressTooltips = multi || _rubberBandSelecting;
         foreach (var card in ViewModel.Books)
         {
-            var selected = _selectedBookIds.Contains(card.Book.Id);
+            var selected = _selectedBookIds.Contains(card.Book.Id)
+                || card.SeriesMembers.Any(member => _selectedBookIds.Contains(member.Book.Id));
             card.IsSelected = selected;
             card.IsSoleSelected = selected && !multi && !suppressReadAction;
             card.IsReadActionVisible = card.IsSoleSelected
                 && LibraryDetailPane.IsVisible && _detailPaneBookId == card.Book.Id;
             card.IsMultiSelected = selected && multi;
+            card.IsTooltipEnabled = !suppressTooltips;
+        }
+        if (suppressTooltips)
+            CloseOpenToolTips(BookGrid, BookList);
+    }
+
+    private static void CloseOpenToolTips(params Visual[] roots)
+    {
+        foreach (var root in roots)
+        {
+            foreach (var control in root.GetVisualDescendants().OfType<Control>())
+            {
+                if (ToolTip.GetIsOpen(control))
+                    ToolTip.SetIsOpen(control, false);
+            }
         }
     }
 }

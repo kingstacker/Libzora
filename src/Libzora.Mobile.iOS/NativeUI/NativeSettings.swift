@@ -16,7 +16,6 @@ struct NativeProfilePage: View {
     @ObservedObject var store: NativeStore
     @State private var summary: ProfileSummary?
     @State private var membership: AccountMembership?
-    @State private var preferenceMenu: NativePreferenceMenuRequest?
 
     private var account: AccountStatus? { store.account ?? summary?.account }
     private var secondaryColor: Color { store.preferences.colorfulMode ? NativeTheme.secondaryOnColorful : NativeTheme.secondary }
@@ -34,18 +33,7 @@ struct NativeProfilePage: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityElement(children: .contain).accessibilityIdentifier("profile.content")
         }.background(NativeAmbientBackground()).navigationBarHidden(true)
-            .background {
-                GeometryReader { geometry in
-                    Color.clear.onChange(of: geometry.size) { _ in preferenceMenu = nil }
-                }
-            }
             .overlay(alignment: .top) { NativeStatusBarGlass() }
-            .overlay {
-                if let preferenceMenu {
-                    NativePreferenceMenuOverlay(request: preferenceMenu) { self.preferenceMenu = nil }
-                        .zIndex(10)
-                }
-            }
             .task(id: store.uiLanguage) {
                 do {
                     let result: ProfileSummary = try await store.request("settings.profile")
@@ -99,12 +87,6 @@ struct NativeProfilePage: View {
                     NavigationLink { NativeFeedbackPage(store: store) } label: {
                         profileRow(title: L("问题反馈"))
                     }.accessibilityIdentifier("profile.feedback")
-                    Button {
-                        UIPasteboard.general.string = "1109898894"
-                        store.showToast(L("群号已复制到剪贴板"))
-                    } label: {
-                        profileRow(title: L("QQ 交流群"), value: "1109898894", chevron: false)
-                    }
                     NavigationLink { NativeAboutPage(store: store, version: summary?.version ?? "") } label: {
                         profileRow(title: L("关于 Libzora"), value: summary?.version ?? "")
                     }.accessibilityIdentifier("profile.about")
@@ -182,12 +164,11 @@ struct NativeProfilePage: View {
                 selected: option.id == selection,
                 select: { if option.id != selection { select(option.id) } })
         }
-        return profileRow(title: title, value: value)
+        return profileRow(title: title, chevron: false)
             .accessibilityHidden(true)
             .overlay {
-                NativeTrailingPreferenceMenu(title: title, value: value, identifier: identifier) { frame in
-                    preferenceMenu = NativePreferenceMenuRequest(identifier: identifier, sourceFrame: frame, options: menuOptions)
-                }
+                NativeTrailingPreferenceMenu(title: title, value: value, detailColor: detailColor,
+                                             identifier: identifier, options: menuOptions)
             }
     }
 
@@ -243,142 +224,135 @@ private struct NativePreferenceMenuOption: Identifiable {
     let select: () -> Void
 }
 
-private struct NativePreferenceMenuRequest {
-    let identifier: String
-    let sourceFrame: CGRect
-    let options: [NativePreferenceMenuOption]
-}
-
-/// Keep the full row tappable while letting the profile page draw its own glass menu.
+/// Keep the full row tappable while letting UIKit own and morph the trailing value + chevron.
 private struct NativeTrailingPreferenceMenu: UIViewRepresentable {
     var title: String
     var value: String
+    var detailColor: Color
     var identifier: String
-    var present: (CGRect) -> Void
+    var options: [NativePreferenceMenuOption]
+
+    final class MenuButton: UIButton {
+        let trailingView: UIView = {
+            let view = UIView()
+            view.backgroundColor = .clear
+            view.isUserInteractionEnabled = false
+            return view
+        }()
+        let valueLabel: UILabel = {
+            let label = UILabel()
+            let base = UIFont(name: "KingHwaOldSong", size: 14) ?? .systemFont(ofSize: 14)
+            label.font = UIFontMetrics(forTextStyle: .body).scaledFont(for: base)
+            label.adjustsFontForContentSizeCategory = true
+            label.numberOfLines = 1
+            return label
+        }()
+        let chevronView: UIImageView = {
+            let config = UIImage.SymbolConfiguration(pointSize: 12, weight: .regular)
+            let image = UIImage(systemName: "chevron.right", withConfiguration: config)
+            let imageView = UIImageView(image: image)
+            imageView.contentMode = .scaleAspectFit
+            return imageView
+        }()
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            trailingView.addSubview(valueLabel)
+            trailingView.addSubview(chevronView)
+            addSubview(trailingView)
+        }
+
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            let valueSize = valueLabel.sizeThatFits(CGSize(width: bounds.width, height: bounds.height))
+            let chevronSize = chevronView.sizeThatFits(CGSize(width: 24, height: bounds.height))
+            let spacing: CGFloat = valueSize.width > 0 ? 8 : 0
+            let horizontalPadding: CGFloat = 10
+            let contentWidth = valueSize.width + spacing + chevronSize.width
+            let containerWidth = min(bounds.width, contentWidth + horizontalPadding)
+            let containerHeight = min(max(bounds.height - 6, 34), bounds.height)
+            // Flush trailing edge of the visible content to bounds.maxX while giving
+            // the glass morph preview balanced padding on the left.
+            let containerX = bounds.maxX - containerWidth + horizontalPadding / 2
+            let clampedX = max(bounds.minX, min(containerX, bounds.maxX - containerWidth))
+            trailingView.frame = CGRect(x: clampedX, y: (bounds.height - containerHeight) / 2,
+                                        width: containerWidth, height: containerHeight)
+
+            let rightEdge = containerWidth - (bounds.maxX - (clampedX + containerWidth))
+            let chevronX = rightEdge - chevronSize.width
+            chevronView.frame = CGRect(x: chevronX, y: (containerHeight - chevronSize.height) / 2,
+                                       width: chevronSize.width, height: chevronSize.height)
+            valueLabel.frame = CGRect(x: max(0, chevronX - spacing - valueSize.width),
+                                      y: (containerHeight - valueSize.height) / 2,
+                                      width: valueSize.width, height: valueSize.height)
+        }
+
+        override func menuAttachmentPoint(for configuration: UIContextMenuConfiguration) -> CGPoint {
+            CGPoint(x: max(bounds.minX, bounds.maxX - 18), y: bounds.midY)
+        }
+
+        override func contextMenuInteraction(
+            _ interaction: UIContextMenuInteraction,
+            previewForHighlightingMenuWithConfiguration configuration: UIContextMenuConfiguration
+        ) -> UITargetedPreview? {
+            targetedPreview()
+        }
+
+        override func contextMenuInteraction(
+            _ interaction: UIContextMenuInteraction,
+            previewForDismissingMenuWithConfiguration configuration: UIContextMenuConfiguration
+        ) -> UITargetedPreview? {
+            targetedPreview()
+        }
+
+        private func targetedPreview() -> UITargetedPreview? {
+            guard trailingView.window != nil else { return nil }
+            let parameters = UIPreviewParameters()
+            parameters.backgroundColor = .clear
+            return UITargetedPreview(view: trailingView, parameters: parameters)
+        }
+    }
 
     final class Coordinator: NSObject {
-        var present: ((CGRect) -> Void)?
-
-        @objc func open(_ sender: UIButton) {
-            guard let window = sender.window else { return }
-            present?(sender.convert(sender.bounds, to: window))
-        }
+        var signature: [String] = []
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
-    func makeUIView(context: Context) -> UIButton {
-        let button = UIButton(type: .custom)
+    func makeUIView(context: Context) -> MenuButton {
+        let button = MenuButton(type: .custom)
         button.backgroundColor = .clear
-        button.addTarget(context.coordinator, action: #selector(Coordinator.open(_:)), for: .touchUpInside)
+        button.showsMenuAsPrimaryAction = true
         return button
     }
 
-    func updateUIView(_ button: UIButton, context: Context) {
-        context.coordinator.present = present
+    func updateUIView(_ button: MenuButton, context: Context) {
         button.accessibilityLabel = title
         button.accessibilityValue = value
         button.accessibilityIdentifier = identifier
-    }
-}
+        let tint = UIColor(detailColor)
+        button.valueLabel.text = value
+        button.valueLabel.textColor = tint
+        button.chevronView.tintColor = tint
+        button.setNeedsLayout()
+        button.layoutIfNeeded()
 
-private struct NativePreferenceMenuOverlay: View {
-    let request: NativePreferenceMenuRequest
-    let dismiss: () -> Void
+        let signature = options.map { "\($0.id)|\($0.title)|\($0.selected)" }
+        guard context.coordinator.signature != signature else { return }
+        context.coordinator.signature = signature
 
-    private static let menuWidth: CGFloat = 250
-    private static let rowHeight: CGFloat = 46
-
-    var body: some View {
-        GeometryReader { safeArea in
-            menu(in: safeArea.frame(in: .global)).ignoresSafeArea()
-        }
-        .transition(.opacity)
-    }
-
-    private func menu(in safeArea: CGRect) -> some View {
-        GeometryReader { proxy in
-            let origin = proxy.frame(in: .global).origin
-            let anchor = CGRect(x: request.sourceFrame.minX - origin.x,
-                                y: request.sourceFrame.minY - origin.y,
-                                width: request.sourceFrame.width,
-                                height: request.sourceFrame.height)
-            let bounds = NativeAdaptiveLayout.popupBounds(in: proxy.size,
-                safeArea: safeArea.offsetBy(dx: -origin.x, dy: -origin.y),
-                bottomBarInset: NativeTheme.bottomTabBarInset)
-            let width = min(Self.menuWidth, bounds.width)
-            let naturalHeight = CGFloat(request.options.count) * Self.rowHeight + 10
-            let height = min(naturalHeight, bounds.height)
-            let selectedIndex = request.options.firstIndex(where: \.selected) ?? 0
-            let preferredTop = anchor.midY - CGFloat(selectedIndex) * Self.rowHeight - Self.rowHeight / 2 - 5
-            let top = min(max(preferredTop, bounds.minY), max(bounds.minY, bounds.maxY - height))
-            let centerX = min(max(anchor.maxX - width / 2, bounds.minX + width / 2),
-                              bounds.maxX - width / 2)
-
-            ZStack(alignment: .topLeading) {
-                Color.black.opacity(0.001)
-                    .ignoresSafeArea()
-                    .contentShape(Rectangle())
-                    .onTapGesture(perform: dismiss)
-                    .accessibilityHidden(true)
-
-                NativePreferenceMenuPanel(options: request.options) { option in
-                    dismiss()
-                    option.select()
-                }
-                .frame(width: width, height: height)
-                .accessibilityIdentifier(request.identifier + ".menu")
-                .position(x: centerX, y: top + height / 2)
+        let actions = options.map { option in
+            let action = UIAction(title: option.title, state: option.selected ? .on : .off) { _ in
+                option.select()
             }
+            action.accessibilityIdentifier = option.identifier
+            return action
         }
-    }
-}
-
-private struct NativePreferenceMenuPanel: View {
-    let options: [NativePreferenceMenuOption]
-    let choose: (NativePreferenceMenuOption) -> Void
-
-    private var rows: some View {
-        VStack(spacing: 0) {
-            ForEach(options) { option in
-                Button { choose(option) } label: {
-                    HStack(spacing: 12) {
-                        Group {
-                            if option.selected {
-                                Image(systemName: "checkmark").font(.system(size: 13, weight: .semibold))
-                            } else {
-                                Color.clear
-                            }
-                        }
-                        .frame(width: 16, height: 16)
-                        Text(option.title)
-                            .font(NativeTheme.font(16))
-                            .foregroundStyle(NativeTheme.ink)
-                            .lineLimit(1)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 46, alignment: .leading)
-                    .padding(.horizontal, 20)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(option.title)
-                .accessibilityIdentifier(option.identifier)
-            }
-        }
-        .padding(.vertical, 5)
-    }
-
-    @ViewBuilder var body: some View {
-        if #available(iOS 26.0, *) {
-            rows
-                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
-                .shadow(color: .black.opacity(0.10), radius: 18, y: 8)
-        } else {
-            rows
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-                .shadow(color: .black.opacity(0.16), radius: 22, y: 9)
-        }
+        button.menu = UIMenu(children: actions)
     }
 }
 
@@ -598,7 +572,7 @@ struct NativeSyncSettings: View {
 
     @ViewBuilder private var syncKey: some View {
         // This user-owned key must not be offered to password AutoFill.
-        NativeTextField(title: L("同步密钥（备份必填，同步建议加密）"), text: $form.encryptionKey, secure: true,
+        NativeTextField(title: L("同步密钥（云同步与备份必填）"), text: $form.encryptionKey, secure: true,
                         identifier: "sync.encryptionKey")
             .textContentType(.oneTimeCode).textInputAutocapitalization(.never).disableAutocorrection(true)
         NativeTextField(title: L("再次输入同步密钥"), text: $confirmEncryptionKey, secure: true,
@@ -633,6 +607,13 @@ struct NativeSyncSettings: View {
         catch { if !Task.isCancelled { status = error.localizedDescription } }
     }
     private func run(_ operation: String) {
+        let keyEmpty = form.encryptionKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        // Clearing the key cannot succeed while sync is enabled, testing, or running;
+        // let validation report the missing-key requirement directly.
+        if keyEmpty && (operation == "run" || operation == "test" || (operation == "save" && form.enabled)) {
+            perform(operation)
+            return
+        }
         switch NativeSyncKeyConfirmation.decision(operation: operation, key: form.encryptionKey,
                                                   savedKey: savedEncryptionKey, confirmation: confirmEncryptionKey) {
         case .mismatch:
@@ -688,52 +669,159 @@ struct NativeAiSettings: View {
     @State private var busy = false
     @State private var loading = true
     @State private var status = ""
+    @State private var fetchedModels: [String] = []
+    @State private var showModelPicker = false
     @State private var providerTask: Task<Void, Never>?
+    @State private var actionTask: Task<Void, Never>?
 
     var body: some View {
         NativeForm {
             Section {
-                Picker(L("服务"), selection: $form.provider) { Text("DeepSeek").tag("deepseek"); Text("OpenAI").tag("openai"); Text(L("自定义")).tag("custom") }
+                Picker(L("服务"), selection: Binding(get: { form.provider }, set: selectProvider)) { Text("DeepSeek").tag("deepseek"); Text("OpenAI").tag("openai"); Text(L("自定义")).tag("custom") }
                     .pickerStyle(.segmented)
-                NativeTextField(title: L("接口地址"), text: $form.baseUrl).textInputAutocapitalization(.never).disableAutocorrection(true)
-                NativeTextField(title: L("模型"), text: $form.model).textInputAutocapitalization(.never).disableAutocorrection(true)
-                NativeTextField(title: "API Key", text: $form.apiKey, secure: true).textInputAutocapitalization(.never).disableAutocorrection(true)
+                NativeTextField(title: L("接口地址"), text: $form.baseUrl, identifier: "ai.baseUrl").textInputAutocapitalization(.never).disableAutocorrection(true)
+                NativeTextField(title: L("模型"), text: $form.model, identifier: "ai.model").textInputAutocapitalization(.never).disableAutocorrection(true)
+                Button { fetchModels() } label: {
+                    HStack {
+                        Text(L("获取模型")).font(NativeTheme.font())
+                        Spacer()
+                    }
+                }.accessibilityIdentifier("ai.fetchModels")
+                if !fetchedModels.isEmpty {
+                    Button { showModelPicker = true } label: {
+                        NativeSettingsRow(title: L("选择模型"),
+                                          value: form.model.isEmpty ? L("{0} 个可用", fetchedModels.count) : form.model)
+                    }.buttonStyle(.plain).accessibilityIdentifier("ai.selectModel")
+                }
+                NativeTextField(title: "API Key", text: $form.apiKey, secure: true, identifier: "ai.apiKey").textInputAutocapitalization(.never).disableAutocorrection(true)
             }
             Section {
-                Button(L("测试连接")) { run(test: true) }
+                Button(L("测试连接")) { run(test: true) }.accessibilityIdentifier("ai.test")
                 if busy { ProgressView() }
-                if !status.isEmpty { Text(status).foregroundStyle(NativeTheme.secondary).textSelection(.enabled) }
+                if !status.isEmpty {
+                    Text(status).foregroundStyle(NativeTheme.secondary).textSelection(.enabled)
+                        .accessibilityIdentifier("ai.status")
+                }
             }
         }.disabled(loading || busy)
             .navigationTitle(L("AI 接口")).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false).modifier(NativeKeyboardDone()).modifier(NativeHideTabBar())
             .nativeBackButton()
             .toolbar { Button(L("保存")) { run(test: false) }.disabled(busy || loading) }
             .task {
+                loading = true
                 defer { loading = false }
                 do { form = try await store.request("settings.ai.get") }
                 catch { if !Task.isCancelled { status = error.localizedDescription } }
             }
-            .onChange(of: form.provider) { provider in
-                guard !loading else { return }
-                providerTask?.cancel()
-                providerTask = Task {
-                    do {
-                        let defaults: AiDefaults = try await store.request("settings.ai.defaults", ["provider": provider])
-                        guard !Task.isCancelled, form.provider == provider else { return }
-                        form.baseUrl = defaults.baseUrl; form.model = defaults.model
-                    } catch { }
-                }
+            .onChange(of: form.baseUrl) { _ in
+                if !loading { fetchedModels = [] }
             }
-            .onDisappear { providerTask?.cancel() }
+            .onDisappear { providerTask?.cancel(); actionTask?.cancel() }
+            .sheet(isPresented: $showModelPicker) {
+                NativeAiModelPickerSheet(models: fetchedModels, selectedModel: $form.model)
+            }
+    }
+    private func selectProvider(_ provider: String) {
+        guard !loading, !busy, provider != form.provider else { return }
+        form.provider = provider
+        fetchedModels = []
+        providerTask?.cancel()
+        let previousUrl = form.baseUrl
+        let previousModel = form.model
+        providerTask = Task {
+            do {
+                let defaults: AiDefaults = try await store.request("settings.ai.defaults", ["provider": provider])
+                guard !Task.isCancelled, form.provider == provider else { return }
+                if form.baseUrl == previousUrl { form.baseUrl = defaults.baseUrl }
+                if form.model == previousModel { form.model = defaults.model }
+            } catch { }
+        }
+    }
+    private func fetchModels() {
+        busy = true; status = L("正在获取模型列表…")
+        actionTask?.cancel()
+        actionTask = Task {
+            defer { busy = false }
+            await providerTask?.value
+            do {
+                let result: AiModelListResult = try await store.request("settings.ai.models", ["settings": try requestObject(form)])
+                fetchedModels = result.models
+                if result.models.isEmpty {
+                    status = L("未获取到可用模型，请手动填写模型名称。")
+                } else {
+                    if form.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        form.model = result.models[0]
+                    }
+                    status = L("已获取 {0} 个模型，请选择。", result.models.count)
+                    showModelPicker = true
+                }
+            } catch { if !Task.isCancelled { status = error.localizedDescription } }
+        }
     }
     private func run(test: Bool) {
         busy = true; status = test ? L("正在测试连接…") : ""
-        store.perform {
+        actionTask?.cancel()
+        actionTask = Task {
             defer { busy = false }
-            let args = ["settings": try requestObject(form)]
-            if test { let value: MessageResult = try await store.request("settings.ai.test", args); status = value.message }
-            else { try await store.command("settings.ai.save", args); status = L("已保存") }
+            await providerTask?.value
+            do {
+                let args = ["settings": try requestObject(form)]
+                if test { let value: MessageResult = try await store.request("settings.ai.test", args); status = value.message }
+                else { try await store.command("settings.ai.save", args); status = L("已保存") }
+            } catch { if !Task.isCancelled { status = error.localizedDescription } }
         }
+    }
+}
+
+private struct NativeAiModelPickerSheet: View {
+    let models: [String]
+    @Binding var selectedModel: String
+    @Environment(\.dismiss) private var dismiss
+    @State private var query = ""
+
+    private var filtered: [String] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return models }
+        return models.filter { $0.localizedCaseInsensitiveContains(trimmed) }
+    }
+
+    var body: some View {
+        NavigationView {
+            List {
+                if models.count > 8 {
+                    TextField(L("搜索模型"), text: $query)
+                        .font(NativeTheme.font(15))
+                        .textInputAutocapitalization(.never)
+                        .disableAutocorrection(true)
+                        .accessibilityIdentifier("ai.models.search")
+                }
+                if filtered.isEmpty {
+                    Text(L("没有匹配的模型")).foregroundStyle(NativeTheme.secondary).font(NativeTheme.font())
+                } else {
+                    ForEach(filtered, id: \.self) { model in
+                        Button {
+                            selectedModel = model
+                            dismiss()
+                        } label: {
+                            HStack {
+                                Text(model).font(NativeTheme.font()).foregroundStyle(NativeTheme.ink)
+                                Spacer()
+                                if model.caseInsensitiveCompare(selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)) == .orderedSame {
+                                    Image(systemName: "checkmark").foregroundStyle(NativeTheme.ink)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle(L("选择模型"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(L("取消")) { dismiss() }.font(NativeTheme.font())
+                }
+            }
+        }.navigationViewStyle(.stack)
     }
 }
 

@@ -2422,6 +2422,31 @@
             <Setter Property="Background" Value="#66000000" />
             <Setter Property="RenderTransform" Value="scale(1)" />
         </Style>
+        <!-- Series count pill on stacked covers. It sits above the reading
+             overlay so the stack can always be expanded. -->
+        <Style Selector="Button.seriesBadge">
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="Height" Value="18" />
+            <Setter Property="Padding" Value="6,0" />
+            <Setter Property="FontSize" Value="10" />
+            <Setter Property="CornerRadius" Value="9" />
+            <Setter Property="Background" Value="{DynamicResource PaperBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource InkBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Button.seriesBadge:pointerover">
+            <Setter Property="Background" Value="{DynamicResource PaperBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource InkBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource InkBrush}" />
+        </Style>
+        <Style Selector="Button.seriesBadge:pressed">
+            <Setter Property="Background" Value="{DynamicResource SoftHoverBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource InkBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource InkBrush}" />
+        </Style>
         <Style Selector="Button.inlineAction">
             <Setter Property="Height" Value="30" />
             <Setter Property="MinHeight" Value="30" />
@@ -3206,6 +3231,15 @@
              clears :pointerover and would shrink the cover on every click. -->
         <Style Selector="Border.bookCover.hover Image">
             <Setter Property="RenderTransform" Value="scale(1.06)" />
+        </Style>
+        <!-- Series rear covers and a narrowed front cover form the stack
+             inside the clipped cover frame; zooming any layer would hide or
+             spill over the exposed edges. -->
+        <Style Selector="Border.bookCover.hover Image.seriesLayer">
+            <Setter Property="RenderTransform" Value="scale(1)" />
+        </Style>
+        <Style Selector="Border.bookCover.hover Image.seriesFront">
+            <Setter Property="RenderTransform" Value="scale(1)" />
         </Style>
         <!-- The gallery card keeps its light-grey resting outline from the
              template. Hover adds a soft shadow instead of a black frame. -->

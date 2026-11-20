@@ -93,6 +93,11 @@ public partial class MainWindow
         }
         openMenu.IsEnabled = openMenu.Items.OfType<MenuItem>().Any(item => item.IsEnabled);
         menu.Items.Add(openMenu);
+        if (card.IsSeriesStack)
+        {
+            menu.Items.Add(BuildLocalSeriesMenu(card));
+            menu.Items.Add(new Separator());
+        }
         menu.Items.Add(CreateMenuItem(T("重命名书籍"), () => RenameBookFromContextAsync(card)));
         menu.Items.Add(CreateMenuItem(T("打开书籍所在目录"), () => OpenBookDirectoryFromContextAsync(card)));
         menu.Items.Add(new Separator());

@@ -6,7 +6,6 @@ namespace Libzora.Tests;
 public sealed partial class S3SyncIntegrationTests
 {
     [Theory]
-    [InlineData("")]
     [InlineData("lifecycle-regression-key")]
     public async Task SoftDeletedFormatNotesSurviveSyncAndRestartUntilExplicitPurge(string encryptionKey)
     {

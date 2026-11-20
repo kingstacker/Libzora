@@ -32,12 +32,14 @@ public sealed class WebDavSettingsTests
         var settings = S3SyncSettings.Normalize(new S3SyncSettings
         {
             Provider = SyncProvider.WebDav, WebDavEndpoint = " https://DAV.example.test:443/remote.php/dav/// ",
-            WebDavUsername = " user ", WebDavPassword = " app password ", Endpoint = "invalid inactive S3 URL"
+            WebDavUsername = " user ", WebDavPassword = " app password ", Endpoint = "invalid inactive S3 URL",
+            EncryptionKey = "webdav-test-key"
         });
         Assert.Equal("https://dav.example.test/remote.php/dav", settings.WebDavEndpoint);
         Assert.Equal("user", settings.WebDavUsername);
         Assert.Equal(" app password ", settings.WebDavPassword);
         Assert.True(settings.IsConfigured);
+        Assert.False((settings with { EncryptionKey = "" }).IsConfigured);
         Assert.True((settings with { WebDavUsername = "", WebDavPassword = "" }).IsConfigured);
         Assert.False((settings with { WebDavUsername = "" }).IsConfigured);
         Assert.False((settings with { WebDavUsername = "user:name" }).IsConfigured);

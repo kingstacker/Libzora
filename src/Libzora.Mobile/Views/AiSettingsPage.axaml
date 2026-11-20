@@ -45,7 +45,11 @@
         </StackPanel>
         <StackPanel Classes="field">
           <TextBlock Text="模型" />
-          <TextBox Name="ModelBox" Classes="field" />
+          <Grid ColumnDefinitions="*,10,Auto">
+            <TextBox Name="ModelBox" Classes="field" />
+            <Button Grid.Column="2" Name="FetchModelsButton" Classes="ghost" Content="获取模型" Click="OnFetchModelsClick" />
+          </Grid>
+          <Button Name="ChooseModelButton" Classes="ghost" Content="选择模型" IsVisible="False" Click="OnChooseModelClick" />
         </StackPanel>
         <StackPanel Classes="field">
           <TextBlock Text="API Key" />

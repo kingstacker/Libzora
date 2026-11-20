@@ -54,6 +54,7 @@ public partial class MainWindow
             CompareKindleLibraryEnabled = CompareKindleLibraryCheck.IsChecked != false,
             SendToKindleWebEnabled = SendToKindleWebEnabledCheck.IsChecked != false,
             GridGalleryDisplay = GridGalleryDisplayCheck.IsChecked == true,
+            StackBookSeries = StackBookSeriesCheck.IsChecked != false,
             LibraryViewMode = _lastNonCollectionLibraryViewMode.ToString(),
             LibrarySortMode = ViewModel.SortMode.ToString(),
             DeviceLibraryViewMode = _deviceGridView ? "Grid" : "List",
@@ -280,8 +281,24 @@ public partial class MainWindow
         catch (SyncEncryptionKeyRequiredException exception)
         {
             SettingsBackupStatusText.Text = UiText.Localize(exception.Message);
-            await ShowMessageAsync(T("请先设置同步密钥"), UiText.Localize(exception.Message));
+            await ShowMessageAsync(
+                T("请先设置同步密钥"),
+                UiText.Localize(exception.Message),
+                secondaryActionText: T("去设置"),
+                secondaryAction: OpenSyncEncryptionKeySettings);
             return false;
         }
+    }
+
+    private void OpenSyncEncryptionKeySettings()
+    {
+        OpenSettingsExpander("Data", SettingsS3Expander);
+        SettingsS3AdvancedExpander.IsExpanded = true;
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (!S3EncryptionKeyBox.IsEffectivelyVisible) return;
+            S3EncryptionKeyBox.BringIntoView();
+            S3EncryptionKeyBox.Focus();
+        }, DispatcherPriority.Loaded);
     }
 }

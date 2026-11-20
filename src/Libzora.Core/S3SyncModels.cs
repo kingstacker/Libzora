@@ -100,7 +100,10 @@ public sealed record S3SyncSettings
         _ => UiText.Get("不支持的同步方式")
     };
 
-    public string? Validate()
+    public string? Validate() =>
+        ValidateProvider() ?? (string.IsNullOrWhiteSpace(EncryptionKey) ? "请先设置同步密钥。" : null);
+
+    private string? ValidateProvider()
     {
         if (Provider == SyncProvider.AccountServer)
             return "官方云同步已移除，请重新选择并配置自备 S3 或 WebDAV。";

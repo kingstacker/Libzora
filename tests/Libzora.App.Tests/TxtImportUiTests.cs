@@ -14,14 +14,18 @@ public sealed partial class SettingsTests
         await using var scope = await TestWindow.Create();
         scope.Call("BackgroundTasksButton_Click", null, new RoutedEventArgs());
         var center = scope.Field<Libzora.Infrastructure.BackgroundTaskCenterService>("_backgroundTasks");
+        var flyoutPanel = scope.Field<Border>("_backgroundTaskFlyoutPanel");
         var clear = scope.Field<MenuItem>("_deleteAllTaskRecordsItem");
+        var initialWidth = flyoutPanel.Width;
         Assert.False(clear.IsEnabled);
+        Assert.InRange(initialWidth, 240, 480);
         var finish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var running = center.Start("进行中", BackgroundTaskKind.Other, async (_, _) => await finish.Task);
         var succeeded = center.Start("完成", BackgroundTaskKind.Other, (_, _) => Task.CompletedTask);
         var failed = center.Start("失败", BackgroundTaskKind.Other, (_, _) => Task.FromException(new IOException("test")));
         await Task.WhenAll(succeeded.Completion, failed.Completion);
         await Until(() => clear.IsEnabled);
+        Assert.Equal(initialWidth, flyoutPanel.Width);
         clear.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
         await Until(() => center.GetSnapshot().Count == 1 && !clear.IsEnabled);
         Assert.Equal(running.Id, Assert.Single(center.GetSnapshot()).Id);
@@ -31,6 +35,7 @@ public sealed partial class SettingsTests
         await Until(() => clear.IsEnabled);
         clear.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
         await Until(() => center.GetSnapshot().Count == 0 && !clear.IsEnabled);
+        Assert.Equal(initialWidth, flyoutPanel.Width);
         Assert.True(scope.Field<Flyout>("_backgroundTaskFlyout").IsOpen);
         scope.Field<Flyout>("_backgroundTaskFlyout").Hide();
     });
@@ -89,6 +94,14 @@ public sealed partial class SettingsTests
         Assert.Contains(texts, text => text.Contains("思源宋体"));
         Assert.Contains(texts, text => text.Contains("英汉词典"));
         Assert.Contains(texts, text => text.Contains("设备已断开"));
+        var rowTitles = scope.Field<StackPanel>("_backgroundTaskRows")
+            .Children
+            .Select(row => row.GetVisualDescendants().OfType<TextBlock>().FirstOrDefault()?.Text ?? "")
+            .ToArray();
+        Assert.Equal(3, rowTitles.Length);
+        Assert.Contains("思源宋体", rowTitles[0]);
+        Assert.Contains("英汉词典", rowTitles[1]);
+        Assert.Contains("三体", rowTitles[2]);
         Capture(scope.Window, "resource-task-history");
         scope.Field<Flyout>("_backgroundTaskFlyout").Hide();
     });
@@ -133,6 +146,13 @@ public sealed partial class SettingsTests
         var delete = Assert.Single(heading.Children.OfType<Button>());
         Assert.Equal(4, Grid.GetColumn(delete));
         Assert.Equal(heading.Bounds.Width, delete.Bounds.Right, precision: 1);
+        var menuButton = scope.Field<Button>("_taskHistoryMenuButton");
+        var flyoutPanel = scope.Field<Border>("_backgroundTaskFlyoutPanel");
+        var menuOrigin = Avalonia.VisualExtensions.TranslatePoint(menuButton, new Avalonia.Point(menuButton.Bounds.Width / 2, 0), flyoutPanel);
+        var deleteOrigin = Avalonia.VisualExtensions.TranslatePoint(delete, new Avalonia.Point(delete.Bounds.Width / 2, 0), flyoutPanel);
+        Assert.NotNull(menuOrigin);
+        Assert.NotNull(deleteOrigin);
+        Assert.InRange(Math.Abs(menuOrigin!.Value.X - deleteOrigin!.Value.X), 0, 1);
 
         var output = Environment.GetEnvironmentVariable("LIBZORA_SETTINGS_ARTIFACTS");
         if (!string.IsNullOrWhiteSpace(output))

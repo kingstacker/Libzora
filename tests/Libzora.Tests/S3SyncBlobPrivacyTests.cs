@@ -16,10 +16,10 @@ public sealed partial class S3SyncIntegrationTests
         .Single(method => method.Name == "ProtectPayload" && method.GetParameters().Length == 2);
 
     private static S3SyncSnapshot EncryptedSnapshot(MemoryBucket bucket, string key, string passphrase) =>
-        MemoryBucket.Decode((byte[])UnprotectSnapshot.Invoke(null, [bucket.Objects[key], passphrase])!);
+        MemoryBucket.DecodeRaw((byte[])UnprotectSnapshot.Invoke(null, [bucket.Objects[key], passphrase])!);
 
     private static byte[] EncodeEncryptedSnapshot(S3SyncSnapshot snapshot, string passphrase) =>
-        (byte[])ProtectSnapshot.Invoke(null, [MemoryBucket.Encode(snapshot), passphrase])!;
+        (byte[])ProtectSnapshot.Invoke(null, [MemoryBucket.EncodeRaw(snapshot), passphrase])!;
 
     // Independent calculation locks down the naming protocol across clients.
     private static string ExpectedEncryptedBlobKey(S3SyncSettings settings, string hash, S3SyncSnapshot snapshot,

@@ -59,6 +59,8 @@ internal sealed partial class IOSNativeFrontend
         shell.NativeConfirmation = ConfirmAsync;
         shell.NativeRestartRequired = () => Publish(Data(("type", "restart")));
         shell.NativeLibraryChanged = () => Publish(Data(("type", "libraryChanged")));
+        shell.Preferences.Changed += (_, _) =>
+            Publish(Data(("type", "preferences"), ("preferences", shell.Preferences.Current)));
         shell.Modules.Accounts.Service.DeviceInvalidated += (_, _) => Publish(Data(("type", "accountInvalidated")));
         shell.DeveloperModeChanged += (_, _) => Publish(Data(("type", "developer"), ("enabled", shell.IsDeveloperMode)));
         UiText.LanguageChanged += (_, _) =>
@@ -204,6 +206,7 @@ internal sealed partial class IOSNativeFrontend
         // over the user's existing reading and appearance settings.
         Publish(Data(("type", "preferences"), ("preferences", shell.Preferences.Current)));
         Publish(Data(("type", "developer"), ("enabled", shell.IsDeveloperMode)));
+        Publish(Data(("type", "syncEntitlements"), ("enabled", AccountAvailability.EnforceSyncEntitlements)));
 #if DEBUG
         Console.WriteLine("Libzora native: SwiftUI root created.");
 #endif
@@ -300,7 +303,7 @@ internal sealed partial class IOSNativeFrontend
                 try
                 {
                     var previous = _shell.Preferences.Current;
-                    _shell.Preferences.Update(_ => NormalizePreferences(preferences));
+                    _shell.Preferences.UpdateAndSave(_ => NormalizePreferences(preferences));
                     _shell.UiLanguage?.Refresh();
                     _shell.ApplyThemeMode();
                     _widgetSnapshots.Schedule();
@@ -325,11 +328,12 @@ internal sealed partial class IOSNativeFrontend
                     _readerCancellation = new CancellationTokenSource();
                     _readerSessionId = Text(args, "sessionId");
                     _reader = new ReaderPage(book, _shell.Modules, _shell, jump);
-                    _reader.NativeStateChanged += state => Publish(Data(("type", "reader"), ("reader", state)));
-                    _reader.NativeDialogRequested += dialog => Publish(Data(("type", "readerDialog"), ("dialog", dialog)));
-                    _reader.NativeReaderMediaRequested += media => Publish(Data(("type", "readerMedia"), ("media", media)));
-                    _reader.NativeFootnoteRequested += footnote => Publish(Data(("type", "readerFootnote"), ("footnote", footnote)));
-                    _reader.NativeSearchBatchChanged += search => Publish(Data(("type", "readerSearch"), ("search", search)));
+                    var sessionId = _readerSessionId;
+                    _reader.NativeStateChanged += state => Publish(Data(("type", "reader"), ("sessionId", sessionId), ("reader", state)));
+                    _reader.NativeDialogRequested += dialog => Publish(Data(("type", "readerDialog"), ("sessionId", sessionId), ("dialog", dialog)));
+                    _reader.NativeReaderMediaRequested += media => Publish(Data(("type", "readerMedia"), ("sessionId", sessionId), ("media", media)));
+                    _reader.NativeFootnoteRequested += footnote => Publish(Data(("type", "readerFootnote"), ("sessionId", sessionId), ("footnote", footnote)));
+                    _reader.NativeSearchBatchChanged += search => Publish(Data(("type", "readerSearch"), ("sessionId", sessionId), ("search", search)));
                     _reader.UseNativeFrontend();
                     var darkAppearance = _shell.Preferences.Current.ThemeMode switch
                     {
@@ -345,6 +349,9 @@ internal sealed partial class IOSNativeFrontend
                     // text column and leaving a blank band above the footer.
                     TopLevel.SetAutoSafeAreaPadding(_reader, false);
                     _readerSurface.Content = _reader;
+                    // The reader lives outside the shell's navigation stack, so
+                    // shell services (automatic sync) need it reported here.
+                    _shell.SetActiveReaderPage(_reader);
                 }
                 finally { _readerGate.Release(); }
                 return Data();
@@ -388,6 +395,7 @@ internal sealed partial class IOSNativeFrontend
         await reader.PauseAsync();
         _readerSurface.Content = null;
         _reader = null;
+        _shell.SetActiveReaderPage(null);
         _readerSessionId = null;
         _readerCancellation?.Dispose();
         _readerCancellation = null;

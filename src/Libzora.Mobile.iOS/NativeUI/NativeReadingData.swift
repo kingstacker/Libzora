@@ -294,8 +294,12 @@ private struct NativeMedalEmblem: View {
         let artwork = NativeMedalPath.parse(icon)
         let progress = min(1, max(0, fraction.isFinite ? fraction : 0))
         ZStack {
-            layer(artwork, color: NativeTheme.secondary.opacity(0.35))
-            if progress > 0 {
+            if progress < 1 {
+                layer(artwork, color: NativeTheme.secondary.opacity(0.35))
+            }
+            if progress >= 1 {
+                layer(artwork, color: NativeTheme.ink)
+            } else if progress > 0 {
                 layer(artwork, color: NativeTheme.ink)
                     .clipShape(NativeMedalReveal(fraction: progress))
             }
@@ -306,7 +310,8 @@ private struct NativeMedalEmblem: View {
         GeometryReader { geometry in
             let size = min(geometry.size.width, geometry.size.height)
             ZStack {
-                Circle().stroke(color, lineWidth: size / 42)
+                // Keep the ring inside the bounds so partial-progress clipping never shaves cardinal edges.
+                Circle().strokeBorder(color, lineWidth: size * 1.45 / 42)
                 if let artwork {
                     NativeMedalGlyph(artwork: Path(artwork))
                         .stroke(color, style: StrokeStyle(lineWidth: size * 1.35 / 42, lineCap: .round, lineJoin: .round))

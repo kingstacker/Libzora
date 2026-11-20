@@ -66,10 +66,10 @@
 
         <c:NativeSegmentGroup Margin="0,0,0,16">
           <Border Classes="segments">
-            <Grid Name="ProviderColumns" ColumnDefinitions="*,*,0">
-              <Button Grid.Column="0" Name="ProviderS3" Classes="seg" Content="S3" Click="OnProviderClick" />
-              <Button Grid.Column="1" Name="ProviderWebDav" Classes="seg" Content="WebDAV" Click="OnProviderClick" />
-              <Button Grid.Column="2" Name="ProviderICloud" Classes="seg" Content="iCloud" IsVisible="False" Click="OnProviderClick" />
+            <Grid Name="ProviderColumns" ColumnDefinitions="0,*,*">
+              <Button Grid.Column="0" Name="ProviderICloud" Classes="seg" Content="iCloud" IsVisible="False" Click="OnProviderClick" />
+              <Button Grid.Column="1" Name="ProviderS3" Classes="seg" Content="S3" Click="OnProviderClick" />
+              <Button Grid.Column="2" Name="ProviderWebDav" Classes="seg" Content="WebDAV" Click="OnProviderClick" />
             </Grid>
           </Border>
         </c:NativeSegmentGroup>
@@ -159,7 +159,7 @@
             </c:NativeSwitchGroup>
           </Grid>
           <StackPanel Classes="field" Margin="0">
-            <TextBlock Text="同步密钥（账号云同步与备份必填）" />
+            <TextBlock Text="同步密钥（云同步与备份必填）" />
             <TextBox Name="EncryptionKeyBox" Classes="field" PasswordChar="•"
                      PlaceholderText="所有设备必须一致"
                      TextInputOptions.ContentType="Password" TextInputOptions.IsSensitive="True" />

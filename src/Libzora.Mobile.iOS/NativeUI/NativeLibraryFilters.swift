@@ -186,8 +186,9 @@ struct NativeLibraryFilterSheet: View {
     }
 
     private func matchesQuickFilter(_ book: LibraryBook) -> Bool {
-        quickFilter == 0 || quickFilter == 1 && NativeBookReadingStatus.value(book) == 1
-            || quickFilter == 2 && book.favorite || quickFilter == 3 && NativeBookReadingStatus.value(book) == 2
+        let effective = NativeLibraryFilterPolicy.effectiveQuickFilter(quickFilter, readingStatus: draft.readingStatus)
+        return effective == 0 || effective == 1 && NativeBookReadingStatus.value(book) == 1
+            || effective == 2 && book.favorite || effective == 3 && NativeBookReadingStatus.value(book) == 2
     }
 
     /// The server filters authors and tags by whole token, not substring.

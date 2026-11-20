@@ -228,6 +228,9 @@ public partial class MainWindow
     public ObservableCollection<KindleBookCardViewModel> DeviceBooks { get; } = [];
     private readonly Dictionary<string, KindleBookCardViewModel> _deviceCardsByPath = new(StringComparer.OrdinalIgnoreCase);
     public BulkObservableCollection<KindleBookCardViewModel> VisibleDeviceBooks { get; } = [];
+    /// <summary>Cards the device shelf renders; stacked series collapse here.</summary>
+    public BulkObservableCollection<KindleBookCardViewModel> VisibleDeviceShelfBooks { get; } = [];
+    private readonly Dictionary<string, string> _deviceSeriesFronts = new(StringComparer.Ordinal);
     private IReadOnlyList<KindleBookCardViewModel> _filteredDeviceBooks = [];
     private int _devicePageIndex;
     private int _devicePageCount = 1;

@@ -141,10 +141,18 @@ internal sealed partial class IOSNativeFrontend
                 return Data(("baseUrl", defaults.BaseUrl), ("model", defaults.Model));
             case "settings.ai.save":
             case "settings.ai.test":
+            case "settings.ai.models":
                 var ai = args.GetProperty("settings").Deserialize(IOSNativeJsonContext.Default.AiConnectionSettings)
                     ?? throw new InvalidDataException(UiText.Get("无效的 AI 设置。"));
                 if (!Uri.TryCreate(ai.BaseUrl, UriKind.Absolute, out var endpoint) || endpoint.Scheme is not ("http" or "https"))
                     throw new InvalidOperationException(UiText.Get("请输入有效的接口地址。"));
+                if (command == "settings.ai.models")
+                {
+                    using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+                    timeout.CancelAfter(TimeSpan.FromSeconds(15));
+                    var models = await modules.Ai.ChatClient.ListModelsAsync(ai, timeout.Token);
+                    return Data(("models", models.ToArray()));
+                }
                 if (command == "settings.ai.test")
                 {
                     await modules.Ai.ChatClient.TestConnectionAsync(ai, token);

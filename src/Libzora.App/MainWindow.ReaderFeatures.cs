@@ -193,6 +193,11 @@ public partial class MainWindow
 
     private bool HandleReaderEscapeShortcut()
     {
+        if (ReaderImageZoomOverlay.IsVisible)
+        {
+            CloseReaderImageZoom();
+            return true;
+        }
         if (ReaderInPageSearchBar.IsVisible)
         {
             _ = ObserveReaderTaskAsync(ReaderInPageSearchCloseAsync());

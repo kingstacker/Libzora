@@ -103,10 +103,11 @@
                       Margin="6,0,0,0" VerticalAlignment="Center" Foreground="{DynamicResource TextMutedBrush}" />
         </Grid>
       </Button>
-      <Button Classes="row" Click="OnGroupClick">
+      <Button Classes="row" Click="OnFeedbackClick">
         <Grid ColumnDefinitions="*,Auto">
-          <TextBlock Text="QQ 交流群" VerticalAlignment="Center" />
-          <TextBlock Grid.Column="1" Text="1109898894" Classes="muted" FontSize="14" VerticalAlignment="Center" />
+          <TextBlock Text="问题反馈" VerticalAlignment="Center" />
+          <c:LineIcon Grid.Column="1" Data="{StaticResource IconChevronRight}" Size="16" StrokeThickness="1.4"
+                      VerticalAlignment="Center" Foreground="{DynamicResource TextMutedBrush}" />
         </Grid>
       </Button>
       <Button Classes="row" Click="OnVersionClick">

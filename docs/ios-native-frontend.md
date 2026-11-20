@@ -136,6 +136,10 @@ Swift 与 C# 通过同一进程内的 C ABI 传递 JSON 请求、结果和状态
 返回点；足注浏览仍累计阅读时间，但不把注释章节写为正文进度。零秒保存也会更新书库进度。
 关闭阅读会取消当前阅读会话的搜索、AI、翻译及朗读准备请求。
 界面偏好在点击时立即更新，再异步保存；请求版本检查避免旧回复覆盖新的选择。
+原生保存只提交用户本次改动的字段，阅读器内部更新的 PDF 缩放因此不会被旧的界面副本写回；
+保存失败时回落到最后一次成功持久化的值，而不是尚未保存的乐观状态。C# 侧偏好更新会主动推送到 Swift。
+加密 API Key、SMTP 密码和同步密钥的主密钥存放在不参与 iCloud 备份、不迁移到其他设备的 Keychain 条目中；
+旧版沙盒密钥文件在设备存储确认保存同一份密钥后才会删除。
 原生开关的 Accessibility 标识位于开关自身，滚动后不会把标签所在的整行当成开关点击区。
 更改搜索词或关闭阅读器会取消过期请求。每次查询使用独立标识，旧结果不会回写当前搜索。EPUB 先展示当前可见页的匹配，再在后台搜索当前章，随后每 10 章
 推进后续章节及书中前面的章节。缺失索引按章保存，取消后保留已完成章节；下次查询继续建立。
@@ -378,8 +382,8 @@ python3 -I tests/Libzora.Mobile.iOS.UITests/run-tests.py \
 `testAccountMembershipDevicesAndRightsRefresh` 检查 Free 账号刷新后不会自行获得永久权益、
 无激活码或订单入口，以及设备会话撤销；默认套件仍跳过会创建临时账号的用例。
 
-问题反馈页面现在只提供支持说明和 GitHub Issues 链接，不需要账号服务、相册照片或登录。
-`testAboutShowsFeedbackGuideWithoutSignInOrUploadControls` 检查说明可见且无正文、截图、日志上传控件，
+问题反馈页面现在只提供 GitHub Issues 链接和 QQ 群两个渠道，不需要账号服务、相册照片或登录。
+`testAboutShowsFeedbackGuideWithoutSignInOrUploadControls` 检查两个渠道可见且无正文、截图、日志上传控件，
 不会打开外部链接或真实提交内容。旧反馈上传用例及桥接命令已退役，详见[问题反馈与本地日志](feedback.md)。
 
 覆盖升级验证使用第二个独立 Bundle `com.kingstacker.libzora.nativeupgradepreview`。

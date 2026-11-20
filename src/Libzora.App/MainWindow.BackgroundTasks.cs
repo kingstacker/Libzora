@@ -14,7 +14,11 @@ public partial class MainWindow
 {
     private BackgroundTaskCenterService? _backgroundTasks;
     private Flyout? _backgroundTaskFlyout;
+    private Border? _backgroundTaskFlyoutPanel;
+    private Border? _backgroundTaskHeaderBorder;
+    private ScrollViewer? _backgroundTaskScrollViewer;
     private StackPanel? _backgroundTaskRows;
+    private int _lastBackgroundTaskRowCount;
     private Button? _taskHistoryMenuButton;
     private TextBlock? _backgroundTaskCountText;
     private MenuItem? _deleteAllTaskRecordsItem;
@@ -339,18 +343,28 @@ public partial class MainWindow
             menu.Items.Add(_deleteAllTaskRecordsItem);
             menu.Items.Add(_clearCompletedTaskRecordsItem);
 
+            var dotsPath = new Avalonia.Controls.Shapes.Path
+            {
+                Width = 14,
+                Height = 14,
+                Stretch = Avalonia.Media.Stretch.Uniform,
+                Data = Avalonia.Media.Geometry.Parse(
+                    "M 1.5,8 A 1.2,1.2 0 1 0 3.9,8 A 1.2,1.2 0 1 0 1.5,8 " +
+                    "M 6.8,8 A 1.2,1.2 0 1 0 9.2,8 A 1.2,1.2 0 1 0 6.8,8 " +
+                    "M 12.1,8 A 1.2,1.2 0 1 0 14.5,8 A 1.2,1.2 0 1 0 12.1,8"),
+                Fill = AppAppearanceResources.GetBrush("InkBrush"),
+                StrokeThickness = 0,
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+            };
             _taskHistoryMenuButton = new Button
             {
                 Classes = { "eject" },
-                Width = 30, MinWidth = 30, Height = 26, MinHeight = 26,
-                Padding = new Thickness(0),
+                Width = 25, MinWidth = 25, Height = 23, MinHeight = 23,
+                Padding = new Thickness(0), Margin = new Thickness(0),
                 HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right,
                 VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
-                Content = new TextBlock
-                {
-                    Text = "…", FontSize = 18, LineHeight = 14,
-                    HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center
-                }
+                Content = dotsPath
             };
             var menuButton = _taskHistoryMenuButton;
             menuButton.Click += (_, _) => menu.ShowAt(menuButton);
@@ -372,30 +386,31 @@ public partial class MainWindow
                 Spacing = 0,
                 Children =
                 {
-                    new Border
+                    (_backgroundTaskHeaderBorder = new Border
                     {
-                        Padding = new Thickness(16, 9),
+                        Padding = new Thickness(16, 9, 12, 9),
                         BorderThickness = new Thickness(0, 0, 0, 1),
                         BorderBrush = AppAppearanceResources.GetBrush("HairlineBrush"),
                         Child = header
-                    },
-                    new ScrollViewer
+                    }),
+                    (_backgroundTaskScrollViewer = new ScrollViewer
                     {
                         Content = _backgroundTaskRows,
                         MaxHeight = Math.Clamp(Bounds.Height - 200, 160, 460)
-                    }
+                    })
                 }
+            };
+            _backgroundTaskFlyoutPanel = new Border
+            {
+                Width = Math.Clamp(Bounds.Width - 80, 240, 480),
+                Child = content
             };
             _backgroundTaskFlyout = new Flyout
             {
                 Placement = PlacementMode.TopEdgeAlignedLeft,
                 VerticalOffset = 4,
                 FlyoutPresenterClasses = { "backgroundTaskFlyout" },
-                Content = new Border
-                {
-                    Width = Math.Clamp(Bounds.Width - 80, 240, 480),
-                    Child = content
-                }
+                Content = _backgroundTaskFlyoutPanel
             };
         }
     }
@@ -411,6 +426,15 @@ public partial class MainWindow
         RefreshBackgroundTaskRows();
         _backgroundTaskFlyout?.ShowAt(BackgroundTaskHistoryButton);
         _backgroundTaskFlyoutAutoOpened = autoOpened;
+        ScheduleBackgroundTaskHistoryScrollToEnd();
+    }
+
+    private void ScheduleBackgroundTaskHistoryScrollToEnd()
+    {
+        if (_backgroundTaskScrollViewer is null) return;
+        Dispatcher.UIThread.Post(
+            () => _backgroundTaskScrollViewer?.ScrollToEnd(),
+            DispatcherPriority.Loaded);
     }
 
     private void HideBackgroundTaskFlyoutIfAutoOpened()
@@ -427,15 +451,31 @@ public partial class MainWindow
         // now would replace those rows, so defer the refresh until the clear
         // operation has finished and the removals have been persisted.
         if (_activeTaskRowAnimations > 0 || _taskRecordClearRunning) return;
+        var scroll = _backgroundTaskScrollViewer;
+        var wasAtBottom = scroll is null
+            || scroll.Extent.Height <= scroll.Viewport.Height
+            || scroll.Offset.Y + scroll.Viewport.Height >= scroll.Extent.Height - 24;
         _backgroundTaskRows.Children.Clear();
         _backgroundTaskRowById.Clear();
-        var tasks = BackgroundTasks.GetSnapshot();
+        var tasks = BackgroundTasks.GetSnapshot().Reverse().ToArray();
+        var addedTask = tasks.Length > _lastBackgroundTaskRowCount;
+        _lastBackgroundTaskRowCount = tasks.Length;
+        var isEmpty = tasks.Length == 0;
+        if (_backgroundTaskFlyoutPanel is not null)
+        {
+            var availableWidth = Bounds.Width > 0 ? Bounds.Width - 80 : 480;
+            _backgroundTaskFlyoutPanel.Width = Math.Clamp(availableWidth, 240, 480);
+        }
+        if (_backgroundTaskHeaderBorder is not null)
+            _backgroundTaskHeaderBorder.Padding = isEmpty
+                ? new Thickness(16, 7, 12, 7)
+                : new Thickness(16, 9, 12, 9);
         UpdateTaskHistoryHeader();
-        if (tasks.Count == 0) _backgroundTaskRows.Children.Add(new TextBlock
+        if (isEmpty) _backgroundTaskRows.Children.Add(new TextBlock
         {
             Text = T("暂无任务记录。"), FontSize = 13,
             Foreground = AppAppearanceResources.GetBrush("MutedInkBrush"),
-            Margin = new Thickness(16, 24), HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center
+            Margin = new Thickness(16, 12), HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center
         });
         foreach (var task in tasks)
         {
@@ -550,6 +590,8 @@ public partial class MainWindow
             _backgroundTaskRowById[task.Id] = rowBorder;
             _backgroundTaskRows.Children.Add(rowBorder);
         }
+        if (_backgroundTaskFlyout?.IsOpen == true && (wasAtBottom || addedTask))
+            ScheduleBackgroundTaskHistoryScrollToEnd();
     }
 
     private void UpdateTaskHistoryHeader()
@@ -575,6 +617,7 @@ public partial class MainWindow
         }
         if (_taskHistoryMenuButton is not null)
         {
+            _taskHistoryMenuButton.IsVisible = tasks.Count > 0;
             _taskHistoryMenuButton.IsEnabled = !_taskRecordClearRunning;
             ToolTip.SetTip(_taskHistoryMenuButton, T("更多"));
             Avalonia.Automation.AutomationProperties.SetName(_taskHistoryMenuButton, T("更多"));
@@ -591,6 +634,7 @@ public partial class MainWindow
     {
         if (_taskRecordClearRunning) return;
         var targets = BackgroundTasks.GetSnapshot()
+            .Reverse()
             .Where(task => task.Status is not (BackgroundTaskStatus.Running or BackgroundTaskStatus.Queued)
                 && (!onlyCompleted || task.Status == BackgroundTaskStatus.Succeeded))
             .ToArray();

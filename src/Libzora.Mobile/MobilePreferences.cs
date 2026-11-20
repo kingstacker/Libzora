@@ -201,19 +201,31 @@ public sealed class MobilePreferencesStore(AppPaths paths)
         }
     }
 
-    public void Update(Func<MobilePreferences, MobilePreferences> change)
+    public event EventHandler? Changed;
+
+    public void Update(Func<MobilePreferences, MobilePreferences> change) =>
+        Apply(change, requirePersistence: false);
+
+    /// <summary>Native save requests must report failure and retain their rollback baseline.</summary>
+    public void UpdateAndSave(Func<MobilePreferences, MobilePreferences> change) =>
+        Apply(change, requirePersistence: true);
+
+    private void Apply(Func<MobilePreferences, MobilePreferences> change, bool requirePersistence)
     {
         var changed = change(Current);
-        Current = changed with { UiLanguage = MobileUiLanguageService.NormalizePreference(changed.UiLanguage) };
+        var next = changed with { UiLanguage = MobileUiLanguageService.NormalizePreference(changed.UiLanguage) };
         try
         {
             var temporary = _path + ".tmp";
-            File.WriteAllText(temporary, JsonSerializer.Serialize(Current));
+            File.WriteAllText(temporary, JsonSerializer.Serialize(next));
             File.Move(temporary, _path, overwrite: true);
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        catch (Exception exception) when (!requirePersistence && (exception is IOException or UnauthorizedAccessException))
         {
-            // The choice still applies for this session.
+            // Gesture-driven choices still apply for this session.
         }
+        if (next == Current) return;
+        Current = next;
+        Changed?.Invoke(this, EventArgs.Empty);
     }
 }

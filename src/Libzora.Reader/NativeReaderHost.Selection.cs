@@ -629,6 +629,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
 
         if (MapPointToPage(position) is not { } mapped
             || _layout.GetHotZoneAt(mapped.Page, mapped.Local) is not null
+            || IsBlockImageAt(mapped.Page, mapped.Local)
             || TryGetAnnotationAt(mapped.Page, new Point(mapped.Local.X, mapped.Local.Y), out _))
         {
             return false;

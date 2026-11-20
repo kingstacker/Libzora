@@ -21,6 +21,17 @@ public sealed class SyncProviderRegistryTests
     }
 
     [Fact]
+    public void RegistryPlacesICloudFirstWhenRegistered()
+    {
+        var registry = SyncProviderRegistry.CreateDefault()
+            .Register(new StubFactory(SyncProvider.ICloud, SyncProviderIds.ICloud));
+
+        Assert.Equal(
+            new[] { SyncProvider.ICloud, SyncProvider.S3, SyncProvider.WebDav },
+            registry.Descriptors.Select(item => item.Provider));
+    }
+
+    [Fact]
     public void ProviderIdsStayStableAndRejectRetiredProviders()
     {
         Assert.Equal("s3", SyncProviderIds.FromProvider(SyncProvider.S3));
@@ -82,7 +93,8 @@ public sealed class SyncProviderRegistryTests
                 AccessKey = "access",
                 SecretKey = "secret",
                 Bucket = "library",
-                Prefix = "libzora"
+                Prefix = "libzora",
+                EncryptionKey = "stub-sync-key"
             });
 
             Assert.Equal(1, factory.CreateCount);

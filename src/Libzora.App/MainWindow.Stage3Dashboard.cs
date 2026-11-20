@@ -478,6 +478,8 @@ public partial class MainWindow
         _ => T("修复")
     };
 
+    private bool _trashPurgeAllBusy;
+
     private async Task RefreshTrashItemsAsync()
     {
         try
@@ -488,9 +490,12 @@ public partial class MainWindow
             LibraryTrashItems.Clear();
             foreach (var item in items)
                 LibraryTrashItems.Add(new LibraryTrashItemViewModel(item));
-            LibraryTrashEmptyText.IsVisible = LibraryTrashItems.Count == 0;
-            LibraryTrashList.IsVisible = LibraryTrashItems.Count > 0;
-            LibraryTrashStatusText.Text = LibraryTrashItems.Count == 0
+            var hasItems = LibraryTrashItems.Count > 0;
+            LibraryTrashEmptyText.IsVisible = !hasItems;
+            LibraryTrashList.IsVisible = hasItems;
+            PurgeAllTrashButton.IsVisible = hasItems;
+            PurgeAllTrashButton.IsEnabled = !_trashPurgeAllBusy && hasItems;
+            LibraryTrashStatusText.Text = !hasItems
                 ? string.Empty
                 : T("共 {0} 项，恢复前请确认原文件位置没有同名文件。", LibraryTrashItems.Count);
         }
@@ -503,12 +508,9 @@ public partial class MainWindow
         }
     }
 
-    private async void RefreshTrashButton_Click(object? sender, RoutedEventArgs e) =>
-        await RefreshTrashItemsAsync();
-
     private async void RestoreTrashButton_Click(object? sender, RoutedEventArgs e)
     {
-        if (sender is not Button { Tag: LibraryTrashItemViewModel item }) return;
+        if (_trashPurgeAllBusy || sender is not Button { Tag: LibraryTrashItemViewModel item }) return;
         try
         {
             await _library.RestoreTrashItemAsync(item.Item.Id, _lifetimeCancellation.Token);
@@ -529,7 +531,7 @@ public partial class MainWindow
 
     private async void PurgeTrashButton_Click(object? sender, RoutedEventArgs e)
     {
-        if (sender is not Button { Tag: LibraryTrashItemViewModel item }) return;
+        if (_trashPurgeAllBusy || sender is not Button { Tag: LibraryTrashItemViewModel item }) return;
         var confirmed = await ConfirmAsync(
             T("永久清理回收站项目"),
             T("《{0}》将被永久删除，之后无法恢复。继续吗？", item.Item.Title),
@@ -549,5 +551,49 @@ public partial class MainWindow
         {
             LibraryTrashStatusText.Text = T("清理失败：{0}", UiText.Localize(exception.Message));
         }
+    }
+
+    private async void PurgeAllTrashButton_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_trashPurgeAllBusy || LibraryTrashItems.Count == 0) return;
+        var items = LibraryTrashItems.Select(item => item.Item).ToArray();
+        var confirmed = await ConfirmAsync(
+            T("清空回收站"),
+            T("回收站中的 {0} 个项目将被永久删除，之后无法恢复。继续吗？", items.Length),
+            T("全部永久删除"),
+            _lifetimeCancellation.Token,
+            allowDiagnosticAutoConfirm: false);
+        if (!confirmed) return;
+
+        _trashPurgeAllBusy = true;
+        PurgeAllTrashButton.IsEnabled = false;
+        var purgedCount = 0;
+        Exception? failure = null;
+        try
+        {
+            foreach (var item in items)
+            {
+                await _library.PurgeTrashItemAsync(item.Id, _lifetimeCancellation.Token);
+                purgedCount++;
+            }
+        }
+        catch (OperationCanceledException) when (_lifetimeCancellation.IsCancellationRequested)
+        {
+            return;
+        }
+        catch (Exception exception)
+        {
+            failure = exception;
+        }
+        finally
+        {
+            _trashPurgeAllBusy = false;
+            await RefreshTrashItemsAsync();
+        }
+
+        if (failure is not null)
+            LibraryTrashStatusText.Text = T("清理失败：{0}", UiText.Localize(failure.Message));
+        else if (purgedCount > 0)
+            SetTaskStatus(T("已清空回收站，共永久清理 {0} 项。", purgedCount));
     }
 }

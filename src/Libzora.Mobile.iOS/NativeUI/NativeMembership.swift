@@ -17,16 +17,17 @@ struct NativeMembershipSections: View {
                 NativeAccountHeader(account: store.account, membership: details?.membership,
                                     busy: busy, signingOut: signingOut,
                                     status: status, accountStatus: accountStatus,
-                                    refresh: { perform { await refresh() } }, signOut: onSignOut)
+                                    refresh: { perform { await refresh() } }, signOut: onSignOut,
+                                    syncEntitlementsEnforced: store.syncEntitlementsEnforced)
             }
-            if let member = details?.membership {
+            if store.syncEntitlementsEnforced, let member = details?.membership {
                 if member.isTrialExpired, let notice = member.trialExpiryMessage {
                     NativeExpiryNotice(text: notice, identifier: "membership.expired")
                 } else if member.isTrialExpiringSoon, let notice = member.trialRenewalMessage {
                     NativeExpiryNotice(text: notice, identifier: "membership.expiring")
                 }
             }
-            if let member = details?.membership, member.canClaimTrial || member.isTrialActive {
+            if store.syncEntitlementsEnforced, let member = details?.membership, member.canClaimTrial || member.isTrialActive {
                 Section(L("免费试用")) {
                     Toggle(isOn: Binding(get: { member.trialClaimed == true },
                                          set: { value in if value { claimTrial() } })) {
@@ -46,7 +47,7 @@ struct NativeMembershipSections: View {
                         .accessibilityIdentifier("membership.trial.status")
                 }
             }
-            if let details { NativeSyncEntitlements(status: details) }
+            if let details { NativeSyncEntitlements(status: details, enforced: store.syncEntitlementsEnforced) }
             Section(L("已登录设备")) {
                 HStack(alignment: .center, spacing: 12) {
                     Text(deviceCapacity).font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary)
@@ -70,8 +71,10 @@ struct NativeMembershipSections: View {
                     }
                 }
             }
-            NativeMembershipPlans(membership: details?.membership, account: store.account,
-                                  claimTrial: { claimTrial() }) { perform { await refresh() } }
+            if store.syncEntitlementsEnforced {
+                NativeMembershipPlans(membership: details?.membership, account: store.account,
+                                      claimTrial: { claimTrial() }) { perform { await refresh() } }
+            }
         }.disabled(busy)
             .task(id: store.account?.user?.id) { busy = true; defer { busy = false }; await refresh() }
             .confirmationDialog(L("踢出设备？"), isPresented: Binding(get: { kickTarget != nil }, set: { if !$0 { kickTarget = nil } }), titleVisibility: .visible) {

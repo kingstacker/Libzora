@@ -53,6 +53,13 @@ public partial class MainWindow
             ScheduleAppSettingsAutoSave();
         };
         GridGalleryDisplayCheck.IsCheckedChanged += (_, _) => ScheduleAppSettingsAutoSave();
+        StackBookSeriesCheck.IsCheckedChanged += (_, _) =>
+        {
+            ViewModel.SetStackBookSeries(StackBookSeriesCheck.IsChecked != false);
+            RebuildDeviceShelfBooks(StackBookSeriesCheck.IsChecked != false);
+            SyncCardSelectionVisuals();
+            ScheduleAppSettingsAutoSave();
+        };
         AutoConnectDeviceCheck.IsCheckedChanged += (_, _) => ScheduleAppSettingsAutoSave();
         AutoBackupCheck.IsCheckedChanged += (_, _) => ScheduleAppSettingsAutoSave();
         DeleteBookAnnotationsCheck.IsCheckedChanged += (_, _) => ScheduleAppSettingsAutoSave();

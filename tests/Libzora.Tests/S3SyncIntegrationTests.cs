@@ -17,9 +17,8 @@ namespace Libzora.Tests;
 public sealed partial class S3SyncIntegrationTests
 {
     [Theory]
-    [InlineData("", false)]
     [InlineData("retained-notes-key", false)]
-    [InlineData("", true)]
+    [InlineData("retained-notes-key", true)]
     public async Task DeletedBookNotesCarryTitleAndCoverToFreshDevice(string encryptionKey, bool previouslySynced)
     {
         var bucket = new MemoryBucket();
@@ -323,8 +322,8 @@ public sealed partial class S3SyncIntegrationTests
         bucket.BeforePut = (key, bytes) =>
         {
             if (key == a.SnapshotKey)
-                foreach (var file in MemoryBucket.Decode(bytes).Files)
-                    Assert.True(bucket.Objects.ContainsKey($"{a.Settings.Prefix}/objects/plain/{file.Sha256}"));
+                foreach (var _ in MemoryBucket.Decode(bytes).Files)
+                    Assert.Contains(bucket.Objects.Keys, objectKey => objectKey.Contains("/objects/encrypted/", StringComparison.Ordinal));
             return Task.CompletedTask;
         };
 
@@ -490,7 +489,7 @@ public sealed partial class S3SyncIntegrationTests
         await using var a = await Device.CreateAsync(bucket);
         var book = await a.AddBookAsync();
         await a.SyncAsync();
-        bucket.Objects.TryRemove($"{a.Settings.Prefix}/objects/plain/{book.Hash}", out _);
+        bucket.Objects.TryRemove(bucket.Objects.Keys.Single(k => k.Contains("/objects/encrypted/", StringComparison.Ordinal)), out _);
         await using var b = await Device.CreateAsync(bucket);
 
         var metadataOnly = await b.SyncAsync();
@@ -686,7 +685,7 @@ public sealed partial class S3SyncIntegrationTests
         string? latestHash = null;
         bucket.BeforeGet = async (key, _) =>
         {
-            if (key.EndsWith("/" + remoteHash, StringComparison.Ordinal))
+            if (key.Contains("/objects/encrypted/", StringComparison.Ordinal))
                 latestHash = await b.SetCoverAsync(book.BookId, "my-new-cover", DateTimeOffset.UtcNow);
         };
 
@@ -698,7 +697,6 @@ public sealed partial class S3SyncIntegrationTests
     }
 
     [Theory]
-    [InlineData("")]
     [InlineData("encrypted")]
     public async Task CorruptLocalFile_IsPartialAndDoesNotPoisonTheSharedObject(string encryptionKey)
     {
@@ -727,7 +725,7 @@ public sealed partial class S3SyncIntegrationTests
         await using var a = await Device.CreateAsync(bucket);
         var book = await a.AddBookAsync();
         await a.SyncAsync();
-        bucket.Objects[$"{a.Settings.Prefix}/objects/plain/{book.Hash}"] = Encoding.UTF8.GetBytes("corrupt remote bytes");
+        bucket.Objects[bucket.Objects.Keys.Single(k => k.Contains("/objects/encrypted/", StringComparison.Ordinal))] = Encoding.UTF8.GetBytes("corrupt remote bytes");
         await using var b = await Device.CreateAsync(bucket);
 
         var result = await b.SyncAsync();
@@ -902,7 +900,7 @@ public sealed partial class S3SyncIntegrationTests
         };
         public string SnapshotKey => $"{Settings.Prefix}/devices/{Id}/snapshot.bin";
 
-        public static async Task<Device> CreateAsync(MemoryBucket bucket, string encryptionKey = "",
+        public static async Task<Device> CreateAsync(MemoryBucket bucket, string encryptionKey = MemoryBucket.DefaultEncryptionKey,
             Func<S3SyncSettings, ISyncObjectStore>? store = null)
         {
             var root = TestHelpers.CreateTempDirectory();
@@ -1024,15 +1022,22 @@ public sealed partial class S3SyncIntegrationTests
         public Func<string, CancellationToken, Task>? BeforeGet;
         public Func<string, byte[], Task>? BeforePut;
         public Func<string, CancellationToken, Task>? BeforeDelete;
+        public const string DefaultEncryptionKey = "test-sync-key";
         public S3SyncSnapshot Snapshot(string key) => Decode(Objects[key]);
-        public static byte[] Encode(S3SyncSnapshot snapshot)
+        public static byte[] Encode(S3SyncSnapshot snapshot) =>
+            EncodeEncryptedSnapshot(snapshot, DefaultEncryptionKey);
+        public static byte[] EncodeRaw(S3SyncSnapshot snapshot)
         {
             using var output = new MemoryStream();
             using (var gzip = new GZipStream(output, CompressionMode.Compress, leaveOpen: true))
                 JsonSerializer.Serialize(gzip, snapshot);
             return output.ToArray();
         }
-        public static S3SyncSnapshot Decode(byte[] bytes)
+        public static S3SyncSnapshot Decode(byte[] bytes) =>
+            bytes.AsSpan().StartsWith("LIBZORA-SYNC1"u8)
+                ? DecodeRaw((byte[])UnprotectSnapshot.Invoke(null, [bytes, DefaultEncryptionKey])!)
+                : DecodeRaw(bytes);
+        public static S3SyncSnapshot DecodeRaw(byte[] bytes)
         {
             using var input = new MemoryStream(bytes);
             using var gzip = new GZipStream(input, CompressionMode.Decompress);

@@ -1,6 +1,4 @@
-using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 
 namespace Libzora;
@@ -16,24 +14,6 @@ public sealed record SettingsSearchResult(
     string SearchCorpus);
 public partial class MainWindow
 {
-    private async void AboutUserGroupButton_Click(object? sender, RoutedEventArgs e)
-    {
-        try
-        {
-            if (Clipboard is not { } clipboard)
-            {
-                ShowSettingsCapsule(T("剪贴板不可用。"), 4000);
-                return;
-            }
-            await clipboard.SetTextAsync("1109898894");
-            ShowSettingsCapsule(Application.Current?.FindResource("Ui.About.UserGroupCopied")?.ToString() ?? "群号已复制到剪贴板。", 2000, success: true);
-        }
-        catch
-        {
-            ShowSettingsCapsule(Application.Current?.FindResource("Ui.About.UserGroupCopyFailed")?.ToString() ?? "复制群号失败。", 4000);
-        }
-    }
-
     private string _activeSettingsCategory = "General";
     private bool _mainReaderAiSettingsLoaded;
     private Task? _mainReaderAiSettingsLoadTask;

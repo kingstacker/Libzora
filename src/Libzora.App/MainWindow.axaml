@@ -1058,7 +1058,7 @@
                     </Border>
 
                     <Grid Grid.Row="1">
-                        <ListBox x:Name="BookGrid" Classes="bookGrid" ItemsSource="{Binding ViewModel.ShelfBooks}" SelectionMode="Multiple" SelectionChanged="BookList_SelectionChanged" PointerPressed="BookGrid_PointerPressed" PointerMoved="BookGrid_PointerMoved" PointerReleased="BookGrid_PointerReleased" PointerCaptureLost="BookGrid_PointerCaptureLost" KeyDown="BookGrid_KeyDown" Focusable="True" Background="Transparent" BorderThickness="0" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Disabled"><ListBox.ItemsPanel><ItemsPanelTemplate><local:VirtualizingWrapPanel Orientation="Horizontal" ItemWidth="166" ItemHeight="304" CacheLength="0.5" /></ItemsPanelTemplate></ListBox.ItemsPanel><ListBox.ItemTemplate>                                 <DataTemplate x:DataType="local:BookCardViewModel">                                     <Grid Width="154"                                           Height="{Binding CardHeight}"                                           Margin="6"                                           RowDefinitions="214,Auto"                                           PointerPressed="BookCard_PointerPressed"                                           PointerEntered="BookCard_PointerEntered"                                           PointerExited="BookCard_PointerExited"                                           ContextRequested="BookCard_ContextRequested"                                           DoubleTapped="BookCard_DoubleTapped" AttachedToVisualTree="BookCard_AttachedToVisualTree" DetachedFromVisualTree="BookCard_DetachedFromVisualTree">                                         <Border Grid.Row="0"                                                 Classes="bookCover"                                                 Classes.hover="{Binding IsHovered}"                                                 Background="{DynamicResource PressedBrush}"                                                 BorderThickness="1">                                             <Grid Background="Transparent">                                                 <TextBlock Text="BOOK"                                                            HorizontalAlignment="Center"                                                            VerticalAlignment="Center"                                                            Foreground="{DynamicResource MutedInkBrush}"                                                            FontSize="17"                                                            IsHitTestVisible="False" />                                                 <Image Classes="seriesLayer" Source="{Binding SeriesCover3}" Stretch="UniformToFill" HorizontalAlignment="Left" VerticalAlignment="Stretch" Width="154" IsVisible="{Binding SeriesCover3Visibility}" /><Image Classes="seriesLayer" Source="{Binding SeriesCover2}" Stretch="UniformToFill" HorizontalAlignment="Left" VerticalAlignment="Stretch" Width="{Binding RearCover1Width}" IsVisible="{Binding SeriesCover2Visibility}" /><Image Classes.seriesFront="{Binding IsSeriesStack}" Source="{Binding CoverImage}" Stretch="UniformToFill" HorizontalAlignment="Left" Width="{Binding FrontCoverWidth}" /><Button IsVisible="{Binding IsReadActionVisible}" Classes="coverReadAction bookCoverRead"
+                        <ListBox x:Name="BookGrid" Classes="bookGrid" ItemsSource="{Binding ViewModel.ShelfBooks}" SelectionMode="Multiple" SelectionChanged="BookList_SelectionChanged" PointerPressed="BookGrid_PointerPressed" PointerMoved="BookGrid_PointerMoved" PointerReleased="BookGrid_PointerReleased" PointerCaptureLost="BookGrid_PointerCaptureLost" KeyDown="BookGrid_KeyDown" Focusable="True" Background="Transparent" BorderThickness="0" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Disabled"><ListBox.ItemsPanel><ItemsPanelTemplate><local:VirtualizingWrapPanel Orientation="Horizontal" ItemWidth="166" ItemHeight="304" CacheLength="0.5" /></ItemsPanelTemplate></ListBox.ItemsPanel><ListBox.ItemTemplate>                                 <DataTemplate x:DataType="local:BookCardViewModel">                                     <Grid Width="154"                                           Height="{Binding CardHeight}"                                           Margin="6"                                           RowDefinitions="214,Auto"                                           PointerPressed="BookCard_PointerPressed"                                           PointerEntered="BookCard_PointerEntered"                                           PointerExited="BookCard_PointerExited"                                           ContextRequested="BookCard_ContextRequested"                                           DoubleTapped="BookCard_DoubleTapped" AttachedToVisualTree="BookCard_AttachedToVisualTree" DetachedFromVisualTree="BookCard_DetachedFromVisualTree">                                         <Border Grid.Row="0"                                                 Classes="bookCover"                                                 Classes.hover="{Binding IsHovered}"                                                 Background="{DynamicResource PressedBrush}"                                                 BorderThickness="1">                                             <Grid Background="Transparent">                                                 <TextBlock Text="BOOK"                                                            HorizontalAlignment="Center"                                                            VerticalAlignment="Center"                                                            Foreground="{DynamicResource MutedInkBrush}"                                                            FontSize="17"                                                            IsHitTestVisible="False" />                                                 <Border HorizontalAlignment="Left" VerticalAlignment="Stretch" Width="154" ClipToBounds="True" IsVisible="{Binding SeriesCover3Visibility}"><Image Classes="seriesLayer" Source="{Binding SeriesCover3}" Stretch="UniformToFill" /></Border><Border HorizontalAlignment="Left" VerticalAlignment="Stretch" Width="{Binding RearCover1Width}" ClipToBounds="True" IsVisible="{Binding SeriesCover2Visibility}"><Image Classes="seriesLayer" Source="{Binding SeriesCover2}" Stretch="UniformToFill" /></Border><Border HorizontalAlignment="Left" VerticalAlignment="Stretch" Width="{Binding FrontCoverWidth}" ClipToBounds="True"><Image Classes.seriesFront="{Binding IsSeriesStack}" Source="{Binding CoverImage}" Stretch="UniformToFill" /></Border><Button IsVisible="{Binding IsReadActionVisible}" Classes="coverReadAction bookCoverRead"
                                                 Content="{DynamicResource Ui.Auto.CE9B12499C471759}"
                                                 Click="BookCoverReadButton_Click" /><Button Classes="seriesBadge" Content="{Binding SeriesCountLabel}" IsVisible="{Binding SeriesBadgeVisibility}" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,6,6" ToolTip.Tip="{Binding SeriesBadgeTip}" AutomationProperties.Name="{Binding SeriesBadgeTip}" Click="BookSeriesBadge_Click" /></Grid>                                         </Border>                                         <Grid Grid.Row="1" Margin="2,8,2,0" ColumnDefinitions="*,58" RowDefinitions="40,16,14" IsVisible="{Binding GalleryTextVisibility}">                                             <TextBlock Grid.Row="0" Grid.ColumnSpan="2" Text="{Binding DisplayTitle}" FontSize="15" LineHeight="18" FontWeight="SemiBold" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" />                                             <TextBlock Grid.Row="1" Text="{Binding Authors}" FontSize="11" LineHeight="14" Foreground="{DynamicResource MutedInkBrush}" TextTrimming="CharacterEllipsis" />                                             <TextBlock Grid.Row="2" Text="{Binding DisplayMetaLabel}" FontSize="10" LineHeight="12" Foreground="{DynamicResource SubtleInkBrush}" TextTrimming="CharacterEllipsis" />                                         <Grid Grid.Row="1" Grid.RowSpan="2" Grid.Column="1" Width="52" ColumnDefinitions="24,24" ColumnSpacing="4" HorizontalAlignment="Right" VerticalAlignment="Center">
                                              <ContentControl Grid.Column="0" Width="24" Height="24" Content="{Binding}" Padding="0" HorizontalAlignment="Center" VerticalAlignment="Center" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ContentTemplate="{StaticResource BookSyncStatusGlyph}" ToolTip.Tip="{Binding SyncStatusLabel}" AutomationProperties.Name="{Binding SyncStatusLabel}" Tapped="BookSyncStatusIcon_Tapped" IsVisible="{Binding SyncStatusVisibility}" />
@@ -1943,9 +1943,15 @@
                                         </ToolTip.Tip>
                                         <Grid Background="Transparent">
                                             <TextBlock Text="BOOK" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{DynamicResource MutedInkBrush}" FontSize="17" IsHitTestVisible="False" />
-                                            <Image Classes="seriesLayer" Source="{Binding SeriesCover3}" Stretch="UniformToFill" HorizontalAlignment="Left" VerticalAlignment="Stretch" Width="154" IsVisible="{Binding SeriesCover3Visibility}" />
-                                            <Image Classes="seriesLayer" Source="{Binding SeriesCover2}" Stretch="UniformToFill" HorizontalAlignment="Left" VerticalAlignment="Stretch" Width="{Binding RearCover1Width}" IsVisible="{Binding SeriesCover2Visibility}" />
-                                            <Image Classes.seriesFront="{Binding IsSeriesStack}" Source="{Binding CoverImage}" Stretch="UniformToFill" HorizontalAlignment="Left" Width="{Binding FrontCoverWidth}" />
+                                            <Border HorizontalAlignment="Left" VerticalAlignment="Stretch" Width="154" ClipToBounds="True" IsVisible="{Binding SeriesCover3Visibility}">
+                                                <Image Classes="seriesLayer" Source="{Binding SeriesCover3}" Stretch="UniformToFill" />
+                                            </Border>
+                                            <Border HorizontalAlignment="Left" VerticalAlignment="Stretch" Width="{Binding RearCover1Width}" ClipToBounds="True" IsVisible="{Binding SeriesCover2Visibility}">
+                                                <Image Classes="seriesLayer" Source="{Binding SeriesCover2}" Stretch="UniformToFill" />
+                                            </Border>
+                                            <Border HorizontalAlignment="Left" VerticalAlignment="Stretch" Width="{Binding FrontCoverWidth}" ClipToBounds="True">
+                                                <Image Classes.seriesFront="{Binding IsSeriesStack}" Source="{Binding CoverImage}" Stretch="UniformToFill" />
+                                            </Border>
                                             <Button Classes="seriesBadge" Content="{Binding SeriesCountLabel}" IsVisible="{Binding SeriesBadgeVisibility}" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,6,6" ToolTip.Tip="{Binding SeriesBadgeTip}" ToolTip.ServiceEnabled="{Binding IsTooltipEnabled}" AutomationProperties.Name="{Binding SeriesBadgeTip}" Click="DeviceSeriesBadge_Click" />
                                         </Grid>
                                          </Border>
@@ -3555,6 +3561,77 @@
                                TextWrapping="Wrap" />
                 </StackPanel>
             </Border>
+
+            <!-- Horizontal series shelf overlay matching the mobile series strip. -->
+            <Grid x:Name="SeriesShelfOverlay"
+                  Grid.Column="1"
+                  Background="#38000000"
+                  IsVisible="False"
+                  Opacity="0"
+                  ZIndex="98"
+                  Focusable="True"
+                  PointerPressed="SeriesShelfOverlay_PointerPressed"
+                  KeyDown="SeriesShelfOverlay_KeyDown">
+                <Grid.Transitions>
+                    <Transitions>
+                        <DoubleTransition Property="Opacity" Duration="0:0:0.16" />
+                    </Transitions>
+                </Grid.Transitions>
+                <Border x:Name="SeriesShelfPanel"
+                        MaxWidth="960"
+                        Margin="28,24,28,18"
+                        Padding="0"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Bottom"
+                        Background="{DynamicResource PaperBrush}"
+                        BorderBrush="{DynamicResource InkBrush}"
+                        BorderThickness="1"
+                        BoxShadow="0 12 32 0 #30000000"
+                        RenderTransformOrigin="50%,50%"
+                        RenderTransform="scale(0.96)">
+                    <Border.Transitions>
+                        <Transitions>
+                            <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.18" Easing="CubicEaseOut" />
+                        </Transitions>
+                    </Border.Transitions>
+                    <Grid RowDefinitions="Auto,Auto">
+                        <Grid ColumnDefinitions="*,Auto" Margin="20,14,14,12">
+                            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                                <TextBlock x:Name="SeriesShelfTitleText"
+                                           FontSize="17"
+                                           FontWeight="SemiBold"
+                                           VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis" />
+                                <TextBlock x:Name="SeriesShelfCountText"
+                                           FontSize="12"
+                                           Foreground="{DynamicResource MutedInkBrush}"
+                                           VerticalAlignment="Center" />
+                            </StackPanel>
+                            <Button x:Name="SeriesShelfCloseButton"
+                                    Grid.Column="1"
+                                    Classes="icon"
+                                    ToolTip.Tip="{DynamicResource Ui.Auto.D7B60ECE792129FF}"
+                                    AutomationProperties.Name="{DynamicResource Ui.Auto.D7B60ECE792129FF}"
+                                    Click="SeriesShelfCloseButton_Click">
+                                <Path Classes="libraryGlyph" Width="13" Height="13" Data="M 4,4 L 20,20 M 20,4 L 4,20" />
+                            </Button>
+                        </Grid>
+                        <Border Grid.Row="0" Height="1" VerticalAlignment="Bottom" BorderBrush="{DynamicResource HairlineBrush}" BorderThickness="0,0,0,1" />
+                        <ScrollViewer x:Name="SeriesShelfScrollViewer"
+                                      Grid.Row="1"
+                                      Margin="20,0,20,0"
+                                      Padding="0,16,0,18"
+                                      HorizontalScrollBarVisibility="Auto"
+                                      VerticalScrollBarVisibility="Disabled"
+                                      LayoutUpdated="SeriesShelfScrollViewer_LayoutUpdated"
+                                      PointerWheelChanged="SeriesShelfScrollViewer_PointerWheelChanged">
+                            <StackPanel x:Name="SeriesShelfItemsHost"
+                                        Orientation="Horizontal"
+                                        Spacing="14" />
+                        </ScrollViewer>
+                    </Grid>
+                </Border>
+            </Grid>
 
             <!-- Device connection confirmation from the WinUI reference. Keep
                  this separate from destructive confirmations so the two

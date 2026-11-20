@@ -398,5 +398,13 @@
   "未获取到可用模型，请手动填写模型名称。": "No models were returned. Enter a model name manually.",
   "已获取 {0} 个模型，请选择。": "Fetched {0} models. Choose one.",
   "搜索模型": "Search models",
-  "没有匹配的模型": "No matching models"
+  "没有匹配的模型": "No matching models",
+  "漫画模式": "Manga Mode",
+  "阅读方向": "Reading Direction",
+  "右开": "RTL",
+  "左开": "LTR",
+  "条漫": "Webtoon",
+  "纯黑背景": "Black Canvas",
+  "跟随纸张": "Paper",
+  "纯黑": "Black"
 }

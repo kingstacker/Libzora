@@ -263,6 +263,12 @@ public sealed class TypesetLayoutOptions
     public bool CjkLatinSpacing { get; init; } = true;
     /// <summary>Allow eligible closing CJK punctuation to hang slightly into the trailing margin.</summary>
     public bool HangingPunctuation { get; init; } = true;
+    /// <summary>Edge-to-edge comic/manga image layout.</summary>
+    public bool MangaMode { get; init; }
+    /// <summary>Trim outer white scan margins on comic/manga pages.</summary>
+    public bool MangaAutoCrop { get; init; }
+    /// <summary>Seamless vertical strip stacking (Webtoon) with zero inter-panel gap.</summary>
+    public bool SeamlessImageScroll { get; init; }
     public float ViewportWidth { get; init; } = 800f;
     public float ViewportHeight { get; init; } = 600f;
     public float InsetHorizontal { get; init; } = 24f;
@@ -328,6 +334,8 @@ public sealed class PlacedImage
 {
     public required string Path { get; init; }
     public required SKRect Rect { get; init; }
+    /// <summary>Normalized 0..1 sub-rectangle of the source image when cropped or vertically sliced.</summary>
+    public SKRect? SourceCrop { get; init; }
     /// <summary>Clockwise rotation applied by the painter, used by vertical inline formulas.</summary>
     public float RotationDegrees { get; init; }
     /// <summary>

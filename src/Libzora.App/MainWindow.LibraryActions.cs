@@ -79,6 +79,7 @@ public partial class MainWindow
         if (!LibraryDetailPane.IsVisible
             || !e.GetCurrentPoint(LibraryRoot).Properties.IsLeftButtonPressed
             || IsSourceWithin(e.Source, LibraryDetailPane)
+            || IsSourceWithin(e.Source, SeriesShelfPanel)
             || IsSourceWithin(e.Source, LibraryToolbar)
             || IsSourceWithin(e.Source, LibraryHeader)
             || IsSourceWithin(e.Source, FilterPanel)

@@ -25,7 +25,7 @@ public sealed class ReaderMediaGestureTests(MobileUiSession session)
     [InlineData(0, 0, false, true, false)]
     [InlineData(0, 100, false, false, true)] // Dragging after a long press is not an image tap.
     [InlineData(0, 80, true, false, true)]
-    public Task OnlyTapsOpenTheImage(double dx, double dy, bool returnToStart, bool opensImage, bool longPress) =>
+    public Task OnlyDoubleTapsOpenTheImage(double dx, double dy, bool returnToStart, bool tapEligible, bool longPress) =>
         session.Session.Dispatch(async () =>
         {
             var root = Path.Combine(Path.GetTempPath(), "libzora-reader-image-gesture-" + Guid.NewGuid().ToString("N"));
@@ -74,7 +74,7 @@ public sealed class ReaderMediaGestureTests(MobileUiSession session)
                 var start = host.TranslatePoint(new Point(figure.Rect.MidX, figure.Rect.MidY), window)!.Value;
                 var end = start + new Vector(dx, dy);
                 // Swipes can dismiss visible chrome without navigating away
-                // from the figure, so its release remains a valid image hit.
+                // from the figure, so its release remains a valid image tap.
                 reader.SetChromeVisible(true);
                 window.MouseDown(start, MouseButton.Left);
                 if (longPress)
@@ -90,18 +90,29 @@ public sealed class ReaderMediaGestureTests(MobileUiSession session)
                 }
                 window.MouseUp(end, MouseButton.Left);
                 await Render();
-                Assert.Equal(opensImage ? 1 : 0, media.Count);
-                if (opensImage)
+                // Single tap never opens the image viewer on its own.
+                Assert.Empty(media);
+
+                if (tapEligible)
                 {
+                    // A second tap within the double-tap window opens the image.
+                    window.MouseDown(end, MouseButton.Left);
+                    window.MouseUp(end, MouseButton.Left);
+                    await Render();
+                    Assert.Single(media);
                     Assert.Equal("image", media[0].Kind);
                     Assert.Equal(imagePath, media[0].Path);
                 }
                 else
                 {
                     // Cancelling a drag must release the host's capture and
-                    // leave the next ordinary tap usable.
+                    // leave a subsequent double-tap usable (while single tap still stays quiet).
                     Assert.False((bool)typeof(NativeReaderHost)
                         .GetField("_pointerDown", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(host)!);
+                    window.MouseDown(start, MouseButton.Left);
+                    window.MouseUp(start, MouseButton.Left);
+                    await Render();
+                    Assert.Empty(media);
                     window.MouseDown(start, MouseButton.Left);
                     window.MouseUp(start, MouseButton.Left);
                     await Render();

@@ -53,6 +53,7 @@ struct NativeBookDetailPage: View {
     @State private var rename = false
     @State private var busy = false
     @State private var expanded = false
+    @State private var bookAmbientColors: [NativeAmbientColor]?
     private var book: LibraryBook? { store.library.first { $0.id == bookId } }
 
     var body: some View {
@@ -107,7 +108,14 @@ struct NativeBookDetailPage: View {
                         .frame(maxWidth: .infinity)
                 }
             }
-        }.background(NativeAmbientBackground()).navigationBarHidden(true).modifier(NativeHideTabBar())
+        }.background(NativeAmbientBackground(colorsOverride: bookAmbientColors)).navigationBarHidden(true).modifier(NativeHideTabBar())
+            .task(id: book?.coverPath ?? "") {
+                guard store.preferences.colorfulMode else { bookAmbientColors = nil; return }
+                guard let path = book?.coverPath else { bookAmbientColors = []; return }
+                let colors = await Task.detached(priority: .utility) { NativeAmbientPalette.extract(paths: [path]) }.value
+                guard !Task.isCancelled else { return }
+                bookAmbientColors = colors
+            }
             .sheet(isPresented: $editor) { if let book { NativeBookEditor(store: store, book: book) } }
             .sheet(isPresented: $folders) { NativeBookCollections(store: store, bookId: bookId) }
             .sheet(isPresented: $rename) {
@@ -341,6 +349,7 @@ struct NativeCollectionPage: View {
     @State private var rename = false
     @State private var addBooks = false
     @State private var busy = false
+    @State private var collectionAmbientColors: [NativeAmbientColor]?
     private var folder: LibraryFolder? { store.folders.first { $0.id == folderId } }
     private var books: [LibraryBook] {
         NativeBookOrder.sorted(store.library.filter { $0.collectionIds.contains(folderId) }, sort: store.preferences.sort)
@@ -405,8 +414,16 @@ struct NativeCollectionPage: View {
                     catch { if !Task.isCancelled { store.failure = error.localizedDescription } }
                 }
             }
-        }.background(NativeAmbientBackground()).disabled(busy).navigationBarHidden(true)
+        }.background(NativeAmbientBackground(colorsOverride: collectionAmbientColors)).disabled(busy).navigationBarHidden(true)
             .modifier(NativeHideTabBar())
+            .task(id: books.map { "\($0.id)|\($0.coverPath ?? "")" }.joined(separator: ",")) {
+                guard store.preferences.colorfulMode else { collectionAmbientColors = nil; return }
+                let paths = Array(books.compactMap(\.coverPath).prefix(12))
+                guard !paths.isEmpty else { collectionAmbientColors = []; return }
+                let colors = await Task.detached(priority: .utility) { NativeAmbientPalette.extract(paths: paths, maxColors: 6) }.value
+                guard !Task.isCancelled else { return }
+                collectionAmbientColors = colors
+            }
             .sheet(isPresented: $rename) {
                 NativeNameSheet(store: store, title: L("重命名收藏夹"), initial: folder?.name ?? "", button: L("保存")) { name in
                     try await store.command("collection.rename", ["collectionId": folderId, "name": name]); try await store.refreshLibrary()

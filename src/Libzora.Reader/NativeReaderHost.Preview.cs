@@ -1,3 +1,4 @@
+using Avalonia;
 using Libzora.Core;
 using Libzora.Layout;
 using SkiaSharp;
@@ -64,7 +65,7 @@ public sealed partial class NativeReaderHost
     /// table's painted segment wins over its text range; the text range keeps
     /// fallback tables (very wide or vertical) reachable on phones.
     /// </summary>
-    private bool TryEmitReaderObject(int page, SKPoint point)
+    private bool TryEmitReaderObject(int page, SKPoint point, double surfaceX, double surfaceY)
     {
         if (!ReaderObjectsEnabled || _layout is null || _content is null)
         {
@@ -73,9 +74,27 @@ public sealed partial class NativeReaderHost
 
         if (_layout.GetBlockImageAt(page, point) is { } image && File.Exists(image.Path))
         {
-            Emit(new { type = "readerObject", kind = "image", path = image.Path });
+            var now = DateTimeOffset.UtcNow;
+            var isDoubleTap = _pointerClickCount >= 2
+                || ((now - _lastImageTapAt).TotalMilliseconds <= 320
+                    && Math.Abs(surfaceX - _lastImageTapPosition.X) <= 36
+                    && Math.Abs(surfaceY - _lastImageTapPosition.Y) <= 36);
+            if (isDoubleTap)
+            {
+                _lastImageTapAt = DateTimeOffset.MinValue;
+                Emit(new { type = "readerObject", kind = "image", path = image.Path });
+            }
+            else
+            {
+                _lastImageTapAt = now;
+                _lastImageTapPosition = new Point(surfaceX, surfaceY);
+                var ratio = surfaceX / Math.Max(1, Bounds.Width);
+                Emit(new { type = "readerObject", kind = "imageTap", ratio });
+            }
             return true;
         }
+
+        _lastImageTapAt = DateTimeOffset.MinValue;
 
         if (_layout.GetTableAt(page, point) is { } table
             && TryGetBlockIndex(table.Block, out var rectIndex))

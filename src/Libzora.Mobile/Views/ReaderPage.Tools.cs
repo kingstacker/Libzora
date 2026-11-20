@@ -508,11 +508,20 @@ public partial class ReaderPage
         // swallowed (edge swipe, app switch) must not leave a phantom finger.
         if (e.Pointer.IsPrimary) ResetTouches();
         _touches[e.Pointer.Id] = e.GetPosition(ReaderHostSlot);
-        if (_touches.Count == 2 && _readerHost is NativePdfReaderHost pdf)
+        if (_touches.Count == 2)
         {
-            _pinching = true;
-            _pinchStartDistance = Math.Max(1, TouchDistance());
-            _pinchStartZoom = _pinchRequestedZoom = pdf.Zoom;
+            if (_readerHost is NativePdfReaderHost pdf)
+            {
+                _pinching = true;
+                _pinchStartDistance = Math.Max(1, TouchDistance());
+                _pinchStartZoom = _pinchRequestedZoom = pdf.Zoom;
+            }
+            else if (IsMangaMode && _readerHost is NativeReaderHost manga)
+            {
+                _pinching = true;
+                _pinchStartDistance = Math.Max(1, TouchDistance());
+                _pinchStartZoom = _pinchRequestedZoom = manga.MangaZoom;
+            }
         }
     }
 
@@ -521,15 +530,26 @@ public partial class ReaderPage
     {
         if (!_touches.ContainsKey(e.Pointer.Id)) return false;
         _touches[e.Pointer.Id] = e.GetPosition(ReaderHostSlot);
-        if (!_pinching || _touches.Count < 2 || _readerHost is not NativePdfReaderHost pdf) return _pinching;
+        if (!_pinching || _touches.Count < 2) return _pinching;
 
         var zoom = Math.Clamp(_pinchStartZoom * TouchDistance() / _pinchStartDistance, 1, MaxPdfZoom);
-        if (Math.Abs(zoom - _pinchRequestedZoom) >= ZoomStep)
+        if (_readerHost is NativePdfReaderHost pdf)
+        {
+            if (Math.Abs(zoom - _pinchRequestedZoom) >= ZoomStep)
+            {
+                _pinchRequestedZoom = zoom;
+                _ = pdf.SetZoomAsync(zoom, TouchCenter());
+            }
+            return true;
+        }
+
+        if (IsMangaMode && _readerHost is NativeReaderHost manga)
         {
             _pinchRequestedZoom = zoom;
-            _ = pdf.SetZoomAsync(zoom, TouchCenter());
+            manga.SetMangaZoom(zoom, TouchCenter());
+            return true;
         }
-        return true;
+        return _pinching;
     }
 
     /// <returns>True when this release ended a pinch.</returns>
@@ -542,10 +562,14 @@ public partial class ReaderPage
         // A pinch that ends near 1 snaps back to fit; otherwise preserve the
         // anchored pan instead of re-zooming from the viewport center.
         var zoom = _pinchRequestedZoom < 1.1 ? 1 : Math.Round(_pinchRequestedZoom, 2);
-        _shell.Preferences.Update(value => value.WithPdfZoom(_bookFile?.Id, zoom));
         if (_readerHost is NativePdfReaderHost pdf)
         {
+            _shell.Preferences.Update(value => value.WithPdfZoom(_bookFile?.Id, zoom));
             _ = ApplyPdfZoomAsync(pdf, preserveZoomAnchor: zoom > 1);
+        }
+        else if (IsMangaMode && _readerHost is NativeReaderHost manga)
+        {
+            manga.SetMangaZoom(zoom);
         }
         return true;
     }

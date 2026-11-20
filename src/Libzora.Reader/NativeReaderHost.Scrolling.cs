@@ -215,6 +215,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
             return false;
         }
 
+        ResetMangaZoom();
         _pageIndex += direction * PageStep;
         if (IsSpread)
         {
@@ -223,6 +224,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
 
         _bitmapDirty = true;
         InvalidateVisual();
+        if (_settings.MangaMode) PrefetchVisibleImages();
         EmitScroll();
         return true;
     }
@@ -264,6 +266,15 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         _scrollOffset = next;
         _bitmapDirty = true;
         InvalidateVisual();
+        if (_settings.MangaMode)
+        {
+            var slice = (int)(next / Math.Max(1, Bounds.Height));
+            if (slice != _lastPrefetchedSlice)
+            {
+                _lastPrefetchedSlice = slice;
+                PrefetchVisibleImages();
+            }
+        }
         ScheduleScrollEmit();
     }
 

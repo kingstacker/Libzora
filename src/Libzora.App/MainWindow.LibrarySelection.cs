@@ -77,6 +77,7 @@ public partial class MainWindow
         }
 
         ShowLibraryDetailPane();
+        UpdateSeriesShelfOverlayPlacement();
         _detailPaneBookId = card.Book.Id;
         SyncCardSelectionVisuals();
         _ = RefreshBookReflectionDetailsAsync(card.Book.Id);
@@ -296,6 +297,7 @@ public partial class MainWindow
     {
         CancelDetailPaneAnimation();
         LibraryDetailPane.IsVisible = false;
+        UpdateSeriesShelfOverlayPlacement();
         LibraryWorkspace.ColumnDefinitions[1].Width = new GridLength(0);
         LibraryToolbarActions.RenderTransform = null;
         LibraryDetailPane.RenderTransform = new TranslateTransform(0, 0);

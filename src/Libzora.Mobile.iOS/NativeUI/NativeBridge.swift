@@ -31,6 +31,10 @@ struct MobilePreferences: Codable, Equatable {
     var pdfDisplayMode = 0
     var pdfFitMode = 0
     var pdfAutoCrop = false
+    var mangaMode = false
+    var mangaDirection = 0
+    var mangaAutoCrop = false
+    var mangaBlackBackground = false
     var sort = 0
     var readerTheme = 0
     var readerThemeFollowsAppearance = true
@@ -118,6 +122,8 @@ struct ReaderSnapshot: Decodable, Equatable {
     var selectionBounds: NativeSelectionBounds?
     var footnoteReturnVisible = false
     var navigationRevision: Int64?
+    var isManga = false
+    var isMangaVerticalScroll = false
 }
 
 struct ReaderFootnoteAnchor: Decodable, Equatable {
@@ -211,8 +217,10 @@ final class NativeStore: ObservableObject {
     @Published private(set) var libraryLoadError: String?
     @Published var visibleAmbientColors: [NativeAmbientColor] = []
     @Published var fallbackAmbientColors: [NativeAmbientColor] = []
+    @Published var ambientFallbackSuppressed = false
     var ambientColors: [NativeAmbientColor] {
-        visibleAmbientColors.isEmpty ? fallbackAmbientColors : visibleAmbientColors
+        if !visibleAmbientColors.isEmpty { return visibleAmbientColors }
+        return ambientFallbackSuppressed ? [] : fallbackAmbientColors
     }
     @Published var preferences = MobilePreferences() {
         didSet { applyUiLanguage(NativeLocalization.resolvedLanguage(preferences.uiLanguage)) }
@@ -372,10 +380,13 @@ final class NativeStore: ObservableObject {
         }
     }
 
-    func booksInDisplayOrder(for series: NativeBookSeries) -> [LibraryBook] {
+    func frontBook(for series: NativeBookSeries) -> LibraryBook? {
         let mostRecentlyOpened = series.books.max { (bookOpenOrder[$0.id] ?? 0) < (bookOpenOrder[$1.id] ?? 0) }
-        let leadingID = mostRecentlyOpened.flatMap { bookOpenOrder[$0.id] == nil ? nil : $0.id }
-        return series.booksByPromoting(leadingID)
+        return mostRecentlyOpened.flatMap { bookOpenOrder[$0.id] == nil ? nil : $0 } ?? series.books.first
+    }
+
+    func booksInDisplayOrder(for series: NativeBookSeries) -> [LibraryBook] {
+        series.booksByPromoting(frontBook(for: series)?.id)
     }
 
     func seriesSnapshot(for id: NativeBookSeries.ID) -> NativeBookSeries? {

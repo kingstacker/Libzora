@@ -1976,6 +1976,7 @@
     <x:String x:Key="Ui.Library.StackSeriesHelp">同一系列的多本书在电脑书库和设备书库中叠放显示；关闭后每本书单独显示</x:String>
     <x:String x:Key="Ui.Auto.45A73C8B20C5F819">{0} 册</x:String>
     <x:String x:Key="Ui.Auto.B8E55D2D67884E93">展开系列：{0}</x:String>
+    <x:String x:Key="Ui.Auto.9EC4976C40CC6D22">全部发送（{0} 本）</x:String>
     <x:String x:Key="Ui.Auto.D71332CE411F5E30">同步子目录不能包含控制字符。</x:String>
     <x:String x:Key="Ui.Library.ImportBooks">导入书籍</x:String>
     <x:String x:Key="Ui.Shelf.Eject">弹出设备</x:String>

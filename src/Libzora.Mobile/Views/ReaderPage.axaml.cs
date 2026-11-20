@@ -57,7 +57,10 @@ public partial class ReaderPage : UserControl
     private long _unsavedSeconds;
     private ReaderProgressRow? _lastSavedProgress;
     private Point? _pressPoint;
+    private Point _lastPanPoint;
     private bool _pressMoved;
+    private bool _panning;
+    private bool _mangaSettingsInitialized;
     private bool _selectionArmed;
     private bool _expectSelection;
     private ReaderSelection? _selection;
@@ -126,17 +129,24 @@ public partial class ReaderPage : UserControl
 
     private static ReaderLayoutSettings BuildLayout(MobilePreferences preferences)
     {
+        var mangaMode = preferences.MangaMode;
+        var verticalScrollManga = mangaMode && preferences.MangaDirection == (int)MobileMangaDirection.VerticalScroll;
         var normalized = ReaderLayoutDefaults.Normalize(new ReaderLayoutSettings(
             FontScale: preferences.ReaderFontScale,
             LineHeight: preferences.ReaderLineHeight,
             MaxWidth: 900,
             BodyPadding: ReaderLayoutDefaults.DefaultBodyPadding,
             FontFamily: preferences.ReaderFontFamily,
-            FlowMode: 1,
-            VerticalWriting: preferences.ReaderVerticalWriting,
-            TwoPageMode: false) { ParagraphSpacing = preferences.ReaderParagraphSpacing });
+            FlowMode: verticalScrollManga ? 0 : 1,
+            VerticalWriting: !mangaMode && preferences.ReaderVerticalWriting,
+            TwoPageMode: false)
+        {
+            ParagraphSpacing = preferences.ReaderParagraphSpacing,
+            MangaMode = mangaMode,
+            MangaAutoCrop = mangaMode && preferences.MangaAutoCrop
+        });
         // Applied after Normalize: a phone reads better with a narrower column
-        // than the desktop's 24-point floor allows.
+        // than the desktop's 24-point floor allows, and manga fills edge to edge.
         return normalized with
         {
             // Compact spacing makes paragraph lines follow the normal line pitch.
@@ -153,10 +163,10 @@ public partial class ReaderPage : UserControl
                 ? null
                 : preferences.ReaderLatinFontFamily,
             ParagraphIndent = preferences.ReaderParagraphIndent,
-            BodyPadding = Math.Clamp(preferences.ReaderBodyPadding, 16, 64),
+            BodyPadding = mangaMode ? 0 : Math.Clamp(preferences.ReaderBodyPadding, 16, 64),
             // The footer shares the normal bottom paper margin. When hidden,
             // let text use that strip, retaining a small inset inside the safe area.
-            BodyBottomPadding = preferences.ReaderProgressDisplay == MobileReaderProgressDisplay.Off ? 8 : null
+            BodyBottomPadding = mangaMode ? 0 : (preferences.ReaderProgressDisplay == MobileReaderProgressDisplay.Off ? 8 : null)
         };
     }
 

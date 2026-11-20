@@ -62,6 +62,13 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
             return null;
         }
 
+        if (_mangaZoom > 1.01)
+        {
+            position = new Point(
+                (position.X + _mangaPan.X) / _mangaZoom,
+                (position.Y + _mangaPan.Y) / _mangaZoom);
+        }
+
         switch (_presentation)
         {
             case ReaderPresentation.Spread:

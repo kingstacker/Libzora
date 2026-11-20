@@ -2437,15 +2437,32 @@
             <Setter Property="HorizontalContentAlignment" Value="Center" />
             <Setter Property="VerticalContentAlignment" Value="Center" />
         </Style>
-        <Style Selector="Button.seriesBadge:pointerover">
+        <Style Selector="Button.seriesBadge /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{DynamicResource PaperBrush}" />
             <Setter Property="Foreground" Value="{DynamicResource InkBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="9" />
+        </Style>
+        <Style Selector="Button.seriesBadge:pointerover">
+            <Setter Property="Background" Value="{DynamicResource InkBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource PaperBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource InkBrush}" />
+        </Style>
+        <Style Selector="Button.seriesBadge:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource InkBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource PaperBrush}" />
             <Setter Property="BorderBrush" Value="{DynamicResource InkBrush}" />
         </Style>
         <Style Selector="Button.seriesBadge:pressed">
-            <Setter Property="Background" Value="{DynamicResource SoftHoverBrush}" />
-            <Setter Property="Foreground" Value="{DynamicResource InkBrush}" />
-            <Setter Property="BorderBrush" Value="{DynamicResource InkBrush}" />
+            <Setter Property="Background" Value="{DynamicResource AccentPressedBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource PaperBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentPressedBrush}" />
+        </Style>
+        <Style Selector="Button.seriesBadge:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource AccentPressedBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource PaperBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentPressedBrush}" />
         </Style>
         <Style Selector="Button.inlineAction">
             <Setter Property="Height" Value="30" />
@@ -3228,18 +3245,11 @@
         </Style>
         <!-- Drive the zoom from the card's hover state rather than
              :pointerover: pressing the card captures the pointer, which
-             clears :pointerover and would shrink the cover on every click. -->
+             clears :pointerover and would shrink the cover on every click.
+             Series layers sit inside clipped width boxes so every cover zooms
+             at the same rate as a single book without spilling onto neighbours. -->
         <Style Selector="Border.bookCover.hover Image">
             <Setter Property="RenderTransform" Value="scale(1.06)" />
-        </Style>
-        <!-- Series rear covers and a narrowed front cover form the stack
-             inside the clipped cover frame; zooming any layer would hide or
-             spill over the exposed edges. -->
-        <Style Selector="Border.bookCover.hover Image.seriesLayer">
-            <Setter Property="RenderTransform" Value="scale(1)" />
-        </Style>
-        <Style Selector="Border.bookCover.hover Image.seriesFront">
-            <Setter Property="RenderTransform" Value="scale(1)" />
         </Style>
         <!-- The gallery card keeps its light-grey resting outline from the
              template. Hover adds a soft shadow instead of a black frame. -->

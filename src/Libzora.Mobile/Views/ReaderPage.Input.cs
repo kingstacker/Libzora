@@ -138,11 +138,16 @@ public partial class ReaderPage
             return;
         }
         _pressPoint = e.GetPosition(ReaderHostSlot);
+        _lastPanPoint = _pressPoint.Value;
         _pressMoved = false;
+        _panning = false;
         _selectionArmed = false;
         _expectSelection = false;
         _tapConsumed = false;
-        _longPress.Start();
+        if (!IsMangaPannable)
+        {
+            _longPress.Start();
+        }
     }
 
     private void CancelPress()
@@ -152,6 +157,7 @@ public partial class ReaderPage
         _selectionArmed = false;
         _expectSelection = false;
         _tapConsumed = true;
+        CancelPendingDelayedTap();
     }
 
     /// <summary>
@@ -182,18 +188,40 @@ public partial class ReaderPage
         }
         if (_pressPoint is not { } start || _selectionArmed) return;
         var current = e.GetPosition(ReaderHostSlot);
+        var delta = current - _lastPanPoint;
+        _lastPanPoint = current;
         if (Math.Abs(current.X - start.X) > TapSlop || Math.Abs(current.Y - start.Y) > TapSlop)
         {
             _pressMoved = true;
             _longPress.Stop();
         }
         if (IsPdfPannable) return;
+        if (IsMangaPannable && _pressMoved && _readerHost is NativeReaderHost mangaHost)
+        {
+            _panning = true;
+            if (IsMangaZoomed)
+            {
+                mangaHost.PanMangaBy(new Vector(-delta.X, -delta.Y));
+            }
+            else if (IsMangaVerticalScroll)
+            {
+                mangaHost.ScrollByPixel(-delta.Y);
+            }
+        }
         e.Handled = true;
     }
 
     private DateTimeOffset _lastPdfTapAt = DateTimeOffset.MinValue;
     private Point _lastPdfTapPoint;
-    private int _pendingPdfTapId;
+    private int _pendingDelayedTapId;
+
+    private void CancelPendingDelayedTap() => _pendingDelayedTapId++;
+
+    private void ScheduleDelayedTap(double ratio, int delayMs = 220)
+    {
+        var tapId = ++_pendingDelayedTapId;
+        _ = HandleDelayedTapAsync(tapId, ratio, delayMs);
+    }
 
     private void OnSurfaceReleased(object? sender, PointerReleasedEventArgs e)
     {
@@ -221,6 +249,11 @@ public partial class ReaderPage
         var dx = end.X - start.X;
         var dy = end.Y - start.Y;
         var dominant = Math.Abs(dx) >= Math.Abs(dy) * SwipeDominance;
+        if (IsMangaPannable && (_panning || _pressMoved))
+        {
+            ConsumeSurfaceRelease(e);
+            return;
+        }
         if (Math.Abs(dx) >= SwipeDistance && dominant)
         {
             if (!IsPdfPannable)
@@ -238,27 +271,27 @@ public partial class ReaderPage
         }
         else if (!_pressMoved && Math.Abs(dx) <= TapSlop && Math.Abs(dy) <= TapSlop)
         {
-            // Double-tap zooms to 2x at the tapped point or resets back to fit on PDF.
+            // Double-tap zooms to 2x at the tapped point or resets back to fit on PDF/Manga.
             var now = DateTimeOffset.UtcNow;
-            if (_isPdf && !IsChromeVisible && (now - _lastPdfTapAt).TotalMilliseconds <= 300
+            if ((_isPdf || IsMangaMode) && !IsChromeVisible && (now - _lastPdfTapAt).TotalMilliseconds <= 300
                 && Math.Abs(end.X - _lastPdfTapPoint.X) <= 36 && Math.Abs(end.Y - _lastPdfTapPoint.Y) <= 36)
             {
-                _pendingPdfTapId++;
+                CancelPendingDelayedTap();
                 _lastPdfTapAt = DateTimeOffset.MinValue;
                 _tapConsumed = true;
-                _ = TogglePdfDoubleTapZoomAsync(end);
+                if (_isPdf) _ = TogglePdfDoubleTapZoomAsync(end);
+                else ToggleMangaDoubleTapZoom(end);
                 return;
             }
 
             // The host reports link, annotation and figure hits after this
             // tunnel handler, but only a gesture that stayed a tap reaches it.
             var ratio = end.X / Math.Max(1, ReaderHostSlot.Bounds.Width);
-            if (_isPdf && !IsChromeVisible)
+            if ((_isPdf || IsMangaMode) && !IsChromeVisible)
             {
                 _lastPdfTapAt = now;
                 _lastPdfTapPoint = end;
-                var tapId = ++_pendingPdfTapId;
-                _ = HandleDelayedPdfTapAsync(tapId, ratio);
+                ScheduleDelayedTap(ratio);
             }
             else
             {
@@ -274,12 +307,12 @@ public partial class ReaderPage
         }
     }
 
-    private async Task HandleDelayedPdfTapAsync(int tapId, double ratio)
+    private async Task HandleDelayedTapAsync(int tapId, double ratio, int delayMs)
     {
         try
         {
-            await Task.Delay(220, _lifetime.Token);
-            if (tapId == _pendingPdfTapId && !_tapConsumed)
+            await Task.Delay(delayMs, _lifetime.Token);
+            if (tapId == _pendingDelayedTapId)
             {
                 HandleTap(ratio);
             }
@@ -305,6 +338,13 @@ public partial class ReaderPage
         NotifyNativeState();
     }
 
+    private void ToggleMangaDoubleTapZoom(Point anchor)
+    {
+        if (_readerHost is not NativeReaderHost host) return;
+        var nextZoom = host.MangaZoom > 1.05 ? 1.0 : 2.0;
+        host.SetMangaZoom(nextZoom, anchor);
+    }
+
     private static void ConsumeSurfaceRelease(PointerReleasedEventArgs e)
     {
         // Movement is handled above the rendering host. Cancel its captured
@@ -316,7 +356,7 @@ public partial class ReaderPage
     private void HandleSwipe(double dx)
     {
         if (IsChromeVisible) SetChromeVisible(false);
-        else _ = TurnAsync(MobileReaderPagingPolicy.SwipeDirection(dx, _layout.VerticalWriting, _isPdf));
+        else _ = TurnAsync(MobileReaderPagingPolicy.SwipeDirection(dx, _layout.VerticalWriting, _isPdf, IsRightToLeftPaging));
     }
 
     private void HandleTap(double ratio)
@@ -324,7 +364,21 @@ public partial class ReaderPage
         if (IsChromeVisible) SetChromeVisible(false);
         else
         {
-            var direction = MobileReaderPagingPolicy.TapDirection(ratio, _layout.VerticalWriting, _isPdf);
+            if (IsMangaVerticalScroll && _readerHost is NativeReaderHost scrollHost)
+            {
+                if (ratio is >= 1d / 3 and <= 2d / 3)
+                {
+                    SetChromeVisible(true);
+                }
+                else
+                {
+                    var step = Math.Max(120, ReaderHostSlot.Bounds.Height * 0.85);
+                    scrollHost.ScrollByPixel(ratio < 1d / 3 ? -step : step);
+                }
+                return;
+            }
+
+            var direction = MobileReaderPagingPolicy.TapDirection(ratio, _layout.VerticalWriting, _isPdf, IsRightToLeftPaging);
             if (direction == 0) SetChromeVisible(true);
             else _ = TurnAsync(direction);
         }
@@ -359,7 +413,7 @@ public partial class ReaderPage
                 ReaderHostSlot, TransitionSnapshot, TransitionTrail, TransitionFront, TransitionEdge, ReaderPaper);
             var animation = IsPowerSavingActive ? 0 : (int)_shell.Preferences.Current.ReaderPageAnimation;
             await ReaderTransitionPlayer.RunAsync(surface, animation,
-                MobileReaderPagingPolicy.VisualDirection(direction, _layout.VerticalWriting, _isPdf), async () =>
+                MobileReaderPagingPolicy.VisualDirection(direction, _layout.VerticalWriting, _isPdf, IsRightToLeftPaging), async () =>
             {
                 if (_isPdf)
                 {

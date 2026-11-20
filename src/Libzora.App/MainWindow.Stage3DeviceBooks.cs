@@ -563,9 +563,25 @@ public partial class MainWindow
         }
 
         var selectedBooks = GetSelectedDeviceBooks().ToArray();
+        ShowDeviceBookContextMenu(control, card, selectedBooks);
+        e.Handled = true;
+    }
+
+    private void ShowDeviceBookContextMenu(Control control, KindleBookCardViewModel card, KindleBookCardViewModel[] selectedBooks) =>
+        ShowDeviceBookContextMenuCore(control, card, selectedBooks, allowSeriesActions: true);
+
+    private void ShowDeviceSingleBookContextMenu(Control control, KindleBookCardViewModel card) =>
+        ShowDeviceBookContextMenuCore(control, card, [card], allowSeriesActions: false);
+
+    private void ShowDeviceBookContextMenuCore(
+        Control control,
+        KindleBookCardViewModel card,
+        KindleBookCardViewModel[] selectedBooks,
+        bool allowSeriesActions)
+    {
         var selectedCount = selectedBooks.Length;
         var menu = new ContextMenu();
-        if (card.IsSeriesStack)
+        if (allowSeriesActions && card.IsSeriesStack)
         {
             menu.Items.Add(BuildDeviceSeriesMenu(card));
             menu.Items.Add(new Separator());
@@ -585,7 +601,6 @@ public partial class MainWindow
             return Task.CompletedTask;
         }));
         menu.Open(control);
-        e.Handled = true;
     }
 
     private void DeviceBookSelectionChanged(object? sender, RoutedEventArgs e) =>

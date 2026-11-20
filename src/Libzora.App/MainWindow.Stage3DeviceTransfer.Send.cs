@@ -10,9 +10,15 @@ public partial class MainWindow
     private async Task SendSelectedBooksToKindleAsync() =>
         await TrackDeviceOperationAsync(SendSelectedBooksToKindleCoreAsync);
 
-    private async Task SendSelectedBooksToKindleCoreAsync()
+    private async Task SendBooksToKindleAsync(IReadOnlyList<BookCardViewModel> targetCards) =>
+        await TrackDeviceOperationAsync(() => SendBooksToKindleWithRetryAsync(targetCards));
+
+    private Task SendSelectedBooksToKindleCoreAsync() =>
+        SendBooksToKindleWithRetryAsync(GetSelectedCards().ToArray());
+
+    private async Task SendBooksToKindleWithRetryAsync(IReadOnlyList<BookCardViewModel> initialCards)
     {
-        IReadOnlyList<BookCardViewModel> cards = GetSelectedCards().ToArray();
+        IReadOnlyList<BookCardViewModel> cards = initialCards;
         List<BookCardViewModel>? ownedCards = null;
         try
         {

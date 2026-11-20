@@ -587,6 +587,7 @@ internal sealed partial class IOSNativeFrontend
         PdfZoom = double.IsFinite(value.PdfZoom) ? Math.Clamp(value.PdfZoom, 1, 4) : 1,
         PdfDisplayMode = value.PdfDisplayMode is >= 0 and <= 2 ? value.PdfDisplayMode : 0,
         PdfFitMode = value.PdfFitMode is 0 or 1 ? value.PdfFitMode : 0,
+        MangaDirection = value.MangaDirection is >= 0 and <= 2 ? value.MangaDirection : 0,
         ReaderFontScale = double.IsFinite(value.ReaderFontScale)
             ? Math.Clamp(value.ReaderFontScale, ReaderLayoutDefaults.MinFontScale, ReaderLayoutDefaults.MaxFontScale) : 1.35,
         ReaderFontFamily = NormalizeReaderFontFamily(value.ReaderFontFamily),

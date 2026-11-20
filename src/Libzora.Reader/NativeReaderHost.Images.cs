@@ -28,12 +28,17 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
     /// </summary>
     private void PrefetchVisibleImages()
     {
-        if (_disposed || IsScroll) return;
+        if (_disposed) return;
+        var manga = _settings.MangaMode;
+        if (IsScroll && !manga) return;
         var layout = _layout;
         if (layout is null || layout.Pages.Count == 0) return;
 
-        var first = Math.Clamp(_pageIndex, 0, layout.Pages.Count - 1);
-        var last = Math.Min(layout.Pages.Count - 1, first + (IsSpread ? 2 : 1));
+        var currentSlice = IsScroll
+            ? Math.Clamp((int)(_scrollOffset / Math.Max(1, Bounds.Height)), 0, layout.Pages.Count - 1)
+            : Math.Clamp(_pageIndex, 0, layout.Pages.Count - 1);
+        var first = manga ? Math.Max(0, currentSlice - 1) : currentSlice;
+        var last = Math.Min(layout.Pages.Count - 1, currentSlice + (manga ? 2 : IsSpread ? 2 : 1));
         var paths = new List<string>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         for (var index = first; index <= last; index++)
@@ -46,6 +51,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         }
         if (paths.Count == 0) return;
 
+        var warmCrop = manga && _settings.MangaAutoCrop;
         _imagePrefetchCancellation?.Cancel();
         _imagePrefetchCancellation?.Dispose();
         var cancellation = new CancellationTokenSource();
@@ -59,6 +65,8 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
                 {
                     using var imagePins = PinImages([path]);
                     ResolveImage(path);
+                    if (warmCrop && !cancellation.IsCancellationRequested)
+                        ImageCropDetector.GetCachedImageCropBox(path);
                 }
                 catch (Exception exception) when (exception is not OutOfMemoryException) { }
             }

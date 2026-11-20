@@ -40,6 +40,11 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         canvas.Clear(SKColors.Transparent);
         canvas.Save();
         canvas.Scale((float)scaling);
+        if (_mangaZoom > 1.01)
+        {
+            canvas.Translate(-(float)_mangaPan.X, -(float)_mangaPan.Y);
+            canvas.Scale((float)_mangaZoom);
+        }
 
         switch (_presentation)
         {
@@ -69,6 +74,56 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
 
         canvas.Restore();
         canvas.Flush();
+    }
+
+    public void SetMangaZoom(double zoom, Point? anchorInView = null)
+    {
+        var clamped = double.IsFinite(zoom) ? Math.Clamp(zoom, 1.0, 4.0) : 1.0;
+        if (clamped <= 1.01)
+        {
+            ResetMangaZoom();
+            return;
+        }
+
+        var w = Math.Max(1, Bounds.Width);
+        var h = Math.Max(1, Bounds.Height);
+        var anchor = anchorInView ?? new Point(w / 2.0, h / 2.0);
+        var prevZoom = Math.Max(1.0, _mangaZoom);
+        var contentX = (anchor.X + _mangaPan.X) / prevZoom;
+        var contentY = (anchor.Y + _mangaPan.Y) / prevZoom;
+        _mangaZoom = clamped;
+        _mangaPan = ClampMangaPan(
+            contentX * clamped - anchor.X,
+            contentY * clamped - anchor.Y,
+            clamped);
+        _bitmapDirty = true;
+        InvalidateVisual();
+    }
+
+    public void PanMangaBy(Vector delta)
+    {
+        if (_mangaZoom <= 1.01) return;
+        var next = ClampMangaPan(_mangaPan.X + delta.X, _mangaPan.Y + delta.Y, _mangaZoom);
+        if (Math.Abs(next.X - _mangaPan.X) < 0.1 && Math.Abs(next.Y - _mangaPan.Y) < 0.1) return;
+        _mangaPan = next;
+        _bitmapDirty = true;
+        InvalidateVisual();
+    }
+
+    public void ResetMangaZoom()
+    {
+        if (_mangaZoom <= 1.01 && Math.Abs(_mangaPan.X) < 0.01 && Math.Abs(_mangaPan.Y) < 0.01) return;
+        _mangaZoom = 1.0;
+        _mangaPan = default;
+        _bitmapDirty = true;
+        InvalidateVisual();
+    }
+
+    private Point ClampMangaPan(double x, double y, double zoom)
+    {
+        var maxX = Math.Max(0, Bounds.Width * (zoom - 1.0));
+        var maxY = Math.Max(0, Bounds.Height * (zoom - 1.0));
+        return new Point(Math.Clamp(x, 0, maxX), Math.Clamp(y, 0, maxY));
     }
 
     private void PaintPage(SKCanvas canvas, int pageIndex, float offsetX, float offsetY)

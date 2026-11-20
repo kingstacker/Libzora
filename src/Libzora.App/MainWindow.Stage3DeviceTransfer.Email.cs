@@ -9,9 +9,11 @@ namespace Libzora;
 /// </summary>
 public partial class MainWindow
 {
-    private async Task SendSelectedBooksByEmailAsync()
+    private Task SendSelectedBooksByEmailAsync() =>
+        SendBooksByEmailAsync(GetSelectedCards());
+
+    private async Task SendBooksByEmailAsync(IReadOnlyList<BookCardViewModel> cards)
     {
-        var cards = GetSelectedCards();
         if (cards.Count == 0)
         {
             SetTaskStatus(T("请先选择至少一本书。"));
@@ -158,14 +160,17 @@ public partial class MainWindow
     }
 
     private Task SendSelectedBookToKindleCoreAsync() =>
-        SendSelectedBookToKindleCoreAsync(requestedSource: null);
+        SendSelectedBookToKindleCoreAsync(requestedSource: null, targetCard: null);
 
-    private async Task SendSelectedBookToKindleCoreAsync(BookFile? requestedSource)
+    private Task SendSelectedBookToKindleCoreAsync(BookFile? requestedSource) =>
+        SendSelectedBookToKindleCoreAsync(requestedSource, targetCard: null);
+
+    private async Task SendSelectedBookToKindleCoreAsync(BookFile? requestedSource, BookCardViewModel? targetCard)
     {
         // Snapshot the card: awaits below (device refresh, confirm dialog) can
         // re-enter UI handlers that clear _selectedCard, which previously
         // crashed the send with a NullReferenceException.
-        if (_selectedCard is not { } card)
+        if ((targetCard ?? _selectedCard) is not { } card)
         {
             SetTaskStatus(T("请先选择一本书。"));
             return;
@@ -294,9 +299,9 @@ public partial class MainWindow
     private async void SendSelectedBookByEmailButton_Click(object? sender, RoutedEventArgs e) =>
         await SendSelectedBookByEmailCoreAsync();
 
-    private async Task SendSelectedBookByEmailCoreAsync(BookFile? requestedSource = null)
+    private async Task SendSelectedBookByEmailCoreAsync(BookFile? requestedSource = null, BookCardViewModel? targetCard = null)
     {
-        if (_selectedCard is not { } card)
+        if ((targetCard ?? _selectedCard) is not { } card)
         {
             SetTaskStatus(T("请先选择一本书。"));
             return;

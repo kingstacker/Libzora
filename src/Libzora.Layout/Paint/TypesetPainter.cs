@@ -638,6 +638,13 @@ public sealed class TypesetPainter
                 ColorFilter = SKColorFilter.CreateColorMatrix(DarkModeImageDimMatrix),
             }
             : null;
+        var srcRect = placed.SourceCrop is { } crop
+            ? new SKRect(
+                crop.Left * image.Width,
+                crop.Top * image.Height,
+                crop.Right * image.Width,
+                crop.Bottom * image.Height)
+            : new SKRect(0f, 0f, image.Width, image.Height);
         if (Math.Abs(placed.RotationDegrees - 90f) < 0.01f)
         {
             // Rect is the final, rotated bounding box. Draw the source image
@@ -649,13 +656,14 @@ public sealed class TypesetPainter
             canvas.RotateDegrees(90f);
             canvas.DrawImage(
                 image,
+                srcRect,
                 new SKRect(0f, 0f, placed.Rect.Height, placed.Rect.Width),
                 paint);
             canvas.Restore();
             return;
         }
 
-        canvas.DrawImage(image, placed.Rect, paint);
+        canvas.DrawImage(image, srcRect, placed.Rect, paint);
     }
 
     private static void DrawPlacedBlob(

@@ -29,7 +29,13 @@ namespace Libzora;
 /// </summary>
 public partial class MainWindow
 {
-    private ContextMenu BuildBookContextMenu(BookCardViewModel card)
+    private ContextMenu BuildBookContextMenu(BookCardViewModel card) =>
+        BuildBookContextMenuCore(card, allowSeriesActions: true);
+
+    private ContextMenu BuildSingleBookContextMenu(BookCardViewModel card) =>
+        BuildBookContextMenuCore(card, allowSeriesActions: false);
+
+    private ContextMenu BuildBookContextMenuCore(BookCardViewModel card, bool allowSeriesActions)
     {
         var menu = new ContextMenu();
 
@@ -93,7 +99,7 @@ public partial class MainWindow
         }
         openMenu.IsEnabled = openMenu.Items.OfType<MenuItem>().Any(item => item.IsEnabled);
         menu.Items.Add(openMenu);
-        if (card.IsSeriesStack)
+        if (allowSeriesActions && card.IsSeriesStack)
         {
             menu.Items.Add(BuildLocalSeriesMenu(card));
             menu.Items.Add(new Separator());
@@ -124,24 +130,44 @@ public partial class MainWindow
         if (AddPluginBookActionMenuItems(menu, card))
             menu.Items.Add(new Separator());
 
-        menu.Items.Add(CreateBookVariantMenuItem(
+        menu.Items.Add(CreateSeriesSendMenuItem(
             T("发送到设备"),
-            CurrentDevice is { } targetDevice
-                ? DeviceTransferPolicy.GetCandidates(targetDevice.Profile, card.Book.Files)
-                : card.Book.Files,
-            sourceFile => SendSelectedBookToKindleCoreAsync(sourceFile)));
-        menu.Items.Add(CreateBookVariantMenuItem(
+            card,
+            book => CurrentDevice is { } targetDevice
+                ? DeviceTransferPolicy.GetCandidates(targetDevice.Profile, book.Files)
+                : book.Files,
+            (volume, sourceFile) => TrackDeviceOperationAsync(
+                () => SendSelectedBookToKindleCoreAsync(sourceFile, volume)),
+            volumes => SendBooksToKindleAsync(volumes),
+            allowSeriesActions: allowSeriesActions));
+        menu.Items.Add(CreateSeriesSendMenuItem(
             T("发送到 Kindle 邮箱"),
-            KindleEmailSelectionPolicy.GetCandidates(card.Book.Files),
-            sourceFile => SendSelectedBookByEmailCoreAsync(sourceFile)));
+            card,
+            book => KindleEmailSelectionPolicy.GetCandidates(book.Files),
+            (volume, sourceFile) => SendSelectedBookByEmailCoreAsync(sourceFile, volume),
+            volumes => SendBooksByEmailAsync(volumes),
+            allowSeriesActions: allowSeriesActions));
         if (IsSendToKindleWebEnabled())
         {
-            var webFiles = KindleWebFilePolicy.GetCandidates(card.Book.Files);
-            var webMenu = CreateBookVariantMenuItem(
+            var webMenu = CreateSeriesSendMenuItem(
                 T("发送到 Kindle Web"),
-                webFiles,
-                sourceFile => sourceFile is null ? Task.CompletedTask : AddLibraryFilesToKindleWebAsync([sourceFile]));
-            webMenu.IsEnabled = webFiles.Count > 0;
+                card,
+                book => KindleWebFilePolicy.GetCandidates(book.Files),
+                (_, sourceFile) => sourceFile is null
+                    ? Task.CompletedTask
+                    : AddLibraryFilesToKindleWebAsync([sourceFile]),
+                volumes =>
+                {
+                    var files = volumes
+                        .Select(volume => KindleWebFilePolicy.GetCandidates(volume.Book.Files).FirstOrDefault())
+                        .OfType<BookFile>()
+                        .ToArray();
+                    return files.Length == 0
+                        ? Task.CompletedTask
+                        : AddLibraryFilesToKindleWebAsync(files);
+                },
+                allowSeriesActions: allowSeriesActions,
+                disableWhenEmpty: true);
             menu.Items.Add(webMenu);
         }
 
@@ -161,10 +187,11 @@ public partial class MainWindow
             if (!exclusiveCollections)
             {
                 item.ToggleType = MenuItemToggleType.CheckBox;
-                item.IsChecked = card.Book.CollectionIds.Contains(folder.Collection.Id);
+                item.IsChecked = ResolveCollectionTargets(card, allowSeriesActions)
+                    .All(target => target.Book.CollectionIds.Contains(folder.Collection.Id));
             }
             ApplyLegacyMenuItemSize(item);
-            item.Click += async (_, _) => await ChangeBookCollectionAsync(card, folder, exclusiveCollections);
+            item.Click += async (_, _) => await ChangeBookCollectionAsync(card, folder, exclusiveCollections, allowSeriesActions);
             collectionMenu.Items.Add(item);
         }
         if (customCollections.Length > 0)
@@ -176,7 +203,7 @@ public partial class MainWindow
             try
             {
                 var collection = await _library.CreateCollectionAsync(name, _lifetimeCancellation.Token);
-                await AssignBookToCollectionAsync(card, collection.Id);
+                await AssignBookToCollectionAsync(card, collection.Id, allowSeriesActions);
                 await RefreshLibraryAsync();
                 SetTaskStatus(T("已创建并加入收藏夹“{0}”。", name));
             }
@@ -306,6 +333,55 @@ public partial class MainWindow
         }
 
         return item;
+    }
+
+    private static MenuItem CreateSeriesSendMenuItem(
+        string header,
+        BookCardViewModel card,
+        Func<Book, IReadOnlyList<BookFile>> getCandidates,
+        Func<BookCardViewModel, BookFile?, Task> sendSingle,
+        Func<IReadOnlyList<BookCardViewModel>, Task> sendAll,
+        bool allowSeriesActions = true,
+        bool disableWhenEmpty = false)
+    {
+        if (!allowSeriesActions || !card.IsSeriesStack)
+        {
+            var files = getCandidates(card.Book);
+            var singleItem = CreateBookVariantMenuItem(
+                header,
+                files,
+                sourceFile => sendSingle(card, sourceFile));
+            if (disableWhenEmpty && files.Count == 0)
+                singleItem.IsEnabled = false;
+            return singleItem;
+        }
+
+        var parent = new MenuItem { Header = header };
+        ApplyLegacyMenuItemSize(parent);
+        parent.Resources["FlyoutThemeMinWidth"] = 0d;
+        var hasEligibleVolume = card.SeriesMembers.Any(volume => getCandidates(volume.Book).Count > 0);
+        var sendAllItem = CreateMenuItem(
+            T("全部发送（{0} 本）", card.SeriesMembers.Count),
+            () => sendAll(card.SeriesMembers));
+        if (disableWhenEmpty && !hasEligibleVolume)
+            sendAllItem.IsEnabled = false;
+        parent.Items.Add(sendAllItem);
+        parent.Items.Add(new Separator());
+        foreach (var member in card.SeriesMembers)
+        {
+            var volume = member;
+            var volumeFiles = getCandidates(volume.Book);
+            var volumeItem = CreateBookVariantMenuItem(
+                SeriesVolumeLabel(volume.Book.SeriesIndex, volume.Title),
+                volumeFiles,
+                sourceFile => sendSingle(volume, sourceFile));
+            if (disableWhenEmpty && volumeFiles.Count == 0)
+                volumeItem.IsEnabled = false;
+            parent.Items.Add(volumeItem);
+        }
+        if (disableWhenEmpty && !hasEligibleVolume)
+            parent.IsEnabled = false;
+        return parent;
     }
 
     private async Task OpenBookFormatAsync(BookCardViewModel card, string format)

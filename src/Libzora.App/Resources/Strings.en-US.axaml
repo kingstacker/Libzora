@@ -2020,6 +2020,7 @@ Book excerpts:
     <x:String x:Key="Ui.Library.StackSeriesHelp">Group books from the same series into a stack in the computer and device libraries; turn off to show every book separately</x:String>
     <x:String x:Key="Ui.Auto.45A73C8B20C5F819">{0} books</x:String>
     <x:String x:Key="Ui.Auto.B8E55D2D67884E93">Expand series: {0}</x:String>
+    <x:String x:Key="Ui.Auto.9EC4976C40CC6D22">Send all ({0})</x:String>
     <x:String x:Key="Ui.Auto.D71332CE411F5E30">The sync subdirectory cannot contain control characters.</x:String>
     <x:String x:Key="Ui.Library.ImportBooks">Import books</x:String>
     <x:String x:Key="Ui.Shelf.Eject">Eject device</x:String>

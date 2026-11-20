@@ -268,6 +268,7 @@ public partial class MainWindow
         UpdateSidebarWidth();
         SetGridColumnWidth(LibraryRoot.ColumnDefinitions[1], new GridLength(1, GridUnitType.Star));
         SetGridColumnWidth(LibraryRoot.ColumnDefinitions[2], new GridLength(0));
+        UpdateSeriesShelfOverlayPlacement();
     }
 
     private void UpdateSidebarWidth()

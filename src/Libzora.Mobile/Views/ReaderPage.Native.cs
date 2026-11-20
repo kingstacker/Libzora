@@ -13,6 +13,8 @@ public sealed record NativeReaderState(
     public NativeReaderSelectionBounds? SelectionBounds { get; init; }
     /// <summary>Changes only for ordinary navigation, never for a search-result jump or reflow.</summary>
     public long NavigationRevision { get; init; }
+    public bool IsManga { get; init; }
+    public bool IsMangaVerticalScroll { get; init; }
 }
 
 public sealed record NativeReaderSelectionBounds(double X, double Y, double Bottom,
@@ -166,6 +168,8 @@ public partial class ReaderPage
         _selection?.Text, _footnoteReturn.Count > 0)
     {
         NavigationRevision = _nativeNavigationRevision,
+        IsManga = IsMangaMode,
+        IsMangaVerticalScroll = IsMangaVerticalScroll,
         SelectionBounds = _selection is { X: { } x, Y: { } y } selected
             ? new(x, y, selected.Bottom ?? y, ReaderPaper.Bounds.Width, ReaderPaper.Bounds.Height)
             : null

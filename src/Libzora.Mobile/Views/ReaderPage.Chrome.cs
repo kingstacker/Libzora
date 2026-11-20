@@ -121,8 +121,18 @@ public partial class ReaderPage
             ThemeScope.RequestedThemeVariant);
     }
 
-    private ReaderTheme CurrentTheme => _shell.Preferences.Current.ResolveReaderTheme(
-        _nativeAppAppearanceDark ?? (_shell.ActualThemeVariant == ThemeVariant.Dark));
+    private bool IsMangaMode => !_isPdf && _shell.Preferences.Current.MangaMode;
+    private bool IsMangaVerticalScroll => IsMangaMode && _shell.Preferences.Current.MangaDirection == (int)MobileMangaDirection.VerticalScroll;
+    private bool IsMangaZoomed => IsMangaMode && _readerHost is NativeReaderHost manga && manga.MangaZoom > 1.01;
+    private bool IsMangaPannable => IsMangaZoomed || IsMangaVerticalScroll;
+    private bool IsRightToLeftPaging => (!_isPdf && _shell.Preferences.Current.MangaMode && _shell.Preferences.Current.MangaDirection == (int)MobileMangaDirection.RightToLeft)
+        || (_layout.VerticalWriting && !_isPdf);
+    private bool IsMangaBlackCanvas => IsMangaMode && _shell.Preferences.Current.MangaBlackBackground;
+
+    private ReaderTheme CurrentTheme => IsMangaBlackCanvas
+        ? ReaderTheme.Ink
+        : _shell.Preferences.Current.ResolveReaderTheme(
+            _nativeAppAppearanceDark ?? (_shell.ActualThemeVariant == ThemeVariant.Dark));
 
     public bool IsPowerSavingActive => _shell.Preferences.Current.ResolvePowerSaving(
         _shell.Services.IsSystemLowPowerMode?.Invoke() == true);
@@ -224,7 +234,9 @@ public partial class ReaderPage
     private void ApplyTheme()
     {
         var dark = CurrentTheme == ReaderTheme.Ink;
-        var paper = ReaderPalette.For(CurrentTheme, IsPowerSavingActive).Page;
+        var paper = IsMangaBlackCanvas
+            ? Colors.Black
+            : ReaderPalette.For(CurrentTheme, IsPowerSavingActive).Page;
         ThemeScope.RequestedThemeVariant = dark ? ThemeVariant.Dark : ThemeVariant.Light;
         Surface.Background = new SolidColorBrush(paper);
         _shell.SetPaperSystemBars(paper, dark);
@@ -250,6 +262,23 @@ public partial class ReaderPage
 
     private async Task ApplyReaderSettingsAsync()
     {
+        if (_mangaSettingsInitialized && !_isPdf && _bookFile is not null)
+        {
+            var current = _shell.Preferences.Current;
+            var bookManga = new MobileMangaBookSettings
+            {
+                Enabled = current.MangaMode,
+                Direction = current.MangaDirection,
+                AutoCrop = current.MangaAutoCrop,
+                BlackBackground = current.MangaBlackBackground
+            };
+            var updated = current.WithMangaSettings(_bookFile.Id, bookManga);
+            if (updated != current)
+            {
+                _shell.Preferences.Update(_ => updated);
+            }
+        }
+
         RefreshReaderAppearance();
         if (_readerHost is NativePdfReaderHost pdf)
         {

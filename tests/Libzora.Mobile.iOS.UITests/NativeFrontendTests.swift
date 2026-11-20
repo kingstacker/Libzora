@@ -2397,7 +2397,11 @@ final class NativeFrontendTests: XCTestCase {
                           "The enlarged title and author must be part of the preview.")
             if title.exists && author.exists {
                 XCTAssertFalse(author.label.isEmpty)
-                XCTAssertGreaterThan(title.frame.minY, preview.frame.minY + preview.frame.height * 0.4)
+                if sourceIsColumn {
+                    XCTAssertGreaterThan(title.frame.minY, preview.frame.minY + preview.frame.height * 0.4)
+                } else {
+                    XCTAssertGreaterThanOrEqual(title.frame.minY, preview.frame.minY - 1)
+                }
                 XCTAssertGreaterThanOrEqual(author.frame.minY, title.frame.maxY - 1)
                 XCTAssertLessThanOrEqual(author.frame.maxY, preview.frame.maxY + 1)
                 print("BOOK_PREVIEW_GEOMETRY: card=\(preview.frame); title=\(title.frame); author=\(author.frame)")

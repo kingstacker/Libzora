@@ -44,6 +44,25 @@ public enum MobileReaderPowerSavingMode
     On = 2
 }
 
+/// <summary>Reading direction when reading comic/manga books.</summary>
+public enum MobileMangaDirection
+{
+    /// <summary>Right-to-left pagination (standard Japanese manga).</summary>
+    RightToLeft = 0,
+    /// <summary>Left-to-right pagination (Western/Chinese comics).</summary>
+    LeftToRight = 1,
+    /// <summary>Vertical seamless webtoon scroll.</summary>
+    VerticalScroll = 2
+}
+
+public sealed record MobileMangaBookSettings
+{
+    public bool Enabled { get; init; }
+    public int Direction { get; init; }
+    public bool AutoCrop { get; init; }
+    public bool BlackBackground { get; init; }
+}
+
 /// <summary>Phone-only interface choices; shared library data stays in the database.</summary>
 public sealed record MobilePreferences
 {
@@ -69,6 +88,16 @@ public sealed record MobilePreferences
     public bool PdfAutoCrop { get; init; }
     /// <summary>Per-book remembered PDF zoom factors keyed by bookFileId.</summary>
     public Dictionary<string, double>? PdfBookZooms { get; init; }
+    /// <summary>Active book's comic/manga reading mode.</summary>
+    public bool MangaMode { get; init; }
+    /// <summary>Manga reading direction: 0 = RTL (Japanese), 1 = LTR, 2 = Webtoon vertical scroll.</summary>
+    public int MangaDirection { get; init; }
+    /// <summary>Trim outer white scan borders on manga pages automatically.</summary>
+    public bool MangaAutoCrop { get; init; }
+    /// <summary>Use pure black canvas behind manga artwork.</summary>
+    public bool MangaBlackBackground { get; init; }
+    /// <summary>Per-book remembered comic/manga preferences keyed by bookFileId.</summary>
+    public Dictionary<string, MobileMangaBookSettings>? MangaBooks { get; init; }
     public MobileBookSort Sort { get; init; }
     public ReaderTheme ReaderTheme { get; init; }
     /// <summary>Follow the app's effective light or dark appearance for reader paper.</summary>
@@ -158,6 +187,60 @@ public sealed record MobilePreferences
             updated.Remove(oldest);
         }
         return this with { PdfZoom = clamped, PdfBookZooms = updated };
+    }
+
+    public bool TryGetMangaSettings(Guid? bookFileId, out MobileMangaBookSettings settings)
+    {
+        if (bookFileId is { } id && MangaBooks is { Count: > 0 } map
+            && map.TryGetValue(id.ToString("N"), out var saved))
+        {
+            settings = saved with
+            {
+                Direction = saved.Direction is >= 0 and <= 2 ? saved.Direction : 0
+            };
+            return true;
+        }
+
+        settings = new MobileMangaBookSettings();
+        return false;
+    }
+
+    public MobilePreferences WithMangaSettings(Guid? bookFileId, MobileMangaBookSettings settings)
+    {
+        var normalized = settings with
+        {
+            Direction = settings.Direction is >= 0 and <= 2 ? settings.Direction : 0
+        };
+        if (bookFileId is not { } id)
+        {
+            return this with
+            {
+                MangaMode = normalized.Enabled,
+                MangaDirection = normalized.Direction,
+                MangaAutoCrop = normalized.AutoCrop,
+                MangaBlackBackground = normalized.BlackBackground
+            };
+        }
+
+        var updated = MangaBooks is not null
+            ? new Dictionary<string, MobileMangaBookSettings>(MangaBooks, StringComparer.OrdinalIgnoreCase)
+            : new Dictionary<string, MobileMangaBookSettings>(StringComparer.OrdinalIgnoreCase);
+        var key = id.ToString("N");
+        updated[key] = normalized;
+        while (updated.Count > 128)
+        {
+            var oldest = updated.Keys.First();
+            updated.Remove(oldest);
+        }
+
+        return this with
+        {
+            MangaMode = normalized.Enabled,
+            MangaDirection = normalized.Direction,
+            MangaAutoCrop = normalized.AutoCrop,
+            MangaBlackBackground = normalized.BlackBackground,
+            MangaBooks = updated
+        };
     }
 }
 

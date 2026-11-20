@@ -67,11 +67,15 @@ final class ReaderMediaTests: XCTestCase {
         XCTAssertEqual(position.label, initialPosition)
         checkpoint("图片上滑动不展开")
 
+        // A single tap over a figure stays an ordinary tap (for example when
+        // turning manga pages or toggling controls); double-tapping opens it.
         centre.tap()
+        XCTAssertFalse(close.waitForExistence(timeout: 1.5), "A single tap on a figure must not open the viewer")
+        centre.doubleTap()
         XCTAssertTrue(close.waitForExistence(timeout: 8), app.debugDescription)
         let viewport = app.scrollViews["reader.media.viewport"]
         XCTAssertTrue(viewport.waitForExistence(timeout: 5), app.debugDescription)
-        checkpoint("正常点击展开图片")
+        checkpoint("双击展开图片")
         viewport.pinch(withScale: 2, velocity: 1)
         checkpoint("图片双指缩放")
 
@@ -89,7 +93,7 @@ final class ReaderMediaTests: XCTestCase {
 
         // The device remains sideways: another viewer must acquire its own
         // rotation scope, and dismissing it must clean that scope up again.
-        window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)).tap()
+        window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)).doubleTap()
         XCTAssertTrue(close.waitForExistence(timeout: 8))
         XCTAssertTrue(waitUntil { viewport.frame.width > viewport.frame.height })
         close.tap()

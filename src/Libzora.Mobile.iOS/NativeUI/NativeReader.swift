@@ -79,6 +79,7 @@ struct NativeReaderPage: View {
     /// pushed lines that would otherwise fit onto the next page.
     private var readerBottomInset: CGFloat {
         guard footerVisible else { return 0 }
+        if reader.isManga { return 0 }
         guard !reader.isPdf else { return footerHeight }
         let bodyInset = min(64, max(16, store.preferences.readerBodyPadding))
         return max(0, footerHeight - CGFloat(bodyInset))
@@ -88,7 +89,8 @@ struct NativeReaderPage: View {
     /// reader presentation dark, and that forced scheme can outlive the paper
     /// choice, which would keep "follow" on the dark paper.
     private var effectiveReaderTheme: Int {
-        store.preferences.readerThemeFollowsAppearance
+        if reader.isManga && store.preferences.mangaBlackBackground { return 5 }
+        return store.preferences.readerThemeFollowsAppearance
             ? (appColorScheme == .dark ? 5 : 0)
             : store.preferences.readerTheme
     }
@@ -96,11 +98,15 @@ struct NativeReaderPage: View {
     /// nil can let the presentation retain its previous dark override after the
     /// ink paper, so switching back to "follow" could stay dark.
     private var readerColorScheme: ColorScheme {
-        store.preferences.readerThemeFollowsAppearance
+        if reader.isManga && store.preferences.mangaBlackBackground { return .dark }
+        return store.preferences.readerThemeFollowsAppearance
             ? appColorScheme
             : (store.preferences.readerTheme == 5 ? .dark : .light)
     }
-    private var paper: Color { store.preferences.paper(for: effectiveReaderTheme, pureBlackOled: powerSavingActive) }
+    private var paper: Color {
+        if reader.isManga && store.preferences.mangaBlackBackground { return .black }
+        return store.preferences.paper(for: effectiveReaderTheme, pureBlackOled: powerSavingActive)
+    }
     // Assistant conversations take the full screen; the other reader tools
     // remain page sheets so the reading context stays visible.
     private var sheetPanel: Binding<ReaderPanel?> {
@@ -115,7 +121,7 @@ struct NativeReaderPage: View {
             ZStack(alignment: .top) {
                 paper.ignoresSafeArea()
                 readerContent(viewportWidth: geometry.size.width)
-                    .frame(width: NativeAdaptiveLayout.readerWidth(viewportWidth: geometry.size.width, isPdf: reader.isPdf))
+                    .frame(width: NativeAdaptiveLayout.readerWidth(viewportWidth: geometry.size.width, isPdf: reader.isPdf || reader.isManga))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .allowsHitTesting(!showingSearchResults && !jumpingToSearch).accessibilityHidden(showingSearchResults)
                 if showingSearchResults {
@@ -806,7 +812,44 @@ struct NativeTypography: View {
                             Text(L("开")).tag(2)
                         }.pickerStyle(.segmented).accessibilityIdentifier("typography.powerSaving")
                     }
+                } else if store.preferences.mangaMode {
+                    row(L("漫画模式")) {
+                        Picker(L("漫画模式"), selection: preference(\.mangaMode)) {
+                            Text(L("关")).tag(false); Text(L("开")).tag(true)
+                        }.pickerStyle(.segmented).accessibilityIdentifier("typography.mangaMode")
+                    }
+                    row(L("阅读方向")) {
+                        Picker(L("阅读方向"), selection: preference(\.mangaDirection)) {
+                            Text(L("右开")).tag(0)
+                            Text(L("左开")).tag(1)
+                            Text(L("条漫")).tag(2)
+                        }.pickerStyle(.segmented).accessibilityIdentifier("typography.mangaDirection")
+                    }
+                    row(L("自动裁边")) {
+                        Picker(L("自动裁边"), selection: preference(\.mangaAutoCrop)) {
+                            Text(L("关")).tag(false)
+                            Text(L("开")).tag(true)
+                        }.pickerStyle(.segmented).accessibilityIdentifier("typography.mangaAutoCrop")
+                    }
+                    row(L("纯黑背景")) {
+                        Picker(L("纯黑背景"), selection: preference(\.mangaBlackBackground)) {
+                            Text(L("跟随纸张")).tag(false)
+                            Text(L("纯黑")).tag(true)
+                        }.pickerStyle(.segmented).accessibilityIdentifier("typography.mangaBlackBg")
+                    }
+                    row(L("省电模式")) {
+                        Picker(L("省电模式"), selection: preference(\.readerPowerSavingMode)) {
+                            Text(L("关")).tag(0)
+                            Text(L("跟随")).tag(1)
+                            Text(L("开")).tag(2)
+                        }.pickerStyle(.segmented).accessibilityIdentifier("typography.powerSaving")
+                    }
                 } else {
+                    row(L("漫画模式")) {
+                        Picker(L("漫画模式"), selection: preference(\.mangaMode)) {
+                            Text(L("关")).tag(false); Text(L("开")).tag(true)
+                        }.pickerStyle(.segmented).accessibilityIdentifier("typography.mangaMode")
+                    }
                     row(L("正文字体")) {
                         Button { fontPicker = true } label: {
                             HStack(spacing: 8) {

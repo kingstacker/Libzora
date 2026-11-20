@@ -40,6 +40,8 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         || !string.Equals(settings.LatinFontFamily, _settings.LatinFontFamily, StringComparison.OrdinalIgnoreCase)
         || settings.FlowMode != _settings.FlowMode
         || settings.TwoPageMode != _settings.TwoPageMode
+        || settings.MangaMode != _settings.MangaMode
+        || settings.MangaAutoCrop != _settings.MangaAutoCrop
         || Math.Abs(settings.BodyPadding - _settings.BodyPadding) > 0.001
         || settings.BodyBottomPadding != _settings.BodyBottomPadding;
 
@@ -174,6 +176,8 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
                 _composePending = false;
                 _bitmapDirty = true;
                 _pageIndex = 0;
+                _lastPrefetchedSlice = -1;
+                ResetMangaZoom();
                 if (Math.Abs(width - ComposePageWidth(Bounds.Width)) > 0.01
                     || Math.Abs(height - Math.Max(1, Bounds.Height)) > 0.01)
                     await (RelayoutTask = RecomposeAsync());
@@ -517,10 +521,11 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         double height,
         bool collectDebugBoxes = false)
     {
-        var vertical = settings.VerticalWriting;
-        var horizontalInset = Math.Max(0, settings.BodyPadding);
-        var verticalInset = settings.BodyPadding;
-        if (vertical)
+        var mangaMode = settings.MangaMode;
+        var vertical = !mangaMode && settings.VerticalWriting;
+        var horizontalInset = mangaMode ? 0 : Math.Max(0, settings.BodyPadding);
+        var verticalInset = mangaMode ? 0 : settings.BodyPadding;
+        if (!mangaMode && vertical)
         {
             (horizontalInset, verticalInset) = ReaderPlatformLayoutPolicy.GetVerticalPageInsets(
                 width,
@@ -528,7 +533,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
                 settings.BodyPadding,
                 settings.MaxWidth);
         }
-        else
+        else if (!mangaMode)
         {
             // MaxWidth is the readable body width, not the bitmap width. Keep
             // it centered in the viewport while retaining the requested
@@ -553,11 +558,14 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
             AvoidWidowsAndOrphans = settings.AvoidWidowsAndOrphans,
             AlignLeft = settings.AlignLeft,
             CjkLatinSpacing = settings.CjkLatinSpacing,
+            MangaMode = mangaMode,
+            MangaAutoCrop = mangaMode && settings.MangaAutoCrop,
+            SeamlessImageScroll = mangaMode && settings.FlowMode == 0,
             ViewportWidth = (float)width,
             ViewportHeight = (float)height,
             InsetHorizontal = (float)horizontalInset,
             InsetVertical = (float)verticalInset,
-            InsetBottom = (float?)settings.BodyBottomPadding,
+            InsetBottom = mangaMode ? 0f : (float?)settings.BodyBottomPadding,
             CollectDebugBoxes = collectDebugBoxes,
         };
     }

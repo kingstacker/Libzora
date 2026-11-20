@@ -35,7 +35,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
     /// </summary>
     public bool ReaderObjectsEnabled { get; set; }
 
-    private const int ImageCacheCapacity = 12;
+    private const int ImageCacheCapacity = 24;
     private const int ImageDecodeMaxDimension = 2048;
     private static readonly object ImageCacheLock = new();
     private static readonly Dictionary<string, (SKImage Image, long UsedAt)> ImageCache =
@@ -168,7 +168,14 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
     private IDisposable? _pendingPageClick;
     private string? _pendingPageClickSide;
     private int _pointerClickCount;
+    private double _mangaZoom = 1.0;
+    private Point _mangaPan;
+    private int _lastPrefetchedSlice = -1;
+    private DateTimeOffset _lastImageTapAt = DateTimeOffset.MinValue;
+    private Point _lastImageTapPosition;
     private string? _loadedFootnoteFragment;
+
+    public double MangaZoom => _mangaZoom;
 
     public NativeReaderHost()
     {

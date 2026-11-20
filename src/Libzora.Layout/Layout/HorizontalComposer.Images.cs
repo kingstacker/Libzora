@@ -27,6 +27,11 @@ internal sealed partial class HorizontalComposer
         {
             return;
         }
+        if (_context.Options.MangaMode)
+        {
+            PlaceMangaImageBlock(block, info, item);
+            return;
+        }
         if (block.PageBreakBefore)
         {
             _pages.NextIfUsed();
@@ -88,6 +93,82 @@ internal sealed partial class HorizontalComposer
             _pages.NextIfUsed();
             _cursorY = InsetV;
         }
+    }
+
+    private void PlaceMangaImageBlock(ContentBlock block, SKImageInfo info, InlineItem item)
+    {
+        var crop = _context.Options.MangaAutoCrop
+            ? ImageCropDetector.GetCachedImageCropBox(item.ImagePath!)
+            : null;
+        var cropLeft = crop?.Left ?? 0f;
+        var cropTop = crop?.Top ?? 0f;
+        var cropW = crop?.Width ?? 1f;
+        var cropH = crop?.Height ?? 1f;
+        var srcW = Math.Max(1f, info.Width * cropW);
+        var srcH = Math.Max(1f, info.Height * cropH);
+        var vpW = Math.Max(1f, _context.Options.ViewportWidth);
+        var vpH = Math.Max(1f, _context.Options.ViewportHeight);
+
+        if (_context.Options.SeamlessImageScroll)
+        {
+            var scale = vpW / srcW;
+            var totalH = Math.Max(1f, srcH * scale);
+            var remainingH = totalH;
+            var sliceTopFraction = 0f;
+            while (remainingH > 0.5f)
+            {
+                if (_cursorY >= vpH - 0.5f)
+                {
+                    _pages.Next();
+                    _cursorY = 0f;
+                }
+
+                var space = vpH - _cursorY;
+                var sliceH = Math.Min(remainingH, space);
+                var sliceFrac = sliceH / totalH;
+                var sliceCrop = new SKRect(
+                    cropLeft,
+                    cropTop + cropH * sliceTopFraction,
+                    cropLeft + cropW,
+                    cropTop + cropH * Math.Min(1f, sliceTopFraction + sliceFrac));
+                _pages.RecordFragment(block.ElementId);
+                _pages.RecordFragments(block.FragmentIds);
+                _pages.AddImage(new PlacedImage
+                {
+                    Path = item.ImagePath!,
+                    Rect = new SKRect(0f, _cursorY, vpW, _cursorY + sliceH),
+                    SourceCrop = sliceCrop,
+                    IsBlock = true,
+                    LinkHref = item.LinkHref,
+                    FootnoteHref = item.FootnoteHref,
+                });
+                _cursorY += sliceH;
+                remainingH -= sliceH;
+                sliceTopFraction += sliceFrac;
+            }
+
+            return;
+        }
+
+        _pages.NextIfUsed();
+        _cursorY = 0f;
+        var pageScale = Math.Min(vpW / srcW, vpH / srcH);
+        var pw = srcW * pageScale;
+        var ph = srcH * pageScale;
+        var px = (vpW - pw) / 2f;
+        var py = (vpH - ph) / 2f;
+        _pages.RecordFragment(block.ElementId);
+        _pages.RecordFragments(block.FragmentIds);
+        _pages.AddImage(new PlacedImage
+        {
+            Path = item.ImagePath!,
+            Rect = new SKRect(px, py, px + pw, py + ph),
+            SourceCrop = crop,
+            IsBlock = true,
+            LinkHref = item.LinkHref,
+            FootnoteHref = item.FootnoteHref,
+        });
+        _cursorY = vpH;
     }
 
     private void PlaceRule(ContentBlock block)

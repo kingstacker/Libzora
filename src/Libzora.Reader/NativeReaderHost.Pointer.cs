@@ -317,16 +317,18 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
             : null;
         if (clickedAnnotation is not null)
         {
+            _lastImageTapAt = DateTimeOffset.MinValue;
             Emit(new { type = "annotationClick", id = clickedAnnotation.Id });
         }
         else if (releasedMap is { } objectMap && !wasDrag
-            && TryEmitReaderObject(objectMap.Page, objectMap.Local))
+            && TryEmitReaderObject(objectMap.Page, objectMap.Local, position.X, position.Y))
         {
-            // The native frontend opens its own viewer for figures and tables,
-            // so this tap must not also turn the page or toggle the chrome.
+            // Figures wait for a double-tap before opening; tables open on
+            // single tap, so single-tap fallback is managed by ReaderPage.
         }
         else if (clickSide is not null)
         {
+            _lastImageTapAt = DateTimeOffset.MinValue;
             var overBlockImage = releasedMap is { } imageMap
                 && IsBlockImageAt(imageMap.Page, imageMap.Local);
             EmitPageClick(clickSide, IsPaginated
@@ -335,7 +337,12 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         }
         else if (_pointerDownOffset >= 0)
         {
+            _lastImageTapAt = DateTimeOffset.MinValue;
             EmitSelection();
+        }
+        else
+        {
+            _lastImageTapAt = DateTimeOffset.MinValue;
         }
 
         _selectionAnchor = -1;
@@ -362,6 +369,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
     protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
     {
         CancelPendingPageClick();
+        _lastImageTapAt = DateTimeOffset.MinValue;
         // Scroll mode consumes the wheel itself: the offset drives the paint
         // directly and chapter edges are reported through continuousEdge.
         if (IsScroll)
@@ -390,6 +398,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
     protected override void OnKeyDown(KeyEventArgs e)
     {
         CancelPendingPageClick();
+        _lastImageTapAt = DateTimeOffset.MinValue;
         var ctrl = (e.KeyModifiers & KeyModifiers.Control) != 0;
         if (ctrl && e.Key is Key.F or Key.B)
         {

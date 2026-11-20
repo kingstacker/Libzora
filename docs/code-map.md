@@ -155,6 +155,7 @@ Large services are split by responsibility so one change opens one file:
 | `AiServices.cs` + `AiSettingsStore.cs` / `AiChatClient.cs` / `AiConversationModels.cs` | AI settings, conversation models and chat client |
 | `MassStorageKindleDeviceService.*.cs` | detection, books, resources, annotations, device, files |
 | `ComposerCore.cs` + `CellFactory*.cs` | layout core and cell factory |
+| `ImageCropDetector.cs` + `EpubMangaDetector.cs` | bitmap border auto-crop and EPUB fixed/image manga detection |
 | `MicroCss*.cs` | hints, borders, parsing, lengths |
 | `VerticalComposer.*.cs` | text, glyphs, debug, cells, images |
 
@@ -178,6 +179,7 @@ Large services are split by responsibility so one change opens one file:
 | --- | --- |
 | Reader UI or page-turn behaviour | `MainWindow.ReaderPaging.cs`, `MainWindow.ReaderInteraction.cs` |
 | EPUB parsing or pagination | `src/Libzora.Layout/IO/`, `src/Libzora.Layout/Layout/` |
+| Manga mode (EPUB detection, crop, Webtoon) | `EpubMangaDetector.cs`, `ImageCropDetector.cs`, `src/Libzora.Reader/NativeReaderHost*.cs`, `src/Libzora.Mobile.iOS/NativeUI/NativeReader.swift` |
 | PDF viewing, zoom, auto-crop | `src/Libzora.Reader/NativePdfReaderHost*.cs`, `PdfReaderLayout.cs` |
 | Book library list, grid, selection | `MainWindow.Library*.cs` |
 | Series stacking and volume promotion | `src/Libzora.Core/BookSeriesGrouping.cs`, `src/Libzora.App/SeriesShelfProjection.cs`, `MainWindow.LibrarySeries.cs` |

@@ -366,10 +366,9 @@ public partial class MainWindow
         // view recycling its visual must not release the other view's cover.
         if (_bookCardControls.ContainsValue(card)) return;
         _visibleBookCards.Remove(card);
-        // The detail pane may still be displaying this card after its grid
-        // container was virtualized away. Keep that one bitmap alive until
-        // the selection changes; every other off-screen card can release it.
-        if (!ReferenceEquals(card, _selectedCard))
+        // The detail pane or an open series shelf overlay may still be displaying
+        // these bitmaps after the grid container is virtualized or swapped away.
+        if (!ReferenceEquals(card, _selectedCard) && !IsSeriesOverlayHoldingCard(card))
         {
             card.UnloadCover();
             card.UnloadSeriesCovers(_selectedCard);

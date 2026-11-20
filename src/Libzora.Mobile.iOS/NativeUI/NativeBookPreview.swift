@@ -12,6 +12,7 @@ struct NativeBookPreviewRequest: Identifiable {
 
     let book: LibraryBook
     var source: Source = .shelf
+    var isListRow = false
     /// The source card's frame in window coordinates.
     let sourceFrame: CGRect
     let coverWidth: CGFloat
@@ -68,12 +69,14 @@ struct NativeBookPreviewOverlay: View {
     private func preview(in safeArea: CGRect) -> some View {
         GeometryReader { proxy in
             let origin = proxy.frame(in: .global).origin
+            let scale: CGFloat = request.isListRow ? 1.03 : Self.scale
             let sourceX = request.sourceFrame.midX - origin.x
-            let halfCover = request.coverWidth * Self.scale / 2
-            let centerX = min(max(sourceX, halfCover), max(halfCover, proxy.size.width - halfCover))
+            let halfWidth = (request.isListRow ? request.sourceFrame.width + 24 : request.coverWidth) * scale / 2
+            let centerX = min(max(sourceX, halfWidth), max(halfWidth, proxy.size.width - halfWidth))
             let centerPoint = CGPoint(x: centerX, y: request.sourceFrame.midY - origin.y)
             // The local size is measured before scaleEffect.
-            let height = (cardHeight > 0 ? cardHeight : request.coverWidth * 1.45) * Self.scale
+            let defaultHeight = request.isListRow ? max(66, request.sourceFrame.height) : request.coverWidth * 1.45
+            let height = (cardHeight > 0 ? cardHeight : defaultHeight) * scale
             let below = centerPoint.y + height / 2 + Self.gap
             let above = centerPoint.y - height / 2 - Self.gap
             let bounds = NativeAdaptiveLayout.popupBounds(in: proxy.size,
@@ -96,11 +99,27 @@ struct NativeBookPreviewOverlay: View {
                     .accessibilityIdentifier("book.preview.dismiss")
                     .accessibilityLabel(L("关闭预览"))
 
-                NativeBookTile(book: request.book, width: request.coverWidth, muted: request.muted,
-                               galleryMode: request.source == .seriesStack,
-                               showRating: request.showRating, showSyncStatus: request.showSyncStatus,
-                               previewing: true)
-                    .frame(width: request.coverWidth)
+                Group {
+                    if request.isListRow {
+                        BookRow(book: request.book, showRating: request.showRating,
+                                showSyncStatus: request.showSyncStatus, muted: request.muted,
+                                previewing: true)
+                            .frame(width: request.sourceFrame.width, alignment: .leading)
+                            .padding(.horizontal, 12)
+                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .strokeBorder(.primary.opacity(0.10), lineWidth: 0.5)
+                            }
+                            .shadow(color: .black.opacity(0.12), radius: 14, y: 6)
+                    } else {
+                        NativeBookTile(book: request.book, width: request.coverWidth, muted: request.muted,
+                                       galleryMode: request.source == .seriesStack,
+                                       showRating: request.showRating, showSyncStatus: request.showSyncStatus,
+                                       previewing: true)
+                            .frame(width: request.coverWidth)
+                    }
+                }
                     .foregroundStyle(NativeTheme.ink)
                     .background {
                         GeometryReader { card in
@@ -111,7 +130,7 @@ struct NativeBookPreviewOverlay: View {
                     .onTapGesture {}
                     .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("book.preview.\(request.book.id)")
-                    .scaleEffect(expanded ? Self.scale : 1)
+                    .scaleEffect(expanded ? scale : 1)
                     .position(x: centerPoint.x, y: centerPoint.y)
 
                 NativeBookPreviewMenu(actions: request.actions, width: menuWidth, height: menuHeight) { action in

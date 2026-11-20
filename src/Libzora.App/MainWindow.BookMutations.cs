@@ -160,14 +160,35 @@ public partial class MainWindow
         });
     }
 
-    private async Task ToggleBookCollectionAsync(BookCardViewModel card, BookCollectionFolderViewModel folder)
+    private static IReadOnlyList<BookCardViewModel> ResolveCollectionTargets(
+        BookCardViewModel card,
+        bool includeSeriesMembers) =>
+        includeSeriesMembers && card.IsSeriesStack
+            ? card.SeriesMembers
+            : [card];
+
+    private async Task ToggleBookCollectionAsync(
+        BookCardViewModel card,
+        BookCollectionFolderViewModel folder,
+        bool includeSeriesMembers = true)
     {
         try
         {
-            if (card.Book.CollectionIds.Contains(folder.Collection.Id))
-                await _library.RemoveBookFromCollectionAsync(card.Book.Id, folder.Collection.Id, _lifetimeCancellation.Token);
-            else
-                await _library.AddBookToCollectionAsync(card.Book.Id, folder.Collection.Id, _lifetimeCancellation.Token);
+            var targets = ResolveCollectionTargets(card, includeSeriesMembers);
+            var collectionId = folder.Collection.Id;
+            var allInCollection = targets.All(target => target.Book.CollectionIds.Contains(collectionId));
+            foreach (var target in targets)
+            {
+                if (allInCollection)
+                {
+                    if (target.Book.CollectionIds.Contains(collectionId))
+                        await _library.RemoveBookFromCollectionAsync(target.Book.Id, collectionId, _lifetimeCancellation.Token);
+                }
+                else if (!target.Book.CollectionIds.Contains(collectionId))
+                {
+                    await _library.AddBookToCollectionAsync(target.Book.Id, collectionId, _lifetimeCancellation.Token);
+                }
+            }
             await RefreshLibraryAsync();
             SetTaskStatus(T("已更新“{0}”中的书籍归属。", folder.Name));
         }
@@ -179,25 +200,36 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// Puts the book into one collection, dropping its other memberships first
-    /// when the settings ask for mutually exclusive collections. The library
-    /// itself allows several memberships, so the rule lives in the UI.
+    /// Puts the book (or the whole series stack when targeted from the shelf) into
+    /// one collection, dropping its other memberships first when the settings ask
+    /// for mutually exclusive collections.
     /// </summary>
-    private async Task AssignBookToCollectionAsync(BookCardViewModel card, Guid collectionId)
+    private async Task AssignBookToCollectionAsync(
+        BookCardViewModel card,
+        Guid collectionId,
+        bool includeSeriesMembers = true)
     {
-        if (_appSettings.CollectionsMutuallyExclusive)
+        foreach (var target in ResolveCollectionTargets(card, includeSeriesMembers))
         {
-            foreach (var existing in card.Book.CollectionIds.Where(id => id != collectionId).ToArray())
-                await _library.RemoveBookFromCollectionAsync(card.Book.Id, existing, _lifetimeCancellation.Token);
+            if (_appSettings.CollectionsMutuallyExclusive)
+            {
+                foreach (var existing in target.Book.CollectionIds.Where(id => id != collectionId).ToArray())
+                    await _library.RemoveBookFromCollectionAsync(target.Book.Id, existing, _lifetimeCancellation.Token);
+            }
+            if (!target.Book.CollectionIds.Contains(collectionId))
+                await _library.AddBookToCollectionAsync(target.Book.Id, collectionId, _lifetimeCancellation.Token);
         }
-        if (!card.Book.CollectionIds.Contains(collectionId))
-            await _library.AddBookToCollectionAsync(card.Book.Id, collectionId, _lifetimeCancellation.Token);
     }
 
-    private async Task ClearBookCollectionsAsync(BookCardViewModel card)
+    private async Task ClearBookCollectionsAsync(
+        BookCardViewModel card,
+        bool includeSeriesMembers = true)
     {
-        foreach (var existing in card.Book.CollectionIds.ToArray())
-            await _library.RemoveBookFromCollectionAsync(card.Book.Id, existing, _lifetimeCancellation.Token);
+        foreach (var target in ResolveCollectionTargets(card, includeSeriesMembers))
+        {
+            foreach (var existing in target.Book.CollectionIds.ToArray())
+                await _library.RemoveBookFromCollectionAsync(target.Book.Id, existing, _lifetimeCancellation.Token);
+        }
     }
 
     private void DetailCollectionsButton_Click(object? sender, RoutedEventArgs e)
@@ -230,10 +262,11 @@ public partial class MainWindow
             if (!exclusive)
             {
                 item.ToggleType = MenuItemToggleType.CheckBox;
-                item.IsChecked = card.Book.CollectionIds.Contains(folder.Collection.Id);
+                item.IsChecked = ResolveCollectionTargets(card, includeSeriesMembers: true)
+                    .All(target => target.Book.CollectionIds.Contains(folder.Collection.Id));
             }
             ApplyLegacyMenuItemSize(item);
-            item.Click += async (_, _) => await ChangeBookCollectionAsync(card, folder, exclusive);
+            item.Click += async (_, _) => await ChangeBookCollectionAsync(card, folder, exclusive, includeSeriesMembers: true);
             menu.Items.Add(item);
         }
         if (customCollections.Length == 0)
@@ -266,16 +299,17 @@ public partial class MainWindow
     private async Task ChangeBookCollectionAsync(
         BookCardViewModel card,
         BookCollectionFolderViewModel folder,
-        bool exclusive)
+        bool exclusive,
+        bool includeSeriesMembers = true)
     {
         if (!exclusive)
         {
-            await ToggleBookCollectionAsync(card, folder);
+            await ToggleBookCollectionAsync(card, folder, includeSeriesMembers);
             return;
         }
         try
         {
-            await AssignBookToCollectionAsync(card, folder.Collection.Id);
+            await AssignBookToCollectionAsync(card, folder.Collection.Id, includeSeriesMembers);
             await RefreshLibraryAsync();
             SetTaskStatus(T("已加入“{0}”。", folder.Name));
         }

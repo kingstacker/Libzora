@@ -43,6 +43,28 @@ public partial class ReaderPage
         if (_epubDocument.Chapters.Count == 0)
             throw new InvalidDataException("EPUB 中没有可阅读章节。");
 
+        var currentPrefs = _shell.Preferences.Current;
+        if (!currentPrefs.TryGetMangaSettings(_bookFile!.Id, out var resolvedManga))
+        {
+            var detected = EpubMangaDetector.Detect(_epubDocument);
+            resolvedManga = new MobileMangaBookSettings
+            {
+                Enabled = detected.IsManga,
+                Direction = detected.IsLeftToRight
+                    ? (int)MobileMangaDirection.LeftToRight
+                    : (int)MobileMangaDirection.RightToLeft,
+                AutoCrop = false,
+                BlackBackground = false
+            };
+        }
+        var syncedPrefs = currentPrefs.WithMangaSettings(_bookFile!.Id, resolvedManga);
+        if (syncedPrefs != currentPrefs)
+        {
+            _shell.Preferences.Update(_ => syncedPrefs);
+        }
+        _mangaSettingsInitialized = true;
+        _layout = BuildLayout(_shell.Preferences.Current);
+
         var savedProgress = _jump ?? await _modules.Reader.Data.GetProgressAsync(_bookFile.Id, cancellationToken);
         var restore = ResolvePosition(savedProgress);
         _chapterIndex = Math.Clamp(restore?.ChapterIndex ?? 0, 0, _epubDocument.Chapters.Count - 1);
@@ -52,6 +74,7 @@ public partial class ReaderPage
         // page break at the old page's first word and leaving the preceding page empty.
         var host = new NativeReaderHost { Focusable = false, ReaderObjectsEnabled = _usesNativeFrontend };
         _readerHost = host;
+        RefreshReaderAppearance();
         host.SetPowerSavingMode(IsPowerSavingActive);
         host.SetAppearance(new ReaderAppearanceSettings { Theme = CurrentTheme });
         host.WebMessageReceived += OnReaderWebMessage;
@@ -134,6 +157,8 @@ public partial class ReaderPage
 
         var host = new NativePdfReaderHost { Focusable = false };
         _readerHost = host;
+        _mangaSettingsInitialized = false;
+        RefreshReaderAppearance();
         host.SetPowerSavingMode(IsPowerSavingActive);
         host.SetAppearance(new ReaderAppearanceSettings { Theme = CurrentTheme });
         host.WebMessageReceived += OnReaderWebMessage;
@@ -244,7 +269,7 @@ public partial class ReaderPage
                 var left = root.TryGetProperty("left", out var leftElement) ? leftElement.GetDouble() : 0;
                 _lastScrollTop = top;
                 _lastScrollLeft = left;
-                _epubPosition = Math.Max(0, left);
+                _epubPosition = _layout.FlowMode == 0 ? Math.Max(0, top) : Math.Max(0, left);
                 DismissFootnoteReturnIfReaderMoved(top, left);
                 UpdateEpubLabels();
                 _ = SaveProgressSoonAsync(force: false);
@@ -267,13 +292,40 @@ public partial class ReaderPage
             else if (type.GetString() is "annotationClick" or "annotationSelect")
             {
                 _tapConsumed = true;
+                CancelPendingDelayedTap();
                 if (root.TryGetProperty("id", out var id) && id.TryGetGuid(out var annotationId))
                     ShowAnnotation(annotationId);
             }
             else if (type.GetString() == "readerObject" && _usesNativeFrontend)
             {
                 _tapConsumed = true;
-                OpenReaderObject(root);
+                var kind = root.TryGetProperty("kind", out var kindElement) ? kindElement.GetString() : null;
+                if (IsMangaMode && kind is "imageTap" or "image")
+                {
+                    // Manga mode handles taps, double-tap zoom, and pinch in-place.
+                    return;
+                }
+                if (kind == "imageTap")
+                {
+                    var ratio = root.TryGetProperty("ratio", out var ratioElement) && ratioElement.ValueKind == JsonValueKind.Number
+                        ? ratioElement.GetDouble()
+                        : 0.5;
+                    ScheduleDelayedTap(ratio);
+                }
+                else
+                {
+                    CancelPendingDelayedTap();
+                    OpenReaderObject(root);
+                }
+            }
+            else if (type.GetString() == "continuousEdge")
+            {
+                var direction = root.TryGetProperty("direction", out var dirElement) ? dirElement.GetInt32() : 0;
+                if (direction != 0 && !_turning && !_disposed && IsMangaVerticalScroll
+                    && _readerHost is NativeReaderHost host)
+                {
+                    _ = AdvanceContinuousChapterAsync(host, Math.Sign(direction));
+                }
             }
             else if (type.GetString() == "selection" && _expectSelection)
             {
@@ -302,6 +354,7 @@ public partial class ReaderPage
             else if (type.GetString() == "pdfLink")
             {
                 _tapConsumed = true;
+                CancelPendingDelayedTap();
                 var targetPage = root.TryGetProperty("page", out var pageProp) && pageProp.ValueKind == JsonValueKind.Number
                     ? pageProp.GetInt32()
                     : 0;
@@ -356,5 +409,26 @@ public partial class ReaderPage
         var chapterRatio = pages > 1 ? (double)page / (pages - 1) : 0;
         _overallProgress = Math.Clamp((_chapterIndex + chapterRatio) / _epubDocument.Chapters.Count, 0, 1);
         PresentPosition(title, BookPagePosition(page, pages));
+    }
+
+    private async Task AdvanceContinuousChapterAsync(NativeReaderHost host, int direction)
+    {
+        if (_turning || _disposed || _epubDocument is null) return;
+        var nextChapter = _chapterIndex + direction;
+        if (nextChapter < 0 || nextChapter >= _epubDocument.Chapters.Count)
+        {
+            ShowEdgeNotice(direction);
+            return;
+        }
+
+        _turning = true;
+        try
+        {
+            await GoToChapterAsync(host, nextChapter, fromEnd: direction < 0, direction);
+        }
+        finally
+        {
+            _turning = false;
+        }
     }
 }

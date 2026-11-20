@@ -36,6 +36,9 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         hash.Add(width);
         hash.Add(height);
         hash.Add(settings.VerticalWriting);
+        hash.Add(settings.FlowMode);
+        hash.Add(settings.MangaMode);
+        hash.Add(settings.MangaAutoCrop);
         hash.Add(settings.ParagraphIndent);
         hash.Add(settings.ParagraphSpacing);
         hash.Add(settings.ParagraphSpacingMatchesLineHeight);

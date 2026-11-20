@@ -191,6 +191,12 @@ public sealed record ReaderLayoutSettings(
     public bool AlignLeft { get; init; }
     /// <summary>Insert a subtle visual gap between adjacent CJK and Latin/numeric runs.</summary>
     public bool CjkLatinSpacing { get; init; } = true;
+    /// <summary>Edge-to-edge full-bleed comic/manga image layout.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool MangaMode { get; init; }
+    /// <summary>Trim outer white scan borders on manga pages automatically.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool MangaAutoCrop { get; init; }
 }
 
 /// <summary>
@@ -267,9 +273,11 @@ public static class ReaderLayoutDefaults
         var maxWidth = double.IsFinite(settings.MaxWidth)
             ? Math.Clamp(settings.MaxWidth, MinMaxWidth, MaxMaxWidth)
             : DefaultMaxWidth;
-        var bodyPadding = double.IsFinite(settings.BodyPadding)
-            ? Math.Clamp(settings.BodyPadding, MinBodyPadding, MaxBodyPadding)
-            : DefaultBodyPadding;
+        var bodyPadding = settings.MangaMode
+            ? 0
+            : double.IsFinite(settings.BodyPadding)
+                ? Math.Clamp(settings.BodyPadding, MinBodyPadding, MaxBodyPadding)
+                : DefaultBodyPadding;
         var paragraphSpacing = double.IsFinite(settings.ParagraphSpacing)
             ? Math.Clamp(settings.ParagraphSpacing, 0, MaxParagraphSpacing)
             : DefaultParagraphSpacing;

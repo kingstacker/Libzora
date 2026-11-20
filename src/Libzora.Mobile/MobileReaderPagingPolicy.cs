@@ -2,15 +2,15 @@ namespace Libzora.Mobile;
 
 public static class MobileReaderPagingPolicy
 {
-    public static int TapDirection(double ratio, bool verticalWriting, bool isPdf = false)
+    public static int TapDirection(double ratio, bool verticalWriting, bool isPdf = false, bool isRightToLeft = false)
     {
         var direction = ratio < 1d / 3 ? -1 : ratio > 2d / 3 ? 1 : 0;
-        return VisualDirection(direction, verticalWriting, isPdf);
+        return VisualDirection(direction, verticalWriting, isPdf, isRightToLeft);
     }
 
-    public static int SwipeDirection(double dx, bool verticalWriting, bool isPdf = false) =>
-        VisualDirection(dx < 0 ? 1 : dx > 0 ? -1 : 0, verticalWriting, isPdf);
+    public static int SwipeDirection(double dx, bool verticalWriting, bool isPdf = false, bool isRightToLeft = false) =>
+        VisualDirection(dx < 0 ? 1 : dx > 0 ? -1 : 0, verticalWriting, isPdf, isRightToLeft);
 
-    public static int VisualDirection(int direction, bool verticalWriting, bool isPdf = false) =>
-        verticalWriting && !isPdf ? -direction : direction;
+    public static int VisualDirection(int direction, bool verticalWriting, bool isPdf = false, bool isRightToLeft = false) =>
+        (verticalWriting || isRightToLeft) && !isPdf ? -direction : direction;
 }

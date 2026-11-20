@@ -131,6 +131,11 @@ internal sealed partial class HorizontalComposer
             cells.AddRange(_cells.BuildCells(item, vertical: false, maxWordWidth: availWidth, preferLatinFont: naturalLatin));
         }
         CellFactory.CollapseWhitespace(cells);
+        if (_context.Options.MangaMode
+            && cells.All(cell => cell.ImagePath is null && (cell.IsSpace || cell.IsLineBreak)))
+        {
+            return;
+        }
         if (naturalLatin)
         {
             // Some CJK faces use a half-em space even in English. Start with

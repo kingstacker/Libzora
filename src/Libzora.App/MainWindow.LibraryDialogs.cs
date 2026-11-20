@@ -349,17 +349,24 @@ public partial class MainWindow
 
         try
         {
-            var bookId = _selectedCard.Book.Id;
-            if (_selectedCard.Book.CollectionIds.Contains(folder.Collection.Id))
+            var targets = ResolveCollectionTargets(_selectedCard, includeSeriesMembers: true);
+            var folderId = folder.Collection.Id;
+            var allInCollection = targets.All(target => target.Book.CollectionIds.Contains(folderId));
+            foreach (var target in targets)
             {
-                await _library.RemoveBookFromCollectionAsync(bookId, folder.Collection.Id, _lifetimeCancellation.Token);
-                SetTaskStatus(T("已从“{0}”移出。 ", folder.Name));
+                if (allInCollection)
+                {
+                    if (target.Book.CollectionIds.Contains(folderId))
+                        await _library.RemoveBookFromCollectionAsync(target.Book.Id, folderId, _lifetimeCancellation.Token);
+                }
+                else if (!target.Book.CollectionIds.Contains(folderId))
+                {
+                    await _library.AddBookToCollectionAsync(target.Book.Id, folderId, _lifetimeCancellation.Token);
+                }
             }
-            else
-            {
-                await _library.AddBookToCollectionAsync(bookId, folder.Collection.Id, _lifetimeCancellation.Token);
-                SetTaskStatus(T("已加入“{0}”。", folder.Name));
-            }
+            SetTaskStatus(allInCollection
+                ? T("已从“{0}”移出。 ", folder.Name)
+                : T("已加入“{0}”。", folder.Name));
 
             await RefreshLibraryAsync();
         }

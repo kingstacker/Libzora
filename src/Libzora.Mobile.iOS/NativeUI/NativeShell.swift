@@ -6,6 +6,7 @@ import ImageIO
 struct NativeShell: View {
     @ObservedObject var store: NativeStore
     @ObservedObject private var previewCenter = NativeBookPreviewCenter.shared
+    @ObservedObject private var seriesCenter = NativeBookSeriesCenter.shared
     @State private var selectedTab = 0
     @Environment(\.colorScheme) private var systemColorScheme
     private var appColorScheme: ColorScheme {
@@ -26,6 +27,9 @@ struct NativeShell: View {
     private var showingLaunch: Bool { store.preparingLibrary || store.restoringReader && store.readerBook == nil }
 
     var body: some View {
+        let activeSeries = seriesCenter.request.flatMap { request in
+            store.seriesSnapshot(for: request.seriesID).map { (request, $0) }
+        }
         GeometryReader { geometry in
             TabView(selection: $selectedTab) {
                 NavigationView { NativeLibraryPage(store: store, isActive: selectedTab == 0) }.navigationViewStyle(.stack)
@@ -38,12 +42,17 @@ struct NativeShell: View {
                     .tabItem { NativeTabLabel(title: L("我的"), symbol: "person") }.tag(3)
             }
             .allowsHitTesting(!showingLaunch)
-            .accessibilityHidden(showingLaunch)
+            .accessibilityHidden(showingLaunch || (activeSeries != nil && seriesCenter.isVisible))
             .task { await store.prepareLaunch(viewport: geometry.size) }
+            .onChange(of: selectedTab) { _ in
+                previewCenter.dismiss()
+                seriesCenter.dismiss()
+            }
             .onChange(of: geometry.size) { _ in
                 // A preview's source frame belongs to the previous window size.
                 // Dismiss only the transient overlay, never the tab/navigation state.
                 previewCenter.dismiss()
+                seriesCenter.dismiss()
             }
         }
         .font(NativeTheme.font()).foregroundStyle(NativeTheme.ink).tint(NativeTheme.ink)
@@ -58,7 +67,7 @@ struct NativeShell: View {
         .disabled(store.restartRequired || store.dataBusy)
         .task(id: ambientKey) {
             guard store.preferences.colorfulMode else {
-                store.visibleAmbientColors = []; store.fallbackAmbientColors = []; return
+                store.visibleAmbientColors = []; store.fallbackAmbientColors = []; store.ambientFallbackSuppressed = false; return
             }
             if store.library.isEmpty { store.visibleAmbientColors = [] }
             let paths = ambientBooks.compactMap(\.coverPath)
@@ -90,6 +99,14 @@ struct NativeShell: View {
             }
         }
         .animation(.easeOut(duration: 0.2), value: showingLaunch)
+        .overlay {
+            if let (request, series) = activeSeries {
+                NativeBookSeriesOverlay(series: series, sourceFrame: request.sourceFrame,
+                                        store: store, center: seriesCenter,
+                                        close: seriesCenter.dismiss,
+                                        preview: request.preview)
+            }
+        }
         .overlay {
             if let request = previewCenter.request {
                 NativeBookPreviewOverlay(request: request, center: previewCenter)

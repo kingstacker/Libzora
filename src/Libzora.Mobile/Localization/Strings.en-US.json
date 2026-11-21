@@ -428,5 +428,6 @@
   "紫色": "Purple",
   "橙色": "Orange",
   "已选择": "Selected",
-  "划线样式": "Highlight Style"
+  "划线样式": "Highlight Style",
+  "同一系列的多本书在书架中叠放显示；关闭后每本书单独显示。": "Group books from the same series into a stack on the shelf; turn off to show every book separately."
 }

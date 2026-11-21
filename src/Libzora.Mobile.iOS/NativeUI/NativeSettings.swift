@@ -456,10 +456,16 @@ struct NativeLibrarySettings: View {
                     var value = store.preferences; value.colorfulMode = enabled
                     store.setPreferences(value)
                 }))
+            }
+            Section {
                 settingToggle(L("按系列叠放"), identifier: "library.settings.stackBookSeries", isOn: Binding(get: { store.preferences.stackBookSeries }, set: { enabled in
                     var value = store.preferences; value.stackBookSeries = enabled
                     store.setPreferences(value)
                 }))
+            } footer: {
+                Text(L("同一系列的多本书在书架中叠放显示；关闭后每本书单独显示。"))
+                    .font(NativeTheme.font(12, relativeTo: .caption))
+                    .foregroundStyle(store.preferences.colorfulMode ? NativeTheme.secondaryOnColorful : NativeTheme.secondary)
             }
             Section {
                 settingToggle(L("显示书籍评分"), identifier: "library.settings.rating", isOn: Binding(get: { store.preferences.showBookRating }, set: { enabled in

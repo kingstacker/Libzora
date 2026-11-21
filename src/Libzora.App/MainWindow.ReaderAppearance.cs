@@ -20,10 +20,21 @@ public partial class MainWindow
     private bool ReaderUsesBookOverride =>
         CanUseReaderBookProfile && _readerBookLayoutProfile?.UseBookOverride == true;
 
-    private ReaderAppearanceSettings CurrentReaderAppearance =>
+    private ReaderAppearanceSettings BaseReaderAppearance =>
         ReaderUsesBookOverride
             ? ReaderAppearanceSettings.Normalize(_readerBookLayoutProfile!.Appearance)
             : ReaderAppearanceSettings.Normalize(_appSettings.ReaderAppearance);
+
+    private ReaderAppearanceSettings CurrentReaderAppearance =>
+        IsReaderMangaBlackCanvas
+            ? new ReaderAppearanceSettings
+            {
+                Theme = ReaderTheme.Ink,
+                PaperEnabled = false,
+                FibersEnabled = false,
+                AnnotationDisplayMode = BaseReaderAppearance.AnnotationDisplayMode
+            }
+            : BaseReaderAppearance;
 
     private void InitializeReaderAppearance()
     {
@@ -73,17 +84,20 @@ public partial class MainWindow
     private void ApplyReaderAppearance()
     {
         var appearance = CurrentReaderAppearance;
-        ReaderAppearanceResources.Populate(Resources, appearance);
+        var pureBlack = IsReaderMangaBlackCanvas;
+        ReaderAppearanceResources.Populate(Resources, appearance, pureBlack);
         ApplyReaderTocFontSize();
-        ReaderAppearanceResources.PopulateControls(ReaderThemeScope.Resources, appearance);
+        ReaderAppearanceResources.PopulateControls(ReaderThemeScope.Resources, appearance, pureBlack);
         ReaderThemeScope.RequestedThemeVariant = ThemeVariant.Light;
+        (_readerActiveHost as NativeReaderHost)?.SetPureBlackBackground(pureBlack);
+        (_readerPreloadHost as NativeReaderHost)?.SetPureBlackBackground(pureBlack);
         (_readerActiveHost as IReaderAppearanceHost)?.SetAppearance(appearance);
         (_readerPreloadHost as IReaderAppearanceHost)?.SetAppearance(appearance);
         UpdateReaderTitleAppearance();
         // Updating marker brushes leaves the rail's scroll offset and hover
         // wave intact; rebuilding its ItemsSource would move the chapter map.
         foreach (var item in ReaderTocCompactList.ItemsSource?.OfType<ReaderTocMarker>() ?? [])
-            item.Palette = ReaderPalette.For(appearance.Theme);
+            item.Palette = ReaderPalette.For(appearance.Theme, pureBlack);
         UpdateReaderCompactMarkerWave();
     }
 
@@ -100,14 +114,14 @@ public partial class MainWindow
         _suppressReaderAppearanceChange = true;
         try
         {
-            var appearance = CurrentReaderAppearance;
+            var appearance = BaseReaderAppearance;
             foreach (var option in new[] { ReaderClassicThemeOption, ReaderBeigeThemeOption, ReaderGreenThemeOption })
                 option.IsChecked = Enum.TryParse<ReaderTheme>(option.Tag?.ToString(), out var theme) && theme == appearance.Theme;
             ReaderPaperEnabledCheck.IsChecked = appearance.PaperEnabled;
             ReaderPaperStrengthSlider.Value = appearance.PaperStrength * 100;
             ReaderTocFontSizeSlider.Value = _appSettings.ReaderTocFontSize;
             ReaderFibersEnabledCheck.IsChecked = appearance.FibersEnabled;
-            ReaderTextLayoutPanel.IsVisible = !_readerIsPdf;
+            SyncReaderMangaControls();
             ReaderLayoutResetButton.IsVisible = !_readerIsPdf;
             UpdateReaderAppearanceLabels();
         }
@@ -126,7 +140,7 @@ public partial class MainWindow
 
     private void UpdateReaderAppearanceLabels()
     {
-        var appearance = CurrentReaderAppearance;
+        var appearance = BaseReaderAppearance;
         ReaderPaperStrengthValueText.Text = $"{appearance.PaperStrength * 100:0}%";
         ReaderPaperOptions.IsEnabled = appearance.PaperEnabled;
         ReaderTocFontSizeValueText.Text = $"{_appSettings.ReaderTocFontSize:0} px";
@@ -150,13 +164,13 @@ public partial class MainWindow
     {
         if (_suppressReaderAppearanceChange || sender is not RadioButton { IsChecked: true } option
             || !Enum.TryParse<ReaderTheme>(option.Tag?.ToString(), out var theme)) return;
-        ChangeReaderAppearance(CurrentReaderAppearance with { Theme = theme });
+        ChangeReaderAppearance(BaseReaderAppearance with { Theme = theme });
     }
 
     private void ReaderPaperCheck_IsCheckedChanged(object? sender, RoutedEventArgs e)
     {
         if (_suppressReaderAppearanceChange) return;
-        ChangeReaderAppearance(CurrentReaderAppearance with
+        ChangeReaderAppearance(BaseReaderAppearance with
         {
             PaperEnabled = ReaderPaperEnabledCheck.IsChecked == true,
             FibersEnabled = ReaderFibersEnabledCheck.IsChecked == true
@@ -166,13 +180,13 @@ public partial class MainWindow
     private void ReaderPaperStrength_ValueChanged(object? sender, RangeBaseValueChangedEventArgs e)
     {
         if (_suppressReaderAppearanceChange) return;
-        ChangeReaderAppearance(CurrentReaderAppearance with { PaperStrength = ReaderPaperStrengthSlider.Value / 100 });
+        ChangeReaderAppearance(BaseReaderAppearance with { PaperStrength = ReaderPaperStrengthSlider.Value / 100 });
     }
 
     private void ChangeReaderAppearance(ReaderAppearanceSettings appearance)
     {
         appearance = ReaderAppearanceSettings.Normalize(appearance);
-        if (CurrentReaderAppearance == appearance) return;
+        if (BaseReaderAppearance == appearance) return;
         if (ReaderUsesBookOverride)
         {
             _readerBookLayoutProfile = _readerBookLayoutProfile! with { Appearance = appearance };
@@ -259,8 +273,8 @@ public partial class MainWindow
             profile = profile with
             {
                 UseBookOverride = true,
-                Layout = NormalizeReaderLayoutForPlatform(_readerLayout),
-                Appearance = CurrentReaderAppearance
+                Layout = GetBaseReaderLayout(),
+                Appearance = BaseReaderAppearance
             };
         }
         else if (!useBookOverride)
@@ -278,10 +292,11 @@ public partial class MainWindow
         }
 
         _readerBookLayoutProfile = ReaderBookLayoutProfile.Normalize(profile);
-        _readerLayout = ReaderLayoutDefaults.ApplyPreferences(
+        _readerBaseLayout = ReaderLayoutDefaults.ApplyPreferences(
             _readerBookLayoutProfile.Layout,
             globalLayout,
             _readerBookLayoutProfile.UseBookOverride);
+        _readerLayout = BuildEffectiveReaderLayout(_readerBaseLayout);
         ApplyReaderAppearance();
         SyncReaderAppearanceControls();
         SyncReaderBookScopeControls();
@@ -294,8 +309,10 @@ public partial class MainWindow
     {
         if (_readerIsPdf) return;
 
-        var layout = NormalizeReaderLayoutForPlatform(_readerLayout);
-        _readerLayout = layout;
+        var layout = GetBaseReaderLayout();
+        _readerBaseLayout = layout;
+        if (!IsReaderMangaMode)
+            _readerLayout = layout;
         if (ReaderUsesBookOverride)
         {
             _readerBookLayoutProfile = ReaderBookLayoutProfile.Normalize(

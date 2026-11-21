@@ -250,6 +250,7 @@ public partial class MainWindow
         ReaderTransitionCover.Opacity = 0;
         _readerAssistantVisibleBeforeZen = false;
         _readerIsPdf = false;
+        ResetReaderMangaSession();
         _readerPdfPages = [];
         _readerPdfEmbeddedOutline = [];
         _readerPendingPdfPoint = null;

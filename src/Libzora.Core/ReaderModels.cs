@@ -197,6 +197,50 @@ public sealed record ReaderLayoutSettings(
     /// <summary>Trim outer white scan borders on manga pages automatically.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public bool MangaAutoCrop { get; init; }
+    /// <summary>Right-to-left page order for manga two-page spreads and navigation.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool MangaRightToLeft { get; init; }
+}
+
+/// <summary>Reading direction when reading comic/manga books.</summary>
+public enum MangaReadingDirection
+{
+    /// <summary>Right-to-left pagination (standard Japanese manga).</summary>
+    RightToLeft = 0,
+    /// <summary>Left-to-right pagination (Western/Chinese comics).</summary>
+    LeftToRight = 1,
+    /// <summary>Vertical seamless webtoon scroll.</summary>
+    VerticalScroll = 2
+}
+
+/// <summary>Per-book comic/manga reading preferences.</summary>
+public sealed record MangaBookSettings
+{
+    public bool Enabled { get; init; }
+    public MangaReadingDirection Direction { get; init; } = MangaReadingDirection.RightToLeft;
+    public bool AutoCrop { get; init; }
+    public bool BlackBackground { get; init; }
+    public bool TwoPageSpread { get; init; }
+    public MangaReadingDirection? LastPaginatedDirection { get; init; }
+
+    public static MangaBookSettings Normalize(MangaBookSettings? settings)
+    {
+        settings ??= new MangaBookSettings();
+        var direction = Enum.IsDefined(settings.Direction)
+            ? settings.Direction
+            : MangaReadingDirection.RightToLeft;
+        var lastPaginated = settings.LastPaginatedDirection is { } last
+            && last is MangaReadingDirection.RightToLeft or MangaReadingDirection.LeftToRight
+            ? last
+            : direction is MangaReadingDirection.RightToLeft or MangaReadingDirection.LeftToRight
+                ? direction
+                : MangaReadingDirection.RightToLeft;
+        return settings with
+        {
+            Direction = direction,
+            LastPaginatedDirection = lastPaginated
+        };
+    }
 }
 
 /// <summary>
@@ -288,7 +332,7 @@ public static class ReaderLayoutDefaults
             || string.Equals(settings.LatinFontFamily.Trim(), "auto", StringComparison.OrdinalIgnoreCase)
             ? null
             : settings.LatinFontFamily.Trim();
-        var verticalWriting = settings.VerticalWriting;
+        var verticalWriting = !settings.MangaMode && settings.VerticalWriting;
         return settings with
         {
             FontScale = fontScale,

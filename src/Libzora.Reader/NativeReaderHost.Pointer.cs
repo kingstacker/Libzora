@@ -88,7 +88,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         }
 
         var downOverImage = mapped is { } downImgMap && IsBlockImageAt(downImgMap.Page, downImgMap.Local);
-        if (_pointerDownOffset >= 0 && _pointerHotZone is null && !downOverImage)
+        if (_pointerDownOffset >= 0 && _pointerHotZone is null && !downOverImage && !_settings.MangaMode)
         {
             _selectionAnchor = _pointerDownOffset;
             SetActiveSelectionOffset(_pointerDownOffset);
@@ -114,12 +114,40 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         {
             UpdateFootnoteHover(position);
             UpdateAnnotationHover(position);
+            if (_settings.MangaMode)
+            {
+                var desired = _mangaZoom > 1.01 ? StandardCursorType.SizeAll : StandardCursorType.Arrow;
+                Cursor = new Cursor(desired);
+            }
             return;
         }
 
         if (_pointerHotZone is not null)
         {
             StopSelectionAutoPageTurn();
+            return;
+        }
+
+        if (_settings.MangaMode && (_mangaZoom > 1.01 || IsScroll))
+        {
+            if (!_pointerDragStarted)
+            {
+                var dx = position.X - _pointerDownPosition.X;
+                var dy = position.Y - _pointerDownPosition.Y;
+                if (dx * dx + dy * dy >= 16)
+                {
+                    _pointerDragStarted = true;
+                }
+            }
+            if (_pointerDragStarted && hadPreviousPosition)
+            {
+                var delta = position - previousPosition;
+                if (_mangaZoom > 1.01)
+                    PanMangaBy(new Vector(-delta.X, -delta.Y));
+                else if (IsScroll)
+                    ScrollByPixel(-delta.Y);
+            }
+            e.Handled = true;
             return;
         }
 
@@ -281,11 +309,33 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         }
 
         _selecting = false;
+        if (_settings.MangaMode && wasDrag && (_mangaZoom > 1.01 || IsScroll))
+        {
+            _selecting = false;
+            _pointerDownOffset = -1;
+            e.Handled = true;
+            return;
+        }
+
         // Resolve a mouse double-click only after release. Opening the popup
         // on press would steal input from a possible drag on the second click.
         if (!wasDrag && insideSurface && e.Pointer.Type == PointerType.Mouse
             && _pointerClickCount >= 2)
         {
+            if (_settings.MangaMode)
+            {
+                var nextZoom = _mangaZoom > 1.05 ? 1.0 : 2.0;
+                SetMangaZoom(nextZoom, position);
+                _wordSelectionActive = false;
+                _selectionAnchor = -1;
+                _selectionActiveOffset = -1;
+                _selectionStart = -1;
+                _selectionEnd = -1;
+                _pointerDownOffset = -1;
+                e.Handled = true;
+                return;
+            }
+
             if (releasedMap is { } zoomMap && TryEmitImageZoom(zoomMap.Page, zoomMap.Local))
             {
                 _wordSelectionActive = false;
@@ -306,6 +356,14 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
                 e.Handled = true;
                 return;
             }
+        }
+
+        if (_settings.MangaMode && _mangaZoom > 1.01)
+        {
+            _selecting = false;
+            _pointerDownOffset = -1;
+            e.Handled = true;
+            return;
         }
 
         var clickedAnnotation = releasedMap is { } annotationMap
@@ -332,7 +390,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
             var overBlockImage = releasedMap is { } imageMap
                 && IsBlockImageAt(imageMap.Page, imageMap.Local);
             EmitPageClick(clickSide, IsPaginated
-                && (_pointerDownOffset >= 0 || overBlockImage)
+                && (_pointerDownOffset >= 0 || overBlockImage || _settings.MangaMode)
                 && e.Pointer.Type == PointerType.Mouse);
         }
         else if (_pointerDownOffset >= 0)
@@ -370,6 +428,30 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
     {
         CancelPendingPageClick();
         _lastImageTapAt = DateTimeOffset.MinValue;
+        if (_settings.MangaMode && (e.KeyModifiers & (KeyModifiers.Control | KeyModifiers.Meta)) != 0)
+        {
+            var zoomStep = Math.Sign(e.Delta.Y) * 0.25;
+            if (zoomStep != 0)
+            {
+                SetMangaZoom(_mangaZoom + zoomStep, e.GetPosition(this));
+            }
+            e.Handled = true;
+            return;
+        }
+        if (_settings.MangaMode && _mangaZoom > 1.01)
+        {
+            if ((e.KeyModifiers & KeyModifiers.Shift) != 0 || Math.Abs(e.Delta.X) > Math.Abs(e.Delta.Y))
+            {
+                var dx = e.Delta.X != 0 ? -e.Delta.X * 60 : -e.Delta.Y * 60;
+                PanMangaBy(new Vector(dx, 0));
+            }
+            else
+            {
+                PanMangaBy(new Vector(0, -e.Delta.Y * 60));
+            }
+            e.Handled = true;
+            return;
+        }
         // Scroll mode consumes the wheel itself: the offset drives the paint
         // directly and chapter edges are reported through continuousEdge.
         if (IsScroll)
@@ -399,7 +481,13 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
     {
         CancelPendingPageClick();
         _lastImageTapAt = DateTimeOffset.MinValue;
-        var ctrl = (e.KeyModifiers & KeyModifiers.Control) != 0;
+        var ctrl = (e.KeyModifiers & (KeyModifiers.Control | KeyModifiers.Meta)) != 0;
+        if (ctrl && _settings.MangaMode && e.Key is Key.D0 or Key.NumPad0)
+        {
+            ResetMangaZoom();
+            e.Handled = true;
+            return;
+        }
         if (ctrl && e.Key is Key.F or Key.B)
         {
             Emit(new { type = "shortcut", key = e.Key == Key.F ? "f" : "b", ctrlKey = true });

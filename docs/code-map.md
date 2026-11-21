@@ -58,6 +58,7 @@ pattern: `MainWindow.<Area><Aspect>.cs`.
 | `MainWindow.ReaderFootnotes.cs` | Footnote and annotation popovers. |
 | `MainWindow.ReaderBridge.cs` | WebView bridge message dispatch. |
 | `MainWindow.ReaderFeatures*.cs` | Shortcuts, PDF navigation, tabs, bookmarks, whole-book search, progress slider and layout panel. |
+| `MainWindow.ReaderManga.cs` | Desktop manga mode detection, per-book preferences, direction/spread/crop/black-canvas controls. |
 | `MainWindow.ReaderAi*.cs` | Embedding models, assistant panel, provider settings, chat and context building. |
 | `MainWindow.ReaderTts*.cs` | TTS navigation, controls, floating panel, model management and playback. |
 | `MainWindow.KreaderValidation*.cs` | Debug-only Kreader validation and layout diagnostics. |

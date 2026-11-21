@@ -51,9 +51,18 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
             case ReaderPresentation.Spread:
             {
                 // Two half-width composed pages fill the viewport side by side.
+                // Right-to-left manga places the earlier page on the right half.
                 var half = (float)(Math.Max(1, Bounds.Width) / 2);
-                PaintPage(canvas, _pageIndex, 0f, 0f);
-                PaintPage(canvas, _pageIndex + 1, half, 0f);
+                if (_settings.MangaMode && _settings.MangaRightToLeft)
+                {
+                    PaintPage(canvas, _pageIndex, half, 0f);
+                    PaintPage(canvas, _pageIndex + 1, 0f, 0f);
+                }
+                else
+                {
+                    PaintPage(canvas, _pageIndex, 0f, 0f);
+                    PaintPage(canvas, _pageIndex + 1, half, 0f);
+                }
                 break;
             }
             case ReaderPresentation.Scroll:
@@ -98,6 +107,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
             clamped);
         _bitmapDirty = true;
         InvalidateVisual();
+        Emit(new { type = "mangaZoom", zoom = _mangaZoom });
     }
 
     public void PanMangaBy(Vector delta)
@@ -117,6 +127,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         _mangaPan = default;
         _bitmapDirty = true;
         InvalidateVisual();
+        Emit(new { type = "mangaZoom", zoom = _mangaZoom });
     }
 
     private Point ClampMangaPan(double x, double y, double zoom)

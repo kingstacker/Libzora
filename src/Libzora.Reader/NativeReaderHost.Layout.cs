@@ -203,7 +203,17 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
     {
         if (PowerSavingMode == enabled) return;
         PowerSavingMode = enabled;
-        _palette = ReaderPalette.For(_appearance.Theme, PowerSavingMode);
+        _palette = ReaderPalette.For(_appearance.Theme, PowerSavingMode || _pureBlackBackground);
+        _paintTheme = _palette.PaintTheme;
+        _bitmapDirty = true;
+        InvalidateVisual();
+    }
+
+    public void SetPureBlackBackground(bool enabled)
+    {
+        if (_pureBlackBackground == enabled) return;
+        _pureBlackBackground = enabled;
+        _palette = ReaderPalette.For(_appearance.Theme, PowerSavingMode || _pureBlackBackground);
         _paintTheme = _palette.PaintTheme;
         _bitmapDirty = true;
         InvalidateVisual();
@@ -213,12 +223,12 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
     public void SetAppearance(ReaderAppearanceSettings appearance)
     {
         appearance = ReaderAppearanceSettings.Normalize(appearance);
-        var palette = ReaderPalette.For(appearance.Theme, PowerSavingMode);
+        var palette = ReaderPalette.For(appearance.Theme, PowerSavingMode || _pureBlackBackground);
         if (_appearance == appearance && _palette == palette) return;
         _appearance = appearance;
         _palette = palette;
         _paintTheme = _palette.PaintTheme;
-        ReaderAppearanceResources.PopulateControls(_scrollBar.Resources, appearance);
+        ReaderAppearanceResources.PopulateControls(_scrollBar.Resources, appearance, PowerSavingMode || _pureBlackBackground);
         _bitmapDirty = true;
         InvalidateVisual();
     }

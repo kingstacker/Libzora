@@ -57,12 +57,14 @@ public partial class MainWindow
     {
         cancellationToken.ThrowIfCancellationRequested();
         await LoadReaderBookProfileAsync(cancellationToken);
+        InitializeReaderMangaSettings(document);
         var globalLayout = NormalizeReaderLayoutForPlatform(
             _appSettings.DefaultReaderLayout);
-        _readerLayout = ReaderLayoutDefaults.ApplyPreferences(
+        _readerBaseLayout = ReaderLayoutDefaults.ApplyPreferences(
             _readerBookLayoutProfile?.Layout ?? globalLayout,
             globalLayout,
             ReaderUsesBookOverride);
+        _readerLayout = BuildEffectiveReaderLayout(_readerBaseLayout);
         ApplyReaderAppearance();
         SyncReaderAppearanceControls();
         SyncReaderBookScopeControls();

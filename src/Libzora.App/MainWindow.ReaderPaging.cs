@@ -566,7 +566,7 @@ public partial class MainWindow
             var animation = animate ? _readerPageAnimation : ReaderAnimationNone;
             var visualDirection = ReaderPaginationPolicy.GetVisualTurnDirection(
                 direction,
-                !_readerIsPdf && _readerLayout.VerticalWriting);
+                IsReaderRightToLeftPaging);
             var surface = IsLinuxReaderTextFallbackActive()
                 ? BuildLinuxReaderFallbackTransitionSurface()
                 : outgoingHost is IReaderVisualTransitionHost

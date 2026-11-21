@@ -6307,6 +6307,57 @@
                                                     AutomationProperties.Name="{DynamicResource Ui.Reader.TocFontSize}"
                                                     ValueChanged="ReaderTocFontSize_ValueChanged" />
                                         </StackPanel>
+                                        <StackPanel x:Name="ReaderMangaSection" Spacing="14">
+                                            <ToggleSwitch x:Name="ReaderMangaModeCheck"
+                                                          Classes="readerSettingsToggle"
+                                                          Content="{DynamicResource Ui.Auto.3B5428808D795686}"
+                                                          IsCheckedChanged="ReaderMangaModeCheck_IsCheckedChanged" />
+                                            <StackPanel x:Name="ReaderMangaOptionsPanel" Spacing="14" IsVisible="False">
+                                                <StackPanel Spacing="6">
+                                                    <TextBlock Text="{DynamicResource Ui.Auto.57D27AF932E024FA}" FontSize="12" />
+                                                    <UniformGrid Columns="3" Rows="1" Margin="-3,0">
+                                                        <RadioButton x:Name="ReaderMangaRtlOption" Classes="readerThemeOption"
+                                                                     GroupName="ReaderMangaDirection" Tag="rtl"
+                                                                     IsCheckedChanged="ReaderMangaDirectionOption_IsCheckedChanged">
+                                                            <TextBlock Text="{DynamicResource Ui.Auto.9B7091FA13D5E357}" HorizontalAlignment="Center" />
+                                                        </RadioButton>
+                                                        <RadioButton x:Name="ReaderMangaLtrOption" Classes="readerThemeOption"
+                                                                     GroupName="ReaderMangaDirection" Tag="ltr"
+                                                                     IsCheckedChanged="ReaderMangaDirectionOption_IsCheckedChanged">
+                                                            <TextBlock Text="{DynamicResource Ui.Auto.18A7D9213139B0B8}" HorizontalAlignment="Center" />
+                                                        </RadioButton>
+                                                        <RadioButton x:Name="ReaderMangaWebtoonOption" Classes="readerThemeOption"
+                                                                     GroupName="ReaderMangaDirection" Tag="webtoon"
+                                                                     IsCheckedChanged="ReaderMangaDirectionOption_IsCheckedChanged">
+                                                            <TextBlock Text="{DynamicResource Ui.Auto.69A316FCD1BC4D3D}" HorizontalAlignment="Center" />
+                                                        </RadioButton>
+                                                    </UniformGrid>
+                                                </StackPanel>
+                                                <StackPanel x:Name="ReaderMangaSpreadPanel" Spacing="6">
+                                                    <TextBlock Text="{DynamicResource Ui.Auto.F5A005DC96E83CEB}" FontSize="12" />
+                                                    <UniformGrid Columns="2" Rows="1" Margin="-3,0">
+                                                        <RadioButton x:Name="ReaderMangaSinglePageOption" Classes="readerThemeOption"
+                                                                     GroupName="ReaderMangaSpread" Tag="single"
+                                                                     IsCheckedChanged="ReaderMangaSpreadOption_IsCheckedChanged">
+                                                            <TextBlock Text="{DynamicResource Ui.Auto.5407E215AEF82C28}" HorizontalAlignment="Center" />
+                                                        </RadioButton>
+                                                        <RadioButton x:Name="ReaderMangaTwoPageOption" Classes="readerThemeOption"
+                                                                     GroupName="ReaderMangaSpread" Tag="double"
+                                                                     IsCheckedChanged="ReaderMangaSpreadOption_IsCheckedChanged">
+                                                            <TextBlock Text="{DynamicResource Ui.Auto.C95E9E685192110D}" HorizontalAlignment="Center" />
+                                                        </RadioButton>
+                                                    </UniformGrid>
+                                                </StackPanel>
+                                                <ToggleSwitch x:Name="ReaderMangaAutoCropCheck"
+                                                              Classes="readerSettingsToggle"
+                                                              Content="{DynamicResource Ui.Auto.F7C9DAAF38264672}"
+                                                              IsCheckedChanged="ReaderMangaAutoCropCheck_IsCheckedChanged" />
+                                                <ToggleSwitch x:Name="ReaderMangaBlackBgCheck"
+                                                              Classes="readerSettingsToggle"
+                                                              Content="{DynamicResource Ui.Auto.52AFAB10A82DC020}"
+                                                              IsCheckedChanged="ReaderMangaBlackBgCheck_IsCheckedChanged" />
+                                            </StackPanel>
+                                        </StackPanel>
                                         <StackPanel x:Name="ReaderTextLayoutPanel" Spacing="14">
                                             <StackPanel Spacing="5">
                                                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">

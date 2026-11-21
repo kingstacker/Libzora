@@ -170,12 +170,14 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
     private int _pointerClickCount;
     private double _mangaZoom = 1.0;
     private Point _mangaPan;
+    private bool _pureBlackBackground;
     private int _lastPrefetchedSlice = -1;
     private DateTimeOffset _lastImageTapAt = DateTimeOffset.MinValue;
     private Point _lastImageTapPosition;
     private string? _loadedFootnoteFragment;
 
     public double MangaZoom => _mangaZoom;
+    public bool PureBlackBackground => _pureBlackBackground;
 
     public NativeReaderHost()
     {

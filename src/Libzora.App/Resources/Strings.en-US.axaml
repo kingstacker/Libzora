@@ -3054,4 +3054,16 @@ This run stopped early because online requested access verification; the remaini
     <x:String x:Key="Ui.Auto.CCFD202BD41C5280">Move {0} {1} file(s) in this series to the Trash? {2} book(s) have only this format and will be moved to the Trash in full (recoverable); other formats on the remaining books are unaffected.</x:String>
     <x:String x:Key="Ui.Auto.83EE935846D12834">Moved {0} {1} file(s) in the series to the Trash.</x:String>
     <x:String x:Key="Ui.Auto.27045A376AF72700">Converting "{0}" ({1}/{2})…</x:String>
+    <x:String x:Key="Ui.Auto.3B5428808D795686">Manga mode</x:String>
+    <x:String x:Key="Ui.Auto.57D27AF932E024FA">Reading direction</x:String>
+    <x:String x:Key="Ui.Auto.9B7091FA13D5E357">RTL</x:String>
+    <x:String x:Key="Ui.Auto.18A7D9213139B0B8">LTR</x:String>
+    <x:String x:Key="Ui.Auto.69A316FCD1BC4D3D">Webtoon</x:String>
+    <x:String x:Key="Ui.Auto.F5A005DC96E83CEB">Page layout</x:String>
+    <x:String x:Key="Ui.Auto.F7C9DAAF38264672">Auto-crop borders</x:String>
+    <x:String x:Key="Ui.Auto.52AFAB10A82DC020">Black background</x:String>
+    <x:String x:Key="Ui.Auto.D3551C0E7881D234">Switched to Webtoon scroll.</x:String>
+    <x:String x:Key="Ui.Auto.33463B16BA505639">Switched to two-page view.</x:String>
+    <x:String x:Key="Ui.Auto.CBEC300537C9417F">Manga mode enabled.</x:String>
+    <x:String x:Key="Ui.Auto.DC9485D59C4AF354">Manga mode disabled.</x:String>
 </ResourceDictionary>

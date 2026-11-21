@@ -6,9 +6,9 @@ namespace Libzora;
 
 internal static class ReaderAppearanceResources
 {
-    public static void Populate(IResourceDictionary resources, ReaderAppearanceSettings appearance)
+    public static void Populate(IResourceDictionary resources, ReaderAppearanceSettings appearance, bool pureBlack = false)
     {
-        var palette = ReaderPalette.For(appearance.Theme);
+        var palette = ReaderPalette.For(appearance.Theme, pureBlack);
         Set("Page", palette.Page);
         Set("Chrome", palette.Chrome);
         Set("Sidebar", palette.Sidebar);
@@ -37,9 +37,9 @@ internal static class ReaderAppearanceResources
     }
 
     // Fluent resources live inside the reader scope, never in the library.
-    public static void PopulateControls(IResourceDictionary resources, ReaderAppearanceSettings appearance)
+    public static void PopulateControls(IResourceDictionary resources, ReaderAppearanceSettings appearance, bool pureBlack = false)
     {
-        var palette = ReaderPalette.For(appearance.Theme);
+        var palette = ReaderPalette.For(appearance.Theme, pureBlack);
         AppAppearanceResources.Populate(resources, AppPalette.FromReader(palette));
         foreach (var key in new[] { "SystemAccentColor", "SystemAccentColorLight1", "SystemAccentColorLight2",
                      "SystemAccentColorLight3", "SystemAccentColorDark1", "SystemAccentColorDark2", "SystemAccentColorDark3" })

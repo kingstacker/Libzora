@@ -88,13 +88,14 @@ public partial class MainWindow
         // for EPUB font sizing only.
         if (ReaderZoomOutButton is not null && ReaderZoomText is not null && ReaderZoomInButton is not null)
         {
+            var isManga = IsReaderMangaMode;
             ReaderZoomOutButton.IsVisible = !_readerIsPdf;
             ReaderZoomText.IsVisible = !_readerIsPdf;
             ReaderZoomInButton.IsVisible = !_readerIsPdf;
-            var zoomOutLabel = _readerIsPdf ? T("缩小页面") : T("减小字号");
-            var zoomInLabel = _readerIsPdf ? T("放大页面") : T("增大字号");
-            ReaderZoomOutButton.Content = _readerIsPdf ? "−" : "A−";
-            ReaderZoomInButton.Content = _readerIsPdf ? "+" : "A+";
+            var zoomOutLabel = (_readerIsPdf || isManga) ? T("缩小页面") : T("减小字号");
+            var zoomInLabel = (_readerIsPdf || isManga) ? T("放大页面") : T("增大字号");
+            ReaderZoomOutButton.Content = (_readerIsPdf || isManga) ? "−" : "A−";
+            ReaderZoomInButton.Content = (_readerIsPdf || isManga) ? "+" : "A+";
             ToolTip.SetTip(ReaderZoomOutButton, zoomOutLabel);
             ToolTip.SetTip(ReaderZoomInButton, zoomInLabel);
             AutomationProperties.SetName(ReaderZoomOutButton, zoomOutLabel);

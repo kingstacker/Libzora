@@ -124,7 +124,7 @@ public partial class MainWindow
                     TurnReaderPageAsync(chapterDirection, chapterOnly: true));
                 return;
             }
-            var verticalPageOrder = !_readerIsPdf && _readerLayout.VerticalWriting;
+            var verticalPageOrder = IsReaderRightToLeftPaging;
             var direction = e.Key == Key.Left
                 ? (verticalPageOrder ? 1 : -1)
                 : e.Key == Key.Right
@@ -214,6 +214,12 @@ public partial class MainWindow
         if (ReaderLayoutSettingsPopup.IsOpen)
         {
             ReaderLayoutSettingsPopup.IsOpen = false;
+            return true;
+        }
+        if (IsReaderMangaMode && CurrentReaderHost is NativeReaderHost { MangaZoom: > 1.01 } zoomedManga)
+        {
+            zoomedManga.ResetMangaZoom();
+            UpdateReaderZoomLabel();
             return true;
         }
         if (_readerZenMode)

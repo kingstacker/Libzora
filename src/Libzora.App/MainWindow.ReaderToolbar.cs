@@ -117,6 +117,29 @@ public partial class MainWindow
             return;
         }
 
+        if (IsReaderMangaMode)
+        {
+            var direction = tag == "scroll"
+                ? MangaReadingDirection.VerticalScroll
+                : _readerMangaSettings.LastPaginatedDirection ?? _readerDetectedMangaDirection;
+            var twoPageSpread = string.Equals(tag, "double", StringComparison.Ordinal);
+            await ApplyReaderMangaSettingsChangeAsync(_readerMangaSettings with
+            {
+                Direction = direction,
+                LastPaginatedDirection = direction is MangaReadingDirection.RightToLeft or MangaReadingDirection.LeftToRight
+                    ? direction
+                    : _readerMangaSettings.LastPaginatedDirection ?? _readerDetectedMangaDirection,
+                TwoPageSpread = twoPageSpread
+            });
+            ShowReaderTransientStatus(
+                direction == MangaReadingDirection.VerticalScroll
+                    ? T("已切换为条漫阅读。")
+                    : twoPageSpread
+                        ? T("已切换为双页阅读。")
+                        : T("已切换为单页阅读。"));
+            return;
+        }
+
         var requiredVerticalMode = "single";
         if (_readerLayout.VerticalWriting
             && !string.Equals(tag, requiredVerticalMode, StringComparison.Ordinal))
@@ -156,8 +179,9 @@ public partial class MainWindow
         var pdf = _readerIsPdf ? CurrentReaderHost as IPdfReadingHost : null;
         var flowMode = pdf is null ? _readerLayout.FlowMode : pdf.DisplayMode == PdfReaderDisplayMode.Continuous ? 0 : 1;
         var twoPage = pdf is null ? _readerLayout.TwoPageMode : pdf.DisplayMode == PdfReaderDisplayMode.TwoPage;
-        var vertical = !_readerIsPdf && _readerLayout.VerticalWriting;
-        ReaderTwoPageModeItem.Header = _readerIsPdf ? T("双页") : T("双栏");
+        var vertical = !_readerIsPdf && !IsReaderMangaMode && _readerLayout.VerticalWriting;
+        ReaderScrollModeItem.Header = IsReaderMangaMode ? T("条漫") : T("滚动");
+        ReaderTwoPageModeItem.Header = (_readerIsPdf || IsReaderMangaMode) ? T("双页") : T("双栏");
         if (vertical)
         {
             // Vertical writing always presents as single pages.
@@ -179,9 +203,9 @@ public partial class MainWindow
             // Icon-only button: keep the current mode in tooltip and
             // accessibility name, mirroring UpdateReaderToolbar.
             var flowLabel = flowMode == 0
-                ? T("滚动")
+                ? (IsReaderMangaMode ? T("条漫") : T("滚动"))
                 : twoPage
-                        ? (_readerIsPdf ? T("双页") : T("双栏"))
+                        ? ((_readerIsPdf || IsReaderMangaMode) ? T("双页") : T("双栏"))
                         : T("单页");
             ToolTip.SetTip(ReaderFlowButton, flowLabel);
             AutomationProperties.SetName(ReaderFlowButton, flowLabel);
@@ -257,7 +281,15 @@ public partial class MainWindow
             UpdateReaderZoomLabel();
             return;
         }
+        if (IsReaderMangaMode && CurrentReaderHost is NativeReaderHost manga)
+        {
+            var zoomStep = delta > 0 ? 0.25 : -0.25;
+            manga.SetMangaZoom(manga.MangaZoom + zoomStep);
+            UpdateReaderZoomLabel();
+            return;
+        }
         _readerLayout = NormalizeReaderLayoutForPlatform(_readerLayout with { FontScale = _readerLayout.FontScale + delta });
+        _readerBaseLayout = _readerLayout;
         UpdateReaderZoomLabel();
         await ApplyReaderLayoutToHostsAsync(_readerSession.GetTokenOr(CancellationToken.None));
         await SaveCurrentReaderPreferencesAsync(CancellationToken.None);
@@ -281,12 +313,12 @@ public partial class MainWindow
         // for every reader surface: the native EPUB engine has no injected
         // page to draw the ribbon, so the Avalonia corner stays active here.
         ReaderBookmarkCornerButton.IsVisible = true;
-        // PDF paints its own page gutters. Outer padding and the old WebView
-        // edge cover would expose the EPUB paper color as horizontal bands.
-        ReaderWebViewHost.Margin = _readerIsPdf
+        // PDF and Manga mode paint edge to edge. Outer padding and the old
+        // WebView edge cover would expose bands or clip Webtoon artwork.
+        ReaderWebViewHost.Margin = (_readerIsPdf || IsReaderMangaMode)
             ? new Thickness(0)
             : new Thickness(0, 12, 2, _readerZenMode ? 0 : 10);
-        ReaderWebViewBottomCover.IsVisible = !_readerIsPdf;
+        ReaderWebViewBottomCover.IsVisible = !_readerIsPdf && !IsReaderMangaMode;
     }
 
     private async void ToggleReaderZenMode()

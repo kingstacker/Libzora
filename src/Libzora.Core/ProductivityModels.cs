@@ -127,6 +127,54 @@ public sealed record AppSettings
     public ReaderAppearanceSettings ReaderAppearance { get; init; } = new();
     // Reader navigation chrome stays global, including with a per-book layout.
     public double ReaderTocFontSize { get; init; } = ReaderTocDefaults.DefaultFontSize;
+    /// <summary>Per-book comic/manga preferences keyed by bookFileId ("N" format).</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Dictionary<string, MangaBookSettings>? MangaBooks { get; init; }
+
+    public bool TryGetMangaSettings(Guid? bookFileId, out MangaBookSettings settings)
+    {
+        if (bookFileId is { } id && MangaBooks is { Count: > 0 } map
+            && map.TryGetValue(id.ToString("N"), out var saved))
+        {
+            settings = MangaBookSettings.Normalize(saved);
+            return true;
+        }
+
+        settings = new MangaBookSettings();
+        return false;
+    }
+
+    public AppSettings WithMangaSettings(Guid? bookFileId, MangaBookSettings settings)
+    {
+        if (bookFileId is not { } id) return this;
+        var normalized = MangaBookSettings.Normalize(settings);
+        var updated = MangaBooks is not null
+            ? new Dictionary<string, MangaBookSettings>(MangaBooks, StringComparer.OrdinalIgnoreCase)
+            : new Dictionary<string, MangaBookSettings>(StringComparer.OrdinalIgnoreCase);
+        var key = id.ToString("N");
+        updated[key] = normalized;
+        while (updated.Count > 256)
+        {
+            var oldest = updated.Keys.First();
+            updated.Remove(oldest);
+        }
+
+        return this with { MangaBooks = updated };
+    }
+
+    private static Dictionary<string, MangaBookSettings>? NormalizeMangaBooks(
+        Dictionary<string, MangaBookSettings>? books)
+    {
+        if (books is not { Count: > 0 }) return null;
+        var normalized = new Dictionary<string, MangaBookSettings>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in books)
+        {
+            if (string.IsNullOrWhiteSpace(entry.Key) || entry.Value is null) continue;
+            normalized[entry.Key.Trim()] = MangaBookSettings.Normalize(entry.Value);
+            if (normalized.Count >= 256) break;
+        }
+        return normalized.Count > 0 ? normalized : null;
+    }
 
     public static AppSettings Normalize(AppSettings? settings)
     {
@@ -188,6 +236,7 @@ public sealed record AppSettings
             DefaultReaderLayout = ReaderLayoutDefaults.Normalize(settings.DefaultReaderLayout ?? new ReaderLayoutSettings()),
             ReaderAppearance = ReaderAppearanceSettings.Normalize(settings.ReaderAppearance),
             ReaderTocFontSize = ReaderTocDefaults.NormalizeFontSize(settings.ReaderTocFontSize),
+            MangaBooks = NormalizeMangaBooks(settings.MangaBooks),
             Translation = BookTranslationSettings.Normalize(settings.Translation),
             McpServer = McpServerSettings.Normalize(settings.McpServer)
         };

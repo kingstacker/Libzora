@@ -165,14 +165,15 @@ public partial class MainWindow
         _suppressReaderLayoutChange = true;
         try
         {
-            ReaderFontScaleSlider.Value = _readerLayout.FontScale;
-            ReaderLineHeightSlider.Value = _readerLayout.LineHeight;
-            ReaderMaxWidthSlider.Value = _readerLayout.MaxWidth;
-            ReaderBodyPaddingSlider.Value = _readerLayout.BodyPadding;
-            ReaderVerticalWritingCheck.IsChecked = _readerLayout.VerticalWriting;
-            ReaderParagraphIndentCheck.IsChecked = _readerLayout.ParagraphIndent;
-            ReaderHyphenationCheck.IsChecked = _readerLayout.HyphenateEnglish;
-            SelectReaderFontFamily(_readerLayout.FontFamily);
+            var baseLayout = GetBaseReaderLayout();
+            ReaderFontScaleSlider.Value = baseLayout.FontScale;
+            ReaderLineHeightSlider.Value = baseLayout.LineHeight;
+            ReaderMaxWidthSlider.Value = baseLayout.MaxWidth;
+            ReaderBodyPaddingSlider.Value = baseLayout.BodyPadding;
+            ReaderVerticalWritingCheck.IsChecked = baseLayout.VerticalWriting;
+            ReaderParagraphIndentCheck.IsChecked = baseLayout.ParagraphIndent;
+            ReaderHyphenationCheck.IsChecked = baseLayout.HyphenateEnglish;
+            SelectReaderFontFamily(baseLayout.FontFamily);
             SelectReaderFlowMode(_readerLayout.FlowMode, _readerLayout.TwoPageMode);
             SelectReaderPageAnimation(_readerPageAnimation);
         }
@@ -229,7 +230,8 @@ public partial class MainWindow
         _readerLayoutApplyCancellation?.Dispose();
         _readerLayoutApplyCancellation = null;
 
-        _readerLayout = NormalizeReaderLayoutForPlatform(ReadReaderLayoutFromControls());
+        _readerBaseLayout = NormalizeReaderLayoutForPlatform(ReadReaderLayoutFromControls());
+        _readerLayout = BuildEffectiveReaderLayout(_readerBaseLayout);
         SyncReaderFlowMenu();
         try
         {
@@ -272,7 +274,8 @@ public partial class MainWindow
                 if (token.IsCancellationRequested) return;
                 try
                 {
-                    _readerLayout = NormalizeReaderLayoutForPlatform(ReadReaderLayoutFromControls());
+                    _readerBaseLayout = NormalizeReaderLayoutForPlatform(ReadReaderLayoutFromControls());
+                    _readerLayout = BuildEffectiveReaderLayout(_readerBaseLayout);
                     _readerPageAnimation = GetSelectedReaderPageAnimation();
                     UpdateReaderZoomLabel();
                     await ApplyReaderLayoutToHostsAsync(_readerSession.GetTokenOr(CancellationToken.None));
@@ -291,9 +294,9 @@ public partial class MainWindow
         ReaderMaxWidthSlider.Value,
         ReaderBodyPaddingSlider.Value,
         (ReaderFontFamilyBox.SelectedItem as ComboBoxItem)?.Tag as string ?? string.Empty,
-        GetSelectedReaderFlowMode().FlowMode,
+        GetBaseReaderLayout().FlowMode,
         ReaderVerticalWritingCheck.IsChecked == true,
-        GetSelectedReaderFlowMode().TwoPageMode)
+        GetBaseReaderLayout().TwoPageMode)
     {
         ParagraphIndent = ReaderParagraphIndentCheck.IsChecked == true,
         HyphenateEnglish = ReaderHyphenationCheck.IsChecked != false
@@ -308,6 +311,20 @@ public partial class MainWindow
         _readerLayoutApplyCancellation?.Dispose();
         _readerLayoutApplyCancellation = null;
 
+        if (IsReaderMangaMode)
+        {
+            await ApplyReaderMangaSettingsChangeAsync(new MangaBookSettings
+            {
+                Enabled = true,
+                Direction = _readerDetectedMangaDirection,
+                LastPaginatedDirection = _readerDetectedMangaDirection,
+                AutoCrop = false,
+                BlackBackground = false,
+                TwoPageSpread = false
+            });
+            return;
+        }
+
         if (CanUseReaderBookProfile && ReaderUsesBookOverride)
         {
             var globalLayout = NormalizeReaderLayoutForPlatform(
@@ -320,7 +337,8 @@ public partial class MainWindow
                     Appearance = ReaderAppearanceSettings.Normalize(
                         _appSettings.ReaderAppearance)
                 });
-            _readerLayout = globalLayout;
+            _readerBaseLayout = globalLayout;
+            _readerLayout = BuildEffectiveReaderLayout(_readerBaseLayout);
             _suppressReaderLayoutChange = true;
             try
             {
@@ -371,7 +389,8 @@ public partial class MainWindow
             _suppressReaderLayoutChange = false;
         }
         UpdateReaderLayoutSliderLabels();
-        _readerLayout = NormalizeReaderLayoutForPlatform(ReadReaderLayoutFromControls());
+        _readerBaseLayout = NormalizeReaderLayoutForPlatform(ReadReaderLayoutFromControls());
+        _readerLayout = BuildEffectiveReaderLayout(_readerBaseLayout);
         _readerPageAnimation = ReaderAnimationFade;
         UpdateReaderZoomLabel();
         await ApplyReaderLayoutToHostsAsync(ReaderToken);
@@ -401,11 +420,14 @@ public partial class MainWindow
     {
         // The flow mode lives in the header menu (ReaderFlowButton); keep the
         // menu state in sync when the layout settings panel is opened.
-        _readerLayout = NormalizeReaderLayoutForPlatform(_readerLayout with
+        if (!IsReaderMangaMode)
         {
-            FlowMode = flowMode,
-            TwoPageMode = twoPageMode
-        });
+            _readerLayout = NormalizeReaderLayoutForPlatform(_readerLayout with
+            {
+                FlowMode = flowMode,
+                TwoPageMode = twoPageMode
+            });
+        }
         SyncReaderFlowMenu();
     }
 

@@ -37,6 +37,7 @@ namespace Libzora;
 /// </summary>
 public partial class MainWindow
 {
+    private ReaderLayoutSettings _readerBaseLayout = NormalizeReaderLayoutForPlatform(new ReaderLayoutSettings());
     private ReaderLayoutSettings _readerLayout = NormalizeReaderLayoutForPlatform(new ReaderLayoutSettings());
     private bool _readerVerticalDebugBoxesEnabled =
         Environment.GetEnvironmentVariable("LIBZORA_VERTICAL_DEBUG_BOXES") == "1";
@@ -466,7 +467,9 @@ public partial class MainWindow
         if (ReaderZoomText is not null)
             ReaderZoomText.Text = _readerIsPdf && CurrentReaderHost is IPdfReadingHost pdf
                 ? Math.Abs(pdf.Zoom - 1) < 0.005 ? pdf.FitMode == PdfReaderFitMode.Width ? T("适宽") : T("整页") : $"{pdf.Zoom:P0}"
-                : $"{_readerLayout.FontScale:P0}";
+                : IsReaderMangaMode && CurrentReaderHost is NativeReaderHost manga
+                    ? $"{manga.MangaZoom:P0}"
+                    : $"{_readerLayout.FontScale:P0}";
     }
 
     // Transient reader-header status: auto-clears after a short moment instead

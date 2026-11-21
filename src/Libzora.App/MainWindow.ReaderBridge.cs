@@ -180,6 +180,7 @@ public partial class MainWindow
                     DispatchReaderSelectionAction(root);
                     break;
                 case "pdfZoom":
+                case "mangaZoom":
                     UpdateReaderZoomLabel();
                     break;
                 case "pdfLayout":
@@ -335,7 +336,7 @@ public partial class MainWindow
                         {
                             var clickTurnDirection = ReaderPaginationPolicy.GetClickDirection(
                                 side == "left",
-                                _readerLayout.VerticalWriting);
+                                IsReaderRightToLeftPaging);
                             _ = ObserveReaderTaskAsync(TurnReaderPageAsync(clickTurnDirection));
                         }
                     }
@@ -526,7 +527,7 @@ public partial class MainWindow
                             // order like classical Chinese books: left turns
                             // forward and right turns backward. Up/down and
                             // PageUp/PageDown keep their horizontal meaning.
-                            var verticalPageOrder = !_readerIsPdf && _readerLayout.VerticalWriting;
+                            var verticalPageOrder = IsReaderRightToLeftPaging;
                             var direction = string.Equals(keyName, "ArrowLeft", StringComparison.Ordinal)
                                 ? (verticalPageOrder ? 1 : -1)
                                 : string.Equals(keyName, "ArrowRight", StringComparison.Ordinal)

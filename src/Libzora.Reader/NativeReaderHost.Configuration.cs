@@ -92,9 +92,11 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
             readingAnchor = CaptureViewportReadingAnchor();
             anchorPageStart = readingAnchor is { TextOffset: >= 0, ImageIndex: null };
         }
+        var modeChanged = settings.MangaMode != _settings.MangaMode || settings.FlowMode != _settings.FlowMode;
         _presentation = DerivePresentation(settings);
         _settings = settings;
         _showVerticalDebugBoxes = showVerticalDebugBoxes;
+        if (modeChanged) ResetMangaZoom();
 
         Task<bool>? reload = null;
         if (indentChanged)

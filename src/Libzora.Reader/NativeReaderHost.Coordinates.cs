@@ -75,7 +75,8 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
             {
                 var half = Math.Max(1, Bounds.Width / 2);
                 var right = position.X >= half;
-                var page = Math.Min(_pageIndex + (right ? 1 : 0), _layout.Pages.Count - 1);
+                var secondPage = _settings.MangaMode && _settings.MangaRightToLeft ? !right : right;
+                var page = Math.Min(_pageIndex + (secondPage ? 1 : 0), _layout.Pages.Count - 1);
                 var localX = right ? position.X - half : position.X;
                 return (page, new SKPoint((float)localX, (float)position.Y));
             }
@@ -97,7 +98,13 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         switch (_presentation)
         {
             case ReaderPresentation.Spread:
-                return new Point(Math.Max(0, (page - _pageIndex)) * Math.Max(1, Bounds.Width / 2), 0);
+            {
+                var half = Math.Max(1, Bounds.Width / 2);
+                var slot = page - _pageIndex;
+                if (_settings.MangaMode && _settings.MangaRightToLeft)
+                    return new Point(slot <= 0 ? half : 0, 0);
+                return new Point(Math.Max(0, slot) * half, 0);
+            }
             case ReaderPresentation.Scroll:
                 return new Point(0, page * Math.Max(1, Bounds.Height) - Math.Max(0, _scrollOffset));
             default:

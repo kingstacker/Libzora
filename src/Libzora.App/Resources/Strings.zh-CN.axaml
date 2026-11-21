@@ -3010,4 +3010,16 @@
     <x:String x:Key="Ui.Auto.CCFD202BD41C5280">确定将系列中 {0} 个 {1} 文件移入回收站吗？其中 {2} 本书仅包含该格式，将会整本移入回收站（均可恢复），其余书籍的其他格式不受影响。</x:String>
     <x:String x:Key="Ui.Auto.83EE935846D12834">已将系列中 {0} 个 {1} 文件移入回收站。</x:String>
     <x:String x:Key="Ui.Auto.27045A376AF72700">正在转换《{0}》（{1}/{2}）…</x:String>
+    <x:String x:Key="Ui.Auto.3B5428808D795686">漫画模式</x:String>
+    <x:String x:Key="Ui.Auto.57D27AF932E024FA">阅读方向</x:String>
+    <x:String x:Key="Ui.Auto.9B7091FA13D5E357">右开</x:String>
+    <x:String x:Key="Ui.Auto.18A7D9213139B0B8">左开</x:String>
+    <x:String x:Key="Ui.Auto.69A316FCD1BC4D3D">条漫</x:String>
+    <x:String x:Key="Ui.Auto.F5A005DC96E83CEB">页面排布</x:String>
+    <x:String x:Key="Ui.Auto.F7C9DAAF38264672">自动裁边</x:String>
+    <x:String x:Key="Ui.Auto.52AFAB10A82DC020">纯黑背景</x:String>
+    <x:String x:Key="Ui.Auto.D3551C0E7881D234">已切换为条漫阅读。</x:String>
+    <x:String x:Key="Ui.Auto.33463B16BA505639">已切换为双页阅读。</x:String>
+    <x:String x:Key="Ui.Auto.CBEC300537C9417F">已开启漫画模式。</x:String>
+    <x:String x:Key="Ui.Auto.DC9485D59C4AF354">已关闭漫画模式。</x:String>
 </ResourceDictionary>

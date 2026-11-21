@@ -25,6 +25,7 @@ public partial class MainWindow
             if (!_readerHostFactory.IsCompatible(host, format))
                 throw new InvalidOperationException(T("阅读器宿主与当前书籍格式不兼容。"));
             (host as IReaderAppearanceHost)?.SetAppearance(CurrentReaderAppearance);
+            (host as NativeReaderHost)?.SetPureBlackBackground(IsReaderMangaBlackCanvas);
             return host;
         }
         catch

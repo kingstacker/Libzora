@@ -16,6 +16,7 @@ xcrun --sdk macosx swiftc -swift-version 5 -parse-as-library \
 
 xcrun --sdk macosx swiftc -swift-version 5 -parse-as-library \
   "$root/src/Libzora.Mobile.iOS/NativeUI/NativePreferenceEdits.swift" \
+  "$root/src/Libzora.Mobile.iOS/NativeUI/NativeReaderSearchCursor.swift" \
   "$root/tests/Libzora.Mobile.iOS.LogicTests/NativeStateLogicTests.swift" \
   -o "$output/native-state-tests"
 "$output/native-state-tests"

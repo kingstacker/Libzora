@@ -440,9 +440,14 @@ struct NativeLibraryPage: View {
     }
     @ViewBuilder private func continueCard(books: [LibraryBook]) -> some View {
         if query.isEmpty, filter <= 1, let id = store.continueBookId, let book = books.first(where: { $0.id == id }) {
-            Button { store.perform { try await store.openReader(book) } } label: {
+            Button {
+                let frame = NativeBookCoverFrames.get("continue:\(book.id)")
+                store.perform { try await store.openReader(book, sourceFrame: frame) }
+            } label: {
                 HStack(spacing: 14) {
                     BookCover(book: book, width: 48, height: 68)
+                        .trackBookOpenFrame(key: "continue:\(book.id)")
+                        .opacity(store.openingBookTransition?.book.id == book.id || store.closingBookTransition?.book.id == book.id ? 0 : 1)
                     VStack(alignment: .leading, spacing: 3) {
                         Text(L("继续阅读")).font(NativeTheme.font(13)).foregroundStyle(mutedText)
                         Text(book.title).font(NativeTheme.font(16)).lineLimit(1)
@@ -507,11 +512,12 @@ struct NativeLibraryPage: View {
     }
     private func bookActions(_ book: LibraryBook, beforeReading: @escaping () -> Void = {}) -> [NativeBookMenuItem] {
         [
-            NativeBookMenuItem(L("阅读")) {
+            NativeBookMenuItem(L("阅读"), systemImage: "book") {
                 beforeReading()
                 store.perform { try await store.openReader(book) }
             },
-            NativeBookMenuItem(book.favorite ? L("取消收藏") : L("收藏")) {
+            NativeBookMenuItem(book.favorite ? L("取消收藏") : L("收藏"),
+                               systemImage: book.favorite ? "star.slash" : "star") {
                 store.perform { try await store.command("book.favorite", ["bookId": book.id, "favorite": !book.favorite]); try await store.refreshLibrary() }
             }
         ]
@@ -771,11 +777,13 @@ struct NativeBookMenuItem {
     let title: String
     let destructive: Bool
     let identifier: String?
+    let systemImage: String?
     let action: () -> Void
 
-    init(_ title: String, destructive: Bool = false, identifier: String? = nil, action: @escaping () -> Void) {
+    init(_ title: String, destructive: Bool = false, identifier: String? = nil,
+         systemImage: String? = nil, action: @escaping () -> Void) {
         self.title = title; self.destructive = destructive
-        self.identifier = identifier; self.action = action
+        self.identifier = identifier; self.systemImage = systemImage; self.action = action
     }
 }
 
@@ -850,8 +858,13 @@ struct NativeBookShelf: View {
                                  showRating: store.preferences.showBookRating,
                                  showSyncStatus: store.preferences.showBookSyncStatus,
                                  enabled: !store.openingReader,
-                                 lifted: previewCenter.request?.source == .seriesStack && previewCenter.request?.id == front.id,
-                                 open: { store.perform { try await store.openReader(front) } },
+                                 lifted: (previewCenter.request?.source == .seriesStack && previewCenter.request?.id == front.id)
+                                     || store.openingBookTransition?.book.id == front.id
+                                     || store.closingBookTransition?.book.id == front.id,
+                                 open: {
+                                     let frame = NativeBookCoverFrames.get("shelf:\(front.id)")
+                                     store.perform { try await store.openReader(front, sourceFrame: frame) }
+                                 },
                                  expand: { frame in expandSeries(series.id, frame) },
                                  longPress: { frame in
                 destinations.showPreview(front, source: .seriesStack, frame: frame, width: coverWidth,
@@ -865,18 +878,34 @@ struct NativeBookShelf: View {
     private func bookLink(_ book: LibraryBook) -> some View {
         // The app-owned preview draws its own copy, so the source tile hides
         // while it is up, exactly like the system lift used to.
-        let lifted = previewCenter.request?.source == .shelf && previewCenter.request?.id == book.id
-        return Button { store.perform { try await store.openReader(book) } } label: {
+        let previewLifted = previewCenter.request?.source == .shelf && previewCenter.request?.id == book.id
+        let flightLifted = store.openingBookTransition?.book.id == book.id
+            || store.closingBookTransition?.book.id == book.id
+        return Button {
+            let frame = NativeBookCoverFrames.get("shelf:\(book.id)")
+            store.perform { try await store.openReader(book, sourceFrame: frame) }
+        } label: {
             Group {
-                if store.preferences.listView { BookRow(book: book, showRating: store.preferences.showBookRating, showSyncStatus: store.preferences.showBookSyncStatus, muted: mutedText) }
-                else { NativeBookTile(book: book, width: coverWidth, muted: mutedText, galleryMode: galleryMode,
-                                      showRating: store.preferences.showBookRating,
-                                      showSyncStatus: store.preferences.showBookSyncStatus) }
-            }.opacity(lifted ? 0 : 1)
+                if store.preferences.listView {
+                    BookRow(book: book, showRating: store.preferences.showBookRating,
+                            showSyncStatus: store.preferences.showBookSyncStatus, muted: mutedText,
+                            coverFrameKey: "shelf:\(book.id)", hideCover: flightLifted)
+                        .opacity(previewLifted ? 0 : 1)
+                } else {
+                    NativeBookTile(book: book, width: coverWidth, muted: mutedText, galleryMode: galleryMode,
+                                   showRating: store.preferences.showBookRating,
+                                   showSyncStatus: store.preferences.showBookSyncStatus,
+                                   coverFrameKey: "shelf:\(book.id)")
+                        .opacity(previewLifted || flightLifted ? 0 : 1)
+                }
+            }
         }.buttonStyle(.plain).disabled(store.openingReader)
             .overlay {
                 NativeBookLink(enabled: !store.openingReader,
-                               tap: { store.perform { try await store.openReader(book) } },
+                               tap: {
+                                   let frame = NativeBookCoverFrames.get("shelf:\(book.id)")
+                                   store.perform { try await store.openReader(book, sourceFrame: frame) }
+                               },
                                longPress: { frame in
                     destinations.showPreview(book, source: .shelf, frame: frame, width: coverWidth,
                                              isListRow: store.preferences.listView,
@@ -920,16 +949,16 @@ final class NativeShelfBookDestinations: ObservableObject {
             showRating: source != .seriesStack && store.preferences.showBookRating,
             showSyncStatus: source != .seriesStack && store.preferences.showBookSyncStatus,
             actions: actions + [
-                NativeBookMenuItem(L("加入收藏夹"), identifier: "book.action.collections") {
+                NativeBookMenuItem(L("加入收藏夹"), identifier: "book.action.collections", systemImage: "folder.badge.plus") {
                     beforeNavigation()
                     self.collectionBook = book
                 },
-                NativeBookMenuItem(L("书籍详情"), identifier: "book.action.details") {
+                NativeBookMenuItem(L("书籍详情"), identifier: "book.action.details", systemImage: "info.circle") {
                     beforeNavigation()
                     self.detailBookID = book.id
                     self.showingDetail = true
                 },
-                NativeBookMenuItem(L("移到回收站"), destructive: true, identifier: "book.action.delete") {
+                NativeBookMenuItem(L("移到回收站"), destructive: true, identifier: "book.action.delete", systemImage: "trash") {
                     store.perform {
                         try await store.command("book.delete", ["bookId": book.id])
                         try await store.refreshLibrary()
@@ -1077,11 +1106,13 @@ struct NativeBookTile: View {
     var showRating = false
     var showSyncStatus = false
     var previewing = false
+    var coverFrameKey: String? = nil
     var body: some View {
         let _ = uiLocale
 
         VStack(alignment: .leading, spacing: 0) {
             BookCover(book: book, width: width)
+                .trackBookOpenFrame(key: coverFrameKey)
                 .overlay(alignment: .topLeading) {
                     if showRating, let rating = book.onlineRating {
                         NativeBookRatingBadge(rating: rating).padding(5).accessibilityHidden(true)
@@ -1212,6 +1243,7 @@ private struct NativeBookSeriesTile: View {
                     )
                 }
                 .opacity(lifted ? 0 : 1)
+                .trackBookOpenFrame(key: "shelf:\(front.id)")
             if !galleryMode {
                 let author = volumes.lazy.map(\.authors).first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? front.authors
                 Text(title).font(NativeTheme.font(13.5)).lineLimit(2).lineSpacing(3).padding(.top, 8)
@@ -1402,6 +1434,7 @@ struct NativeBookSeriesOverlay: View {
                             }
                             .buttonStyle(.plain)
                             .disabled(store.openingReader)
+                            .trackBookOpenFrame(key: "seriesVolume:\(book.id)")
                             .overlay {
                                 NativeBookLink(enabled: !store.openingReader, tap: { open(book) },
                                                longPress: { frame in preview(book, frame, coverWidth) })
@@ -1427,8 +1460,9 @@ struct NativeBookSeriesOverlay: View {
     }
 
     private func open(_ book: LibraryBook) {
+        let frame = NativeBookCoverFrames.get("seriesVolume:\(book.id)")
         close()
-        store.perform { try await store.openReader(book) }
+        store.perform { try await store.openReader(book, sourceFrame: frame) }
     }
 }
 
@@ -1531,9 +1565,13 @@ struct BookRow: View {
     var showSyncStatus = false
     var muted = NativeTheme.muted
     var previewing = false
+    var coverFrameKey: String? = nil
+    var hideCover = false
     var body: some View {
         HStack(spacing: 16) {
             BookCover(book: book, width: 46, height: 66)
+                .trackBookOpenFrame(key: coverFrameKey)
+                .opacity(hideCover ? 0 : 1)
             VStack(alignment: .leading, spacing: 4) {
                 previewMetadata(Text(book.title).font(NativeTheme.font(15)).lineLimit(1), "book.preview.title")
                 HStack(spacing: 10) {

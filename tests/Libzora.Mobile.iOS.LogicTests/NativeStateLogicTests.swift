@@ -77,6 +77,41 @@ struct NativeStateLogicTests {
                       "Preview and Apply share the same status conflict rule")
             }
         }
-        print("Passed \(assertions) iOS preference, widget-link and filter regression assertions.")
+
+        var search = NativeReaderSearchAccumulator()
+        search.reset(searchId: "s1", query: "pond", busy: true)
+        let hitLate = ReaderSearchHit(id: 0, title: "Ch 3", excerpt: "late", chapterIndex: 2, offset: 40)
+        let hitEarly = ReaderSearchHit(id: 1, title: "Ch 1", excerpt: "early", chapterIndex: 0, offset: 10)
+        check(search.apply(ReaderSearchBatch(generation: 1, searchId: "s1", query: "pond",
+                                             items: [hitLate], scannedChapters: 2, totalChapters: 5,
+                                             isFinal: false, error: nil, hasMore: false, isIncremental: true, totalHits: 1)),
+              "Current search batch is accepted")
+        check(!search.apply(ReaderSearchBatch(generation: 1, searchId: "stale", query: "pond",
+                                              items: [hitEarly], scannedChapters: 1, totalChapters: 5,
+                                              isFinal: true, error: nil, hasMore: false, isIncremental: true, totalHits: 1)),
+              "Stale search IDs are ignored")
+        check(search.apply(ReaderSearchBatch(generation: 1, searchId: "s1", query: "pond",
+                                             items: [hitLate, hitEarly], scannedChapters: 3, totalChapters: 5,
+                                             isFinal: true, error: nil, hasMore: true, isIncremental: true, totalHits: 2)),
+              "Wrapped earlier chapter delta merges in reading order without duplicating IDs")
+        check(search.hits.map(\.id) == [1, 0], "Merged search hits stay sorted by chapter and offset")
+        check(search.hasMore && !search.busy && search.isFinal, "Paused search retains hasMore for continuation")
+
+        search.beginContinue()
+        check(search.busy && search.loadingMore && !search.isFinal, "Continuation marks search as loading more")
+        let hitEnd = ReaderSearchHit(id: 2, title: "Ch 5", excerpt: "end", chapterIndex: 4, offset: 80)
+        check(search.apply(ReaderSearchBatch(generation: 1, searchId: "s1", query: "pond",
+                                             items: [hitEnd], scannedChapters: 5, totalChapters: 5,
+                                             isFinal: true, error: nil, hasMore: false, isIncremental: true, totalHits: 3)),
+              "Continuation batch appends remaining hits")
+        check(search.hits.map(\.id) == [1, 0, 2] && !search.hasMore && !search.loadingMore && !search.busy,
+              "Completed continuation clears loadingMore and hasMore")
+
+        var cursor = NativeReaderSearchCursor()
+        cursor.select(0, navigationRevision: 7)
+        check(cursor.neighbor(-1, in: search.hits.map(\.id)) == 1 && cursor.neighbor(1, in: search.hits.map(\.id)) == 2,
+              "Search cursor tracks stable hit IDs across wrapped and continued insertions")
+
+        print("Passed \(assertions) iOS preference, widget-link, filter and search regression assertions.")
     }
 }

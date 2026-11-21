@@ -93,8 +93,15 @@ struct NativeMaterials: View {
             } else { store.showToast(L("这本书已不在书库中")) }
         } label: {
             HStack(alignment: .top, spacing: 10) {
-                Image(systemName: item.kind == "bookmark" ? "bookmark" : "note.text")
-                    .font(.system(size: 17, weight: .regular)).foregroundStyle(NativeTheme.muted).frame(width: 18).padding(.top, 1)
+                if let accent = NativeHighlightPalette.accentColor(style: item.underlineStyle, hex: item.highlightColor) {
+                    RoundedRectangle(cornerRadius: 1.5)
+                        .fill(accent)
+                        .frame(width: 3)
+                        .padding(.vertical, 2)
+                } else {
+                    Image(systemName: item.kind == "bookmark" ? "bookmark" : "note.text")
+                        .font(.system(size: 17, weight: .regular)).foregroundStyle(NativeTheme.muted).frame(width: 18).padding(.top, 1)
+                }
                 VStack(alignment: .leading, spacing: 5) {
                     Text("\(item.kindLabel) · \(item.locationText)").font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.muted).lineLimit(1)
                     Text(item.quote).font(NativeTheme.font(14)).lineSpacing(4)

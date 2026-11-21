@@ -161,18 +161,27 @@ public partial class ReaderPage
         _ = CopyAsync(selection.Text);
     }
 
-    private ReaderAnnotation NewAnnotation(ReaderSelection selection) => new()
+    private ReaderAnnotation NewAnnotation(ReaderSelection selection)
     {
-        BookId = _book.Id,
-        BookFileId = _bookFile!.Id,
-        ChapterPath = CurrentChapterPath,
-        Fragment = _isPdf ? (_readerHost as IPdfTextHost)?.SelectionFragment : null,
-        StartOffset = selection.Start,
-        EndOffset = selection.End,
-        SelectedText = selection.Text,
-        Prefix = selection.Prefix,
-        Suffix = selection.Suffix
-    };
+        var style = MobilePreferences.NormalizeReaderHighlightStyle(_shell.Preferences.Current.ReaderHighlightStyle);
+        var color = style == "marker"
+            ? MobilePreferences.NormalizeReaderHighlightColor(_shell.Preferences.Current.ReaderHighlightColor)
+            : "#000000";
+        return new()
+        {
+            BookId = _book.Id,
+            BookFileId = _bookFile!.Id,
+            ChapterPath = CurrentChapterPath,
+            Fragment = _isPdf ? (_readerHost as IPdfTextHost)?.SelectionFragment : null,
+            StartOffset = selection.Start,
+            EndOffset = selection.End,
+            SelectedText = selection.Text,
+            Prefix = selection.Prefix,
+            Suffix = selection.Suffix,
+            UnderlineStyle = style,
+            Color = color
+        };
+    }
 
     private void PromptNote(ReaderAnnotation annotation)
     {
@@ -212,7 +221,7 @@ public partial class ReaderPage
         if (_usesNativeFrontend)
         {
             NativeDialogRequested?.Invoke(new NativeReaderDialog("annotation", UiText.Get("批注"), annotation.DisplayQuote,
-                annotation.Id, annotation.Note));
+                annotation.Id, annotation.Note, annotation.UnderlineStyle, annotation.Color));
             return;
         }
         var title = annotation.DisplayQuote.Length > 24

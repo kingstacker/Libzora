@@ -372,4 +372,24 @@ public sealed class NativeFrontendContractTests
             Directory.Delete(directory, recursive: true);
         }
     }
+
+    [Fact]
+    public void HighlightStyleAndColorPreferencesNormalizeInvalidValues()
+    {
+        Assert.Equal("solid", MobilePreferences.NormalizeReaderHighlightStyle(null));
+        Assert.Equal("marker", MobilePreferences.NormalizeReaderHighlightStyle("  MARKER "));
+        Assert.Equal("wavy", MobilePreferences.NormalizeReaderHighlightStyle("wavy"));
+        Assert.Equal("solid", MobilePreferences.NormalizeReaderHighlightStyle("unknown"));
+        Assert.Equal("#000000", MobilePreferences.NormalizeReaderHighlightColor(null));
+        Assert.Equal("#FFD54F", MobilePreferences.NormalizeReaderHighlightColor(" #ffd54f "));
+        Assert.Equal("#000000", MobilePreferences.NormalizeReaderHighlightColor("yellow"));
+
+        var preferences = Read(
+            JsonDocument.Parse("""{"ReaderHighlightStyle":"marker","ReaderHighlightColor":"#64B5F6"}""").RootElement,
+            new MobilePreferences(),
+            IOSNativeJsonContext.Default.MobilePreferences);
+        Assert.True(new MobilePreferences().StackBookSeries);
+        Assert.Equal("marker", preferences.ReaderHighlightStyle);
+        Assert.Equal("#64B5F6", preferences.ReaderHighlightColor);
+    }
 }

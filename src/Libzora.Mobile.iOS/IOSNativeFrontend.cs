@@ -595,7 +595,9 @@ internal sealed partial class IOSNativeFrontend
         ReaderLineHeight = double.IsFinite(value.ReaderLineHeight) ? Math.Clamp(value.ReaderLineHeight, 1.2, 3) : 1.75,
         ReaderParagraphSpacing = double.IsFinite(value.ReaderParagraphSpacing)
             ? Math.Clamp(value.ReaderParagraphSpacing, 0, ReaderLayoutDefaults.MaxParagraphSpacing) : ReaderLayoutDefaults.DefaultParagraphSpacing,
-        ReaderBodyPadding = double.IsFinite(value.ReaderBodyPadding) ? Math.Clamp(value.ReaderBodyPadding, 16, 64) : 24
+        ReaderBodyPadding = double.IsFinite(value.ReaderBodyPadding) ? Math.Clamp(value.ReaderBodyPadding, 16, 64) : 24,
+        ReaderHighlightStyle = MobilePreferences.NormalizeReaderHighlightStyle(value.ReaderHighlightStyle),
+        ReaderHighlightColor = MobilePreferences.NormalizeReaderHighlightColor(value.ReaderHighlightColor)
     };
 
     private static string NormalizeReaderLatinFontFamily(string? value)

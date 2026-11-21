@@ -3,12 +3,12 @@ import UIKit
 import CoreText
 
 private enum ReaderPanel: String, Identifiable {
-    case toc, typography, speech, dictionary, assistant, translation, info
+    case toc, typography, speech, assistant, translation, info
     var id: String { rawValue }
     var title: String {
         switch self {
         case .toc: return L("目录"); case .typography: return L("阅读设置")
-        case .speech: return L("朗读设置"); case .dictionary: return L("本地词典"); case .assistant: return L("AI 助手")
+        case .speech: return L("朗读设置"); case .assistant: return L("AI 助手")
         case .translation: return L("翻译"); case .info: return L("注释")
         }
     }
@@ -20,6 +20,8 @@ private struct ReaderNoteRequest: Identifiable, Equatable {
     let quote: String
     let annotationId: String?
     let initialNote: String
+    let initialStyle: String
+    let initialColor: String
 }
 
 struct NativeReaderPage: View {
@@ -32,6 +34,7 @@ struct NativeReaderPage: View {
     @State private var panel: ReaderPanel?
     @State private var dialog: ReaderDialog?
     @State private var noteRequest: ReaderNoteRequest?
+    @State private var dictionaryTerm: String?
     @State private var keyboardHeight: CGFloat = 0
     @State private var selectedText = ""
     @State private var seekProgress = 0.0
@@ -40,15 +43,8 @@ struct NativeReaderPage: View {
     @State private var searching = false
     @FocusState private var searchFocused: Bool
     @State private var searchQuery = ""
-    @State private var searchSubmitted = ""
-    @State private var searchHits: [ReaderSearchHit] = []
-    @State private var searchBusy = false
-    @State private var searchFinal = false
-    @State private var searchScanned = 0
-    @State private var searchTotal = 0
-    @State private var searchError: String?
+    @State private var searchResults = NativeReaderSearchAccumulator()
     @State private var searchGeneration = 0
-    @State private var searchId = ""
     @State private var showingSearchResults = false
     @State private var jumpingToSearch = false
     @State private var searchComposing = false
@@ -56,6 +52,8 @@ struct NativeReaderPage: View {
     @State private var searchCursor = NativeReaderSearchCursor()
     @State private var speechExpanded = true
     @State private var footnoteCardHeight: CGFloat = 140
+    @State private var showingHighlightPalette = false
+    @State private var suppressNextHighlightTap = false
     /// PostScript name of the body font, so the reading footer matches the page.
     @State private var bodyFontName = "KingHwaOldSong"
     @State private var systemLowPowerMode = ProcessInfo.processInfo.isLowPowerModeEnabled
@@ -131,7 +129,7 @@ struct NativeReaderPage: View {
                 }
                 VStack(spacing: 8) {
                     if reader.chromeVisible || !reader.ready || searching { topBar }
-                    if let id = searchCursor.hitId, !searching, let index = searchHits.firstIndex(where: { $0.id == id }) {
+                    if let id = searchCursor.hitId, !searching, let index = searchResults.hits.firstIndex(where: { $0.id == id }) {
                         searchNavigationBar(index: index)
                             .padding(.top, reader.chromeVisible ? 0 : 8)
                             .transition(.opacity)
@@ -152,11 +150,12 @@ struct NativeReaderPage: View {
                         .transition(.opacity)
                     }
                     if showingSearchResults {
-                        NativeReaderSearchResults(hits: searchHits, query: searchSubmitted, busy: searchBusy,
-                                                  final: searchFinal, scanned: searchScanned, total: searchTotal,
-                                                  error: searchError,
-                                                  jumping: jumpingToSearch, pick: jumpToSearch, close: dismissSearchResults)
-                            .frame(height: searchHits.isEmpty ? 58 : min(300, CGFloat(searchHits.count) * 96 + 38))
+                        NativeReaderSearchResults(hits: searchResults.hits, query: searchResults.query, busy: searchResults.busy,
+                                                  loadingMore: searchResults.loadingMore, hasMore: searchResults.hasMore,
+                                                  isPdf: reader.isPdf, scanned: searchResults.scanned, total: searchResults.total,
+                                                  error: searchResults.error, jumping: jumpingToSearch,
+                                                  pick: jumpToSearch, loadMore: continueSearch, close: dismissSearchResults)
+                            .frame(height: searchResults.hits.isEmpty ? 58 : min(340, CGFloat(searchResults.hits.count) * 96 + (searchResults.hasMore ? 96 : 38)))
                             .modifier(NativeFloatingSurface()).padding(.horizontal, 12)
                     }
                     Spacer(minLength: 0)
@@ -229,6 +228,12 @@ struct NativeReaderPage: View {
             keyboardHeight = 0
         }
         .onChange(of: reader.progress) { if !dragging { seekProgress = $0 } }
+        .onChange(of: reader.selectedText == nil) { cleared in
+            if cleared {
+                showingHighlightPalette = false
+                suppressNextHighlightTap = false
+            }
+        }
         .onChange(of: reader.chromeVisible) { if !$0 && searching && !jumpingToSearch { closeSearch() } }
         .onChange(of: reader.navigationRevision) { revision in
             _ = searchCursor.navigated(to: revision)
@@ -249,7 +254,13 @@ struct NativeReaderPage: View {
             if value.kind == "annotation" {
                 dialog = nil
                 panel = nil
-                beginNote(value.text, annotationId: value.annotationId, initial: value.note ?? "")
+                beginNote(
+                    value.text,
+                    annotationId: value.annotationId,
+                    initial: value.note ?? "",
+                    style: value.underlineStyle ?? store.preferences.readerHighlightStyle,
+                    color: value.color ?? store.preferences.readerHighlightColor
+                )
             } else {
                 dialog = value
                 panel = .info
@@ -258,8 +269,8 @@ struct NativeReaderPage: View {
         }
         .task(id: searchGeneration) {
             let generation = searchGeneration
-            let requestId = searchId
-            let query = searchSubmitted
+            let requestId = searchResults.searchId
+            let query = searchResults.query
             guard !query.isEmpty, !requestId.isEmpty else { return }
             do {
                 let _: Done = try await store.request(
@@ -270,21 +281,11 @@ struct NativeReaderPage: View {
                 }
             } catch {
                 guard !Task.isCancelled, generation == searchGeneration else { return }
-                searchError = error.localizedDescription
-                searchBusy = false
-                searchFinal = true
+                searchResults.failStart(error: error.localizedDescription)
             }
         }
-        .onChange(of: session.searchBatch) { batch in
-            guard let batch,
-                  batch.searchId == searchId,
-                  batch.query == searchSubmitted else { return }
-            searchHits = batch.items
-            searchScanned = batch.scannedChapters
-            searchTotal = batch.totalChapters
-            searchFinal = batch.isFinal
-            searchBusy = !batch.isFinal
-            if let error = batch.error { searchError = error }
+        .onReceive(session.searchBatches) { batch in
+            searchResults.apply(batch)
         }
     }
     private func resyncAppAppearance() {
@@ -376,14 +377,55 @@ struct NativeReaderPage: View {
         .accessibilityElement(children: .contain).accessibilityIdentifier("reader.page")
         .overlay {
             GeometryReader { geometry in
-                if let text = reader.selectedText, panel == nil, noteRequest == nil, !showingSearchResults {
-                    selectionBar(text)
-                        .frame(width: NativeSelectionToolbarLayout.width(in: geometry.size),
+                if let text = reader.selectedText, panel == nil, noteRequest == nil, dictionaryTerm == nil, !showingSearchResults {
+                    let barWidth = NativeSelectionToolbarLayout.width(in: geometry.size)
+                    selectionBar(text, width: barWidth)
+                        .frame(width: barWidth,
                                height: NativeSelectionToolbarLayout.height)
                         .position(NativeSelectionToolbarLayout.position(bounds: reader.selectionBounds,
                             in: geometry.size, chromeVisible: reader.chromeVisible,
                             speechVisible: speechActive && speechExpanded))
+
+                    if showingHighlightPalette {
+                        NativeSelectionHighlightBar(
+                            currentStyle: NativeHighlightStyle.normalize(store.preferences.readerHighlightStyle),
+                            currentColorHex: NativeHighlightPalette.normalizeHex(store.preferences.readerHighlightColor),
+                            onSelectStyle: { style in
+                                let color = style == .marker
+                                    ? NativeHighlightPalette.normalizeHex(store.preferences.readerHighlightColor)
+                                    : "#000000"
+                                applySelectionHighlight(style: style.rawValue, color: color)
+                            },
+                            onSelectColor: { option in
+                                applySelectionHighlight(style: NativeHighlightStyle.marker.rawValue, color: option.hex)
+                            }
+                        )
+                        .position(NativeSelectionToolbarLayout.palettePosition(bounds: reader.selectionBounds,
+                            in: geometry.size, chromeVisible: reader.chromeVisible,
+                            speechVisible: speechActive && speechExpanded))
+                    }
                 }
+            }
+            .transaction { $0.animation = nil }
+        }
+        .overlay {
+            if let term = dictionaryTerm {
+                GeometryReader { geometry in
+                    let bottomPad = keyboardHeight > 0 ? keyboardHeight + 12 : CGFloat(0)
+                    ZStack(alignment: keyboardHeight > 0 ? .bottom : .center) {
+                        Color.black.opacity(0.08).ignoresSafeArea()
+                            .onTapGesture { dismissDictionaryCard() }
+                        NativeFloatingDictionaryCard(store: store, initialTerm: term) {
+                            dismissDictionaryCard()
+                        }
+                        .frame(width: min(440, NativeAdaptiveLayout.noteWidth(viewportWidth: geometry.size.width)))
+                        .padding(.horizontal, chromeSideInset)
+                        .padding(.bottom, bottomPad)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .animation(.easeOut(duration: 0.22), value: keyboardHeight)
+                }
+                .transition(.opacity)
             }
         }
         .overlay {
@@ -457,8 +499,8 @@ struct NativeReaderPage: View {
         store.perform { try await store.command("reader.footnoteReturn") }
     }
     private func cancelSearchRequest() {
-        let requestId = searchId
-        searchId = ""
+        let requestId = searchResults.searchId
+        searchResults.clearRequest()
         searchGeneration += 1
         if !requestId.isEmpty {
             store.perform { try? await store.command("reader.searchCancel", ["searchId": requestId]) }
@@ -479,13 +521,11 @@ struct NativeReaderPage: View {
         pendingSearch?.cancel(); pendingSearch = nil
         let query = trimmedSearchQuery
         showingSearchResults = !query.isEmpty
-        if query == searchSubmitted, !searchId.isEmpty { return }
+        if query == searchResults.query, !searchResults.searchId.isEmpty { return }
 
         cancelSearchRequest()
         exitSearchNavigation()
-        searchSubmitted = query; searchHits = []; searchError = nil
-        searchScanned = 0; searchTotal = 0; searchFinal = false
-        searchBusy = !query.isEmpty
+        searchResults.reset(searchId: "", query: query, busy: !query.isEmpty)
         guard !query.isEmpty else { return }
         pendingSearch = Task {
             do { try await Task.sleep(nanoseconds: 250_000_000) }
@@ -495,7 +535,7 @@ struct NativeReaderPage: View {
         }
     }
     private func startSearchRequest() {
-        searchId = UUID().uuidString
+        searchResults.startRequest(searchId: UUID().uuidString)
         searchGeneration += 1
     }
     private func submitSearch() {
@@ -503,7 +543,24 @@ struct NativeReaderPage: View {
         scheduleLiveSearch()
         searchFocused = false
         pendingSearch?.cancel(); pendingSearch = nil
-        if searchId.isEmpty { startSearchRequest() }
+        if searchResults.searchId.isEmpty { startSearchRequest() }
+    }
+    private func continueSearch() {
+        guard !jumpingToSearch, !searchResults.busy, searchResults.hasMore,
+              !searchResults.searchId.isEmpty else { return }
+        searchFocused = false
+        let requestId = searchResults.searchId
+        searchResults.beginContinue()
+        store.perform {
+            do {
+                let _: Done = try await store.request(
+                    "reader.searchMore", ["searchId": requestId])
+            } catch {
+                if requestId == searchResults.searchId {
+                    searchResults.failContinue(error: error.localizedDescription)
+                }
+            }
+        }
     }
     private func openSearchResults(focus: Bool) {
         withAnimation(.easeOut(duration: 0.2)) { searching = true }
@@ -516,23 +573,23 @@ struct NativeReaderPage: View {
         run("searchClearHighlight")
     }
     private func jumpToSearch(_ hit: ReaderSearchHit) {
-        guard !jumpingToSearch, !searchId.isEmpty else { return }
+        guard !jumpingToSearch, !searchResults.searchId.isEmpty else { return }
         searchFocused = false
         jumpingToSearch = true
-        let requestId = searchId
+        let requestId = searchResults.searchId
         let revision = reader.navigationRevision
         store.perform {
             defer { jumpingToSearch = false }
             let reply: ReaderSearchJumpReply = try await store.request(
                 "reader.searchJump", ["id": hit.id, "searchId": requestId])
-            guard reply.jumped, requestId == searchId, revision == reader.navigationRevision else { return }
+            guard reply.jumped, requestId == searchResults.searchId, revision == reader.navigationRevision else { return }
             searchCursor.select(hit.id, navigationRevision: revision)
             closeSearch()
         }
     }
     private func moveSearchHit(_ direction: Int) {
-        guard let id = searchCursor.neighbor(direction, in: searchHits.map(\.id)),
-              let hit = searchHits.first(where: { $0.id == id }) else { return }
+        guard let id = searchCursor.neighbor(direction, in: searchResults.hits.map(\.id)),
+              let hit = searchResults.hits.first(where: { $0.id == id }) else { return }
         jumpToSearch(hit)
     }
     private func searchNavigationBar(index: Int) -> some View {
@@ -544,14 +601,16 @@ struct NativeReaderPage: View {
             Button { openSearchResults(focus: false) } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "magnifyingglass").font(.system(size: 11))
-                    Text("\(index + 1)/\(searchHits.count)\(searchFinal ? "" : "+")")
+                    let count = searchResults.hits.count
+                    let moreSuffix = (!searchResults.isFinal || searchResults.hasMore) ? "+" : ""
+                    Text("\(index + 1)/\(count)\(moreSuffix)")
                         .monospacedDigit().font(NativeTheme.font(13)).lineLimit(1)
                 }.frame(minWidth: 76, minHeight: 44).contentShape(Rectangle())
-            }.accessibilityLabel(L("第 {0} 条，共 {1} 条搜索结果", index + 1, searchHits.count))
+            }.accessibilityLabel(L("第 {0} 条，共 {1} 条搜索结果", index + 1, searchResults.hits.count))
                 .accessibilityIdentifier("reader.search.cursor")
             Button { moveSearchHit(1) } label: {
                 Image(systemName: "chevron.right").frame(width: 44, height: 44).contentShape(Rectangle())
-            }.disabled(index + 1 >= searchHits.count || jumpingToSearch)
+            }.disabled(index + 1 >= searchResults.hits.count || jumpingToSearch)
                 .accessibilityLabel(L("下一条搜索结果")).accessibilityIdentifier("reader.search.next")
             Button(action: exitSearchNavigation) {
                 Image(systemName: "xmark").font(.system(size: 14))
@@ -628,31 +687,51 @@ struct NativeReaderPage: View {
             .frame(maxWidth: NativeAdaptiveLayout.readerToolsMaxWidth)
             .frame(maxWidth: .infinity)
     }
-    private func selectionBar(_ text: String) -> some View {
-        GeometryReader { proxy in
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 0) {
-                    selectionAction(L("复制"), "doc.on.doc", identifier: "reader.复制") {
-                        UIPasteboard.general.string = text; run("clearSelection"); store.showToast(L("已复制"))
-                    }
-                    selectionAction(L("划线"), "underline", identifier: "reader.划线") { run("annotate") }
-                    selectionAction(L("笔记"), "square.and.pencil", identifier: "reader.笔记") { beginNote(text) }
-                    selectionAction(L("搜索"), "magnifyingglass", identifier: "reader.搜索") {
-                        store.perform {
-                            try await store.command("reader.clearSelection")
-                            try await store.command("reader.showChrome")
-                            searching = true; searchQuery = text; submitSearch()
-                        }
-                    }
-                    selectionAction(L("词典"), "book.closed", identifier: "reader.词典") { selectedText = text; panel = .dictionary }
-                    selectionAction("AI", "sparkles", identifier: "reader.AI") { selectedText = text; panel = .assistant }
-                    selectionAction(L("翻译"), "character.bubble", identifier: "reader.翻译") { selectedText = text; panel = .translation }
-                    selectionAction(L("朗读"), "speaker.wave.2", identifier: "reader.朗读") { run("selectionSpeech") }
+    private func selectionBar(_ text: String, width: CGFloat) -> some View {
+        let actions = HStack(spacing: 0) {
+            selectionAction(L("复制"), "doc.on.doc", identifier: "reader.复制") {
+                UIPasteboard.general.string = text; run("clearSelection"); store.showToast(L("已复制"))
+            }
+            selectionUnderlineAction(
+                action: {
+                    let style = NativeHighlightStyle.normalize(store.preferences.readerHighlightStyle)
+                    let color = style == .marker
+                        ? NativeHighlightPalette.normalizeHex(store.preferences.readerHighlightColor)
+                        : "#000000"
+                    applySelectionHighlight(style: style.rawValue, color: color)
+                },
+                onLongPress: {
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    showingHighlightPalette = true
                 }
-                .padding(4)
-                // Keep the icon row centred when the capsule is wider than
-                // the actions; a horizontal ScrollView otherwise pins it left.
-                .frame(minWidth: proxy.size.width, alignment: .center)
+            )
+            selectionAction(L("笔记"), "square.and.pencil", identifier: "reader.笔记") { beginNote(text) }
+            selectionAction(L("搜索"), "magnifyingglass", identifier: "reader.搜索") {
+                store.perform {
+                    try await store.command("reader.clearSelection")
+                    try await store.command("reader.showChrome")
+                    searching = true; searchQuery = text; submitSearch()
+                }
+            }
+            selectionAction(L("词典"), "book.closed", identifier: "reader.词典") {
+                selectedText = text
+                dictionaryTerm = text
+            }
+            selectionAction("AI", "sparkles", identifier: "reader.AI") { selectedText = text; panel = .assistant }
+            selectionAction(L("翻译"), "character.bubble", identifier: "reader.翻译") { selectedText = text; panel = .translation }
+            selectionAction(L("朗读"), "speaker.wave.2", identifier: "reader.朗读") { run("selectionSpeech") }
+        }
+        return Group {
+            if width >= 336 {
+                actions
+                    .padding(.horizontal, 8)
+                    .frame(width: width, height: NativeSelectionToolbarLayout.height, alignment: .center)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    actions
+                        .padding(.horizontal, 8)
+                        .frame(minWidth: width, minHeight: NativeSelectionToolbarLayout.height, alignment: .center)
+                }
             }
         }
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
@@ -662,9 +741,54 @@ struct NativeReaderPage: View {
     }
     private func selectionAction(_ title: String, _ symbol: String, identifier: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: symbol).font(.system(size: 19, weight: .regular))
-                .frame(width: 44, height: 44, alignment: .center).contentShape(Rectangle())
+            Image(systemName: symbol)
+                .font(.system(size: 18, weight: .regular))
+                .frame(width: 20, height: 20, alignment: .center)
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .center)
+                .contentShape(Rectangle())
         }.buttonStyle(.plain).accessibilityLabel(title).accessibilityIdentifier(identifier)
+    }
+    private func selectionUnderlineAction(
+        action: @escaping () -> Void,
+        onLongPress: @escaping () -> Void
+    ) -> some View {
+        let accent = NativeHighlightPalette.accentColor(
+            style: store.preferences.readerHighlightStyle,
+            hex: store.preferences.readerHighlightColor
+        )
+        return Button {
+            if suppressNextHighlightTap {
+                suppressNextHighlightTap = false
+                return
+            }
+            action()
+        } label: {
+            ZStack {
+                NativeSelectionUnderlineGlyph()
+                    .stroke(style: StrokeStyle(lineWidth: 1.65, lineCap: .round, lineJoin: .round))
+                    .frame(width: 15, height: 16)
+                if let accent {
+                    Circle()
+                        .fill(accent)
+                        .frame(width: 5, height: 5)
+                        .overlay(Circle().stroke(Color.black.opacity(0.2), lineWidth: 0.4))
+                        .offset(x: 9, y: -7)
+                }
+            }
+            .frame(width: 20, height: 20, alignment: .center)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .center)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .simultaneousGesture(
+            LongPressGesture(minimumDuration: 0.32, maximumDistance: 18)
+                .onEnded { _ in
+                    suppressNextHighlightTap = true
+                    onLongPress()
+                }
+        )
+        .accessibilityLabel(L("划线"))
+        .accessibilityIdentifier("reader.划线")
     }
     private func tool(_ title: String, _ image: String, identifier: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
@@ -684,23 +808,75 @@ struct NativeReaderPage: View {
                                       close: { self.panel = nil })
         case .typography: NativeTypography(store: store, isPdf: reader.isPdf)
         case .speech: NativeSpeechSettings(store: store, close: { self.panel = nil })
-        case .dictionary: NativeDictionary(store: store, initialTerm: selectedText)
         case .assistant: NativeAssistant(store: store, session: session, book: book, selection: selectedText)
         case .translation: NativeTranslation(store: store, text: selectedText)
         case .info: ScrollView { Text(dialog?.text ?? "").textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).padding(24) }
         }
     }
 
-    private func beginNote(_ quote: String, annotationId: String? = nil, initial: String = "") {
+    private func beginNote(
+        _ quote: String,
+        annotationId: String? = nil,
+        initial: String = "",
+        style: String? = nil,
+        color: String? = nil
+    ) {
         selectedText = quote
-        noteRequest = ReaderNoteRequest(quote: quote, annotationId: annotationId, initialNote: initial)
+        let resolvedStyle = NativeHighlightStyle.normalize(style ?? store.preferences.readerHighlightStyle).rawValue
+        let resolvedColor = NativeHighlightPalette.normalizeHex(
+            color ?? (resolvedStyle == NativeHighlightStyle.marker.rawValue ? store.preferences.readerHighlightColor : "#000000")
+        )
+        noteRequest = ReaderNoteRequest(
+            quote: quote,
+            annotationId: annotationId,
+            initialNote: initial,
+            initialStyle: resolvedStyle,
+            initialColor: resolvedColor
+        )
+    }
+
+    private func applySelectionHighlight(style: String, color: String) {
+        showingHighlightPalette = false
+        suppressNextHighlightTap = false
+        run("annotate", ["note": "", "style": style, "color": color])
     }
 
     private func dismissNoteEditor() {
         noteRequest = nil
     }
 
+    private func dismissDictionaryCard() {
+        dictionaryTerm = nil
+    }
+
     private func run(_ command: String, _ args: [String: Any] = [:]) { store.perform { try await store.command("reader.\(command)", args) } }
+}
+
+/// Balanced U + underline glyph matching the desktop selection bar proportions so
+/// the icon centers visually alongside square/circular SF Symbols.
+private struct NativeSelectionUnderlineGlyph: Shape {
+    func path(in rect: CGRect) -> Path {
+        let w = rect.width
+        let h = rect.height
+        var path = Path()
+        let left = rect.minX + w * 0.16
+        let right = rect.maxX - w * 0.16
+        let radius = (right - left) / 2
+        let uTop = rect.minY + h * 0.04
+        let arcCenterY = rect.minY + h * 0.72 - radius
+        path.move(to: CGPoint(x: left, y: uTop))
+        path.addLine(to: CGPoint(x: left, y: arcCenterY))
+        path.addArc(center: CGPoint(x: rect.midX, y: arcCenterY),
+                    radius: radius,
+                    startAngle: .degrees(180),
+                    endAngle: .degrees(0),
+                    clockwise: true)
+        path.addLine(to: CGPoint(x: right, y: uTop))
+        let lineY = rect.maxY - h * 0.04
+        path.move(to: CGPoint(x: rect.minX, y: lineY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: lineY))
+        return path
+    }
 }
 
 struct NativeTypography: View {
@@ -1337,31 +1513,55 @@ struct NativeReaderSearchResults: View {
     let hits: [ReaderSearchHit]
     let query: String
     let busy: Bool
-    let final: Bool
+    let loadingMore: Bool
+    let hasMore: Bool
+    let isPdf: Bool
     let scanned: Int
     let total: Int
     let error: String?
     let jumping: Bool
     let pick: (ReaderSearchHit) -> Void
+    let loadMore: () -> Void
     let close: () -> Void
     var body: some View {
         let _ = uiLocale
 
         VStack(alignment: .leading, spacing: 0) {
-            Group {
-                if let error { Text(error) }
-                else if busy && hits.isEmpty {
-                    HStack(spacing: 8) {
-                        ProgressView()
-                        Text(scanned <= 1 ? L("正在搜索当前章节…") : L("正在搜索全书…"))
+            HStack(spacing: 8) {
+                Group {
+                    if let error { Text(error) }
+                    else if busy && hits.isEmpty {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                            Text(scanned <= 1 ? L("正在搜索当前章节…") : L("正在搜索全书…"))
+                        }
+                    } else if loadingMore {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                            Text(L("正在继续搜索…"))
+                        }
+                    } else if busy {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                            Text(L("已找到 {0} 处，继续搜索…", hits.count))
+                        }
+                    } else if hasMore && total > 0 {
+                        Text(isPdf
+                             ? L("已找到 {0} 处（已搜索 {1}/{2} 页）", hits.count, scanned, total)
+                             : L("已找到 {0} 处（已搜索 {1}/{2} 章）", hits.count, scanned, total))
+                    } else {
+                        Text(hits.isEmpty ? L("没有找到相关文字") : L("找到 {0} 处结果", hits.count))
                     }
-                } else if busy {
-                    HStack(spacing: 8) {
-                        ProgressView()
-                        Text(L("已找到 {0} 处，继续搜索…", hits.count))
+                }
+                Spacer(minLength: 8)
+                if hasMore && !busy {
+                    Button(action: loadMore) {
+                        Text(L("继续搜索"))
+                            .font(NativeTheme.font(12, relativeTo: .caption).weight(.medium))
+                            .foregroundStyle(NativeTheme.ink)
                     }
-                } else {
-                    Text(hits.isEmpty ? L("没有找到相关文字") : L("找到 {0} 处结果", hits.count))
+                    .disabled(jumping)
+                    .accessibilityIdentifier("reader.search.continue")
                 }
             }.font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.muted)
                 .padding(.horizontal, 20).padding(.top, 14).padding(.bottom, 6).accessibilityIdentifier("reader.search.status")
@@ -1376,6 +1576,35 @@ struct NativeReaderSearchResults: View {
                             }.padding(.vertical, 14).contentShape(Rectangle())
                         }.disabled(jumping).accessibilityIdentifier("reader.search.hit.\(hit.id)")
                         NativeTheme.strong.frame(height: 0.5)
+                    }
+                    if loadingMore && !hits.isEmpty {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                            Text(L("正在继续搜索…"))
+                                .font(NativeTheme.font(13, relativeTo: .subheadline))
+                                .foregroundStyle(NativeTheme.muted)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                    } else if hasMore && !busy {
+                        let remaining = max(0, total - scanned)
+                        Button(action: loadMore) {
+                            VStack(spacing: 3) {
+                                Text(L("继续搜索更多结果"))
+                                    .font(NativeTheme.font(14).weight(.medium))
+                                    .foregroundStyle(NativeTheme.ink)
+                                if remaining > 0 {
+                                    Text(isPdf ? L("还有 {0} 页未搜索", remaining) : L("还有 {0} 章未搜索", remaining))
+                                        .font(NativeTheme.font(12, relativeTo: .caption))
+                                        .foregroundStyle(NativeTheme.muted)
+                                }
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .contentShape(Rectangle())
+                        }
+                        .disabled(jumping)
+                        .accessibilityIdentifier("reader.search.loadMore")
                     }
                 }.padding(.horizontal, 20).padding(.bottom, 20)
             }
@@ -1414,18 +1643,27 @@ struct NativeSpeechSettings: View {
     @State private var busy = false
     var body: some View {
         NativeForm {
-            Section(L("系统语音")) {
+            Section {
                 Picker(L("语音"), selection: $voice) {
                     Text(L("系统默认（中文）")).tag("zh-CN-XiaoxiaoNeural")
                     ForEach(voices) { item in Text(item.name + (item.culture.map { " · " + $0 } ?? "")).tag(item.id) }
                 }
+            } header: {
+                Text(L("系统语音"))
+            } footer: {
                 Text(L("语音由设备提供，可以在系统设置中下载更多语音。")).font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary)
             }
             Section(L("语速")) { Text("\(speed, specifier: "%.1f")×"); Slider(value: $speed, in: 0.5...2, step: 0.1).accessibilityLabel(L("朗读语速")) }
-            Section { Toggle(L("自动翻到下一章或下一页"), isOn: $autoAdvance).tint(NativeTheme.systemSwitchTint); Text(L("设置在下次开始朗读时生效。")).font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary) }
-            Button(L("保存")) {
-                busy = true
-                store.perform { defer { busy = false }; try await store.command("settings.speech.save", ["voice": voice, "speed": speed, "autoAdvance": autoAdvance]); close() }
+            Section {
+                Toggle(L("自动翻到下一章或下一页"), isOn: $autoAdvance).tint(NativeTheme.systemSwitchTint)
+            } footer: {
+                Text(L("设置在下次开始朗读时生效。")).font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary)
+            }
+            Section {
+                Button(L("保存")) {
+                    busy = true
+                    store.perform { defer { busy = false }; try await store.command("settings.speech.save", ["voice": voice, "speed": speed, "autoAdvance": autoAdvance]); close() }
+                }
             }
         }.disabled(!ready || busy).task {
             do { let value: SpeechSnapshot = try await store.request("settings.speech.get"); voices = value.voices; voice = value.settings.voice; speed = value.settings.speed; autoAdvance = value.settings.autoAdvance; ready = true }
@@ -1439,6 +1677,8 @@ private struct NativeFloatingNoteEditor: View {
     let request: ReaderNoteRequest
     let close: () -> Void
     @State private var note: String
+    @State private var style: NativeHighlightStyle
+    @State private var colorHex: String
     @State private var busy = false
     @FocusState private var focused: Bool
 
@@ -1447,6 +1687,8 @@ private struct NativeFloatingNoteEditor: View {
         self.request = request
         self.close = close
         _note = State(initialValue: request.initialNote)
+        _style = State(initialValue: NativeHighlightStyle.normalize(request.initialStyle))
+        _colorHex = State(initialValue: NativeHighlightPalette.normalizeHex(request.initialColor))
     }
 
     private var isEditing: Bool { request.annotationId != nil }
@@ -1472,6 +1714,7 @@ private struct NativeFloatingNoteEditor: View {
                 .font(NativeTheme.font(13, relativeTo: .footnote))
                 .foregroundStyle(NativeTheme.secondary)
                 .lineLimit(2)
+            NativeHighlightStyleColorPickerRow(style: $style, colorHex: $colorHex)
             TextEditor(text: $note)
                 .font(NativeTheme.font(15, relativeTo: .body))
                 .modifier(NativeScrollContentBackgroundHidden())
@@ -1522,7 +1765,11 @@ private struct NativeFloatingNoteEditor: View {
     private func save() {
         guard !busy else { return }
         busy = true
-        var args: [String: Any] = ["note": note]
+        var args: [String: Any] = [
+            "note": note,
+            "style": style.rawValue,
+            "color": style == .marker || colorHex != "#000000" ? colorHex : "#000000"
+        ]
         if let annotationId = request.annotationId { args["id"] = annotationId }
         store.perform {
             defer { busy = false }

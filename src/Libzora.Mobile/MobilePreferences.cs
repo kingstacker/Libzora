@@ -77,7 +77,7 @@ public sealed record MobilePreferences
     public bool ShowBookSyncStatus { get; init; }
     /// <summary>Overlay each book's rating on its cover in the library.</summary>
     public bool ShowBookRating { get; init; }
-    public bool StackBookSeries { get; init; }
+    public bool StackBookSeries { get; init; } = true;
     public bool CollectionsView { get; init; }
     public double PdfZoom { get; init; } = 1;
     /// <summary>PDF display mode: 0 = SinglePage, 1 = Continuous, 2 = TwoPage.</summary>
@@ -133,6 +133,35 @@ public sealed record MobilePreferences
     public MobileReaderProgressDisplay ReaderProgressDisplay { get; init; } = MobileReaderProgressDisplay.Pages;
     /// <summary>Power-saving mode during reading: Off, follow OS Low Power Mode (default), or always On.</summary>
     public MobileReaderPowerSavingMode ReaderPowerSavingMode { get; init; } = MobileReaderPowerSavingMode.System;
+    /// <summary>Last used reader highlight/underline style: solid, double, dashed, dotted, wavy, marker.</summary>
+    public string ReaderHighlightStyle { get; init; } = "solid";
+    /// <summary>Last used reader highlight color (#RRGGBB).</summary>
+    public string ReaderHighlightColor { get; init; } = "#000000";
+
+    public static string NormalizeReaderHighlightStyle(string? value) =>
+        value?.Trim().ToLowerInvariant() switch
+        {
+            "double" => "double",
+            "dashed" => "dashed",
+            "dotted" => "dotted",
+            "wavy" => "wavy",
+            "marker" => "marker",
+            _ => "solid"
+        };
+
+    public static string NormalizeReaderHighlightColor(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return "#000000";
+        var normalized = value.Trim();
+        if (normalized.Length != 7 || normalized[0] != '#') return "#000000";
+        return int.TryParse(
+            normalized.AsSpan(1),
+            System.Globalization.NumberStyles.HexNumber,
+            System.Globalization.CultureInfo.InvariantCulture,
+            out _)
+            ? normalized.ToUpperInvariant()
+            : "#000000";
+    }
 
     public bool ResolvePowerSaving(bool systemLowPowerMode) => ReaderPowerSavingMode switch
     {
@@ -273,7 +302,9 @@ public sealed class MobilePreferencesStore(AppPaths paths)
                 {
                     UiLanguage = MobileUiLanguageService.NormalizePreference(current.UiLanguage),
                     ReaderProgressDisplay = MobilePreferences.NormalizeProgressDisplay(
-                        current.ReaderProgressDisplay)
+                        current.ReaderProgressDisplay),
+                    ReaderHighlightStyle = MobilePreferences.NormalizeReaderHighlightStyle(current.ReaderHighlightStyle),
+                    ReaderHighlightColor = MobilePreferences.NormalizeReaderHighlightColor(current.ReaderHighlightColor)
                 };
             }
         }

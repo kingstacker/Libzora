@@ -9,7 +9,8 @@ using Libzora.Mobile.Views;
 namespace Libzora.iOSHead;
 
 internal sealed record NativeMaterial(string Id, Guid BookId, string BookTitle, string Kind, string Quote,
-    string Note, string LocationText, DateTimeOffset UpdatedAt, ReaderProgressRow Location)
+    string Note, string LocationText, DateTimeOffset UpdatedAt, ReaderProgressRow Location,
+    string? HighlightColor = null, string? UnderlineStyle = null)
 {
     /// <summary>Location written to exports. The list shows the shorter <see cref="LocationText"/>.</summary>
     [JsonIgnore] public string ExportLocation { get; init; } = LocationText;

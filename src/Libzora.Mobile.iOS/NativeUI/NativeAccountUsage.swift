@@ -100,7 +100,7 @@ struct NativeAccountHeader: View {
                 Text(accountStatus).font(NativeTheme.font(12)).foregroundStyle(NativeTheme.secondary)
                     .accessibilityIdentifier("account.status")
             }
-        }.padding(16).background(NativeTheme.sunk, in: RoundedRectangle(cornerRadius: 18))
+        }.padding(.vertical, 4)
     }
 }
 
@@ -190,11 +190,14 @@ struct NativeSyncEntitlements: View {
     var body: some View {
         let _ = uiLocale
 
-        Section(L("同步功能")) {
+        Section {
             Text(!enforced ? L("S3 / WebDAV 多端同步免费使用，无需注册。")
                  : status.canUseFeatures ? L("自备 S3 / WebDAV 多端同步已解锁")
                  : L("领取试用或购买买断订阅，即可使用自备 S3 / WebDAV 多端同步。"))
                 .font(NativeTheme.font(13)).accessibilityIdentifier("membership.sync.features")
+        } header: {
+            Text(L("同步功能"))
+        } footer: {
             Text(L("所有方案均不提供官方云存储或官方云同步；存储与流量费用由用户承担。"))
                 .font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary)
                 .accessibilityIdentifier("membership.no-official-cloud")

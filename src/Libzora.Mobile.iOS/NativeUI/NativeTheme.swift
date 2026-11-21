@@ -187,13 +187,14 @@ struct NativeSettingsRow: View {
     var value = ""
     var chevron = true
     var detailColor = NativeTheme.muted
+    var verticalPadding: CGFloat = 13
     var body: some View {
         HStack(spacing: 8) {
             Text(title).font(NativeTheme.font())
             Spacer(minLength: 12)
             if !value.isEmpty { Text(value).font(NativeTheme.font(14)).foregroundStyle(detailColor).lineLimit(1) }
-            if chevron { Image(systemName: "chevron.right").font(.system(size: 12, weight: .regular)).foregroundStyle(detailColor) }
-        }.frame(minHeight: 22).padding(.vertical, 13).contentShape(Rectangle())
+            if chevron { Image(systemName: "chevron.right").font(.system(size: 12, weight: .medium)).foregroundStyle(detailColor.opacity(0.85)) }
+        }.frame(minHeight: 22).padding(.vertical, verticalPadding).contentShape(Rectangle())
     }
 }
 
@@ -226,6 +227,31 @@ struct NativeTextField: View {
                 .accessibilityLabel(title)
                 .accessibilityIdentifier(identifier)
         }
+    }
+}
+
+/// Borderless labeled field for `.insetGrouped` settings cards so inputs sit
+/// directly on the card surface without a nested gray box.
+struct NativeInlineTextField: View {
+    let title: String
+    @Binding var text: String
+    var secure = false
+    var identifier = ""
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(NativeTheme.font(12, relativeTo: .caption))
+                .foregroundStyle(NativeTheme.secondary)
+            Group {
+                if secure { SecureField("", text: $text) }
+                else { TextField("", text: $text) }
+            }
+            .font(NativeTheme.font())
+            .frame(maxWidth: .infinity, minHeight: 24, alignment: .leading)
+            .accessibilityLabel(title)
+            .accessibilityIdentifier(identifier)
+        }
+        .padding(.vertical, 2)
     }
 }
 
@@ -298,8 +324,8 @@ struct NativeThinProgress: View {
     }
 }
 
-/// Plain native rows keep the keyboard, scrolling and accessibility behavior
-/// of List without introducing the gray grouped Settings-app appearance.
+/// Inset grouped settings cards keep native keyboard avoidance, scrolling,
+/// hairline separators and accessibility behavior while matching iOS Settings.
 struct NativeForm<Content: View>: View {
     @EnvironmentObject private var store: NativeStore
     let content: Content
@@ -307,11 +333,38 @@ struct NativeForm<Content: View>: View {
     var body: some View {
         List {
             content
-                .listRowInsets(EdgeInsets(top: 13, leading: NativeAdaptiveLayout.pageInset,
-                                         bottom: 13, trailing: NativeAdaptiveLayout.pageInset))
-                .listRowSeparator(.hidden).listRowBackground(store.preferences.colorfulMode ? Color.clear : NativeTheme.page)
-        }.listStyle(.plain).textCase(nil).font(NativeTheme.font()).buttonStyle(.borderless)
-            .modifier(NativeListBackground())
+                .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
+                .listRowBackground(NativeGroupedRowBackground(colorfulMode: store.preferences.colorfulMode))
+        }.listStyle(.insetGrouped).textCase(nil).font(NativeTheme.font()).buttonStyle(.borderless)
+            .modifier(NativeGroupedListBackground())
+    }
+}
+
+struct NativeGroupedRowBackground: View {
+    let colorfulMode: Bool
+    var body: some View {
+        if colorfulMode {
+            Rectangle().fill(.regularMaterial)
+        } else {
+            Color(uiColor: .secondarySystemGroupedBackground)
+        }
+    }
+}
+
+struct NativeGroupedListBackground: ViewModifier {
+    @EnvironmentObject private var store: NativeStore
+    @ViewBuilder func body(content: Content) -> some View {
+        if store.preferences.colorfulMode {
+            if #available(iOS 16.0, *) { content.scrollContentBackground(.hidden).background(NativeAmbientBackground()) }
+            else { content.background(NativeAmbientBackground()) }
+        } else {
+            if #available(iOS 16.0, *) {
+                content.scrollContentBackground(.hidden)
+                    .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
+            } else {
+                content.background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
+            }
+        }
     }
 }
 

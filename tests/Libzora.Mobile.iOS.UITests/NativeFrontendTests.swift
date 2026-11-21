@@ -2066,6 +2066,12 @@ final class NativeFrontendTests: XCTestCase {
             XCTAssertGreaterThan(action.frame.midX, previousX)
             previousX = action.frame.midX
         }
+        let palette = app.descendants(matching: .any).matching(identifier: "reader.highlight.palette").firstMatch
+        XCTAssertFalse(palette.exists, "Highlight palette should stay hidden until long-pressing the highlight button.")
+        app.buttons["reader.划线"].press(forDuration: 0.6)
+        XCTAssertTrue(palette.waitForExistence(timeout: 5), "Long-pressing the highlight button should reveal the style and color palette.")
+        let yellow = app.buttons["reader.highlight.color.#FFD54F"]
+        XCTAssertTrue(yellow.exists && yellow.isHittable)
         attachScreenshot("选中文字-桌面顺序与就近浮窗")
         app.buttons["reader.复制"].tap()
         XCTAssertTrue(waitUntil { !bar.exists })
@@ -2118,18 +2124,29 @@ final class NativeFrontendTests: XCTestCase {
 
     func testReaderNoteOpensFloatingEditorForDirectTyping() throws {
         try openBook(containing: "Native UI EPUB")
+        let typography = app.buttons["reader.排版"]
+        XCTAssertTrue(typography.waitForExistence(timeout: 40))
+        let window = app.windows.firstMatch
+        window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)).tap()
+        XCTAssertTrue(waitUntil { !typography.exists })
+        window.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5))
+            .press(forDuration: 0.05, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5)))
+        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
         selectText()
         let note = app.buttons["reader.笔记"]
         XCTAssertTrue(note.waitForExistence(timeout: 10))
         note.tap()
         let editor = app.descendants(matching: .any)["reader.note.editor"]
         XCTAssertTrue(editor.waitForExistence(timeout: 10), "The note action should open a floating editor.")
-        XCTAssertLessThan(editor.frame.height, 400)
+        XCTAssertLessThan(editor.frame.height, 420)
         XCTAssertLessThan(editor.frame.width, app.frame.width)
         XCTAssertEqual(editor.frame.minX, app.frame.minX + 8, accuracy: 1,
                        "The floating editor should use the reader chrome's 8pt side inset.")
         XCTAssertEqual(editor.frame.maxX, app.frame.maxX - 8, accuracy: 1,
                        "The floating editor should keep the same inset on both sides.")
+        let noteBlue = app.buttons["reader.highlight.color.#64B5F6"]
+        XCTAssertTrue(noteBlue.waitForExistence(timeout: 5))
+        noteBlue.tap()
         let field = app.descendants(matching: .any)["reader.note.text"]
         XCTAssertTrue(field.waitForExistence(timeout: 10))
         XCTAssertTrue(waitUntil { self.app.keyboards.firstMatch.exists },
@@ -2147,7 +2164,11 @@ final class NativeFrontendTests: XCTestCase {
         try openBook(containing: "Native UI EPUB")
         selectText()
         app.buttons["reader.词典"].tap()
-        XCTAssertTrue(app.navigationBars["词典与维基百科"].waitForExistence(timeout: 10))
+        let card = app.descendants(matching: .any)["reader.dictionary.card"].firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 10))
+        let tabs = app.segmentedControls["reader.dictionary.tabs"]
+        XCTAssertTrue(tabs.waitForExistence(timeout: 5))
+        tabs.buttons["维基百科"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["reader.dictionary.wikipedia"].waitForExistence(timeout: 10))
         let result = app.descendants(matching: .any)["reader.dictionary.wikipedia.result"]
         let noResult = app.staticTexts.matching(
@@ -2166,6 +2187,8 @@ final class NativeFrontendTests: XCTestCase {
                       "An existing English article must render after Chinese lookup falls back.")
         XCTAssertTrue(app.buttons["在维基百科中打开"].exists)
         attachScreenshot("选中文字-本地词典与维基百科")
+        tabs.buttons["本地词典"].tap()
+        app.buttons["reader.dictionary.close"].tap()
     }
 
     func testReaderTapOutsideSelectionDismissesItWithoutOpeningToolbar() throws {
@@ -2199,8 +2222,11 @@ final class NativeFrontendTests: XCTestCase {
         XCTAssertTrue(waitUntil { !typography.exists })
         selectText()
         let highlight = app.buttons["reader.划线"]
-        highlight.tap()
-        XCTAssertTrue(waitUntil { !highlight.exists }, "Saving a highlight should close the selection toolbar.")
+        highlight.press(forDuration: 0.6)
+        let yellow = app.buttons["reader.highlight.color.#FFD54F"]
+        XCTAssertTrue(yellow.waitForExistence(timeout: 5))
+        yellow.tap()
+        XCTAssertTrue(waitUntil { !highlight.exists }, "Saving a colored highlight should close the selection toolbar.")
         attachScreenshot("添加划线")
         window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)).tap()
         XCTAssertTrue(app.buttons["reader.close"].waitForExistence(timeout: 10))
@@ -2617,6 +2643,33 @@ final class NativeFrontendTests: XCTestCase {
         XCTAssertTrue(option.waitForExistence(timeout: 5))
         option.tap()
         XCTAssertTrue(waitUntil { theme.value as? String == label })
+    }
+
+    func testColdLaunchSplashAndDirectReaderRestore() throws {
+        // Part 1: Cold launch into library plays branding (~1s) without "正在载入书库…".
+        app.terminate()
+        app.launchArguments = ["--libzora-disable-restore", "--libzora-enable-registration"]
+        app.launch()
+        XCTAssertFalse(app.staticTexts["正在载入书库…"].exists)
+        XCTAssertTrue(app.tabBars.buttons["书库"].waitForExistence(timeout: 40))
+        XCTAssertTrue(app.scrollViews["library.ready"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.staticTexts["正在载入书库…"].exists)
+        XCTAssertFalse(app.otherElements["launch.screen"].exists)
+
+        // Open a book so lastReaderKey is saved, then cold-relaunch to verify direct reader entry.
+        try openBook(containing: "Native UI EPUB", revealControls: false)
+        let position = app.staticTexts["reader.position"]
+        XCTAssertTrue(position.waitForExistence(timeout: 40))
+
+        app.terminate()
+        app.launchArguments = ["--libzora-enable-registration"]
+        app.launch()
+        XCTAssertFalse(app.staticTexts["launch.brand"].exists)
+        XCTAssertFalse(app.staticTexts["launch.slogan"].exists)
+        XCTAssertFalse(app.staticTexts["正在载入书库…"].exists)
+        XCTAssertTrue(position.waitForExistence(timeout: 40), app.debugDescription)
+        XCTAssertFalse(app.tabBars.buttons["书库"].isHittable)
+        attachScreenshot("直接进入阅读界面")
     }
 
     private func waitUntil(timeout: TimeInterval = 10, _ predicate: @escaping () -> Bool) -> Bool {

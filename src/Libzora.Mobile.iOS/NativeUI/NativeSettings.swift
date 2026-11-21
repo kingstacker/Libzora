@@ -14,12 +14,21 @@ struct NativeKeyboardDone: ViewModifier {
 
 struct NativeProfilePage: View {
     @ObservedObject var store: NativeStore
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var summary: ProfileSummary?
     @State private var membership: AccountMembership?
 
     private var account: AccountStatus? { store.account ?? summary?.account }
+    private var cardOuterInset: CGFloat { sizeClass == .regular ? 20 : 16 }
     private var secondaryColor: Color { store.preferences.colorfulMode ? NativeTheme.secondaryOnColorful : NativeTheme.secondary }
     private var detailColor: Color { store.preferences.colorfulMode ? NativeTheme.mutedOnColorful : NativeTheme.muted }
+    private var cardDividerColor: Color {
+        if store.preferences.colorfulMode {
+            return scheme == .dark ? Color.white.opacity(0.10) : Color.black.opacity(0.08)
+        }
+        return scheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.07)
+    }
 
     var body: some View {
         ScrollView {
@@ -32,81 +41,102 @@ struct NativeProfilePage: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityElement(children: .contain).accessibilityIdentifier("profile.content")
-        }.background(NativeAmbientBackground()).navigationBarHidden(true)
-            .overlay(alignment: .top) { NativeStatusBarGlass() }
-            .task(id: store.uiLanguage) {
-                do {
-                    let result: ProfileSummary = try await store.request("settings.profile")
-                    guard !Task.isCancelled else { return }
-                    summary = result; store.account = result.account
-                }
-                catch { if !Task.isCancelled { store.failure = error.localizedDescription } }
-                if !Task.isCancelled { await loadMembership() }
+        }
+        .background { profileBackground }
+        .navigationBarHidden(true)
+        .overlay(alignment: .top) { NativeStatusBarGlass() }
+        .task(id: store.uiLanguage) {
+            do {
+                let result: ProfileSummary = try await store.request("settings.profile")
+                guard !Task.isCancelled else { return }
+                summary = result; store.account = result.account
             }
+            catch { if !Task.isCancelled { store.failure = error.localizedDescription } }
+            if !Task.isCancelled { await loadMembership() }
+        }
+    }
+
+    @ViewBuilder private var profileBackground: some View {
+        if store.preferences.colorfulMode {
+            NativeAmbientBackground()
+        } else {
+            Color(uiColor: .systemGroupedBackground).ignoresSafeArea()
+        }
     }
 
     private var profileContent: some View {
         VStack(alignment: .leading, spacing: 0) {
-                accountSection
+            accountSection
 
-                groupLabel(L("阅读与外观"))
-                profileGroup {
-                    themeRow
-                    languageRow
-                    NavigationLink { NativeLibrarySettings(store: store) } label: {
-                        profileRow(title: L("书库设置"))
-                    }.accessibilityIdentifier("profile.librarySettings")
-                    NavigationLink { NativeDictionary(store: store, initialTerm: "").nativeBackButton() } label: {
-                        profileRow(title: L("本地词典"))
-                    }.accessibilityIdentifier("profile.dictionary")
-                }
+            groupLabel(L("阅读与外观"))
+            profileCard {
+                themeRow
+                cardDivider()
+                languageRow
+                cardDivider()
+                NavigationLink { NativeLibrarySettings(store: store) } label: {
+                    profileRow(title: L("书库设置"))
+                }.accessibilityIdentifier("profile.librarySettings")
+                cardDivider()
+                NavigationLink { NativeDictionary(store: store, initialTerm: "").nativeBackButton() } label: {
+                    profileRow(title: L("本地词典"))
+                }.accessibilityIdentifier("profile.dictionary")
+            }
 
-                groupLabel(L("服务与扩展"))
-                profileGroup {
-                    NavigationLink { NativeAiSettings(store: store) } label: {
-                        profileRow(title: L("AI 助手"), value: summary?.ai ?? "")
-                    }.accessibilityIdentifier("profile.ai")
-                    NavigationLink { NativeEmailSettings(store: store) } label: {
-                        profileRow(title: L("发送到 Kindle"), value: summary?.kindle ?? "")
-                    }.accessibilityIdentifier("profile.kindle")
-                }
+            groupLabel(L("服务与扩展"))
+            profileCard {
+                NavigationLink { NativeAiSettings(store: store) } label: {
+                    profileRow(title: L("AI 助手"), value: summary?.ai ?? "")
+                }.accessibilityIdentifier("profile.ai")
+                cardDivider()
+                NavigationLink { NativeEmailSettings(store: store) } label: {
+                    profileRow(title: L("发送到 Kindle"), value: summary?.kindle ?? "")
+                }.accessibilityIdentifier("profile.kindle")
+            }
 
-                groupLabel(L("数据与存储"))
-                profileGroup {
-                    profileRow(title: L("书籍占用"), value: summary?.storage ?? "—", chevron: false)
-                    NavigationLink { NativeBackupPage(store: store) } label: {
-                        profileRow(title: L("备份与恢复"))
-                    }.accessibilityIdentifier("profile.backup")
-                    NavigationLink { NativeTrash(store: store) } label: {
-                        profileRow(title: L("回收站"))
-                    }.accessibilityIdentifier("profile.trash")
-                }
+            groupLabel(L("数据与存储"))
+            profileCard {
+                profileRow(title: L("书籍占用"), value: summary?.storage ?? "—", chevron: false)
+                cardDivider()
+                NavigationLink { NativeBackupPage(store: store) } label: {
+                    profileRow(title: L("备份与恢复"))
+                }.accessibilityIdentifier("profile.backup")
+                cardDivider()
+                NavigationLink { NativeTrash(store: store) } label: {
+                    profileRow(title: L("回收站"))
+                }.accessibilityIdentifier("profile.trash")
+            }
 
-                groupLabel(L("支持与关于"))
-                profileGroup {
-                    NavigationLink { NativeFeedbackPage(store: store) } label: {
-                        profileRow(title: L("问题反馈"))
-                    }.accessibilityIdentifier("profile.feedback")
-                    NavigationLink { NativeAboutPage(store: store, version: summary?.version ?? "") } label: {
-                        profileRow(title: L("关于 Libzora"), value: summary?.version ?? "")
-                    }.accessibilityIdentifier("profile.about")
-                }
-        }.padding(.horizontal, NativeAdaptiveLayout.pageInset).padding(.top, 8)
-            .padding(.bottom, 120).buttonStyle(.plain)
+            groupLabel(L("支持与关于"))
+            profileCard {
+                NavigationLink { NativeFeedbackPage(store: store) } label: {
+                    profileRow(title: L("问题反馈"))
+                }.accessibilityIdentifier("profile.feedback")
+                cardDivider()
+                NavigationLink { NativeAboutPage(store: store, version: summary?.version ?? "") } label: {
+                    profileRow(title: L("关于 Libzora"), value: summary?.version ?? "")
+                }.accessibilityIdentifier("profile.about")
+            }
+        }
+        .padding(.horizontal, cardOuterInset)
+        .padding(.top, 8)
+        .padding(.bottom, 120)
+        .buttonStyle(NativeProfileCardRowButtonStyle())
     }
 
-    /// Identity and cloud sync stay together without a surrounding card. The
-    /// avatar and text hierarchy distinguish the account from the settings.
+    /// Account identity and cloud sync share the lead card, mirroring iOS Settings'
+    /// Apple Account + iCloud grouping.
     @ViewBuilder private var accountSection: some View {
         let signedIn = account?.isLoggedIn == true
         let name = signedIn ? (account?.user?.username ?? L("已登录")) : L("登录 / 注册")
-        VStack(spacing: 0) {
+        profileCard {
             NavigationLink { NativeAccountPage(store: store) } label: {
                 HStack(spacing: 14) {
                     avatar(signedIn: signedIn, name: name)
                     VStack(alignment: .leading, spacing: 5) {
                         HStack(spacing: 8) {
-                            Text(name).font(NativeTheme.font(17, relativeTo: .headline).weight(.semibold))
+                            Text(name).font(NativeTheme.font(18, relativeTo: .headline).weight(.semibold))
+                                .foregroundStyle(NativeTheme.ink)
                                 .lineLimit(1).minimumScaleFactor(0.8)
                             if signedIn, let membership, membership.plan != "free" {
                                 NativePlanBadge(text: membership.planName,
@@ -120,10 +150,14 @@ struct NativeProfilePage: View {
                         }
                     }
                     Spacer(minLength: 8)
-                    Image(systemName: "chevron.right").font(.system(size: 12, weight: .regular))
-                        .foregroundStyle(detailColor)
-                }.padding(.vertical, 16).contentShape(Rectangle())
+                    Image(systemName: "chevron.right").font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(detailColor.opacity(0.85))
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 16)
+                .contentShape(Rectangle())
             }.accessibilityIdentifier("profile.account")
+            cardDivider()
             NavigationLink { NativeSyncSettings(store: store) } label: {
                 profileRow(title: L("云同步"), value: summary?.sync ?? "")
             }.accessibilityIdentifier("profile.sync")
@@ -132,70 +166,110 @@ struct NativeProfilePage: View {
 
     private var themeRow: some View {
         let follow = store.uiLanguage == "en-US" ? L("系统") : L("跟随系统")
-        return preferenceMenuRow(title: L("外观"), identifier: "profile.theme",
-                                 selection: store.preferences.themeMode,
-                                 options: [(0, follow), (1, L("浅色")), (2, L("深色"))]) { mode in
-            var value = store.preferences
-            value.themeMode = mode
-            store.setPreferences(value)
+        let options: [(id: Int, title: String)] = [(0, follow), (1, L("浅色")), (2, L("深色"))]
+        let current = options.first { $0.id == store.preferences.themeMode }?.title ?? follow
+        return NavigationLink {
+            NativePreferenceOptionPage(
+                store: store,
+                title: { L("外观") },
+                identifierPrefix: "profile.theme",
+                current: { $0.themeMode },
+                options: { currentStore in
+                    let systemLabel = currentStore.uiLanguage == "en-US" ? L("系统") : L("跟随系统")
+                    return [(0, systemLabel), (1, L("浅色")), (2, L("深色"))]
+                },
+                apply: { $0.themeMode = $1 }
+            )
+        } label: {
+            profileRow(title: L("外观"), value: current)
         }
+        .accessibilityLabel(L("外观"))
+        .accessibilityValue(current)
+        .accessibilityIdentifier("profile.theme")
     }
 
     private var languageRow: some View {
-        preferenceMenuRow(title: L("语言"), identifier: "profile.language",
-                          selection: store.preferences.uiLanguage,
-                          options: [("auto", L("跟随系统")), ("zh-CN", "简体中文"), ("en-US", "English")]) { language in
-            var value = store.preferences
-            value.uiLanguage = language
-            store.setPreferences(value)
+        let options: [(id: String, title: String)] = [("auto", L("跟随系统")), ("zh-CN", "简体中文"), ("en-US", "English")]
+        let current = options.first { $0.id == store.preferences.uiLanguage }?.title ?? L("跟随系统")
+        return NavigationLink {
+            NativePreferenceOptionPage(
+                store: store,
+                title: { L("语言") },
+                identifierPrefix: "profile.language",
+                current: { $0.uiLanguage },
+                options: { _ in [("auto", L("跟随系统")), ("zh-CN", "简体中文"), ("en-US", "English")] },
+                apply: { $0.uiLanguage = $1 }
+            )
+        } label: {
+            profileRow(title: L("语言"), value: current)
         }
-    }
-
-    private func preferenceMenuRow<Selection: Equatable>(
-        title: String, identifier: String, selection: Selection,
-        options: [(id: Selection, title: String)], select: @escaping (Selection) -> Void
-    ) -> some View {
-        let value = options.first { $0.id == selection }?.title ?? options.first?.title ?? ""
-        let menuOptions = options.map { option in
-            NativePreferenceMenuOption(
-                id: String(describing: option.id),
-                identifier: "\(identifier).option.\(option.id)",
-                title: option.title,
-                selected: option.id == selection,
-                select: { if option.id != selection { select(option.id) } })
-        }
-        return profileRow(title: title, chevron: false)
-            .accessibilityHidden(true)
-            .overlay {
-                NativeTrailingPreferenceMenu(title: title, value: value, detailColor: detailColor,
-                                             identifier: identifier, options: menuOptions)
-            }
+        .accessibilityLabel(L("语言"))
+        .accessibilityValue(current)
+        .accessibilityIdentifier("profile.language")
     }
 
     private func groupLabel(_ title: String) -> some View {
-        Text(title).font(NativeTheme.font(13, relativeTo: .caption)).foregroundStyle(secondaryColor)
-            .padding(.top, 26).padding(.bottom, 6)
+        Text(title)
+            .font(NativeTheme.font(13, relativeTo: .caption).weight(.medium))
+            .foregroundStyle(secondaryColor)
+            .padding(.leading, 16)
+            .padding(.top, 22)
+            .padding(.bottom, 7)
     }
 
-    private func profileGroup<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 0) { content() }.frame(maxWidth: .infinity)
+    private func profileCard<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 24, style: .continuous)
+        return VStack(alignment: .leading, spacing: 0) { content() }
+            .frame(maxWidth: .infinity)
+            .background {
+                if store.preferences.colorfulMode {
+                    shape.fill(.regularMaterial)
+                } else {
+                    shape.fill(Color(uiColor: .secondarySystemGroupedBackground))
+                }
+            }
+            .clipShape(shape)
+            .overlay {
+                shape.stroke(
+                    store.preferences.colorfulMode
+                        ? Color.white.opacity(scheme == .dark ? 0.12 : 0.45)
+                        : (scheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.03)),
+                    lineWidth: 0.5
+                )
+                .allowsHitTesting(false)
+            }
+            .shadow(color: Color.black.opacity(scheme == .dark ? 0.14 : 0.025), radius: 6, y: 1.5)
+    }
+
+    private func cardDivider(leading: CGFloat = 16) -> some View {
+        Rectangle()
+            .fill(cardDividerColor)
+            .frame(height: 0.5)
+            .padding(.leading, leading)
+            .accessibilityHidden(true)
     }
 
     private func profileRow(title: String, value: String = "", chevron: Bool = true) -> some View {
         NativeSettingsRow(title: title, value: value, chevron: chevron, detailColor: detailColor)
+            .padding(.horizontal, 16)
     }
 
     private func avatar(signedIn: Bool, name: String) -> some View {
         ZStack {
-            Circle().fill(NativeTheme.strong)
+            Circle()
+                .fill(NativeTheme.strong)
+            Circle()
+                .stroke(Color.primary.opacity(scheme == .dark ? 0.12 : 0.06), lineWidth: 0.5)
             if signedIn {
-                Text(String(name.prefix(1))).font(NativeTheme.font(19, relativeTo: .headline))
+                Text(String(name.prefix(1)))
+                    .font(NativeTheme.font(21, relativeTo: .headline).weight(.semibold))
                     .foregroundStyle(NativeTheme.secondary)
             } else {
-                Image(systemName: "person").font(.system(size: 18, weight: .regular))
+                Image(systemName: "person")
+                    .font(.system(size: 20, weight: .regular))
                     .foregroundStyle(NativeTheme.secondary)
             }
-        }.frame(width: 46, height: 46).accessibilityHidden(true)
+        }.frame(width: 52, height: 52).accessibilityHidden(true)
     }
 
     private var accountSubtitle: String? {
@@ -216,143 +290,64 @@ struct NativeProfilePage: View {
     }
 }
 
-private struct NativePreferenceMenuOption: Identifiable {
-    let id: String
-    let identifier: String
-    let title: String
-    let selected: Bool
-    let select: () -> Void
+private struct NativeProfileCardRowButtonStyle: ButtonStyle {
+    @Environment(\.colorScheme) private var scheme
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(
+                Color.primary.opacity(configuration.isPressed ? (scheme == .dark ? 0.10 : 0.055) : 0)
+            )
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+    }
 }
 
-/// Keep the full row tappable while letting UIKit own and morph the trailing value + chevron.
-private struct NativeTrailingPreferenceMenu: UIViewRepresentable {
-    var title: String
-    var value: String
-    var detailColor: Color
-    var identifier: String
-    var options: [NativePreferenceMenuOption]
+private struct NativePreferenceOptionPage<Selection: Hashable>: View {
+    @ObservedObject var store: NativeStore
+    let title: () -> String
+    let identifierPrefix: String
+    let current: (MobilePreferences) -> Selection
+    let options: (NativeStore) -> [(id: Selection, title: String)]
+    let apply: (inout MobilePreferences, Selection) -> Void
 
-    final class MenuButton: UIButton {
-        let trailingView: UIView = {
-            let view = UIView()
-            view.backgroundColor = .clear
-            view.isUserInteractionEnabled = false
-            return view
-        }()
-        let valueLabel: UILabel = {
-            let label = UILabel()
-            let base = UIFont(name: "KingHwaOldSong", size: 14) ?? .systemFont(ofSize: 14)
-            label.font = UIFontMetrics(forTextStyle: .body).scaledFont(for: base)
-            label.adjustsFontForContentSizeCategory = true
-            label.numberOfLines = 1
-            return label
-        }()
-        let chevronView: UIImageView = {
-            let config = UIImage.SymbolConfiguration(pointSize: 12, weight: .regular)
-            let image = UIImage(systemName: "chevron.right", withConfiguration: config)
-            let imageView = UIImageView(image: image)
-            imageView.contentMode = .scaleAspectFit
-            return imageView
-        }()
-
-        override init(frame: CGRect) {
-            super.init(frame: frame)
-            trailingView.addSubview(valueLabel)
-            trailingView.addSubview(chevronView)
-            addSubview(trailingView)
-        }
-
-        required init?(coder: NSCoder) {
-            fatalError("init(coder:) has not been implemented")
-        }
-
-        override func layoutSubviews() {
-            super.layoutSubviews()
-            let valueSize = valueLabel.sizeThatFits(CGSize(width: bounds.width, height: bounds.height))
-            let chevronSize = chevronView.sizeThatFits(CGSize(width: 24, height: bounds.height))
-            let spacing: CGFloat = valueSize.width > 0 ? 8 : 0
-            let horizontalPadding: CGFloat = 10
-            let contentWidth = valueSize.width + spacing + chevronSize.width
-            let containerWidth = min(bounds.width, contentWidth + horizontalPadding)
-            let containerHeight = min(max(bounds.height - 6, 34), bounds.height)
-            // Flush trailing edge of the visible content to bounds.maxX while giving
-            // the glass morph preview balanced padding on the left.
-            let containerX = bounds.maxX - containerWidth + horizontalPadding / 2
-            let clampedX = max(bounds.minX, min(containerX, bounds.maxX - containerWidth))
-            trailingView.frame = CGRect(x: clampedX, y: (bounds.height - containerHeight) / 2,
-                                        width: containerWidth, height: containerHeight)
-
-            let rightEdge = containerWidth - (bounds.maxX - (clampedX + containerWidth))
-            let chevronX = rightEdge - chevronSize.width
-            chevronView.frame = CGRect(x: chevronX, y: (containerHeight - chevronSize.height) / 2,
-                                       width: chevronSize.width, height: chevronSize.height)
-            valueLabel.frame = CGRect(x: max(0, chevronX - spacing - valueSize.width),
-                                      y: (containerHeight - valueSize.height) / 2,
-                                      width: valueSize.width, height: valueSize.height)
-        }
-
-        override func menuAttachmentPoint(for configuration: UIContextMenuConfiguration) -> CGPoint {
-            CGPoint(x: max(bounds.minX, bounds.maxX - 18), y: bounds.midY)
-        }
-
-        override func contextMenuInteraction(
-            _ interaction: UIContextMenuInteraction,
-            previewForHighlightingMenuWithConfiguration configuration: UIContextMenuConfiguration
-        ) -> UITargetedPreview? {
-            targetedPreview()
-        }
-
-        override func contextMenuInteraction(
-            _ interaction: UIContextMenuInteraction,
-            previewForDismissingMenuWithConfiguration configuration: UIContextMenuConfiguration
-        ) -> UITargetedPreview? {
-            targetedPreview()
-        }
-
-        private func targetedPreview() -> UITargetedPreview? {
-            guard trailingView.window != nil else { return nil }
-            let parameters = UIPreviewParameters()
-            parameters.backgroundColor = .clear
-            return UITargetedPreview(view: trailingView, parameters: parameters)
-        }
-    }
-
-    final class Coordinator: NSObject {
-        var signature: [String] = []
-    }
-
-    func makeCoordinator() -> Coordinator { Coordinator() }
-
-    func makeUIView(context: Context) -> MenuButton {
-        let button = MenuButton(type: .custom)
-        button.backgroundColor = .clear
-        button.showsMenuAsPrimaryAction = true
-        return button
-    }
-
-    func updateUIView(_ button: MenuButton, context: Context) {
-        button.accessibilityLabel = title
-        button.accessibilityValue = value
-        button.accessibilityIdentifier = identifier
-        let tint = UIColor(detailColor)
-        button.valueLabel.text = value
-        button.valueLabel.textColor = tint
-        button.chevronView.tintColor = tint
-        button.setNeedsLayout()
-        button.layoutIfNeeded()
-
-        let signature = options.map { "\($0.id)|\($0.title)|\($0.selected)" }
-        guard context.coordinator.signature != signature else { return }
-        context.coordinator.signature = signature
-
-        let actions = options.map { option in
-            let action = UIAction(title: option.title, state: option.selected ? .on : .off) { _ in
-                option.select()
+    var body: some View {
+        let selectedValue = current(store.preferences)
+        NativeForm {
+            Section {
+                ForEach(options(store), id: \.id) { option in
+                    let isSelected = option.id == selectedValue
+                    Button {
+                        guard !isSelected else { return }
+                        UISelectionFeedbackGenerator().selectionChanged()
+                        var value = store.preferences
+                        apply(&value, option.id)
+                        store.setPreferences(value)
+                    } label: {
+                        HStack(spacing: 12) {
+                            Text(option.title)
+                                .font(NativeTheme.font())
+                                .foregroundStyle(NativeTheme.ink)
+                            Spacer(minLength: 12)
+                            if isSelected {
+                                Image(systemName: "checkmark")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(Color(uiColor: .systemBlue))
+                            }
+                        }
+                        .frame(minHeight: 26)
+                        .contentShape(Rectangle())
+                    }
+                    .accessibilityLabel(option.title)
+                    .accessibilityAddTraits(isSelected ? .isSelected : [])
+                    .accessibilityIdentifier("\(identifierPrefix).option.\(option.id)")
+                }
             }
-            action.accessibilityIdentifier = option.identifier
-            return action
         }
-        button.menu = UIMenu(children: actions)
+        .navigationTitle(title())
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarHidden(false)
+        .nativeBackButton()
+        .modifier(NativeHideTabBar())
     }
 }
 
@@ -365,15 +360,32 @@ struct NativeBackupPage: View {
     var body: some View {
         NativeForm {
             Section {
-                Button(L("导出备份")) { run(false) }
-                    .disabled(busy).accessibilityIdentifier("profile.backup.export")
-                Button(L("恢复备份")) { run(true) }
-                    .disabled(busy).accessibilityIdentifier("profile.backup.restore")
-                if busy { HStack(spacing: 10) { ProgressView().controlSize(.small); Text(L("正在处理…")).foregroundStyle(NativeTheme.secondary) } }
-            }
-            Section {
-                Text(L("备份包含书库、阅读进度、书签与批注。导出与恢复都需要同步密钥；密钥不会写入备份。"))
-                    .font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary)
+                Button { run(false) } label: {
+                    HStack {
+                        Text(L("导出备份")).foregroundStyle(busy ? NativeTheme.muted : Color(uiColor: .systemBlue))
+                        Spacer()
+                    }.frame(minHeight: 26).contentShape(Rectangle())
+                }.disabled(busy).accessibilityIdentifier("profile.backup.export")
+                Button { run(true) } label: {
+                    HStack {
+                        Text(L("恢复备份")).foregroundStyle(busy ? NativeTheme.muted : Color(uiColor: .systemBlue))
+                        Spacer()
+                    }.frame(minHeight: 26).contentShape(Rectangle())
+                }.disabled(busy).accessibilityIdentifier("profile.backup.restore")
+            } footer: {
+                VStack(alignment: .leading, spacing: 6) {
+                    if busy {
+                        HStack(spacing: 8) {
+                            ProgressView().controlSize(.small)
+                            Text(L("正在处理…"))
+                        }
+                        .font(NativeTheme.font(12, relativeTo: .caption))
+                        .foregroundStyle(store.preferences.colorfulMode ? NativeTheme.secondaryOnColorful : NativeTheme.secondary)
+                    }
+                    Text(L("备份包含书库、阅读进度、书签与批注。导出与恢复都需要同步密钥；密钥不会写入备份。"))
+                        .font(NativeTheme.font(12, relativeTo: .caption))
+                        .foregroundStyle(store.preferences.colorfulMode ? NativeTheme.secondaryOnColorful : NativeTheme.secondary)
+                }
             }
         }
         .navigationTitle(L("备份与恢复")).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
@@ -405,9 +417,9 @@ struct NativeAboutPage: View {
             }
             Section {
                 Button { tapVersion() } label: {
-                    NativeSettingsRow(title: L("版本"), value: version, chevron: false)
+                    NativeSettingsRow(title: L("版本"), value: version, chevron: false, verticalPadding: 2)
                 }.buttonStyle(.plain).accessibilityIdentifier("profile.about.version")
-                NativeSettingsRow(title: L("开发者"), value: "kingstacker", chevron: false)
+                NativeSettingsRow(title: L("开发者"), value: "kingstacker", chevron: false, verticalPadding: 2)
             }
         }
         .navigationTitle(L("关于")).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
@@ -435,26 +447,30 @@ struct NativeLibrarySettings: View {
 
     var body: some View {
         NativeForm {
-            settingToggle(L("画廊视图"), identifier: "library.settings.gallery", isOn: Binding(get: { store.preferences.galleryMode }, set: { enabled in
-                var value = store.preferences; value.galleryMode = enabled
-                store.setPreferences(value)
-            }))
-            settingToggle(L("炫彩模式"), identifier: "library.settings.colorful", isOn: Binding(get: { store.preferences.colorfulMode }, set: { enabled in
-                var value = store.preferences; value.colorfulMode = enabled
-                store.setPreferences(value)
-            }))
-            settingToggle(L("按系列叠放"), identifier: "library.settings.stackBookSeries", isOn: Binding(get: { store.preferences.stackBookSeries }, set: { enabled in
-                var value = store.preferences; value.stackBookSeries = enabled
-                store.setPreferences(value)
-            }))
-            settingToggle(L("显示书籍评分"), identifier: "library.settings.rating", isOn: Binding(get: { store.preferences.showBookRating }, set: { enabled in
-                var value = store.preferences; value.showBookRating = enabled
-                store.setPreferences(value)
-            }))
-            settingToggle(L("显示书籍同步状态"), identifier: "library.settings.syncStatus", isOn: Binding(get: { store.preferences.showBookSyncStatus }, set: { enabled in
-                var value = store.preferences; value.showBookSyncStatus = enabled
-                store.setPreferences(value)
-            }))
+            Section {
+                settingToggle(L("画廊视图"), identifier: "library.settings.gallery", isOn: Binding(get: { store.preferences.galleryMode }, set: { enabled in
+                    var value = store.preferences; value.galleryMode = enabled
+                    store.setPreferences(value)
+                }))
+                settingToggle(L("炫彩模式"), identifier: "library.settings.colorful", isOn: Binding(get: { store.preferences.colorfulMode }, set: { enabled in
+                    var value = store.preferences; value.colorfulMode = enabled
+                    store.setPreferences(value)
+                }))
+                settingToggle(L("按系列叠放"), identifier: "library.settings.stackBookSeries", isOn: Binding(get: { store.preferences.stackBookSeries }, set: { enabled in
+                    var value = store.preferences; value.stackBookSeries = enabled
+                    store.setPreferences(value)
+                }))
+            }
+            Section {
+                settingToggle(L("显示书籍评分"), identifier: "library.settings.rating", isOn: Binding(get: { store.preferences.showBookRating }, set: { enabled in
+                    var value = store.preferences; value.showBookRating = enabled
+                    store.setPreferences(value)
+                }))
+                settingToggle(L("显示书籍同步状态"), identifier: "library.settings.syncStatus", isOn: Binding(get: { store.preferences.showBookSyncStatus }, set: { enabled in
+                    var value = store.preferences; value.showBookSyncStatus = enabled
+                    store.setPreferences(value)
+                }))
+            }
         }
         .navigationTitle(L("书库设置")).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
         .nativeBackButton()
@@ -466,7 +482,7 @@ struct NativeLibrarySettings: View {
             Text(title).font(NativeTheme.font()).accessibilityHidden(true)
             Spacer(minLength: 12)
             NativeSwitch(title: title, isOn: isOn, identifier: identifier).fixedSize()
-        }.frame(minHeight: 44).accessibilityElement(children: .contain)
+        }.frame(minHeight: 28).accessibilityElement(children: .contain)
     }
 }
 
@@ -493,22 +509,42 @@ struct NativeSyncSettings: View {
                 Picker(L("同步方式"), selection: $form.provider) {
                     ForEach(providers) { provider in Text(provider.displayName).tag(provider.provider) }
                 }.pickerStyle(.segmented).accessibilityIdentifier("sync.provider")
+            }
+            .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 2, trailing: 0))
+            .listRowBackground(Color.clear)
+
+            Section {
                 Toggle(L("启用同步"), isOn: $form.enabled).tint(NativeTheme.systemSwitchTint)
                 Toggle(L("自动同步"), isOn: $form.automaticSyncEnabled).tint(NativeTheme.systemSwitchTint)
-                caption(L("可使用 iCloud 云盘或自备 S3 / WebDAV 同步书籍、阅读进度和批注。"))
+            } footer: {
+                footerCaption(L("可使用 iCloud 云盘或自备 S3 / WebDAV 同步书籍、阅读进度和批注。"))
             }
             customStorageSections
             Section {
-                VStack(alignment: .leading, spacing: 10) {
+                Button { run("test") } label: {
+                    HStack {
+                        Text(L("测试连接")).foregroundStyle(busy || loading ? NativeTheme.muted : Color(uiColor: .systemBlue))
+                        Spacer()
+                    }.frame(minHeight: 26).contentShape(Rectangle())
+                }
+                Button { run("save") } label: {
+                    HStack {
+                        Spacer()
+                        Text(L("保存")).font(NativeTheme.font().weight(.semibold))
+                            .foregroundStyle(busy || loading ? NativeTheme.muted : Color(uiColor: .systemBlue))
+                        Spacer()
+                    }.frame(minHeight: 26).contentShape(Rectangle())
+                }.accessibilityIdentifier("sync.save")
+            } footer: {
+                VStack(alignment: .leading, spacing: 6) {
+                    if busy { ProgressView().controlSize(.small) }
                     if !status.isEmpty {
-                        Text(status).font(NativeTheme.font(13)).foregroundStyle(NativeTheme.muted)
-                            .textSelection(.enabled).accessibilityIdentifier("sync.status")
+                        Text(status)
+                            .font(NativeTheme.font(12, relativeTo: .caption))
+                            .foregroundStyle(store.preferences.colorfulMode ? NativeTheme.secondaryOnColorful : NativeTheme.secondary)
+                            .textSelection(.enabled)
+                            .accessibilityIdentifier("sync.status")
                     }
-                    if busy { ProgressView() }
-                    HStack(spacing: 12) {
-                        Button(L("测试连接")) { run("test") }
-                        Button(L("保存")) { run("save") }.accessibilityIdentifier("sync.save")
-                    }.buttonStyle(NativePrimaryButtonStyle()).disabled(busy || loading)
                 }
             }
         }.disabled(busy || loading)
@@ -533,7 +569,7 @@ struct NativeSyncSettings: View {
     }
 
     @ViewBuilder private var customStorageSections: some View {
-        Section(L("连接信息")) {
+        Section {
             if form.provider == 1 {
                 field(L("服务地址"), text: $form.webDavEndpoint)
                 field(L("用户名"), text: $form.webDavUsername)
@@ -547,10 +583,17 @@ struct NativeSyncSettings: View {
             } else if form.provider == 3 {
                 Label(L("iCloud 云盘"), systemImage: "icloud")
                     .font(NativeTheme.font()).accessibilityIdentifier("sync.icloud.info")
-                caption(L("在系统设置中开启 iCloud 云盘。iPhone、iPad 和 Mac 使用同一 Apple 账户、相同区域和目录前缀即可同步，无需填写服务器或密码。"))
-                caption(L("数据占用你的 iCloud 存储空间，其他设备可能需要稍等片刻才能收到更新。"))
             }
             field(L("目录前缀"), text: $form.prefix)
+        } header: {
+            Text(L("连接信息"))
+        } footer: {
+            if form.provider == 3 {
+                VStack(alignment: .leading, spacing: 4) {
+                    footerCaption(L("在系统设置中开启 iCloud 云盘。iPhone、iPad 和 Mac 使用同一 Apple 账户、相同区域和目录前缀即可同步，无需填写服务器或密码。"))
+                    footerCaption(L("数据占用你的 iCloud 存储空间，其他设备可能需要稍等片刻才能收到更新。"))
+                }
+            }
         }
         Section {
             DisclosureGroup(L("高级选项"), isExpanded: $advanced) {
@@ -558,37 +601,58 @@ struct NativeSyncSettings: View {
                 Toggle(L("同步时下载书籍文件"), isOn: $form.downloadBookFilesOnSync).tint(NativeTheme.systemSwitchTint)
                 if form.provider != 3 { Toggle(L("跳过 TLS 验证"), isOn: $form.skipTlsVerify).tint(NativeTheme.systemSwitchTint) }
             }
+        }
+        Section {
             syncKey
-            if form.provider != 3 {
-                Button(L("导入连接参数")) { run("import") }
-                Button(L("导出连接参数")) { run("export") }
+        } footer: {
+            footerCaption(L("设置或更改密钥时需要输入两次，并在弹窗中确认。密钥由你自行牢记，不会上传或写入备份。遗忘后无法解密已有数据，设置新密钥也无法恢复旧数据。"))
+        }
+        if form.provider != 3 {
+            Section {
+                Button { run("import") } label: {
+                    HStack { Text(L("导入连接参数")).foregroundStyle(Color(uiColor: .systemBlue)); Spacer() }
+                        .frame(minHeight: 26).contentShape(Rectangle())
+                }
+                Button { run("export") } label: {
+                    HStack { Text(L("导出连接参数")).foregroundStyle(Color(uiColor: .systemBlue)); Spacer() }
+                        .frame(minHeight: 26).contentShape(Rectangle())
+                }
             }
         }
         Section {
-            caption(summary)
-            Button(L("立即同步")) { run("run") }.accessibilityIdentifier("sync.run")
+            Button { run("run") } label: {
+                HStack {
+                    Spacer()
+                    Text(L("立即同步")).font(NativeTheme.font().weight(.semibold))
+                        .foregroundStyle(Color(uiColor: .systemBlue))
+                    Spacer()
+                }.frame(minHeight: 26).contentShape(Rectangle())
+            }.accessibilityIdentifier("sync.run")
+        } footer: {
+            if !summary.isEmpty { footerCaption(summary) }
         }
     }
 
     @ViewBuilder private var syncKey: some View {
         // This user-owned key must not be offered to password AutoFill.
-        NativeTextField(title: L("同步密钥（云同步与备份必填）"), text: $form.encryptionKey, secure: true,
-                        identifier: "sync.encryptionKey")
+        NativeInlineTextField(title: L("同步密钥（云同步与备份必填）"), text: $form.encryptionKey, secure: true,
+                              identifier: "sync.encryptionKey")
             .textContentType(.oneTimeCode).textInputAutocapitalization(.never).disableAutocorrection(true)
-        NativeTextField(title: L("再次输入同步密钥"), text: $confirmEncryptionKey, secure: true,
-                        identifier: "sync.encryptionKeyConfirm")
+        NativeInlineTextField(title: L("再次输入同步密钥"), text: $confirmEncryptionKey, secure: true,
+                              identifier: "sync.encryptionKeyConfirm")
             .textContentType(.oneTimeCode).textInputAutocapitalization(.never).disableAutocorrection(true)
-        caption(L("设置或更改密钥时需要输入两次，并在弹窗中确认。密钥由你自行牢记，不会上传或写入备份。遗忘后无法解密已有数据，设置新密钥也无法恢复旧数据。"))
     }
 
-    private func caption(_ text: String, color: Color = NativeTheme.secondary) -> some View {
-        Text(text).font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(color)
+    private func footerCaption(_ text: String) -> some View {
+        Text(text)
+            .font(NativeTheme.font(12, relativeTo: .caption))
+            .foregroundStyle(store.preferences.colorfulMode ? NativeTheme.secondaryOnColorful : NativeTheme.secondary)
     }
     private func field(_ title: String, text: Binding<String>) -> some View {
-        NativeTextField(title: title, text: text).textInputAutocapitalization(.never).disableAutocorrection(true)
+        NativeInlineTextField(title: title, text: text).textInputAutocapitalization(.never).disableAutocorrection(true)
     }
     private func secret(_ title: String, text: Binding<String>) -> some View {
-        NativeTextField(title: title, text: text, secure: true).textInputAutocapitalization(.never).disableAutocorrection(true)
+        NativeInlineTextField(title: title, text: text, secure: true).textInputAutocapitalization(.never).disableAutocorrection(true)
     }
     private func loadSnapshot() async throws -> SyncForm {
         let value: SyncFormSnapshot = try await store.request("settings.sync.get")
@@ -679,28 +743,48 @@ struct NativeAiSettings: View {
             Section {
                 Picker(L("服务"), selection: Binding(get: { form.provider }, set: selectProvider)) { Text("DeepSeek").tag("deepseek"); Text("OpenAI").tag("openai"); Text(L("自定义")).tag("custom") }
                     .pickerStyle(.segmented)
-                NativeTextField(title: L("接口地址"), text: $form.baseUrl, identifier: "ai.baseUrl").textInputAutocapitalization(.never).disableAutocorrection(true)
-                NativeTextField(title: L("模型"), text: $form.model, identifier: "ai.model").textInputAutocapitalization(.never).disableAutocorrection(true)
+            }
+            .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 2, trailing: 0))
+            .listRowBackground(Color.clear)
+
+            Section {
+                NativeInlineTextField(title: L("接口地址"), text: $form.baseUrl, identifier: "ai.baseUrl").textInputAutocapitalization(.never).disableAutocorrection(true)
+                NativeInlineTextField(title: L("模型"), text: $form.model, identifier: "ai.model").textInputAutocapitalization(.never).disableAutocorrection(true)
+                NativeInlineTextField(title: "API Key", text: $form.apiKey, secure: true, identifier: "ai.apiKey").textInputAutocapitalization(.never).disableAutocorrection(true)
+            }
+            Section {
                 Button { fetchModels() } label: {
                     HStack {
-                        Text(L("获取模型")).font(NativeTheme.font())
+                        Text(L("获取模型")).font(NativeTheme.font()).foregroundStyle(Color(uiColor: .systemBlue))
                         Spacer()
-                    }
+                    }.frame(minHeight: 26).contentShape(Rectangle())
                 }.accessibilityIdentifier("ai.fetchModels")
                 if !fetchedModels.isEmpty {
                     Button { showModelPicker = true } label: {
                         NativeSettingsRow(title: L("选择模型"),
-                                          value: form.model.isEmpty ? L("{0} 个可用", fetchedModels.count) : form.model)
+                                          value: form.model.isEmpty ? L("{0} 个可用", fetchedModels.count) : form.model,
+                                          verticalPadding: 2)
                     }.buttonStyle(.plain).accessibilityIdentifier("ai.selectModel")
                 }
-                NativeTextField(title: "API Key", text: $form.apiKey, secure: true, identifier: "ai.apiKey").textInputAutocapitalization(.never).disableAutocorrection(true)
             }
             Section {
-                Button(L("测试连接")) { run(test: true) }.accessibilityIdentifier("ai.test")
-                if busy { ProgressView() }
-                if !status.isEmpty {
-                    Text(status).foregroundStyle(NativeTheme.secondary).textSelection(.enabled)
-                        .accessibilityIdentifier("ai.status")
+                Button { run(test: true) } label: {
+                    HStack {
+                        Spacer()
+                        Text(L("测试连接")).foregroundStyle(Color(uiColor: .systemBlue))
+                        Spacer()
+                    }.frame(minHeight: 26).contentShape(Rectangle())
+                }.accessibilityIdentifier("ai.test")
+            } footer: {
+                VStack(alignment: .leading, spacing: 6) {
+                    if busy { ProgressView().controlSize(.small) }
+                    if !status.isEmpty {
+                        Text(status)
+                            .font(NativeTheme.font(12, relativeTo: .caption))
+                            .foregroundStyle(store.preferences.colorfulMode ? NativeTheme.secondaryOnColorful : NativeTheme.secondary)
+                            .textSelection(.enabled)
+                            .accessibilityIdentifier("ai.status")
+                    }
                 }
             }
         }.disabled(loading || busy)
@@ -833,16 +917,32 @@ struct NativeEmailSettings: View {
     @State private var status = ""
     var body: some View {
         NativeForm {
-            Section(L("收件人")) { NativeTextField(title: L("Kindle 邮箱"), text: $form.kindleEmailAddress).keyboardType(.emailAddress) }
-            Section(L("发件邮箱")) {
-                NativeTextField(title: L("发件人邮箱"), text: $form.senderEmailAddress).keyboardType(.emailAddress)
-                NativeTextField(title: L("SMTP 服务器"), text: $form.smtpHost)
-                HStack { Text(L("端口")); TextField("587", value: $form.smtpPort, formatter: NumberFormatter()).keyboardType(.numberPad).multilineTextAlignment(.trailing) }
-                NativeTextField(title: L("SMTP 用户名"), text: $form.smtpUsername)
-                NativeTextField(title: L("密码或应用专用密码"), text: $form.smtpPassword, secure: true)
-                Toggle(L("使用 SSL / TLS"), isOn: $form.enableSsl).tint(NativeTheme.systemSwitchTint)
+            Section(L("收件人")) {
+                NativeInlineTextField(title: L("Kindle 邮箱"), text: $form.kindleEmailAddress).keyboardType(.emailAddress)
             }
-            if !status.isEmpty { Section { Text(status).foregroundStyle(NativeTheme.secondary) } }
+            Section {
+                NativeInlineTextField(title: L("发件人邮箱"), text: $form.senderEmailAddress).keyboardType(.emailAddress)
+                NativeInlineTextField(title: L("SMTP 服务器"), text: $form.smtpHost)
+                HStack {
+                    Text(L("端口")).font(NativeTheme.font())
+                    TextField("587", value: $form.smtpPort, formatter: NumberFormatter())
+                        .font(NativeTheme.font())
+                        .keyboardType(.numberPad)
+                        .multilineTextAlignment(.trailing)
+                }
+                .frame(minHeight: 26)
+                NativeInlineTextField(title: L("SMTP 用户名"), text: $form.smtpUsername)
+                NativeInlineTextField(title: L("密码或应用专用密码"), text: $form.smtpPassword, secure: true)
+                Toggle(L("使用 SSL / TLS"), isOn: $form.enableSsl).tint(NativeTheme.systemSwitchTint)
+            } header: {
+                Text(L("发件邮箱"))
+            } footer: {
+                if !status.isEmpty {
+                    Text(status)
+                        .font(NativeTheme.font(12, relativeTo: .caption))
+                        .foregroundStyle(store.preferences.colorfulMode ? NativeTheme.secondaryOnColorful : NativeTheme.secondary)
+                }
+            }
         }.textInputAutocapitalization(.never).disableAutocorrection(true).disabled(loading || busy)
             .navigationTitle(L("发送到 Kindle")).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false).modifier(NativeKeyboardDone()).modifier(NativeHideTabBar())
             .nativeBackButton()
@@ -865,7 +965,12 @@ struct NativeTrash: View {
     var body: some View {
         List {
             Group {
-                if items.isEmpty { Text(L("回收站是空的")).foregroundStyle(NativeTheme.secondary) }
+                if items.isEmpty {
+                    Text(L("回收站是空的"))
+                        .foregroundStyle(NativeTheme.secondary)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.vertical, 6)
+                }
                 ForEach(items) { item in
                     VStack(alignment: .leading, spacing: 10) {
                         Text(item.title).font(NativeTheme.font(17, relativeTo: .headline))
@@ -874,10 +979,14 @@ struct NativeTrash: View {
                             Button(L("恢复")) { action("restore", id: item.id) }.buttonStyle(.bordered)
                             Button(L("永久删除"), role: .destructive) { action("purge", id: item.id) }.buttonStyle(.bordered)
                         }
-                    }.padding(.vertical, 8)
+                    }.padding(.vertical, 6)
                 }
-            }.listRowBackground(store.preferences.colorfulMode ? Color.clear : NativeTheme.page)
-        }.modifier(NativeListBackground()).disabled(busy).navigationTitle(L("回收站")).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
+            }
+            .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
+            .listRowBackground(NativeGroupedRowBackground(colorfulMode: store.preferences.colorfulMode))
+        }.listStyle(.insetGrouped).textCase(nil).font(NativeTheme.font())
+            .modifier(NativeGroupedListBackground()).disabled(busy)
+            .navigationTitle(L("回收站")).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
             .nativeBackButton()
             .task { do { items = try await store.request("trash.get") } catch { if !Task.isCancelled { store.failure = error.localizedDescription } } }
     }

@@ -31,11 +31,16 @@ public sealed record NativeReaderFootnoteAnchor(double X, double Y, double Width
 }
 
 public sealed record NativeReaderTocItem(int Id, string Title, int Level, bool Selected);
-public sealed record NativeReaderSearchItem(int Id, string Title, string Excerpt);
+public sealed record NativeReaderSearchItem(
+    int Id,
+    string Title,
+    string Excerpt,
+    int ChapterIndex = 0,
+    int Offset = 0);
 
 /// <summary>
-/// One progressive search update. Items are cumulative and keep stable ids so
-/// a card can be tapped while later chapters are still being scanned.
+/// One progressive search update. Items are incremental deltas and keep stable
+/// ids so results already on screen remain tappable while later chapters load.
 /// </summary>
 public sealed record NativeReaderSearchBatch(
     int Generation,
@@ -45,9 +50,15 @@ public sealed record NativeReaderSearchBatch(
     int ScannedChapters,
     int TotalChapters,
     bool IsFinal,
-    string? Error);
+    string? Error,
+    bool HasMore = false,
+    bool IsIncremental = false,
+    int TotalHits = 0);
 
-public sealed record NativeReaderDialog(string Kind, string Title, string Text, Guid? AnnotationId = null, string? Note = null);
+public sealed record NativeReaderDialog(
+    string Kind, string Title, string Text,
+    Guid? AnnotationId = null, string? Note = null,
+    string? UnderlineStyle = null, string? Color = null);
 
 /// <summary>A figure or table the native frontend should show full screen.</summary>
 public sealed record NativeReaderMedia(Guid Id, string Kind, string Title, string Path);
@@ -76,6 +87,7 @@ public partial class ReaderPage
     private int _nativeSearchNextId;
     private string _nativeSearchQuery = string.Empty;
     private string _nativeSearchId = string.Empty;
+    private NativeSearchSession? _nativeSearchSession;
     private const int NativeSearchWindowChapters = 10;
 
     public event Action<NativeReaderState>? NativeStateChanged;

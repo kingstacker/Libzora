@@ -37,43 +37,58 @@ struct NativeAccountPage: View {
                     Picker(L("账号操作"), selection: $register) { Text(L("登录")).tag(false); Text(L("注册")).tag(true) }
                         .pickerStyle(.segmented).accessibilityIdentifier("account.mode")
                         .disabled(resetMode)
+                } footer: {
                     Text(resetMode ? L("输入发送到注册邮箱的验证码，然后设置新密码。")
                         : register ? (registrationAvailable ? L("注册后可在多台设备同步书籍和阅读进度。")
                             : L("注册暂未上线。当前版本无需注册即可免费使用全部功能。"))
                         : L("使用用户名或邮箱登录同一账号。"))
                         .font(NativeTheme.font(12, relativeTo: .caption))
-                        .foregroundStyle(register && !registrationAvailable ? NativeTheme.warning : NativeTheme.secondary)
+                        .foregroundStyle(register && !registrationAvailable ? NativeTheme.warning
+                                         : (store.preferences.colorfulMode ? NativeTheme.secondaryOnColorful : NativeTheme.secondary))
                         .accessibilityIdentifier("account.registrationUnavailable")
                 }
-                Section(resetMode ? L("重置密码") : register ? L("注册信息") : L("登录信息")) {
+                .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 2, trailing: 0))
+                .listRowBackground(Color.clear)
+
+                Section {
                     if register {
-                        NativeTextField(title: L("邮箱"), text: $email).textContentType(.emailAddress).keyboardType(.emailAddress)
-                            .accessibilityIdentifier("account.emailField")
-                        Text(L("注册邮箱不可修改。")).font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary)
+                        accountField(L("邮箱"), text: $email, identifier: "account.emailField")
+                            .textContentType(.emailAddress).keyboardType(.emailAddress)
                     }
-                    NativeTextField(title: register ? L("用户名") : L("用户名或邮箱"), text: $username).textContentType(.username)
-                        .accessibilityIdentifier("account.usernameField")
-                    if register {
-                        Text(L("3–32 位字母、数字、点、下划线或连字符")).font(NativeTheme.font(12, relativeTo: .caption))
-                            .foregroundStyle(NativeTheme.secondary)
-                    }
+                    accountField(register ? L("用户名") : L("用户名或邮箱"), text: $username,
+                                 identifier: "account.usernameField")
+                        .textContentType(.username)
                     if resetMode {
-                        NativeTextField(title: L("邮箱验证码（8 位）"), text: $resetCode)
-                            .textContentType(.oneTimeCode).accessibilityIdentifier("account.reset.code")
-                        Text(L("验证码 15 分钟内有效。")).font(NativeTheme.font(12, relativeTo: .caption))
-                            .foregroundStyle(NativeTheme.secondary)
-                        NativeTextField(title: L("新密码（8–128 位）"), text: $resetPassword, secure: true)
-                            .textContentType(.newPassword).accessibilityIdentifier("account.reset.password")
-                        NativeTextField(title: L("确认新密码"), text: $resetConfirmation, secure: true)
-                            .textContentType(.newPassword).accessibilityIdentifier("account.reset.confirmation")
+                        accountField(L("邮箱验证码（8 位）"), text: $resetCode, identifier: "account.reset.code")
+                            .textContentType(.oneTimeCode)
+                        accountField(L("新密码（8–128 位）"), text: $resetPassword, secure: true,
+                                     identifier: "account.reset.password")
+                            .textContentType(.newPassword)
+                        accountField(L("确认新密码"), text: $resetConfirmation, secure: true,
+                                     identifier: "account.reset.confirmation")
+                            .textContentType(.newPassword)
                     } else if register {
-                        NativeTextField(title: L("登录密码（8–128 位）"), text: $password, secure: true)
-                            .textContentType(.newPassword).accessibilityIdentifier("account.password")
-                        NativeTextField(title: L("确认登录密码"), text: $confirmation, secure: true)
-                            .textContentType(.newPassword).accessibilityIdentifier("account.confirmation")
+                        accountField(L("登录密码（8–128 位）"), text: $password, secure: true,
+                                     identifier: "account.password")
+                            .textContentType(.newPassword)
+                        accountField(L("确认登录密码"), text: $confirmation, secure: true,
+                                     identifier: "account.confirmation")
+                            .textContentType(.newPassword)
                     } else {
-                        NativeTextField(title: L("登录密码（8–128 位）"), text: $password, secure: true)
-                            .textContentType(.password).accessibilityIdentifier("account.password")
+                        accountField(L("登录密码（8–128 位）"), text: $password, secure: true,
+                                     identifier: "account.password")
+                            .textContentType(.password)
+                    }
+                } header: {
+                    Text(resetMode ? L("重置密码") : register ? L("注册信息") : L("登录信息"))
+                } footer: {
+                    if register {
+                        VStack(alignment: .leading, spacing: 3) {
+                            accountFooterText(L("注册邮箱不可修改。"))
+                            accountFooterText(L("3–32 位字母、数字、点、下划线或连字符"))
+                        }
+                    } else if resetMode {
+                        accountFooterText(L("验证码 15 分钟内有效。"))
                     }
                 }
                 regionSection
@@ -103,16 +118,28 @@ struct NativeAccountPage: View {
     /// Region belongs to the signed-out form only, right before the sign-in
     /// action; a signed-in page keeps the region chosen at login.
     @ViewBuilder private var regionSection: some View {
-        Section(L("服务器区域")) {
-            Picker(L("服务器区域"), selection: Binding(get: { store.account?.region ?? 0 }, set: { selectRegion($0) })) {
-                Text(L("中国区")).tag(0); Text(L("国际区")).tag(1)
-            }.pickerStyle(.segmented).accessibilityIdentifier("account.region")
-            Text(L("两区账号和同步数据独立，不互通。"))
-                .font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary)
-            if store.account?.requiresDataRestart == true {
-                Text(L("区域已切换，请重新打开应用后使用该区域的独立书库和同步。"))
-                    .font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary)
-                    .accessibilityIdentifier("account.restart")
+        Section {
+            HStack(spacing: 12) {
+                Text(L("服务器区域"))
+                    .font(NativeTheme.font())
+                    .foregroundStyle(NativeTheme.ink)
+                Spacer(minLength: 12)
+                Picker(L("服务器区域"), selection: Binding(get: { store.account?.region ?? 0 }, set: { selectRegion($0) })) {
+                    Text(L("中国区")).tag(0); Text(L("国际区")).tag(1)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+                .accessibilityIdentifier("account.region")
+            }
+            .frame(minHeight: 28)
+        } footer: {
+            VStack(alignment: .leading, spacing: 4) {
+                accountFooterText(L("两区账号和同步数据独立，不互通。"))
+                if store.account?.requiresDataRestart == true {
+                    accountFooterText(L("区域已切换，请重新打开应用后使用该区域的独立书库和同步。"))
+                        .accessibilityIdentifier("account.restart")
+                }
             }
         }
     }
@@ -121,35 +148,80 @@ struct NativeAccountPage: View {
     /// keyboard or hover over the fields while the page moves.
     @ViewBuilder private var actionSection: some View {
         Section {
-            VStack(alignment: .leading, spacing: 10) {
-                if !status.isEmpty {
-                    Text(status).font(NativeTheme.font(13)).foregroundStyle(NativeTheme.secondary)
-                        .accessibilityIdentifier("account.status")
+            if resetMode {
+                Button { submitReset() } label: {
+                    centeredActionLabel(L("重置密码"), tint: Color(uiColor: .systemBlue))
+                }.accessibilityIdentifier("account.reset.submit")
+            } else {
+                let disabled = register && !registrationAvailable
+                Button { signIn() } label: {
+                    centeredActionLabel(register ? (registrationAvailable ? L("注册并登录") : L("注册暂未上线")) : L("登录"),
+                                        tint: disabled ? NativeTheme.muted : Color(uiColor: .systemBlue))
                 }
-                if loading || busy { ProgressView() }
-                if resetMode {
-                    Button(L("重置密码")) { submitReset() }.buttonStyle(NativePrimaryButtonStyle())
-                        .accessibilityIdentifier("account.reset.submit")
-                    Button(L("返回登录")) { cancelReset() }.buttonStyle(.plain)
-                        .accessibilityIdentifier("account.reset.cancel")
-                } else {
-                    Button(register ? (registrationAvailable ? L("注册并登录") : L("注册暂未上线")) : L("登录")) { signIn() }
-                        .buttonStyle(NativePrimaryButtonStyle())
-                        .disabled(register && !registrationAvailable)
-                        .accessibilityIdentifier("account.submit")
-                    if !register {
-                        Button(L("忘记密码？")) { beginReset() }.buttonStyle(.plain)
-                            .accessibilityIdentifier("account.forgot")
-                    }
+                .disabled(disabled)
+                .accessibilityIdentifier("account.submit")
+            }
+        } footer: {
+            VStack(alignment: .leading, spacing: 6) {
+                if loading || busy {
+                    ProgressView().controlSize(.small)
+                }
+                if !status.isEmpty {
+                    accountFooterText(status)
+                        .accessibilityIdentifier("account.status")
                 }
             }
         }
+        if resetMode || !register {
+            Section {
+                if resetMode {
+                    Button { cancelReset() } label: {
+                        centeredActionLabel(L("返回登录"), tint: NativeTheme.secondary, weight: .regular)
+                    }
+                    .accessibilityIdentifier("account.reset.cancel")
+                } else {
+                    Button { beginReset() } label: {
+                        centeredActionLabel(L("忘记密码？"), tint: NativeTheme.secondary, weight: .regular)
+                    }
+                    .accessibilityIdentifier("account.forgot")
+                }
+            }
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+        }
+    }
+
+    private func accountField(_ title: String, text: Binding<String>, secure: Bool = false, identifier: String) -> some View {
+        Group {
+            if secure { SecureField(title, text: text) }
+            else { TextField(title, text: text) }
+        }
+        .font(NativeTheme.font())
+        .frame(minHeight: 26)
+        .accessibilityLabel(title)
+        .accessibilityIdentifier(identifier)
+    }
+
+    private func centeredActionLabel(_ title: String, tint: Color, weight: Font.Weight = .semibold) -> some View {
+        HStack {
+            Spacer(minLength: 0)
+            Text(title).font(NativeTheme.font().weight(weight)).foregroundStyle(tint)
+            Spacer(minLength: 0)
+        }
+        .frame(minHeight: 26)
+        .contentShape(Rectangle())
+    }
+
+    private func accountFooterText(_ text: String) -> some View {
+        Text(text)
+            .font(NativeTheme.font(12, relativeTo: .caption))
+            .foregroundStyle(store.preferences.colorfulMode ? NativeTheme.secondaryOnColorful : NativeTheme.secondary)
     }
 
     /// The registered email can only be verified while signed in; recovery and
     /// verification share the same 8-digit, 15-minute code.
     @ViewBuilder private var emailVerificationSection: some View {
-        Section(L("邮箱验证")) {
+        Section {
             if let user = store.account?.user {
                 if user.emailVerified == true {
                     Text(L("注册邮箱已验证。")).font(NativeTheme.font(13)).foregroundStyle(NativeTheme.secondary)
@@ -159,18 +231,25 @@ struct NativeAccountPage: View {
                         .font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary)
                         .accessibilityIdentifier("account.email.missing")
                 } else if emailCodeSent {
-                    Text(L("验证码已发送至注册邮箱（15 分钟内有效）。"))
-                        .font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary)
-                    NativeTextField(title: L("邮箱验证码（8 位）"), text: $emailCode)
-                        .textContentType(.oneTimeCode).accessibilityIdentifier("account.email.code")
-                    Button(L("确认验证")) { verifyEmail() }.buttonStyle(.plain)
-                        .accessibilityIdentifier("account.email.verify")
+                    accountField(L("邮箱验证码（8 位）"), text: $emailCode, identifier: "account.email.code")
+                        .textContentType(.oneTimeCode)
+                    Button { verifyEmail() } label: {
+                        centeredActionLabel(L("确认验证"), tint: Color(uiColor: .systemBlue))
+                    }.accessibilityIdentifier("account.email.verify")
                 } else {
-                    Text(L("注册邮箱尚未验证。验证后可找回密码。"))
-                        .font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary)
-                    Button(L("发送验证码")) { sendEmailCode() }.buttonStyle(.plain)
-                        .accessibilityIdentifier("account.email.send")
+                    Button { sendEmailCode() } label: {
+                        HStack { Text(L("发送验证码")).foregroundStyle(Color(uiColor: .systemBlue)); Spacer() }
+                            .contentShape(Rectangle())
+                    }.accessibilityIdentifier("account.email.send")
                 }
+            }
+        } header: {
+            Text(L("邮箱验证"))
+        } footer: {
+            if let user = store.account?.user, user.emailVerified != true, user.email != nil {
+                Text(emailCodeSent ? L("验证码已发送至注册邮箱（15 分钟内有效）。") : L("注册邮箱尚未验证。验证后可找回密码。"))
+                    .font(NativeTheme.font(12, relativeTo: .caption))
+                    .foregroundStyle(store.preferences.colorfulMode ? NativeTheme.secondaryOnColorful : NativeTheme.secondary)
             }
         }
     }

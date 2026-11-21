@@ -191,7 +191,8 @@ internal sealed partial class IOSNativeFrontend
                     string.IsNullOrWhiteSpace(note.Note) ? "highlight" : "note", note.DisplayQuote, note.Note,
                     chapter >= 0 ? location : $"{note.UpdatedAt.LocalDateTime:yyyy/MM/dd}", note.UpdatedAt,
                     new ReaderProgressRow(book.Id, file.Id, note.ChapterPath, null, chapter, 0, 0, 1, note.UpdatedAt)
-                    { ContentPosition = new ReaderContentPosition { TextOffset = note.StartOffset } })
+                    { ContentPosition = new ReaderContentPosition { TextOffset = note.StartOffset } },
+                    note.Color, note.UnderlineStyle)
                 { ExportLocation = location });
             }
         }

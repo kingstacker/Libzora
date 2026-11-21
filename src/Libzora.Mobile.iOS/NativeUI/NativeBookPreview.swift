@@ -29,17 +29,36 @@ final class NativeBookPreviewCenter: ObservableObject {
     static let shared = NativeBookPreviewCenter()
 
     @Published private(set) var request: NativeBookPreviewRequest?
+    @Published private(set) var isDismissing = false
+    private var dismissTask: Task<Void, Never>?
 
     private init() {}
 
     func show(_ request: NativeBookPreviewRequest) {
+        dismissTask?.cancel()
+        dismissTask = nil
+        isDismissing = false
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        withAnimation(.easeOut(duration: 0.16)) { self.request = request }
+        self.request = request
     }
 
-    func dismiss() {
-        guard request != nil else { return }
-        withAnimation(.easeOut(duration: 0.14)) { request = nil }
+    func dismiss(immediate: Bool = false) {
+        guard let current = request else { return }
+        dismissTask?.cancel()
+        if immediate {
+            isDismissing = false
+            request = nil
+            return
+        }
+        guard !isDismissing else { return }
+        isDismissing = true
+        let dismissingId = current.id
+        dismissTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 360_000_000)
+            guard !Task.isCancelled, let self, self.request?.id == dismissingId else { return }
+            self.request = nil
+            self.isDismissing = false
+        }
     }
 }
 
@@ -71,7 +90,7 @@ struct NativeBookPreviewOverlay: View {
             let origin = proxy.frame(in: .global).origin
             let scale: CGFloat = request.isListRow ? 1.03 : Self.scale
             let sourceX = request.sourceFrame.midX - origin.x
-            let halfWidth = (request.isListRow ? request.sourceFrame.width + 24 : request.coverWidth) * scale / 2
+            let halfWidth = (request.isListRow ? request.sourceFrame.width : request.coverWidth) * scale / 2
             let centerX = min(max(sourceX, halfWidth), max(halfWidth, proxy.size.width - halfWidth))
             let centerPoint = CGPoint(x: centerX, y: request.sourceFrame.midY - origin.y)
             // The local size is measured before scaleEffect.
@@ -84,15 +103,18 @@ struct NativeBookPreviewOverlay: View {
                 bottomBarInset: NativeTheme.bottomTabBarInset)
             let roomBelow = max(0, bounds.maxY - below)
             let roomAbove = max(0, above - bounds.minY)
-            let naturalHeight = measuredMenuHeight > 0 ? measuredMenuHeight : CGFloat(request.actions.count) * Self.rowHeight + 10
+            let naturalHeight = measuredMenuHeight > 0 ? measuredMenuHeight : CGFloat(request.actions.count) * Self.rowHeight + 12
             let opensBelow = roomBelow >= naturalHeight || (roomAbove < naturalHeight && roomBelow >= roomAbove)
-            let menuHeight = min(naturalHeight, opensBelow ? roomBelow : roomAbove)
-            let menuCenter = opensBelow ? below + menuHeight / 2 : above - menuHeight / 2
+            let menuHeight = naturalHeight
+            let rawMenuCenter = opensBelow ? below + menuHeight / 2 : above - menuHeight / 2
+            let minMenuCenter = bounds.minY + menuHeight / 2
+            let maxMenuCenter = max(minMenuCenter, bounds.maxY - menuHeight / 2)
+            let menuCenter = min(max(rawMenuCenter, minMenuCenter), maxMenuCenter)
             let menuWidth = min(Self.menuWidth, bounds.width)
             let menuX = min(max(centerPoint.x, bounds.minX + menuWidth / 2), bounds.maxX - menuWidth / 2)
 
             ZStack(alignment: .topLeading) {
-                Color.black.opacity(expanded ? 0.25 : 0)
+                Color.black.opacity(expanded ? 0.14 : 0)
                     .ignoresSafeArea()
                     .contentShape(Rectangle())
                     .onTapGesture { center.dismiss() }
@@ -105,13 +127,6 @@ struct NativeBookPreviewOverlay: View {
                                 showSyncStatus: request.showSyncStatus, muted: request.muted,
                                 previewing: true)
                             .frame(width: request.sourceFrame.width, alignment: .leading)
-                            .padding(.horizontal, 12)
-                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                    .strokeBorder(.primary.opacity(0.10), lineWidth: 0.5)
-                            }
-                            .shadow(color: .black.opacity(0.12), radius: 14, y: 6)
                     } else {
                         NativeBookTile(book: request.book, width: request.coverWidth, muted: request.muted,
                                        galleryMode: request.source == .seriesStack,
@@ -139,7 +154,7 @@ struct NativeBookPreviewOverlay: View {
                 }
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("book.preview.menu")
-                .scaleEffect(expanded ? 1 : 0.52, anchor: opensBelow ? .top : .bottom)
+                .scaleEffect(expanded ? 1 : 0.72, anchor: opensBelow ? .top : .bottom)
                 .opacity(expanded ? 1 : 0)
                 .position(x: menuX, y: menuCenter)
             }
@@ -149,7 +164,13 @@ struct NativeBookPreviewOverlay: View {
             .onPreferenceChange(NativeBookPreviewMenuHeightKey.self) { height in
                 if height > 0 && abs(height - measuredMenuHeight) > 0.5 { measuredMenuHeight = height }
             }
-            .onAppear { withAnimation(.spring(response: 0.36, dampingFraction: 0.68)) { expanded = true } }
+            .onAppear {
+                withAnimation(.spring(response: 0.36, dampingFraction: 0.68)) { expanded = true }
+            }
+            .onChange(of: center.isDismissing) { dismissing in
+                guard dismissing else { return }
+                withAnimation(.spring(response: 0.36, dampingFraction: 0.82)) { expanded = false }
+            }
         }
     }
 }
@@ -168,49 +189,137 @@ private struct NativeBookPreviewMenuHeightKey: PreferenceKey {
     }
 }
 
+private struct NativeBookPreviewRowFramesKey: PreferenceKey {
+    static var defaultValue: [Int: CGRect] { [:] }
+    static func reduce(value: inout [Int: CGRect], nextValue: () -> [Int: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
+    }
+}
+
 private struct NativeBookPreviewMenu: View {
     let actions: [NativeBookMenuItem]
     let width: CGFloat
     let height: CGFloat
     let perform: (() -> Void) -> Void
 
-    private var rows: some View {
-        VStack(spacing: 0) {
-            ForEach(Array(actions.enumerated()), id: \.offset) { index, item in
-                Button { perform(item.action) } label: {
-                    Text(item.title)
-                        .font(NativeTheme.font(16))
-                        .foregroundStyle(item.destructive ? Color.red : NativeTheme.ink)
-                        .frame(maxWidth: .infinity, minHeight: 46, alignment: .leading)
-                        .padding(.horizontal, 24)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier(item.identifier ?? "book.preview.action.\(index)")
-            }
+    @State private var hoveredIndex: Int?
+    @State private var rowFrames: [Int: CGRect] = [:]
+    @State private var triggered = false
+    private let menuSpace = "bookPreviewMenuSpace"
+
+    private func trigger(_ index: Int) {
+        guard !triggered, actions.indices.contains(index) else { return }
+        triggered = true
+        perform(actions[index].action)
+    }
+
+    private func hitIndex(at location: CGPoint) -> Int? {
+        guard location.x >= 0, location.x <= width, location.y >= 0, location.y <= height else { return nil }
+        if let direct = rowFrames.first(where: { location.y >= $0.value.minY && location.y <= $0.value.maxY })?.key {
+            return direct
         }
-        .padding(.vertical, 5)
+        // Keep the highlight steady across the thin separator gap between rows.
+        return rowFrames.min(by: { abs($0.value.midY - location.y) < abs($1.value.midY - location.y) })?.key
+    }
+
+    private var rows: some View {
+        ZStack(alignment: .top) {
+            if let hoveredIndex, let frame = rowFrames[hoveredIndex] {
+                Capsule()
+                    .fill(.primary.opacity(0.085))
+                    .frame(width: max(0, width - 16), height: frame.height)
+                    .offset(y: frame.minY)
+                    .allowsHitTesting(false)
+            }
+
+            VStack(spacing: 0) {
+                ForEach(Array(actions.enumerated()), id: \.offset) { index, item in
+                    if item.destructive && index > 0 && !actions[index - 1].destructive {
+                        Rectangle()
+                            .fill(.primary.opacity(0.08))
+                            .frame(height: 0.5)
+                            .padding(.horizontal, 18)
+                            .padding(.vertical, 4)
+                    }
+                    Button { trigger(index) } label: {
+                        HStack(spacing: 12) {
+                            Text(item.title)
+                                .font(NativeTheme.font(16))
+                            Spacer(minLength: 8)
+                            if let systemImage = item.systemImage {
+                                Image(systemName: systemImage)
+                                    .font(.system(size: 16, weight: .regular))
+                                    .accessibilityHidden(true)
+                            }
+                        }
+                        .foregroundStyle(item.destructive ? Color.red : NativeTheme.ink)
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                        .padding(.horizontal, 20)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .background {
+                        GeometryReader { geo in
+                            Color.clear.preference(
+                                key: NativeBookPreviewRowFramesKey.self,
+                                value: [index: geo.frame(in: .named(menuSpace))]
+                            )
+                        }
+                    }
+                    .accessibilityIdentifier(item.identifier ?? "book.preview.action.\(index)")
+                }
+            }
+            .padding(.vertical, 8)
+        }
+        .coordinateSpace(name: menuSpace)
+        .onPreferenceChange(NativeBookPreviewRowFramesKey.self) { frames in
+            rowFrames = frames
+        }
         .background {
             GeometryReader { rows in
                 Color.clear.preference(key: NativeBookPreviewMenuHeightKey.self, value: rows.size.height)
             }
         }
-    }
-
-    private var panel: some View {
-        ScrollView { rows }
-            .frame(width: width, height: height)
-            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0, coordinateSpace: .named(menuSpace))
+                .onChanged { value in
+                    let next = hitIndex(at: value.location)
+                    if next != hoveredIndex {
+                        if next != nil {
+                            UISelectionFeedbackGenerator().selectionChanged()
+                        }
+                        withAnimation(.spring(response: 0.22, dampingFraction: 0.86)) {
+                            hoveredIndex = next
+                        }
+                    }
+                }
+                .onEnded { value in
+                    let target = hitIndex(at: value.location)
+                    withAnimation(.easeOut(duration: 0.12)) {
+                        hoveredIndex = nil
+                    }
+                    if let target {
+                        trigger(target)
+                    }
+                }
+        )
     }
 
     var body: some View {
         if #available(iOS 26.0, *) {
-            panel
-                .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
-                .shadow(color: .black.opacity(0.10), radius: 18, y: 8)
+            let shape = RoundedRectangle(cornerRadius: 30, style: .continuous)
+            GlassEffectContainer {
+                rows
+                    .frame(width: width, height: height, alignment: .top)
+                    .clipShape(shape)
+                    .glassEffect(.regular.interactive(), in: shape)
+            }
         } else {
-            panel
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            let shape = RoundedRectangle(cornerRadius: 22, style: .continuous)
+            rows
+                .frame(width: width, height: height, alignment: .top)
+                .clipShape(shape)
+                .background(.regularMaterial, in: shape)
                 .shadow(color: .black.opacity(0.18), radius: 24, y: 10)
         }
     }

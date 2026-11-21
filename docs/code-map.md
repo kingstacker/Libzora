@@ -95,8 +95,8 @@ pattern: `MainWindow.<Area><Aspect>.cs`.
 | `MainWindow.LibrarySelection.cs` | Selection, detail-pane animation, refresh. |
 | `MainWindow.LibraryImport.cs` | File/folder import, format selection, conflicts. |
 | `MainWindow.LibraryActions.cs` | Drag and drop, open, delete, rename. |
-| `MainWindow.BookContextMenu.cs` | Context menu construction. |
-| `MainWindow.BookMutations.cs` | Favourite, reading status, collections, conversion. |
+| `MainWindow.BookContextMenu.cs`, `MainWindow.BookContextMenu.Series.cs` | Context menu construction for single books and stacked series. |
+| `MainWindow.BookMutations.cs`, `MainWindow.BookMutations.Series.cs` | Favourite, reading status, collections, conversion and series batch mutations. |
 | `MainWindow.LibraryDialogs.cs` | Confirmation, message and collection overlays. |
 | `MainWindow.LibraryFiltering.cs` | Search, filters, view mode, pagination. |
 | `MainWindow.LibrarySeries.cs` | Series stack expansion and front-volume promotion on the computer and device shelves. |
@@ -162,7 +162,8 @@ Large services are split by responsibility so one change opens one file:
 ## iOS native frontend
 
 - `src/Libzora.Mobile.iOS/NativeUI/*.swift` — SwiftUI screens: bookshelf,
-  library, reader (`NativeReader.swift`, `NativeReaderAdvancedTypography.swift`,
+  library, reader (`NativeReader.swift`, `NativeBookOpenTransition.swift`,
+  `NativeReaderHighlightPalette.swift`, `NativeReaderAdvancedTypography.swift`,
   `NativeReaderLatinFontPicker.swift`), settings, account, membership, theme, widgets.
 - `src/Libzora.Mobile.iOS/IOSNativeFrontend.*.cs` — C# side of the bridge,
   split by area (`Library`, `Reader`, `Settings`, `Fonts`).

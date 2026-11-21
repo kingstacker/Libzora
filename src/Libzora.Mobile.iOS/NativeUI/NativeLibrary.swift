@@ -100,7 +100,10 @@ struct NativeBookDetailPage: View {
                     }
                 }
                 if let book {
-                    Button { store.perform { try await store.openReader(book) } } label: {
+                    Button {
+                        let frame = NativeBookCoverFrames.get("detail:\(book.id)")
+                        store.perform { try await store.openReader(book, sourceFrame: frame) }
+                    } label: {
                         Text(book.progress > 0 ? L("继续阅读 · {0}%", String(format: "%.0f", locale: NativeLocalization.locale, book.progress)) : L("开始阅读"))
                     }.buttonStyle(NativeLiquidGlassButtonStyle()).disabled(store.openingReader).accessibilityIdentifier("book.read")
                         .frame(maxWidth: 420)
@@ -127,7 +130,9 @@ struct NativeBookDetailPage: View {
 
     private func bookHeader(_ book: LibraryBook, coverWidth: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            BookCover(book: book, width: coverWidth, height: coverWidth * 214 / 148).frame(maxWidth: .infinity)
+            BookCover(book: book, width: coverWidth, height: coverWidth * 214 / 148)
+                .trackBookOpenFrame(key: "detail:\(book.id)")
+                .frame(maxWidth: .infinity)
             Text(book.title).font(NativeTheme.font(21, relativeTo: .title2)).lineLimit(3).lineSpacing(5)
                 .multilineTextAlignment(.center).frame(maxWidth: .infinity).padding(.top, 28)
             Text(book.authors).font(NativeTheme.font(14)).foregroundStyle(NativeTheme.secondary)
@@ -393,13 +398,14 @@ struct NativeCollectionPage: View {
                         } else {
                             NativeBookShelf(store: store, books: books, pageWidth: pageWidth) { book in
                                 var items = [
-                                    NativeBookMenuItem(L("阅读")) { store.perform { try await store.openReader(book) } },
-                                    NativeBookMenuItem(book.favorite ? L("取消收藏") : L("收藏")) {
+                                    NativeBookMenuItem(L("阅读"), systemImage: "book") { store.perform { try await store.openReader(book) } },
+                                    NativeBookMenuItem(book.favorite ? L("取消收藏") : L("收藏"),
+                                                       systemImage: book.favorite ? "star.slash" : "star") {
                                         store.perform { try await store.command("book.favorite", ["bookId": book.id, "favorite": !book.favorite]); try await store.refreshLibrary() }
                                     }
                                 ]
                                 if folder?.automatic == false {
-                                    items.append(NativeBookMenuItem(L("移出收藏夹"), destructive: true) {
+                                    items.append(NativeBookMenuItem(L("移出收藏夹"), destructive: true, systemImage: "folder.badge.minus") {
                                         run("membership", ["bookId": book.id, "member": false])
                                     })
                                 }

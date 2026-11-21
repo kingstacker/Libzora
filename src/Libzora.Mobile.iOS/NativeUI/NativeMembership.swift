@@ -28,7 +28,7 @@ struct NativeMembershipSections: View {
                 }
             }
             if store.syncEntitlementsEnforced, let member = details?.membership, member.canClaimTrial || member.isTrialActive {
-                Section(L("免费试用")) {
+                Section {
                     Toggle(isOn: Binding(get: { member.trialClaimed == true },
                                          set: { value in if value { claimTrial() } })) {
                         VStack(alignment: .leading, spacing: 3) {
@@ -41,9 +41,12 @@ struct NativeMembershipSections: View {
                     }
                     .disabled(member.trialClaimed == true || !member.canClaimTrial || busy)
                     .accessibilityIdentifier("membership.trial.toggle")
+                } header: {
+                    Text(L("免费试用"))
+                } footer: {
                     Text(member.trialStatusMessage)
                         .font(NativeTheme.font(12, relativeTo: .caption))
-                        .foregroundStyle(NativeTheme.secondary)
+                        .foregroundStyle(store.preferences.colorfulMode ? NativeTheme.secondaryOnColorful : NativeTheme.secondary)
                         .accessibilityIdentifier("membership.trial.status")
                 }
             }
@@ -194,9 +197,10 @@ struct NativeMembershipPlans: View {
                         }
                     )
                     .accessibilityHint(L("左右轻扫可切换会员方案"))
-                Text(hint).font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary)
-                    .accessibilityIdentifier("membership.plans.hint")
             }
+        } footer: {
+            Text(hint).font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary)
+                .accessibilityIdentifier("membership.plans.hint")
         }.onChange(of: membership?.plan) { newPlan in
             if newPlan == "trial" { select(1) }
             else if newPlan != nil { select(2) }

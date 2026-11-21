@@ -16,6 +16,13 @@ struct NativeShell: View {
         default: return systemColorScheme
         }
     }
+    private var readerPaper: Color {
+        let theme = store.preferences.readerThemeFollowsAppearance
+            ? (appColorScheme == .dark ? 5 : 0)
+            : store.preferences.readerTheme
+        let powerSaving = store.preferences.isPowerSaving(systemLowPower: ProcessInfo.processInfo.isLowPowerModeEnabled)
+        return store.preferences.paper(for: theme, pureBlackOled: powerSaving)
+    }
     private var ambientBooks: [LibraryBook] {
         Array(store.library.filter { $0.coverPath != nil }
             .sorted { $0.updatedAt == $1.updatedAt ? $0.id < $1.id : $0.updatedAt > $1.updatedAt }.prefix(18))
@@ -24,7 +31,7 @@ struct NativeShell: View {
         guard store.preferences.colorfulMode else { return "off" }
         return ambientBooks.map { "\($0.coverPath ?? "")|\($0.updatedAt)" }.joined(separator: "\n")
     }
-    private var showingLaunch: Bool { store.preparingLibrary || store.restoringReader && store.readerBook == nil }
+    private var showingLaunch: Bool { store.preparingLibrary || store.restoringReader }
 
     var body: some View {
         let activeSeries = seriesCenter.request.flatMap { request in
@@ -41,6 +48,7 @@ struct NativeShell: View {
                 NavigationView { NativeProfilePage(store: store) }.navigationViewStyle(.stack)
                     .tabItem { NativeTabLabel(title: L("我的"), symbol: "person") }.tag(3)
             }
+            .opacity(showingLaunch ? 0 : 1)
             .allowsHitTesting(!showingLaunch)
             .accessibilityHidden(showingLaunch || (activeSeries != nil && seriesCenter.isVisible))
             .task { await store.prepareLaunch(viewport: geometry.size) }
@@ -93,12 +101,18 @@ struct NativeShell: View {
                 VStack(spacing: 18) { ProgressView(); Text(store.busyMessage).foregroundStyle(.secondary) }
                     .frame(maxWidth: .infinity, maxHeight: .infinity).background(.regularMaterial)
             } else if showingLaunch {
-                NativeLaunchPage(restoringReader: store.restoringReader,
-                                 showBranding: store.showsLaunchAnimation)
-                    .transition(.opacity)
+                if store.showsLaunchAnimation {
+                    NativeLaunchPage()
+                        .transition(.opacity)
+                } else {
+                    NativeTheme.page
+                        .ignoresSafeArea()
+                        .accessibilityElement(children: .contain)
+                        .accessibilityIdentifier("launch.screen")
+                }
             }
         }
-        .animation(.easeOut(duration: 0.2), value: showingLaunch)
+        .animation(store.showsLaunchAnimation && !store.restoringReader ? .easeOut(duration: 0.2) : nil, value: showingLaunch)
         .overlay {
             if let (request, series) = activeSeries {
                 NativeBookSeriesOverlay(series: series, sourceFrame: request.sourceFrame,
@@ -112,6 +126,28 @@ struct NativeShell: View {
                 NativeBookPreviewOverlay(request: request, center: previewCenter)
             }
         }
+        .overlay {
+            if let transition = store.openingBookTransition {
+                NativeBookOpenOverlay(
+                    transition: transition,
+                    paper: readerPaper,
+                    onReachedFullScreen: {
+                        store.completeBookOpenPresentation()
+                    },
+                    onFinished: {
+                        if store.openingBookTransition?.id == transition.id {
+                            store.openingBookTransition = nil
+                        }
+                    }
+                )
+            } else if let transition = store.closingBookTransition {
+                NativeBookCloseOverlay(transition: transition, paper: readerPaper) {
+                    if store.closingBookTransition?.id == transition.id {
+                        store.closingBookTransition = nil
+                    }
+                }
+            }
+        }
         // Include presented readers, sheets and standalone overlays without
         // changing view identity or resetting their navigation/session state.
         .environment(\.locale, Locale(identifier: store.uiLanguage))
@@ -120,8 +156,6 @@ struct NativeShell: View {
 
 private struct NativeLaunchPage: View {
     @Environment(\.locale) private var uiLocale
-    let restoringReader: Bool
-    let showBranding: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var revealed = false
 
@@ -129,28 +163,20 @@ private struct NativeLaunchPage: View {
         let _ = uiLocale
 
         VStack(spacing: 0) {
-            if showBranding {
-                Spacer()
-                VStack(spacing: 20) {
-                    Text("Libzora")
-                        .font(NativeTheme.font(34, relativeTo: .largeTitle)).tracking(4)
-                        .accessibilityIdentifier("launch.brand")
-                    Text(L("为学日益，为道日损。"))
-                        .font(NativeTheme.font(22, relativeTo: .title2))
-                        .tracking(1.5).lineLimit(1).minimumScaleFactor(0.65)
-                        .accessibilityIdentifier("launch.slogan")
-                }
-                .foregroundStyle(NativeTheme.ink)
-                .opacity(revealed ? 1 : 0)
-                .offset(y: revealed || reduceMotion ? 0 : 10)
-                Spacer()
+            Spacer()
+            VStack(spacing: 20) {
+                Text("Libzora")
+                    .font(NativeTheme.font(34, relativeTo: .largeTitle)).tracking(4)
+                    .accessibilityIdentifier("launch.brand")
+                Text(L("为学日益，为道日损。"))
+                    .font(NativeTheme.font(22, relativeTo: .title2))
+                    .tracking(1.5).lineLimit(1).minimumScaleFactor(0.65)
+                    .accessibilityIdentifier("launch.slogan")
             }
-            HStack(spacing: 8) {
-                ProgressView().controlSize(.small)
-                Text(restoringReader ? L("正在继续阅读…") : L("正在载入书库…"))
-                    .font(NativeTheme.font(13, relativeTo: .subheadline))
-                    .accessibilityIdentifier("launch.status")
-            }.foregroundStyle(NativeTheme.muted)
+            .foregroundStyle(NativeTheme.ink)
+            .opacity(revealed ? 1 : 0)
+            .offset(y: revealed || reduceMotion ? 0 : 10)
+            Spacer()
         }
         .padding(.horizontal, 32).padding(.top, 32).padding(.bottom, 36)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -158,7 +184,7 @@ private struct NativeLaunchPage: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("launch.screen")
         .onAppear {
-            withAnimation(.easeOut(duration: 0.25)) { revealed = true }
+            withAnimation(.easeOut(duration: 0.35)) { revealed = true }
         }
     }
 }

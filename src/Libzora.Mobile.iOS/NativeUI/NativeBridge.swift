@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import SwiftUI
 import UIKit
@@ -25,7 +26,7 @@ struct MobilePreferences: Codable, Equatable {
     var colorfulMode = false
     var showBookSyncStatus = false
     var showBookRating = false
-    var stackBookSeries = false
+    var stackBookSeries = true
     var collectionsView = false
     var pdfZoom = 1.0
     var pdfDisplayMode = 0
@@ -54,6 +55,8 @@ struct MobilePreferences: Codable, Equatable {
     var readerProgressDisplay = 0
     /// 0 = Off, 1 = Follow OS Low Power Mode, 2 = Always On
     var readerPowerSavingMode = 1
+    var readerHighlightStyle = "solid"
+    var readerHighlightColor = "#000000"
 
     func isPowerSaving(systemLowPower: Bool) -> Bool {
         switch readerPowerSavingMode {
@@ -179,6 +182,9 @@ final class NativeReaderSession: ObservableObject {
     @Published var media: ReaderMedia?
     @Published var footnote: ReaderFootnote?
     @Published var searchBatch: ReaderSearchBatch?
+    /// Delivers every progressive search batch synchronously on the main actor
+    /// so back-to-back incremental deltas are never coalesced away.
+    let searchBatches = PassthroughSubject<ReaderSearchBatch, Never>()
     @Published var aiStreams: [String: String] = [:]
     var appearanceSessionId = ""
     /// Monotonic per reading session. SwiftUI may recreate the reader view
@@ -204,7 +210,12 @@ final class NativeReaderSession: ObservableObject {
 final class NativeStore: ObservableObject {
     let handler: ManagedRequest
     let readerController: UIViewController
-    let showsLaunchAnimation: Bool
+    /// Only shown on an ordinary cold launch into the library (~1s), never on resume/reader-restore/widget deep-links.
+    @Published var showsLaunchAnimation: Bool
+    @Published var openingBookTransition: NativeBookOpenTransition?
+    @Published var closingBookTransition: NativeBookOpenTransition?
+    private var lastBookOpenSourceFrame: (bookId: String, frame: CGRect)?
+    private var pendingBookPresentContinuation: CheckedContinuation<Void, Never>?
     @Published var library: [LibraryBook] = [] {
         didSet { librarySeriesCache = nil }
     }
@@ -248,6 +259,7 @@ final class NativeStore: ObservableObject {
     @Published var syncStatus = ""
     @Published var requestedTab: Int?
     private static let lastReaderKey = "libzora.reader.lastBookId"
+    private static let coldLaunchBrandingDurationNs: UInt64 = 1_000_000_000
     private var pendingReaderRestore: String?
     private var pendingOpenBookId: String?
     /// Bumped whenever a widget link supersedes the reader that is opening.
@@ -355,7 +367,11 @@ final class NativeStore: ObservableObject {
         case "readerMedia": session.media = event.media
         case "readerFootnote":
             session.footnote = event.footnote?.visible == true ? event.footnote : nil
-        case "readerSearch": session.searchBatch = event.search
+        case "readerSearch":
+            if let search = event.search {
+                session.searchBatch = search
+                session.searchBatches.send(search)
+            }
         case "txtImport": txtReview = event.txtImport
         case "dataBusy": dataBusy = event.busy ?? false; busyMessage = event.message ?? ""
         case "status": if event.channel == "sync" { syncStatus = event.message ?? "" }
@@ -366,6 +382,7 @@ final class NativeStore: ObservableObject {
         case "openBook": if let id = event.bookId { openRequestedBook(id) }
         case "openTab":
             if let tab = event.tab {
+                showsLaunchAnimation = false
                 // A tab link asks for the tab itself, so it must also cancel
                 // the saved reading session and any reader that is still
                 // opening. Otherwise the last book reopens over the tab.
@@ -394,12 +411,16 @@ final class NativeStore: ObservableObject {
         return librarySeriesCache?[id]
     }
 
-    /// The root owns startup, rather than waiting for a tab's onAppear. As soon
-    /// as the library snapshot arrives, the splash dismisses immediately while
-    /// viewport cover thumbnails warm concurrently in the background.
+    /// The root owns startup, rather than waiting for a tab's onAppear. Cold
+    /// launch plays a 1s branding animation concurrently while the shelf loads;
+    /// restoring a reading session or opening a widget link skips it and
+    /// enters the target view directly without flashing the library.
     func prepareLaunch(viewport: CGSize) async {
         guard !launchStarted else { return }
         launchStarted = true
+        let brandingDelay: Task<Void, Never>? = showsLaunchAnimation
+            ? Task { try? await Task.sleep(nanoseconds: Self.coldLaunchBrandingDurationNs) }
+            : nil
         do {
             try await refreshLibrary(timeoutNanoseconds: 30_000_000_000)
             try Task.checkCancellation()
@@ -422,9 +443,15 @@ final class NativeStore: ObservableObject {
                     viewport: viewport)
             }
         }
+        if showsLaunchAnimation && pendingOpenBookId == nil && requestedTab == nil && !Task.isCancelled {
+            await brandingDelay?.value
+        } else {
+            brandingDelay?.cancel()
+            showsLaunchAnimation = false
+        }
         preparingLibrary = false
         if libraryLoaded && !Task.isCancelled {
-            openPendingReaderIfNeeded()
+            openPendingReaderIfNeeded(animated: false)
             restorePendingReaderIfNeeded()
         } else {
             releaseLaunchRestore()
@@ -466,6 +493,7 @@ final class NativeStore: ObservableObject {
     /// while another book is open. Keep the request until a fresh library
     /// snapshot can resolve it and the reader is free.
     func openRequestedBook(_ bookId: String) {
+        showsLaunchAnimation = false
         pendingOpenBookId = bookId
         pendingBookRequiredRevision = libraryRefreshRevision + 1
         pendingReaderRestore = nil
@@ -490,7 +518,7 @@ final class NativeStore: ObservableObject {
         if readerBook != nil { perform { await self.closeReader() } }
     }
 
-    private func openPendingReaderIfNeeded() {
+    private func openPendingReaderIfNeeded(animated: Bool = true) {
         guard let bookId = pendingOpenBookId, libraryLoaded,
               readerBook == nil, !openingReader, !restartRequired else { return }
         let book = library.first(where: { $0.id == bookId })
@@ -504,7 +532,7 @@ final class NativeStore: ObservableObject {
                 catch { if !Task.isCancelled { failure = error.localizedDescription } }
                 pendingBookRefreshTask = nil
                 // A newer link may require a snapshot newer than this refresh.
-                if refreshed { openPendingReaderIfNeeded() }
+                if refreshed { openPendingReaderIfNeeded(animated: animated) }
             }
         case .missing:
             pendingOpenBookId = nil
@@ -514,7 +542,7 @@ final class NativeStore: ObservableObject {
             guard let book else { return }
             pendingOpenBookId = nil
             // An explicit widget tap wins over restoring the last reader session.
-            perform { try await self.openReader(book) }
+            perform { try await self.openReader(book, animated: animated) }
         }
     }
 
@@ -538,7 +566,7 @@ final class NativeStore: ObservableObject {
         }
         // An unstructured task outlives the refresh that triggered it, so a
         // cancelled pull-to-refresh cannot eat the reader restoration.
-        Task { try? await self.openReader(book) }
+        Task { try? await self.openReader(book, animated: false) }
     }
 
     /// A failed first shelf load must not leave the launch cover on screen.
@@ -601,7 +629,13 @@ final class NativeStore: ObservableObject {
         }
     }
 
-    func openReader(_ book: LibraryBook, location: [String: Any]? = nil) async throws {
+    func completeBookOpenPresentation() {
+        pendingBookPresentContinuation?.resume()
+        pendingBookPresentContinuation = nil
+    }
+
+    func openReader(_ book: LibraryBook, location: [String: Any]? = nil,
+                    animated: Bool = true, sourceFrame: CGRect? = nil) async throws {
         guard !openingReader, readerBook == nil else { return }
         openingReader = true
         defer { openingReader = false }
@@ -612,10 +646,63 @@ final class NativeStore: ObservableObject {
         session.appearanceColorScheme = nil
         var args: [String: Any] = ["bookId": book.id, "sessionId": session.appearanceSessionId]
         if let location { args["location"] = location }
-        // Present the cover before the reader reports ready. Otherwise the
-        // shelf stays visible while the chapter engine opens the book.
-        readerBook = book
-        restoringReader = false
+        let resolvedFrame = sourceFrame
+            ?? NativeBookCoverFrames.get("shelf:\(book.id)")
+            ?? NativeBookCoverFrames.get("detail:\(book.id)")
+            ?? NativeBookCoverFrames.get("continue:\(book.id)")
+        let powerSaving = preferences.isPowerSaving(systemLowPower: ProcessInfo.processInfo.isLowPowerModeEnabled)
+        let useBookFlip = animated && !UIAccessibility.isReduceMotionEnabled && !powerSaving && resolvedFrame != nil
+        if let resolvedFrame, animated {
+            lastBookOpenSourceFrame = (book.id, resolvedFrame)
+        } else if !animated {
+            lastBookOpenSourceFrame = nil
+        }
+        closingBookTransition = nil
+        // When playing the Apple Books cover-open transition, expand and flip
+        // the cover over the live shelf first, then mount `NativeReaderPage`
+        // into the window BEFORE invoking `reader.open` so the Avalonia Skia
+        // surface always has real viewport bounds (avoiding a blank white page).
+        if useBookFlip, let frame = resolvedFrame {
+            openingBookTransition = NativeBookOpenTransition(book: book, sourceFrame: frame)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.50) { [weak self] in
+                self?.completeBookOpenPresentation()
+            }
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                pendingBookPresentContinuation = continuation
+            }
+            guard generation == readerOpenGeneration else {
+                openingBookTransition = nil
+                return
+            }
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            UIView.setAnimationsEnabled(false)
+            withTransaction(transaction) {
+                readerBook = book
+            }
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 50_000_000)
+                UIView.setAnimationsEnabled(true)
+                self?.restoringReader = false
+            }
+        } else if animated {
+            openingBookTransition = nil
+            readerBook = book
+            restoringReader = false
+        } else {
+            openingBookTransition = nil
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            UIView.setAnimationsEnabled(false)
+            withTransaction(transaction) {
+                readerBook = book
+            }
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 50_000_000)
+                UIView.setAnimationsEnabled(true)
+                self?.restoringReader = false
+            }
+        }
         do {
             let _: Done = try await request("reader.open", args)
             guard generation == readerOpenGeneration else {
@@ -634,6 +721,7 @@ final class NativeStore: ObservableObject {
             bookOpenOrder[book.id] = nextOrder
             UserDefaults.standard.set(bookOpenOrder, forKey: Self.bookOpenOrderKey)
         } catch {
+            UIView.setAnimationsEnabled(true)
             if generation == readerOpenGeneration {
                 readerBook = nil
                 restoringReader = false
@@ -646,11 +734,42 @@ final class NativeStore: ObservableObject {
 
     func closeReader() async {
         restoringReader = false
+        openingBookTransition = nil
         do { let _: Done = try await request("reader.close") }
         catch { if !Task.isCancelled { failure = error.localizedDescription }; return }
-        readerBook = nil
+        let closingBook = readerBook
+        let powerSaving = preferences.isPowerSaving(systemLowPower: ProcessInfo.processInfo.isLowPowerModeEnabled)
+        let didAnimateClose: Bool
+        if let book = closingBook,
+           let saved = lastBookOpenSourceFrame,
+           saved.bookId == book.id,
+           !UIAccessibility.isReduceMotionEnabled,
+           !powerSaving {
+            didAnimateClose = true
+            lastBookOpenSourceFrame = nil
+            closingBookTransition = NativeBookOpenTransition(book: book, sourceFrame: saved.frame)
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            UIView.setAnimationsEnabled(false)
+            withTransaction(transaction) {
+                readerBook = nil
+            }
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 50_000_000)
+                UIView.setAnimationsEnabled(true)
+            }
+        } else {
+            didAnimateClose = false
+            lastBookOpenSourceFrame = nil
+            readerBook = nil
+        }
         session.reset()
         UserDefaults.standard.removeObject(forKey: Self.lastReaderKey)
+        if didAnimateClose {
+            // Wait for the cover-shut animation to land on its original shelf
+            // slot before refreshing/re-sorting the library underneath it.
+            try? await Task.sleep(nanoseconds: 420_000_000)
+        }
         do { try await refreshLibrary() }
         catch { if !Task.isCancelled { failure = error.localizedDescription } }
     }

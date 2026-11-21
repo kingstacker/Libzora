@@ -26,6 +26,17 @@ internal sealed partial class IOSNativeFrontend
             finally { _readerGate.Release(); }
         }
 
+        if (command == "reader.searchMore")
+        {
+            await _readerGate.WaitAsync(token);
+            try
+            {
+                var current = _reader ?? throw new InvalidOperationException(UiText.Get("请先打开一本书。"));
+                return Data(("generation", current.NativeContinueSearch(Text(args, "searchId"))));
+            }
+            finally { _readerGate.Release(); }
+        }
+
         if (command == "reader.searchCancel")
         {
             _reader?.NativeCancelSearch(Text(args, "searchId"));
@@ -115,8 +126,19 @@ internal sealed partial class IOSNativeFrontend
                 case "reader.footnoteDismiss": reader.NativeDismissFootnote(); break;
                 case "reader.footnoteJump": await reader.NativeJumpFootnoteAsync(); break;
                 case "reader.footnoteReturn": await reader.NativeReturnFromFootnoteAsync(); break;
-                case "reader.annotate": await reader.NativeAnnotateAsync(Text(args, "note")); break;
-                case "reader.annotationEdit": await reader.NativeEditAnnotationAsync(Id(args, "id"), Text(args, "note")); break;
+                case "reader.annotate":
+                    await reader.NativeAnnotateAsync(
+                        Text(args, "note"),
+                        OptionalText(args, "style"),
+                        OptionalText(args, "color"));
+                    break;
+                case "reader.annotationEdit":
+                    await reader.NativeEditAnnotationAsync(
+                        Id(args, "id"),
+                        Text(args, "note"),
+                        OptionalText(args, "style"),
+                        OptionalText(args, "color"));
+                    break;
                 case "reader.annotationDelete": await reader.NativeDeleteAnnotationAsync(Id(args, "id")); break;
                 case "reader.pdfRotate": await reader.NativeRotatePdfAsync(); break;
                 case "reader.pdfJumpPage": await reader.NativeJumpPdfPageAsync(Number(args, "page", 1)); break;
@@ -164,5 +186,10 @@ internal sealed partial class IOSNativeFrontend
         }
         return Data(("text", answer.Length == 0 ? UiText.Get("AI 没有返回内容。") : answer.ToString()));
     }
+
+    private static string? OptionalText(JsonElement args, string name) =>
+        args.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
 }
 #endif

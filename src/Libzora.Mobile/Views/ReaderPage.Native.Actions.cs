@@ -31,7 +31,7 @@ public partial class ReaderPage
         }
     }
 
-    public Task NativeAnnotateAsync(string? note)
+    public Task NativeAnnotateAsync(string? note, string? underlineStyle = null, string? color = null)
     {
         if (_selection is not { } selection || _bookFile is null)
             throw new InvalidOperationException(UiText.Get("请先长按并选择正文。"));
@@ -40,15 +40,44 @@ public partial class ReaderPage
             && annotation.StartOffset < item.EndOffset && annotation.EndOffset > item.StartOffset))
             throw new InvalidOperationException(UiText.Get("所选文字已有批注，请点击已有划线进行编辑。"));
         annotation.Note = note ?? string.Empty;
+        ApplyAnnotationStyleAndRemember(annotation, underlineStyle, color);
         return SaveAnnotationAsync(annotation);
     }
 
-    public Task NativeEditAnnotationAsync(Guid id, string note)
+    public Task NativeEditAnnotationAsync(Guid id, string note, string? underlineStyle = null, string? color = null)
     {
         var annotation = _annotations.Find(item => item.Id == id)
             ?? throw new InvalidOperationException(UiText.Get("批注已不存在。"));
         annotation.Note = note;
+        ApplyAnnotationStyleAndRemember(annotation, underlineStyle, color);
         return SaveAnnotationAsync(annotation);
+    }
+
+    private void ApplyAnnotationStyleAndRemember(ReaderAnnotation annotation, string? underlineStyle, string? color)
+    {
+        var hasStyle = !string.IsNullOrWhiteSpace(underlineStyle);
+        var hasColor = !string.IsNullOrWhiteSpace(color);
+        if (!hasStyle && !hasColor) return;
+
+        var normalizedStyle = hasStyle
+            ? MobilePreferences.NormalizeReaderHighlightStyle(underlineStyle)
+            : MobilePreferences.NormalizeReaderHighlightStyle(annotation.UnderlineStyle);
+        var normalizedColor = hasColor
+            ? MobilePreferences.NormalizeReaderHighlightColor(color)
+            : normalizedStyle == "marker"
+                ? MobilePreferences.NormalizeReaderHighlightColor(
+                    string.Equals(annotation.UnderlineStyle, "marker", StringComparison.OrdinalIgnoreCase)
+                        ? annotation.Color
+                        : _shell.Preferences.Current.ReaderHighlightColor)
+                : "#000000";
+
+        annotation.UnderlineStyle = normalizedStyle;
+        annotation.Color = normalizedColor;
+        _shell.Preferences.Update(prefs => prefs with
+        {
+            ReaderHighlightStyle = normalizedStyle,
+            ReaderHighlightColor = normalizedStyle == "marker" || hasColor ? normalizedColor : prefs.ReaderHighlightColor
+        });
     }
 
     public Task NativeDeleteAnnotationAsync(Guid id)

@@ -2,11 +2,11 @@
         x:Class="Libzora.AccountClosureWindow" Title="{DynamicResource Ui.Account.CloseAccount}"
         Width="460" SizeToContent="Height" CanResize="False" ShowInTaskbar="False"
         WindowStartupLocation="CenterOwner" Background="{DynamicResource PaperBrush}"
-        FontFamily="{StaticResource DefaultAppFontFamily}">
+        FontFamily="{DynamicResource DefaultAppFontFamily}">
   <Window.Styles>
-    <Style Selector="TextBlock"><Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" /></Style>
-    <Style Selector="TextBox"><Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" /></Style>
-    <Style Selector="Button"><Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" /></Style>
+    <Style Selector="TextBlock"><Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" /></Style>
+    <Style Selector="TextBox"><Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" /></Style>
+    <Style Selector="Button"><Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" /></Style>
   </Window.Styles>
   <StackPanel Margin="24" Spacing="14">
     <TextBlock Text="{DynamicResource Ui.Account.CloseAccountQuestion}" FontSize="21" FontWeight="SemiBold" TextWrapping="Wrap" />

@@ -26,6 +26,7 @@
         DragDrop.AllowDrop="True"
         ExtendClientAreaToDecorationsHint="True"
         ExtendClientAreaTitleBarHeightHint="-1"
+        FontFamily="{DynamicResource DefaultAppFontFamily}"
         KeyDown="MainWindow_KeyDown">
 
     <Window.Resources>
@@ -2633,7 +2634,7 @@
 
             <!-- One settings destination; inactive categories and collapsed forms leave the focus tree. -->
             <Grid x:Name="SettingsPage" Classes="settingsPage" Grid.Column="1" Margin="30,36,30,18" IsVisible="False">
-                <Grid RowDefinitions="Auto,Auto,*,Auto" MaxWidth="820" HorizontalAlignment="Left" Width="{Binding Bounds.Width, ElementName=SettingsPage}">
+                <Grid RowDefinitions="Auto,Auto,*,Auto" MaxWidth="740" HorizontalAlignment="Left" Width="{Binding Bounds.Width, ElementName=SettingsPage}">
                     <StackPanel Spacing="0" Margin="6,0,0,0">
                         <StackPanel MinHeight="48" Spacing="3">
                         <TextBlock Text="{DynamicResource Ui.Auto.DF3D58C7D84B85F2}" Classes="pageTitle" TextWrapping="Wrap"
@@ -2693,7 +2694,7 @@
                             </Border>
                         </StackPanel>
                     </StackPanel>
-                    <WrapPanel x:Name="SettingsCategoryButtons" Grid.Row="1" Margin="0,20,0,16" Orientation="Horizontal">
+                    <WrapPanel x:Name="SettingsCategoryButtons" Grid.Row="1" Margin="0,16,0,20" Orientation="Horizontal">
                         <Button x:Name="SettingsGeneralButton" Content="{DynamicResource Ui.Settings.Category.General}" Classes="settingsCategory" Tag="General" Click="SettingsCategoryButton_Click" />
                         <Button x:Name="SettingsLibraryButton" Content="{DynamicResource Ui.Settings.Category.Library}" Classes="settingsCategory" Tag="Library" Click="SettingsCategoryButton_Click" />
                         <Button x:Name="SettingsReadingButton" Content="{DynamicResource Ui.Settings.Category.Reading}" Classes="settingsCategory" Tag="Reading" Click="SettingsCategoryButton_Click" />
@@ -2705,62 +2706,82 @@
                     </WrapPanel>
                     <ScrollViewer x:Name="SettingsScrollViewer" Classes="settingsScroll" Grid.Row="2" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" Padding="0,0,12,20">
                         <StackPanel Spacing="16">
-                            <StackPanel Spacing="8" x:Name="SettingsGeneralSection" IsVisible="False">
+                            <StackPanel Spacing="0" x:Name="SettingsGeneralSection" IsVisible="False">
                                 <TextBlock Text="{DynamicResource Ui.Auto.835B700E028C9B20}" Classes="settingsSectionTitle" TextWrapping="Wrap" />
-                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                                    <TextBlock Text="{DynamicResource Ui.Auto.3D13868593AE4EEB}" FontSize="14" VerticalAlignment="Center" TextWrapping="Wrap" />
-                                    <ComboBox x:Name="UiLanguageBox" Grid.Column="1" Width="180" SelectedIndex="0" SelectionChanged="UiLanguageBox_SelectionChanged" AutomationProperties.Name="{DynamicResource Ui.Auto.3D13868593AE4EEB}" FontSize="14">
-                                        <ComboBoxItem Content="{DynamicResource Ui.Auto.9937E365AAF3A085}" Tag="zh-CN" />
-                                        <ComboBoxItem Content="English" Tag="en-US" />
-                                    </ComboBox>
-                                </Grid>
-                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12" Margin="0,4,0,4">
-                                    <StackPanel Spacing="4" VerticalAlignment="Center">
-                                        <TextBlock ToolTip.Tip="{DynamicResource Ui.Appearance.MainThemeHint}" Text="{DynamicResource Ui.Appearance.MainTheme}" FontSize="14" TextWrapping="Wrap" />
-                                    </StackPanel>
-                                    <ComboBox x:Name="MainThemeBox" Grid.Column="1" Width="180" SelectedIndex="0"
-                                              VerticalAlignment="Center" FontSize="14"
-                                              SelectionChanged="MainThemeBox_SelectionChanged"
-                                              AutomationProperties.Name="{DynamicResource Ui.Appearance.MainTheme}">
-                                        <ComboBoxItem Classes="mainThemeOption" Content="{DynamicResource Ui.Appearance.Classic}" Tag="Classic">
-                                            <ComboBoxItem.Resources>
-                                                <SolidColorBrush x:Key="ThemeOptionPaper" Color="#FFFFFF" />
-                                                <SolidColorBrush x:Key="ThemeOptionInk" Color="#000000" />
-                                            </ComboBoxItem.Resources>
-                                        </ComboBoxItem>
-                                        <ComboBoxItem Classes="mainThemeOption" Content="{DynamicResource Ui.Appearance.Beige}" Tag="Beige">
-                                            <ComboBoxItem.Resources>
-                                                <SolidColorBrush x:Key="ThemeOptionPaper" Color="#F4F2EC" />
-                                                <SolidColorBrush x:Key="ThemeOptionInk" Color="#303030" />
-                                            </ComboBoxItem.Resources>
-                                        </ComboBoxItem>
-                                        <ComboBoxItem Classes="mainThemeOption" Content="{DynamicResource Ui.Appearance.Green}" Tag="Green">
-                                            <ComboBoxItem.Resources>
-                                                <SolidColorBrush x:Key="ThemeOptionPaper" Color="#EDF3EA" />
-                                                <SolidColorBrush x:Key="ThemeOptionInk" Color="#27392A" />
-                                            </ComboBoxItem.Resources>
-                                        </ComboBoxItem>
-                                    </ComboBox>
-                                </Grid>
-                                <TextBlock Text="{DynamicResource Ui.Settings.Group.Network}" Classes="settingsSectionTitle" Margin="0,16,0,0" TextWrapping="Wrap" />
+                                <Border Classes="settingsRow">
+                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                                        <TextBlock Text="{DynamicResource Ui.Auto.3D13868593AE4EEB}" FontSize="14" VerticalAlignment="Center" TextWrapping="Wrap" />
+                                        <ComboBox x:Name="UiLanguageBox" Grid.Column="1" Width="180" SelectedIndex="0" SelectionChanged="UiLanguageBox_SelectionChanged" AutomationProperties.Name="{DynamicResource Ui.Auto.3D13868593AE4EEB}" FontSize="14">
+                                            <ComboBoxItem Content="{DynamicResource Ui.Auto.9937E365AAF3A085}" Tag="zh-CN" />
+                                            <ComboBoxItem Content="English" Tag="en-US" />
+                                        </ComboBox>
+                                    </Grid>
+                                </Border>
+                                <Border Classes="settingsRow">
+                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                                        <StackPanel Spacing="4" VerticalAlignment="Center">
+                                            <TextBlock ToolTip.Tip="{DynamicResource Ui.Appearance.MainThemeHint}" Text="{DynamicResource Ui.Appearance.MainTheme}" FontSize="14" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                        <ComboBox x:Name="MainThemeBox" Grid.Column="1" Width="180" SelectedIndex="0"
+                                                  VerticalAlignment="Center" FontSize="14"
+                                                  SelectionChanged="MainThemeBox_SelectionChanged"
+                                                  AutomationProperties.Name="{DynamicResource Ui.Appearance.MainTheme}">
+                                            <ComboBoxItem Classes="mainThemeOption" Content="{DynamicResource Ui.Appearance.Classic}" Tag="Classic">
+                                                <ComboBoxItem.Resources>
+                                                    <SolidColorBrush x:Key="ThemeOptionPaper" Color="#FFFFFF" />
+                                                    <SolidColorBrush x:Key="ThemeOptionInk" Color="#000000" />
+                                                </ComboBoxItem.Resources>
+                                            </ComboBoxItem>
+                                            <ComboBoxItem Classes="mainThemeOption" Content="{DynamicResource Ui.Appearance.Beige}" Tag="Beige">
+                                                <ComboBoxItem.Resources>
+                                                    <SolidColorBrush x:Key="ThemeOptionPaper" Color="#F4F2EC" />
+                                                    <SolidColorBrush x:Key="ThemeOptionInk" Color="#303030" />
+                                                </ComboBoxItem.Resources>
+                                            </ComboBoxItem>
+                                            <ComboBoxItem Classes="mainThemeOption" Content="{DynamicResource Ui.Appearance.Green}" Tag="Green">
+                                                <ComboBoxItem.Resources>
+                                                    <SolidColorBrush x:Key="ThemeOptionPaper" Color="#EDF3EA" />
+                                                    <SolidColorBrush x:Key="ThemeOptionInk" Color="#27392A" />
+                                                </ComboBoxItem.Resources>
+                                            </ComboBoxItem>
+                                        </ComboBox>
+                                    </Grid>
+                                </Border>
+                                <Border Classes="settingsRow">
+                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                                        <StackPanel Spacing="4" VerticalAlignment="Center">
+                                            <TextBlock ToolTip.Tip="{DynamicResource Ui.Appearance.MainUiFontHint}" Text="{DynamicResource Ui.Appearance.MainUiFont}" FontSize="14" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                        <ComboBox x:Name="MainUiFontBox" Grid.Column="1" Width="180" SelectedIndex="0"
+                                                  VerticalAlignment="Center" FontSize="14"
+                                                  SelectionChanged="MainUiFontBox_SelectionChanged"
+                                                  AutomationProperties.Name="{DynamicResource Ui.Appearance.MainUiFont}">
+                                            <ComboBoxItem Content="{DynamicResource Ui.Appearance.FontKingHwa}" Tag="KingHwaOldSong" />
+                                            <ComboBoxItem Content="{DynamicResource Ui.Appearance.FontSystemDefault}" Tag="SystemDefault" />
+                                        </ComboBox>
+                                    </Grid>
+                                </Border>
+                                <TextBlock Text="{DynamicResource Ui.Settings.Group.Network}" Classes="settingsSectionTitle" Margin="4,28,0,8" TextWrapping="Wrap" />
                                 <ToggleSwitch x:Name="NetworkEnabledCheck" VerticalAlignment="Center" ToolTip.Tip="{DynamicResource Ui.Auto.D7842A57D154C697}" Classes="settingsToggle" Content="{DynamicResource Ui.Auto.098925F827B88E7A}" AutomationProperties.Name="{DynamicResource Ui.Auto.098925F827B88E7A}" />
-                                            <Grid x:Name="TranslationGoogleProxyPane" ColumnDefinitions="*,220" ColumnSpacing="12" Background="Transparent" ToolTip.Tip="{DynamicResource Ui.Auto.8B7B5D7E5F3A1C20}">
-                                                <TextBlock Text="{DynamicResource Ui.Auto.4D6C4A7B0E6E3A11}" FontSize="14" VerticalAlignment="Center" ToolTip.Tip="{DynamicResource Ui.Auto.8B7B5D7E5F3A1C20}" />
-                                                <TextBox x:Name="TranslationGoogleProxyBox"
-                                                         Grid.Column="1"
-                                                         PlaceholderText="http://127.0.0.1:7890"
-                                                         AutomationProperties.Name="{DynamicResource Ui.Auto.4D6C4A7B0E6E3A11}"
-                                                         FontSize="14" />
-                                            </Grid>
+                                <Border Classes="settingsRow">
+                                    <Grid x:Name="TranslationGoogleProxyPane" ColumnDefinitions="*,220" ColumnSpacing="12" Background="Transparent" ToolTip.Tip="{DynamicResource Ui.Auto.8B7B5D7E5F3A1C20}">
+                                        <TextBlock Text="{DynamicResource Ui.Auto.4D6C4A7B0E6E3A11}" FontSize="14" VerticalAlignment="Center" ToolTip.Tip="{DynamicResource Ui.Auto.8B7B5D7E5F3A1C20}" />
+                                        <TextBox x:Name="TranslationGoogleProxyBox"
+                                                 Grid.Column="1"
+                                                 PlaceholderText="http://127.0.0.1:7890"
+                                                 AutomationProperties.Name="{DynamicResource Ui.Auto.4D6C4A7B0E6E3A11}"
+                                                 FontSize="14" />
+                                    </Grid>
+                                </Border>
                             </StackPanel>
-                            <StackPanel Spacing="8" x:Name="SettingsLibrarySection" IsVisible="False">
+                            <StackPanel Spacing="0" x:Name="SettingsLibrarySection" IsVisible="False">
                                 <TextBlock Text="{DynamicResource Ui.Auto.A183CEACD829707F}" Classes="settingsSectionTitle" TextWrapping="Wrap" />
                                 <ToggleSwitch x:Name="GridGalleryDisplayCheck" VerticalAlignment="Center" ToolTip.Tip="{DynamicResource Ui.Auto.694BA13A98D0252A}" Classes="settingsToggle" Content="{DynamicResource Ui.Auto.DA96E037499D9296}" AutomationProperties.Name="{DynamicResource Ui.Auto.DA96E037499D9296}" />
-                                <ToggleSwitch x:Name="StackBookSeriesCheck" VerticalAlignment="Center" ToolTip.Tip="{DynamicResource Ui.Library.StackSeriesHelp}" Classes="settingsToggle" Content="{DynamicResource Ui.Library.StackSeries}" AutomationProperties.Name="{DynamicResource Ui.Library.StackSeries}" />
+                                <ToggleSwitch x:Name="StackBookSeriesCheck" IsChecked="True" VerticalAlignment="Center" ToolTip.Tip="{DynamicResource Ui.Library.StackSeriesHelp}" Classes="settingsToggle" Content="{DynamicResource Ui.Library.StackSeries}" AutomationProperties.Name="{DynamicResource Ui.Library.StackSeries}" />
                                 <ToggleSwitch x:Name="ShowSyncStatusIconCheck" VerticalAlignment="Center" ToolTip.Tip="{DynamicResource Ui.Library.ShowSyncStatusIconHelp}" Classes="settingsToggle" Content="{DynamicResource Ui.Library.ShowSyncStatusIcon}" AutomationProperties.Name="{DynamicResource Ui.Library.ShowSyncStatusIcon}" />
                                 <ToggleSwitch x:Name="ShowLibraryPresenceIconCheck" VerticalAlignment="Center" ToolTip.Tip="{DynamicResource Ui.Library.ShowPresenceIconHelp}" Classes="settingsToggle" Content="{DynamicResource Ui.Library.ShowPresenceIcon}" AutomationProperties.Name="{DynamicResource Ui.Library.ShowPresenceIcon}" />
                                 <ToggleSwitch x:Name="CollectionsMutuallyExclusiveCheck" VerticalAlignment="Center" ToolTip.Tip="{DynamicResource Ui.Library.CollectionsMutuallyExclusiveHelp}" Classes="settingsToggle" Content="{DynamicResource Ui.Auto.F6A273284E344858}" AutomationProperties.Name="{DynamicResource Ui.Auto.F6A273284E344858}" />
-                                <TextBlock Text="{DynamicResource Ui.Settings.Group.Import}" Classes="settingsSectionTitle" Margin="0,16,0,0" TextWrapping="Wrap" />
+                                <TextBlock Text="{DynamicResource Ui.Settings.Group.Import}" Classes="settingsSectionTitle" Margin="4,28,0,8" TextWrapping="Wrap" />
                                 <ToggleSwitch x:Name="AutoGenerateReaderFormatsCheck" VerticalAlignment="Center" ToolTip.Tip="{DynamicResource Ui.Auto.8B0CC19DB0791E72}" Classes="settingsToggle" Content="{DynamicResource Ui.Auto.55A2226420BCBF78}" AutomationProperties.Name="{DynamicResource Ui.Auto.55A2226420BCBF78}" />
                                 <Expander x:Name="SettingsCalibreExpander" Classes="settingsExpander" Header="{DynamicResource Ui.Auto.39F073ED740B19B8}" Tag="{DynamicResource Ui.Auto.76B87E0C608BEE4A}" AutomationProperties.Name="{DynamicResource Ui.Auto.39F073ED740B19B8}" Expanded="SettingsExpander_Expanded" Collapsed="SettingsExpander_Collapsed">
                                     <Border x:Name="SettingsCalibreSection" Padding="0">
@@ -2794,17 +2815,19 @@
                                     </Border>
                                 </Expander>
                             </StackPanel>
-                            <StackPanel Spacing="16" x:Name="SettingsReadingSection" IsVisible="False">
+                            <StackPanel Spacing="0" x:Name="SettingsReadingSection" IsVisible="False">
                                 <TextBlock Text="{DynamicResource Ui.Auto.494315CA7A0FAD60}" Classes="settingsSectionTitle" TextWrapping="Wrap" />
-                                <StackPanel Spacing="5">
-                                    <TextBlock Text="{DynamicResource Ui.Auto.6FA2075CA9C20775}" FontSize="12" Foreground="{DynamicResource MutedInkBrush}" TextWrapping="Wrap" />
-                                    <ComboBox x:Name="PreferredOpenFormatBox" SelectedIndex="0" MaxWidth="360" HorizontalAlignment="Left" AutomationProperties.Name="{DynamicResource Ui.Auto.6FA2075CA9C20775}" FontSize="14">
-                                        <ComboBoxItem Content="EPUB" Tag="epub" />
-                                        <ComboBoxItem Content="PDF" Tag="pdf" />
-                                        <ComboBoxItem Content="AZW3" Tag="azw3" />
-                                        <ComboBoxItem Content="{DynamicResource Ui.Auto.F117607AC0E397F4}" Tag="mobi" />
-                                    </ComboBox>
-                                </StackPanel>
+                                <Border Classes="settingsRow">
+                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                                        <TextBlock Text="{DynamicResource Ui.Auto.6FA2075CA9C20775}" FontSize="14" VerticalAlignment="Center" TextWrapping="Wrap" />
+                                        <ComboBox x:Name="PreferredOpenFormatBox" Grid.Column="1" Width="180" SelectedIndex="0" VerticalAlignment="Center" AutomationProperties.Name="{DynamicResource Ui.Auto.6FA2075CA9C20775}" FontSize="14">
+                                            <ComboBoxItem Content="EPUB" Tag="epub" />
+                                            <ComboBoxItem Content="PDF" Tag="pdf" />
+                                            <ComboBoxItem Content="AZW3" Tag="azw3" />
+                                            <ComboBoxItem Content="{DynamicResource Ui.Auto.F117607AC0E397F4}" Tag="mobi" />
+                                        </ComboBox>
+                                    </Grid>
+                                </Border>
                                 <ToggleSwitch x:Name="ReadingMaterialsCollapsedByDefaultCheck" VerticalAlignment="Center" Classes="settingsToggle" Content="{DynamicResource Ui.Auto.737AC585CF7AD245}" AutomationProperties.Name="{DynamicResource Ui.Auto.737AC585CF7AD245}" IsVisible="False" />
                                 <Expander x:Name="SettingsLocalResourcesExpander" Classes="settingsExpander" Header="{DynamicResource Ui.Auto.CB3794787648BF83}" Tag="{DynamicResource Ui.Auto.ECFAB6DAC176937A}" AutomationProperties.Name="{DynamicResource Ui.Auto.CB3794787648BF83}" Expanded="SettingsExpander_Expanded" Collapsed="SettingsExpander_Collapsed">
                                     <StackPanel Spacing="16">
@@ -2872,7 +2895,7 @@
                                         </Border>
                                     </StackPanel>
                                 </Expander>
-                                <TextBlock Text="{DynamicResource Ui.Auto.1B0049FCFD4163FE}" Classes="settingsSectionTitle" TextWrapping="Wrap" />
+                                <TextBlock Text="{DynamicResource Ui.Auto.1B0049FCFD4163FE}" Classes="settingsSectionTitle" Margin="4,28,0,8" TextWrapping="Wrap" />
                                 <ToggleSwitch x:Name="AiEnabledCheck" VerticalAlignment="Center" ToolTip.Tip="{DynamicResource Ui.Auto.0998EF96E5ED903E}" Classes="settingsToggle" Content="{DynamicResource Ui.Auto.538FD705CD18A10F}" AutomationProperties.Name="{DynamicResource Ui.Auto.538FD705CD18A10F}" />
                                 <Expander x:Name="SettingsAiExpander" Classes="settingsExpander" Header="{DynamicResource Ui.Auto.4E8CAA39D9545027}" Tag="{DynamicResource Ui.Auto.C2DB62BA340B2D27}" AutomationProperties.Name="{DynamicResource Ui.Auto.4E8CAA39D9545027}" Expanded="SettingsExpander_Expanded" Collapsed="SettingsExpander_Collapsed">
                                     <Border x:Name="ReaderAiSettingsPane" Padding="0" SizeChanged="ReaderAiSettingsPane_SizeChanged">
@@ -3403,7 +3426,7 @@
                                     </Grid>
                                 </Border>
                             </StackPanel>
-                            <StackPanel Spacing="16" x:Name="SettingsAboutSection" IsVisible="False">
+                            <StackPanel Spacing="0" x:Name="SettingsAboutSection" IsVisible="False">
                                 <TextBlock Text="{DynamicResource Ui.Settings.Group.Update}" Classes="settingsSectionTitle" TextWrapping="Wrap" />
                                 <ToggleSwitch x:Name="AutoUpdateCheck"
                                               Content="{DynamicResource Ui.Auto.4A09393CF96D5F86}"
@@ -3424,14 +3447,15 @@
                                         Click="CheckForUpdatesButton_Click" />
                                 <TextBlock x:Name="AboutUpdateStatusText"
                                            IsVisible="False"
+                                           Margin="4,8,0,0"
                                            Text="{DynamicResource Ui.Auto.8642A3F7563F3F16}"
                                            FontSize="12"
                                            Foreground="{DynamicResource MutedInkBrush}"
                                            TextWrapping="Wrap" />
-                                <Border BorderThickness="0" Padding="0,8,0,16">
+                                <Border BorderThickness="0" Padding="4,28,0,16">
                                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="24" VerticalAlignment="Top">
                                         <StackPanel Spacing="18">
-                                            <TextBlock Text="{DynamicResource Ui.Auto.52D25A9E30BA94F1}" Classes="settingsSectionTitle" TextWrapping="Wrap" />
+                                            <TextBlock Text="{DynamicResource Ui.Auto.52D25A9E30BA94F1}" Classes="settingsSectionTitle" Margin="0,0,0,2" TextWrapping="Wrap" />
                                             <Button x:Name="FeedbackButton" Content="{DynamicResource Ui.Feedback.Entry}" Classes="quiet" FontSize="12" MinWidth="0" MinHeight="0" Padding="0" BorderThickness="0" HorizontalAlignment="Left" Click="OpenFeedbackButton_Click" />
                                             <TextBlock x:Name="AboutVersionText" Text="{DynamicResource Ui.Auto.DC730979055D9FEF}" FontSize="12" Foreground="{DynamicResource MutedInkBrush}" TextWrapping="Wrap" />
                                         </StackPanel>

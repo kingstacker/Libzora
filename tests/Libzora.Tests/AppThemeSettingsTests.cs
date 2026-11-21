@@ -13,12 +13,36 @@ public sealed class AppThemeSettingsTests
     [InlineData("{\"MainTheme\":3}")]
     [InlineData("{\"MainTheme\":4}")]
     [InlineData("{\"MainTheme\":5}")]
+    [InlineData("{\"MainUiFont\":-1}")]
+    [InlineData("{\"MainUiFont\":999}")]
     public void OlderOrUnsupportedPreferencesKeepBlackAndWhite(string json)
     {
         var settings = AppSettings.Normalize(JsonSerializer.Deserialize<AppSettings>(json));
         Assert.Equal(AppTheme.Classic, settings.MainTheme);
+        Assert.Equal(AppUiFont.KingHwaOldSong, settings.MainUiFont);
         Assert.Equal(ReaderTheme.Classic, settings.ReaderAppearance.Theme);
         Assert.False(settings.ReaderAppearance.PaperEnabled);
+    }
+
+    [Theory]
+    [InlineData(AppUiFont.KingHwaOldSong)]
+    [InlineData(AppUiFont.SystemDefault)]
+    public async Task StartupAndAsyncLoadsPreserveMainUiFontIndependently(AppUiFont uiFont)
+    {
+        var directory = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var store = new AppSettingsStore(new AppPaths(directory));
+            var settings = AppSettings.Normalize(new AppSettings
+            {
+                MainUiFont = uiFont,
+                DefaultReaderLayout = new(FontFamily: ReaderFontDefaults.DefaultFamily)
+            });
+            await store.SaveAsync(settings);
+            Assert.Equal(settings, await store.LoadAsync());
+            Assert.Equal(settings, store.LoadSynchronously());
+        }
+        finally { TestHelpers.TryDelete(directory); }
     }
 
     [Theory]

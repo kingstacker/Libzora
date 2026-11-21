@@ -34,6 +34,7 @@ public partial class MainWindow
         return AppSettings.Normalize(_appSettings with
         {
             MainTheme = ReadMainThemeFromControls(),
+            MainUiFont = ReadMainUiFontFromControls(),
             UiLanguage = UiText.NormalizeLanguage(UiLanguageBox.SelectedItem is ComboBoxItem languageItem
                 ? languageItem.Tag?.ToString()
                 : _appSettings.UiLanguage),

@@ -8,7 +8,11 @@ public partial class MainWindow
 {
     private void ApplyMainAppearance()
     {
-        if (Application.Current is App app) app.ApplyTheme(_appSettings.MainTheme);
+        if (Application.Current is App app)
+        {
+            app.ApplyTheme(_appSettings.MainTheme);
+            app.ApplyUiFont(_appSettings.MainUiFont);
+        }
     }
 
     private void MainThemeBox_SelectionChanged(object? sender, SelectionChangedEventArgs e)
@@ -30,4 +34,21 @@ public partial class MainWindow
         MainThemeBox.SelectedItem is ComboBoxItem item
         && Enum.TryParse<AppTheme>(item.Tag?.ToString(), out var theme)
         && Enum.IsDefined(theme) ? theme : _appSettings.MainTheme;
+
+    private void MainUiFontBox_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressAppSettingsAutoSave || !_appSettingsAutoSaveConfigured
+            || MainUiFontBox.SelectedItem is not ComboBoxItem { Tag: not null } item
+            || !Enum.TryParse<AppUiFont>(item.Tag.ToString(), out var font)
+            || !Enum.IsDefined(font)) return;
+
+        if (Application.Current is App app) app.ApplyUiFont(font);
+        ScheduleAppSettingsAutoSave();
+        _appSettings = _appSettings with { MainUiFont = font };
+    }
+
+    private AppUiFont ReadMainUiFontFromControls() =>
+        MainUiFontBox.SelectedItem is ComboBoxItem item
+        && Enum.TryParse<AppUiFont>(item.Tag?.ToString(), out var font)
+        && Enum.IsDefined(font) ? font : _appSettings.MainUiFont;
 }

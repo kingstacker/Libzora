@@ -290,7 +290,7 @@
              popup surfaces: paper-white body, one-pixel ink outline, no
              rounded corners and no platform shadow. -->
         <Style Selector="ToolTip">
-            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
             <Setter Property="FontSize" Value="12" />
             <Setter Property="Foreground" Value="{DynamicResource InkBrush}" />
             <Setter Property="Background" Value="{DynamicResource PaperBrush}" />
@@ -363,11 +363,11 @@
              the future library/reader views. More specific view styles can
              override sizes and spacing without changing the palette. -->
         <Style Selector="TextBlock">
-            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
             <Setter Property="Foreground" Value="{DynamicResource InkBrush}" />
         </Style>
         <Style Selector="Button">
-            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
             <Setter Property="MinHeight" Value="35" />
             <Setter Property="FontSize" Value="14" />
             <Setter Property="Background" Value="{DynamicResource InkBrush}" />
@@ -402,7 +402,7 @@
             <Setter Property="BorderBrush" Value="{DynamicResource StrongBorderBrush}" />
         </Style>
         <Style Selector="Button.readerSelectionAction">
-            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
             <Setter Property="Background" Value="{DynamicResource ReaderPageBrush}" />
             <Setter Property="Foreground" Value="{DynamicResource ReaderInkBrush}" />
             <Setter Property="BorderBrush" Value="Transparent" />
@@ -443,7 +443,7 @@
             <Setter Property="Padding" Value="9,0" />
         </Style>
         <Style Selector="Button.bookReflectionFormattingAction">
-            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="Foreground" Value="{DynamicResource InkBrush}" />
             <Setter Property="BorderBrush" Value="Transparent" />
@@ -472,7 +472,7 @@
             <Setter Property="BorderBrush" Value="Transparent" />
         </Style>
         <Style Selector="Button.readerFootnoteMarker">
-            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="Foreground" Value="{DynamicResource ReaderInkBrush}" />
             <Setter Property="BorderBrush" Value="Transparent" />
@@ -496,7 +496,7 @@
             <Setter Property="Foreground" Value="{DynamicResource ReaderInkBrush}" />
         </Style>
         <Style Selector="Button.readerAiCitationMarker">
-            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="Foreground" Value="{DynamicResource ReaderMutedBrush}" />
             <Setter Property="BorderBrush" Value="Transparent" />
@@ -523,7 +523,7 @@
             <Setter Property="Foreground" Value="{DynamicResource ReaderInkBrush}" />
         </Style>
         <Style Selector="TextBox">
-            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
             <Setter Property="PlaceholderForeground" Value="{DynamicResource MutedInkBrush}" />
             <Setter Property="Foreground" Value="{DynamicResource InkBrush}" />
             <Setter Property="Background" Value="Transparent" />
@@ -689,7 +689,7 @@
              icon buttons. Keeping these as classes makes the Avalonia XAML
              read like the reference instead of relying on Fluent defaults. -->
         <Style Selector="Button.quiet">
-            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
             <Setter Property="MinHeight" Value="35" />
             <Setter Property="FontSize" Value="14" />
             <Setter Property="Background" Value="{DynamicResource PaperBrush}" />
@@ -881,7 +881,7 @@
         </Style>
 
         <Style Selector="Button.icon">
-            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
             <Setter Property="Width" Value="38" />
             <Setter Property="MinWidth" Value="38" />
             <Setter Property="Height" Value="38" />
@@ -912,7 +912,7 @@
              it keeps the header paper-white, while its state is drawn inside
              the cloud with a spinner or a monochrome result glyph. -->
         <Style Selector="Button.syncIndicator">
-            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
             <Setter Property="Width" Value="31" />
             <Setter Property="MinWidth" Value="31" />
             <Setter Property="Height" Value="31" />
@@ -948,7 +948,7 @@
             <Setter Property="Transitions" Value="{x:Null}" />
         </Style>
         <Style Selector="Button.sidebarSection">
-            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
             <Setter Property="Height" Value="44" />
             <Setter Property="HorizontalAlignment" Value="Stretch" />
             <Setter Property="Margin" Value="0" />
@@ -997,7 +997,7 @@
         </Style>
         <!-- Persistent utility entry uses the same quiet typography. -->
         <Style Selector="Button.sidebarPrimaryItem">
-            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
             <Setter Property="Height" Value="44" />
             <Setter Property="HorizontalAlignment" Value="Stretch" />
             <Setter Property="Margin" Value="0" />
@@ -1054,7 +1054,7 @@
 
         <!-- The small dot identifies the current destination. -->
         <Style Selector="Button.sidebarItem">
-            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
             <Setter Property="Height" Value="38" />
             <Setter Property="HorizontalAlignment" Value="Stretch" />
             <Setter Property="Margin" Value="0" />
@@ -1158,7 +1158,7 @@
         </Style>
 
         <Style Selector="TextBlock.sidebarLabel, TextBlock.sidebarCount">
-            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
         </Style>
         <Style Selector="TextBlock.sidebarLabel">
             <Setter Property="FontSize" Value="14" />
@@ -1175,17 +1175,18 @@
 
         <!-- Settings use one row of categories and a bounded reading width. -->
         <Style Selector="Button.settingsCategory">
-            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
-            <Setter Property="MinHeight" Value="44" />
+            <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
+            <Setter Property="MinHeight" Value="42" />
             <Setter Property="HorizontalAlignment" Value="Left" />
             <Setter Property="HorizontalContentAlignment" Value="Center" />
             <Setter Property="VerticalContentAlignment" Value="Center" />
-            <Setter Property="Margin" Value="0,0,12,0" />
-            <Setter Property="Padding" Value="8,10" />
+            <Setter Property="Margin" Value="0,0,14,0" />
+            <Setter Property="Padding" Value="6,10,6,9" />
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="Foreground" Value="{DynamicResource MutedInkBrush}" />
+            <Setter Property="Opacity" Value="0.72" />
             <Setter Property="BorderBrush" Value="Transparent" />
-            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="BorderThickness" Value="0,0,0,1.5" />
             <Setter Property="CornerRadius" Value="0" />
             <Setter Property="FontSize" Value="14" />
             <Setter Property="Template">
@@ -1204,16 +1205,20 @@
         <Style Selector="Button.settingsCategory:pointerover">
             <Setter Property="Background" Value="{DynamicResource SoftHoverBrush}" />
             <Setter Property="Foreground" Value="{DynamicResource InkBrush}" />
+            <Setter Property="Opacity" Value="1" />
         </Style>
         <Style Selector="Button.settingsCategory.active">
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="Foreground" Value="{DynamicResource InkBrush}" />
-            <Setter Property="BorderBrush" Value="Transparent" />
-            <Setter Property="FontWeight" Value="Bold" />
+            <Setter Property="Opacity" Value="1" />
+            <Setter Property="BorderBrush" Value="{DynamicResource InkBrush}" />
+            <Setter Property="BorderThickness" Value="0,0,0,1.5" />
+            <Setter Property="FontWeight" Value="SemiBold" />
         </Style>
         <Style Selector="Button.settingsCategory:focus-visible">
             <Setter Property="Background" Value="{DynamicResource SoftHoverBrush}" />
             <Setter Property="BorderBrush" Value="{DynamicResource FocusRingBrush}" />
+            <Setter Property="Opacity" Value="1" />
         </Style>
         <Style Selector="Grid.settingsPage TextBox, Grid.settingsPage ComboBox, Grid.settingsPage NumericUpDown">
             <Setter Property="MinHeight" Value="38" />
@@ -1224,23 +1229,37 @@
             <Setter Property="FontSize" Value="14" />
         </Style>
         <Style Selector="TextBlock.settingsSectionTitle">
-            <Setter Property="FontSize" Value="17" />
-            <Setter Property="FontWeight" Value="SemiBold" />
-            <Setter Property="Margin" Value="0,4,0,0" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontWeight" Value="Normal" />
+            <Setter Property="Foreground" Value="{DynamicResource MutedInkBrush}" />
+            <Setter Property="LetterSpacing" Value="1.6" />
+            <Setter Property="Margin" Value="4,6,0,8" />
+        </Style>
+        <Style Selector="Border.settingsRow">
+            <Setter Property="MinHeight" Value="46" />
+            <Setter Property="Padding" Value="4,8" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
+        <Style Selector="Border.settingsRow:pointerover">
+            <Setter Property="Background" Value="{DynamicResource SoftHoverBrush}" />
         </Style>
         <Style Selector="Expander.settingsExpander">
             <Setter Property="HorizontalAlignment" Value="Stretch" />
             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
             <Setter Property="Template">
                 <ControlTemplate>
-                    <Border x:Name="SettingsExpanderFrame" BorderThickness="0" CornerRadius="0"
+                    <Border x:Name="SettingsExpanderFrame"
+                            BorderThickness="0"
+                            CornerRadius="0"
                             ClipToBounds="True">
                         <StackPanel>
                             <ToggleButton x:Name="PART_HeaderSite" Classes="settingsExpanderHeader"
                                           Content="{TemplateBinding Header}" Tag="{TemplateBinding Tag}"
                                           AutomationProperties.Name="{TemplateBinding Header}"
                                           IsChecked="{Binding IsExpanded, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}" />
-                            <local:SettingsExpanderContent x:Name="PART_ExpandSite" IsExpanded="{TemplateBinding IsExpanded}" Padding="16,4,16,16"
+                            <local:SettingsExpanderContent x:Name="PART_ExpandSite" IsExpanded="{TemplateBinding IsExpanded}" Padding="16,4,20,16"
                                     ClipToBounds="True">
                                 <ContentPresenter x:Name="PART_ContentPresenter"
                                                   Content="{TemplateBinding Content}"
@@ -1258,7 +1277,7 @@
         <Style Selector="ToggleButton.settingsExpanderHeader">
             <Setter Property="HorizontalAlignment" Value="Stretch" />
             <Setter Property="VerticalAlignment" Value="Stretch" />
-            <Setter Property="MinHeight" Value="44" />
+            <Setter Property="MinHeight" Value="48" />
             <Setter Property="Padding" Value="0" />
             <Setter Property="Margin" Value="0" />
             <Setter Property="VerticalContentAlignment" Value="Stretch" />
@@ -1270,7 +1289,7 @@
             </Setter>
             <Setter Property="Template">
                 <ControlTemplate>
-                    <Border Background="{TemplateBinding Background}" Padding="0,12" MinHeight="44"
+                    <Border Background="{TemplateBinding Background}" Padding="4,12" MinHeight="48"
                             VerticalAlignment="Stretch" HorizontalAlignment="Stretch">
                         <Grid ColumnDefinitions="*,20" ColumnSpacing="12">
                             <StackPanel Spacing="4">
@@ -1278,8 +1297,8 @@
                                 <TextBlock x:Name="SettingsExpanderDescription" Text="{TemplateBinding Tag}" FontSize="12" Foreground="{DynamicResource MutedInkBrush}" TextWrapping="Wrap" />
                             </StackPanel>
                             <Path x:Name="SettingsExpanderChevron" Grid.Column="1" Width="10" Height="10"
-                                  Data="M 2,1 L 6,5 L 2,9" Stroke="{DynamicResource InkBrush}"
-                                  StrokeThickness="1.3" HorizontalAlignment="Right" VerticalAlignment="Center" />
+                                  Data="M 2,1 L 6,5 L 2,9" Stroke="{DynamicResource MutedInkBrush}"
+                                  StrokeThickness="1.35" HorizontalAlignment="Right" VerticalAlignment="Center" />
                         </Grid>
                     </Border>
                 </ControlTemplate>
@@ -1287,6 +1306,10 @@
         </Style>
         <Style Selector="ToggleButton.settingsExpanderHeader:pointerover, ToggleButton.settingsExpanderHeader:focus-visible">
             <Setter Property="Background" Value="{DynamicResource SoftHoverBrush}" />
+        </Style>
+        <Style Selector="ToggleButton.settingsExpanderHeader:pointerover /template/ Path#SettingsExpanderChevron,
+                         ToggleButton.settingsExpanderHeader:checked /template/ Path#SettingsExpanderChevron">
+            <Setter Property="Stroke" Value="{DynamicResource InkBrush}" />
         </Style>
         <Style Selector="ToggleButton.settingsExpanderHeader:pressed">
             <Setter Property="RenderTransform" Value="none" />
@@ -1325,7 +1348,7 @@
         <!-- Kindle resource pages use the same filled primary and outlined
              secondary actions, while retaining their compact toolbar layout. -->
         <Style Selector="Grid.libraryShell Button.deviceResourcePrimary">
-            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
             <Setter Property="MinWidth" Value="0" />
             <Setter Property="MinHeight" Value="35" />
             <Setter Property="Padding" Value="14,7" />
@@ -1352,7 +1375,7 @@
         </Style>
 
         <Style Selector="Grid.libraryShell Button.deviceResourceAction">
-            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
             <Setter Property="MinWidth" Value="0" />
             <Setter Property="MinHeight" Value="35" />
             <Setter Property="Padding" Value="14,7" />
@@ -1393,7 +1416,7 @@
         </Style>
 
         <Style Selector="Grid.libraryShell Button.deviceResourceBack">
-            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
             <Setter Property="MinWidth" Value="0" />
             <Setter Property="MinHeight" Value="35" />
             <Setter Property="Padding" Value="14,7" />
@@ -1523,7 +1546,7 @@
              monochrome language; Fluent's accent colour must not leak into
              settings or feature pages. -->
         <Style Selector="CheckBox">
-            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
             <Setter Property="Foreground" Value="{DynamicResource InkBrush}" />
             <Setter Property="Background" Value="{DynamicResource PaperBrush}" />
             <Setter Property="BorderBrush" Value="{DynamicResource InkBrush}" />
@@ -1536,7 +1559,7 @@
              the reader layout switch. This prevents Fluent's blue accent from
              leaking into the checked state. -->
         <Style Selector="CheckBox.readerTtsCheck">
-            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
             <Setter Property="Background" Value="{DynamicResource ReaderPageBrush}" />
             <Setter Property="Foreground" Value="{DynamicResource ReaderInkBrush}" />
             <Setter Property="BorderBrush" Value="{DynamicResource ReaderInkBrush}" />
@@ -1621,7 +1644,7 @@
             <Setter Property="Opacity" Value="0.45" />
         </Style>
         <Style Selector="ComboBox">
-            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
             <Setter Property="Foreground" Value="{DynamicResource InkBrush}" />
             <Setter Property="Background" Value="{DynamicResource PaperBrush}" />
             <Setter Property="BorderBrush" Value="{DynamicResource InkBrush}" />
@@ -1632,7 +1655,7 @@
              popup's selected and focused visuals on the product's black/white
              palette even when the native theme has a blue accent. -->
         <Style Selector="ComboBox.readerTtsVoice">
-            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
             <Setter Property="Foreground" Value="{DynamicResource ReaderInkBrush}" />
             <Setter Property="Background" Value="{DynamicResource ReaderPageBrush}" />
             <Setter Property="BorderBrush" Value="{DynamicResource ReaderInkBrush}" />
@@ -1667,7 +1690,7 @@
             <Setter Property="BorderBrush" Value="Transparent" />
         </Style>
         <Style Selector="ComboBoxItem">
-            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
             <Setter Property="Foreground" Value="{DynamicResource InkBrush}" />
             <Setter Property="Background" Value="{DynamicResource PaperBrush}" />
             <Setter Property="BorderBrush" Value="Transparent" />
@@ -1752,7 +1775,7 @@
             </Style.Resources>
         </Style>
         <Style Selector="NumericUpDown">
-            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
             <Setter Property="Foreground" Value="{DynamicResource InkBrush}" />
             <Setter Property="Background" Value="{DynamicResource PaperBrush}" />
             <Setter Property="BorderBrush" Value="{DynamicResource InkBrush}" />
@@ -1805,11 +1828,13 @@
         </Style>
 
         <!-- Settings use a minimal monochrome line and dot rather than a
-             capsule, keeping Fluent's accent colour out of the control. -->
+             capsule, keeping Fluent's accent colour out of the control.
+             Unchecked uses a hollow ring; checked fills solid ink for clear
+             figure-ground contrast without colour. -->
         <Style Selector="ToggleSwitch">
-            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
             <Setter Property="Foreground" Value="{DynamicResource InkBrush}" />
-            <Setter Property="Background" Value="#B0B0B0" />
+            <Setter Property="Background" Value="{DynamicResource SidebarIndicatorBrush}" />
             <Setter Property="IsThreeState" Value="False" />
             <Setter Property="Template">
                 <ControlTemplate>
@@ -1818,7 +1843,10 @@
                                 Background="{TemplateBinding Background}" VerticalAlignment="Center" />
                         <Grid x:Name="PART_MovingKnobs">
                             <Border x:Name="SwitchThumb" Width="10" Height="10"
-                                    Background="#B0B0B0" CornerRadius="5"
+                                    Background="{DynamicResource PaperBrush}"
+                                    BorderBrush="{DynamicResource MutedInkBrush}"
+                                    BorderThickness="1.4"
+                                    CornerRadius="5"
                                     HorizontalAlignment="Left" VerticalAlignment="Center" />
                         </Grid>
                     </Grid>
@@ -1832,6 +1860,7 @@
         <Style Selector="ToggleSwitch:checked /template/ Border#SwitchThumb">
             <Setter Property="HorizontalAlignment" Value="Right" />
             <Setter Property="Background" Value="{DynamicResource InkBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource InkBrush}" />
         </Style>
         <Style Selector="ToggleSwitch:disabled">
             <Setter Property="Opacity" Value="0.45" />
@@ -1839,13 +1868,13 @@
 
         <!-- Keep the compact track, but make the labeled row the hit target. -->
         <Style Selector="ToggleSwitch.settingsToggle">
-            <Setter Property="MinHeight" Value="44" />
+            <Setter Property="MinHeight" Value="46" />
             <Setter Property="HorizontalAlignment" Value="Stretch" />
             <Setter Property="FontSize" Value="14" />
             <Setter Property="Template">
                 <ControlTemplate>
-                    <Border x:Name="SettingsToggleRow" Background="Transparent" Padding="0,6" CornerRadius="3"
-                            BorderBrush="Transparent" BorderThickness="1" MinHeight="44">
+                    <Border x:Name="SettingsToggleRow" Background="Transparent" Padding="4,8" CornerRadius="0"
+                            BorderBrush="Transparent" BorderThickness="1" MinHeight="46">
                         <Grid ColumnDefinitions="*,24" ColumnSpacing="24">
                             <TextBlock Text="{TemplateBinding Content}" Foreground="{TemplateBinding Foreground}"
                                        FontSize="14" VerticalAlignment="Center" TextWrapping="Wrap" />
@@ -1855,7 +1884,10 @@
                                         Background="{TemplateBinding Background}" VerticalAlignment="Center" />
                                 <Grid x:Name="PART_MovingKnobs">
                                     <Border x:Name="SwitchThumb" Width="10" Height="10"
-                                            Background="#B0B0B0" CornerRadius="5"
+                                            Background="{DynamicResource PaperBrush}"
+                                            BorderBrush="{DynamicResource MutedInkBrush}"
+                                            BorderThickness="1.4"
+                                            CornerRadius="5"
                                             HorizontalAlignment="Left" VerticalAlignment="Center" />
                                 </Grid>
                             </Grid>
@@ -1871,13 +1903,14 @@
             <Setter Property="BorderBrush" Value="{DynamicResource InkBrush}" />
         </Style>
         <Style Selector="Button.settingsRowAction">
-            <Setter Property="MinHeight" Value="44" />
+            <Setter Property="MinHeight" Value="46" />
             <Setter Property="HorizontalAlignment" Value="Stretch" />
             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-            <Setter Property="Padding" Value="0,6" />
-            <Setter Property="CornerRadius" Value="3" />
+            <Setter Property="Padding" Value="4,8" />
+            <Setter Property="CornerRadius" Value="0" />
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
         </Style>
         <Style Selector="Button.settingsRowAction:pointerover, Button.settingsRowAction:pressed">
             <Setter Property="BorderBrush" Value="Transparent" />
@@ -1892,7 +1925,7 @@
         <!-- The device card uses the same minimal vector eject mark as the
              Kindle page toolbar; it stays font-independent and centred. -->
         <Style Selector="Button.eject">
-            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
             <Setter Property="Width" Value="25" />
             <Setter Property="MinWidth" Value="25" />
             <Setter Property="Height" Value="23" />
@@ -1994,7 +2027,7 @@
         </Style>
 
         <Style Selector="Button.readerToolbar">
-            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
             <Setter Property="MinWidth" Value="34" />
             <Setter Property="Height" Value="34" />
             <Setter Property="Padding" Value="9,5" />
@@ -2028,7 +2061,7 @@
         </Style>
 
         <Style Selector="Button.readerSearchResult">
-            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
             <Setter Property="MinWidth" Value="0" />
             <Setter Property="MinHeight" Value="62" />
             <Setter Property="Padding" Value="10,8" />
@@ -2157,7 +2190,7 @@
         </Style>
 
         <Style Selector="Button.readerAssistantTab">
-            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
             <Setter Property="Height" Value="30" />
             <Setter Property="Padding" Value="0" />
             <Setter Property="Background" Value="Transparent" />
@@ -2227,7 +2260,7 @@
             <Setter Property="BorderBrush" Value="{DynamicResource ReaderInkBrush}" />
         </Style>
         <Style Selector="Button.readerAiReasoningToggle">
-            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
             <Setter Property="MinWidth" Value="0" />
             <Setter Property="MinHeight" Value="24" />
             <Setter Property="Padding" Value="6,2" />
@@ -2251,7 +2284,7 @@
             <Setter Property="BorderBrush" Value="{DynamicResource ReaderBorderBrush}" />
         </Style>
         <Style Selector="Button.readerAiSendButton">
-            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
             <Setter Property="Width" Value="34" />
             <Setter Property="MinWidth" Value="34" />
             <Setter Property="Height" Value="34" />
@@ -2276,7 +2309,7 @@
             <Setter Property="Opacity" Value="0.35" />
         </Style>
         <Style Selector="Button.readerAiQuickOption">
-            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
             <Setter Property="MinHeight" Value="34" />
             <Setter Property="Padding" Value="6,5" />
             <Setter Property="Background" Value="Transparent" />
@@ -2299,7 +2332,7 @@
             <Setter Property="Opacity" Value="0.35" />
         </Style>
         <Style Selector="Button.readerMinimalAction">
-            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
             <Setter Property="MinHeight" Value="36" />
             <Setter Property="Padding" Value="6,5" />
             <Setter Property="Background" Value="Transparent" />
@@ -2321,7 +2354,7 @@
             <Setter Property="Opacity" Value="0.35" />
         </Style>
         <Style Selector="Button.readerNoteItem">
-            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
             <Setter Property="MinHeight" Value="44" />
             <Setter Property="Padding" Value="2,7" />
             <Setter Property="Background" Value="Transparent" />
@@ -2358,7 +2391,7 @@
              states; the selected tab is outlined in black, the idle tab in
              light grey, hover is a quiet grey plane. -->
         <Style Selector="Button.readerTab">
-            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
             <Setter Property="Height" Value="34" />
             <Setter Property="Padding" Value="0" />
             <Setter Property="Background" Value="Transparent" />
@@ -2489,7 +2522,7 @@
             <Setter Property="Opacity" Value="0.3" />
         </Style>
         <Style Selector="Button.readerHeader">
-            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
             <Setter Property="Width" Value="56" />
             <Setter Property="MinWidth" Value="56" />
             <Setter Property="Height" Value="34" />
@@ -2549,7 +2582,7 @@
         <!-- TTS lives in a Popup outside LibraryRoot, so it cannot inherit the
              libraryShell action selectors. Keep its three actions explicit. -->
         <Style Selector="Button.readerTtsAction">
-            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
             <Setter Property="MinWidth" Value="0" />
             <Setter Property="MinHeight" Value="35" />
             <Setter Property="Padding" Value="10,7" />
@@ -2598,7 +2631,7 @@
         <!-- Compact in-page TTS controls. They deliberately stay monochrome
              and use circular hit targets so the reader chrome remains quiet. -->
         <Style Selector="Button.readerTtsFloatingToggle">
-            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
             <Setter Property="Width" Value="48" />
             <Setter Property="MinWidth" Value="48" />
             <Setter Property="Height" Value="48" />
@@ -2628,7 +2661,7 @@
         </Style>
 
         <Style Selector="Button.readerTtsFloatingStop">
-            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
             <Setter Property="Width" Value="38" />
             <Setter Property="MinWidth" Value="38" />
             <Setter Property="Height" Value="38" />
@@ -2658,7 +2691,7 @@
         </Style>
 
         <Style Selector="Button.readerTtsWheelButton">
-            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
             <Setter Property="Width" Value="36" />
             <Setter Property="MinWidth" Value="36" />
             <Setter Property="Height" Value="20" />
@@ -2695,7 +2728,7 @@
         </Style>
 
         <Style Selector="Button.readerTtsWheelCenter">
-            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
             <Setter Property="Width" Value="46" />
             <Setter Property="MinWidth" Value="46" />
             <Setter Property="Height" Value="46" />
@@ -2737,7 +2770,7 @@
         </Style>
 
         <Style Selector="Button.readerHeaderIcon">
-            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
             <Setter Property="Width" Value="38" />
             <Setter Property="MinWidth" Value="38" />
             <Setter Property="Height" Value="34" />
@@ -2765,7 +2798,7 @@
              filling the whole row makes recycled selection state look like
              several chapters are active at once. -->
         <Style Selector="ListBox.readerTocList ListBoxItem">
-            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
             <Setter Property="Padding" Value="0" />
             <Setter Property="Margin" Value="0,1" />
             <Setter Property="Background" Value="Transparent" />
@@ -3063,7 +3096,7 @@
             <Setter Property="CornerRadius" Value="0" />
         </Style>
         <Style Selector="MenuItem">
-            <Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" />
+            <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
             <Setter Property="Background" Value="{DynamicResource PaperBrush}" />
             <Setter Property="Foreground" Value="{DynamicResource InkBrush}" />
             <Setter Property="Padding" Value="{DynamicResource MenuFlyoutItemThemePaddingNarrow}" />

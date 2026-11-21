@@ -466,10 +466,13 @@ public partial class MainWindow
         return Task.CompletedTask;
     }
 
-    private async Task DeleteFileAsync(BookFile file)
+    private Task DeleteFileAsync(BookFile file) =>
+        _selectedCard is null
+            ? Task.CompletedTask
+            : DeleteFileAsync(_selectedCard, file);
+
+    private async Task DeleteFileAsync(BookCardViewModel card, BookFile file)
     {
-        if (_selectedCard is null) return;
-        var card = _selectedCard;
         if (card.Book.Files.Count == 1 && card.Book.Files[0].Id == file.Id)
         {
             await DeleteBookFromContextAsync(card);

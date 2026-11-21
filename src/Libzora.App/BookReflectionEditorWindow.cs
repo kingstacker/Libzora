@@ -6,6 +6,7 @@ using Avalonia.Controls.Shapes;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
+using Avalonia.Markup.Xaml.MarkupExtensions;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Libzora.Core;
@@ -55,6 +56,7 @@ internal sealed class BookReflectionEditorWindow : Window
             ? MacTrafficLights.TitleBarHeight
             : -1;
         UseLayoutRounding = true;
+        this.Bind(FontFamilyProperty, new DynamicResourceExtension("DefaultAppFontFamily"));
 
         var titleBar = new Grid
         {

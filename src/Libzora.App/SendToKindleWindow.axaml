@@ -9,6 +9,7 @@
         ExtendClientAreaToDecorationsHint="True"
         ExtendClientAreaTitleBarHeightHint="-1"
         UseLayoutRounding="True"
+        FontFamily="{DynamicResource DefaultAppFontFamily}"
         Background="{DynamicResource PaperBrush}">
     <Window.Styles>
         <Style Selector="Button.sendSecondary">

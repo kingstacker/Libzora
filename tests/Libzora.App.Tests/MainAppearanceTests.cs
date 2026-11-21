@@ -164,6 +164,47 @@ public sealed partial class SettingsTests
         scope.Get<Grid>("ConfirmationOverlay").IsVisible = false;
     });
 
+    [Theory]
+    [InlineData(AppUiFont.KingHwaOldSong)]
+    [InlineData(AppUiFont.SystemDefault)]
+    public Task MainUiFontUpdatesExistingControlsAndPersists(AppUiFont font) => Run(async () =>
+    {
+        try
+        {
+            await using var scope = await TestWindow.Create();
+            var selector = scope.Get<ComboBox>("MainUiFontBox");
+            Assert.Equal(2, selector.Items.Count);
+            Assert.Equal(0, selector.SelectedIndex);
+            Assert.Contains("KingHwaOldSong", scope.Window.FontFamily.Name, StringComparison.OrdinalIgnoreCase);
+
+            selector.SelectedIndex = (int)font;
+            await Render();
+
+            var expectedFamily = Libzora.App.ResolveUiFontFamily(font);
+            Assert.Equal(expectedFamily, Assert.IsType<FontFamily>(Application.Current!.Resources["DefaultAppFontFamily"]));
+            Assert.Equal(expectedFamily, scope.Window.FontFamily);
+            Assert.Equal(expectedFamily, scope.Get<TextBlock>("SettingsSearchNoResultsText").FontFamily);
+            Assert.Contains(
+                "KingHwaOldSong",
+                Assert.IsType<FontFamily>(Application.Current.Resources["ReaderFallbackFontFamily"]).Name,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(ReaderFontDefaults.DefaultFamily, scope.Field<AppSettings>("_appSettings").DefaultReaderLayout.FontFamily);
+
+            Assert.True(await scope.Call<Task<bool>>("FlushAppSettingsAsync"));
+            var saved = await new AppSettingsStore(scope.Paths).LoadAsync();
+            Assert.Equal(font, saved.MainUiFont);
+
+            await using var reopened = await TestWindow.Create(saved);
+            Assert.Equal((int)font, reopened.Get<ComboBox>("MainUiFontBox").SelectedIndex);
+            Assert.Equal(expectedFamily, reopened.Window.FontFamily);
+        }
+        finally
+        {
+            if (Application.Current is Libzora.App app)
+                app.ApplyUiFont(AppUiFont.KingHwaOldSong);
+        }
+    });
+
     private static Color ColorOf(IBrush? brush) => Assert.IsAssignableFrom<ISolidColorBrush>(brush).Color;
     private static Color ResourceColor(string key) => ColorOf((IBrush)Application.Current!.Resources[key]!);
 

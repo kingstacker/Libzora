@@ -13,6 +13,8 @@ namespace Libzora;
 
 public partial class App : Application
 {
+    public const string BundledUiFontFamilyName = "fonts:Libzora#KingHwaOldSong";
+
     private readonly AppServices? _services;
     private UiLanguageService? _uiLanguageService;
     private MainWindow? _mainWindow;
@@ -39,6 +41,7 @@ public partial class App : Application
     {
         FontManager.Current.AddFontCollection(new BundledAppFontCollection());
         AvaloniaXamlLoader.Load(this);
+        ApplyUiFont(AppUiFont.KingHwaOldSong);
         ApplyTheme(AppTheme.Classic);
         ReaderAppearanceResources.Populate(Resources, new ReaderAppearanceSettings());
         _uiLanguageService = new UiLanguageService(this);
@@ -49,6 +52,17 @@ public partial class App : Application
     }
 
     public void ApplyLanguage(string? language) => _uiLanguageService?.Apply(language);
+
+    public static FontFamily ResolveUiFontFamily(AppUiFont font) => font switch
+    {
+        AppUiFont.SystemDefault => new FontFamily(string.Join(", ", ReaderFontDefaults.GetSystemDefaultFamilies())),
+        _ => new FontFamily(BundledUiFontFamilyName)
+    };
+
+    public void ApplyUiFont(AppUiFont font)
+    {
+        Resources["DefaultAppFontFamily"] = ResolveUiFontFamily(font);
+    }
 
     public void ApplyTheme(AppTheme theme)
     {
@@ -66,6 +80,7 @@ public partial class App : Application
             var startupSettings = modules.StartupSettings;
             ApplyLanguage(startupSettings.UiLanguage);
             ApplyTheme(startupSettings.MainTheme);
+            ApplyUiFont(startupSettings.MainUiFont);
             var window = new MainWindow(modules, _services);
             desktop.MainWindow = window;
             _mainWindow = window;

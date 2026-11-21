@@ -46,6 +46,7 @@ public sealed record AppSettings
 
     public string UiLanguage { get; init; } = UiText.DetectSystemLanguage();
     public AppTheme MainTheme { get; init; } = AppTheme.Classic;
+    public AppUiFont MainUiFont { get; init; } = AppUiFont.KingHwaOldSong;
     public bool OnboardingCompleted { get; init; }
     public bool DeferTtsInstallationUntilUse { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -162,6 +163,7 @@ public sealed record AppSettings
         {
             UiLanguage = UiText.NormalizeLanguage(settings.UiLanguage),
             MainTheme = Enum.IsDefined(settings.MainTheme) ? settings.MainTheme : AppTheme.Classic,
+            MainUiFont = Enum.IsDefined(settings.MainUiFont) ? settings.MainUiFont : AppUiFont.KingHwaOldSong,
             ReaderPinnedTools = NormalizeReaderPinnedTools(settings.ReaderPinnedTools, settings.OnboardingCompleted),
             LastKindleSendMethod = NormalizeKindleSendMethod(settings.LastKindleSendMethod),
             ReaderAiServiceProfileId = NormalizeProfileId(settings.ReaderAiServiceProfileId),

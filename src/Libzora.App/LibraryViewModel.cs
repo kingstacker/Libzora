@@ -277,6 +277,15 @@ public sealed class LibraryViewModel : ObservableObject, IDisposable
         RebuildShelfBooks();
     }
 
+    public void PreserveSeriesFront(string? previousSeriesKey, string nextSeriesKey, Guid frontBookId)
+    {
+        if (!_stackBookSeries || string.IsNullOrWhiteSpace(nextSeriesKey))
+            return;
+        if (!string.IsNullOrWhiteSpace(previousSeriesKey))
+            _seriesFronts.Remove(previousSeriesKey);
+        _seriesFronts[nextSeriesKey] = frontBookId.ToString("N");
+    }
+
     public async Task<ImportBatchResult> ImportAsync(
         IEnumerable<string> paths,
         IProgress<TransferProgress>? progress = null,

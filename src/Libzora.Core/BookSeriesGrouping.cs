@@ -171,6 +171,9 @@ public static class BookSeriesGrouping
         return new VolumeHint(name, index);
     }
 
+    public static string ExplicitSeriesKey(string seriesName) =>
+        $"{Normalize(seriesName ?? string.Empty)}\u001f";
+
     private static string Normalize(string value)
     {
         var normalized = value.Normalize(NormalizationForm.FormKC).ToLowerInvariant();

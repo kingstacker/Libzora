@@ -363,7 +363,7 @@ else
   printf 'No iCloud provisioning profile: signing a runnable diagnostic build without iCloud authorization.\n'
 fi
 python3 -I "$repo_root/scripts/prepare-macos-icloud-signing.py" \
-  --base "$base_entitlements" "${profile_args[@]}" \
+  --base "$base_entitlements" ${profile_args[@]+"${profile_args[@]}"} \
   --runtime-output "$runtime_entitlements_file" --app-output "$entitlements_file"
 
 # Sign nested Mach-O images from the inside out, then the bundle. `--deep` is

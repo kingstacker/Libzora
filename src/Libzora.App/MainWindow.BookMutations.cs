@@ -69,16 +69,29 @@ public partial class MainWindow
         _ => T("待读")
     };
 
-    private async Task DeleteSelectedBooksAsync()
+    private Task DeleteSelectedBooksAsync()
     {
         var cards = GetSelectedCards();
+        return cards.Count == 0
+            ? Task.CompletedTask
+            : DeleteBooksBatchCoreAsync(
+                cards,
+                T("选中的 {0} 本书将从书库移除并移入回收站，可恢复。", cards.Count),
+                T("已将 {0} 本书移入回收站。", cards.Count));
+    }
+
+    private async Task DeleteBooksBatchCoreAsync(
+        IReadOnlyList<BookCardViewModel> cards,
+        string confirmationMessage,
+        string completionMessage)
+    {
         if (cards.Count == 0) return;
         if (_readerDocument is not null || _readerIsPdf)
         {
             await ShowMessageAsync(T("无法删除书籍"), T("当前正在阅读其中一本书，请先关闭阅读器。"));
             return;
         }
-        var choice = await ConfirmBookRemovalAsync(T("选中的 {0} 本书将从书库移除并移入回收站，可恢复。", cards.Count));
+        var choice = await ConfirmBookRemovalAsync(confirmationMessage);
         if (choice == BookRemovalChoice.Cancel) return;
 
         var deletedIds = new HashSet<Guid>();
@@ -89,10 +102,11 @@ public partial class MainWindow
                 await _library.DeleteAsync(card.Book.Id, _lifetimeCancellation.Token);
                 deletedIds.Add(card.Book.Id);
             }
+            if (SeriesShelfOverlay.IsVisible)
+                CloseSeriesShelfOverlay(immediate: true);
             ClearSelectedBook();
             ClearBookMultiSelection();
             await RefreshLibraryAsync();
-            var completionMessage = T("已将 {0} 本书移入回收站。", cards.Count);
             SetTaskStatus(completionMessage);
             ShowSettingsCapsule(completionMessage, 2400, success: true);
         }
@@ -127,6 +141,8 @@ public partial class MainWindow
         try
         {
             await _library.DeleteAsync(card.Book.Id, _lifetimeCancellation.Token);
+            if (SeriesShelfOverlay.IsVisible)
+                CloseSeriesShelfOverlay(immediate: true);
             _selectedBookIds.Remove(card.Book.Id);
             if (_selectedCard?.Book.Id == card.Book.Id) ClearSelectedBook();
             ClearBookMultiSelection();
@@ -370,7 +386,7 @@ public partial class MainWindow
         string targetFormat,
         BookFile? requestedSource = null)
     {
-        if (_conversionInProgress)
+        if (_conversionInProgress || _automaticReaderFormatGenerationInProgress)
         {
             await ShowMessageAsync(T("格式转换"), T("已有一本书正在转换，请稍候。"));
             return;
@@ -396,24 +412,8 @@ public partial class MainWindow
             return;
         }
 
-        var sourcePath = ViewModel.GetAbsoluteFilePath(sourceFile);
-        if (!File.Exists(sourcePath))
-        {
-            try
-            {
-                sourcePath = await EnsureBookFileAvailableAsync(sourceFile, _lifetimeCancellation.Token) ?? sourcePath;
-            }
-            catch (Exception exception)
-            {
-                SetTaskStatus(T("下载书籍失败：{0}", UiText.Localize(exception.Message)));
-                return;
-            }
-            if (!File.Exists(sourcePath))
-            {
-                SetTaskStatus(T("找不到转换来源：{0}", sourceFile.RelativePath));
-                return;
-            }
-        }
+        var sourcePath = await ResolveConversionSourcePathAsync(sourceFile, _lifetimeCancellation.Token);
+        if (sourcePath is null) return;
 
         _conversionInProgress = true;
         _conversionCancellation?.Dispose();
@@ -422,17 +422,12 @@ public partial class MainWindow
             0,
             T("准备将 {0} 转换为 {1}…", sourceFile.Format.ToUpperInvariant(), target.ToUpperInvariant()));
         SetTaskStatus(UiText.Localize(initialProgress.Message));
-        var temporaryDirectory = Path.Combine(Path.GetTempPath(), "LibzoraConversions", Guid.NewGuid().ToString("N"));
-        var temporaryOutput = Path.Combine(
-            temporaryDirectory,
-            KindleTransferPolicy.CreateSafeFileName(card.Title, "." + target));
         try
         {
             await RunTrackedTaskAsync(T("格式转换"), BackgroundTaskKind.FormatConversion, async (context, token) =>
             {
                 context.ReportBooks([card.Title]);
                 context.ReportProgress(UiText.Localize(initialProgress.Message), 0, 100);
-                Directory.CreateDirectory(temporaryDirectory);
                 var progress = new Progress<FormatConversionProgress>(value =>
                 {
                     if (token.IsCancellationRequested) return;
@@ -440,14 +435,8 @@ public partial class MainWindow
                         target.ToUpperInvariant(), UiText.Localize(value.Message)), value.RoundedPercentage, 100);
                     SetTaskStatus(T("格式转换：{0}%", value.RoundedPercentage));
                 });
-                await _formatConverter.ConvertAsync(
-                    sourcePath,
-                    temporaryOutput,
-                    progress,
-                    token,
-                    new FormatConversionMetadata(card.Book.Title, card.Book.Authors));
-                context.ReportProgress(T("正在写入书库…"), 100, 100);
-                await _library.AddFileToBookAsync(card.Book.Id, temporaryOutput, token);
+                await ConvertSingleBookFileAsync(card, sourceFile, target, progress, token, sourcePath, () =>
+                    context.ReportProgress(T("正在写入书库…"), 100, 100));
                 await RefreshLibraryAsync();
                 context.ReportProgress(T("已为《{0}》添加 {1} 格式。", card.Title, target.ToUpperInvariant()), 100, 100);
                 return true;
@@ -464,6 +453,72 @@ public partial class MainWindow
         }
         finally
         {
+            _conversionInProgress = false;
+            _conversionCancellation?.Dispose();
+            _conversionCancellation = null;
+        }
+    }
+
+    private async Task<string?> ResolveConversionSourcePathAsync(
+        BookFile sourceFile,
+        CancellationToken cancellationToken)
+    {
+        var sourcePath = ViewModel.GetAbsoluteFilePath(sourceFile);
+        if (File.Exists(sourcePath))
+            return sourcePath;
+
+        try
+        {
+            sourcePath = await EnsureBookFileAvailableAsync(sourceFile, cancellationToken) ?? sourcePath;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            SetTaskStatus(T("下载书籍失败：{0}", UiText.Localize(exception.Message)));
+            return null;
+        }
+
+        if (!File.Exists(sourcePath))
+        {
+            SetTaskStatus(T("找不到转换来源：{0}", sourceFile.RelativePath));
+            return null;
+        }
+
+        return sourcePath;
+    }
+
+    private async Task ConvertSingleBookFileAsync(
+        BookCardViewModel card,
+        BookFile sourceFile,
+        string target,
+        IProgress<FormatConversionProgress>? progress,
+        CancellationToken token,
+        string? resolvedSourcePath = null,
+        Action? beforeAddToLibrary = null)
+    {
+        var sourcePath = resolvedSourcePath ?? await ResolveConversionSourcePathAsync(sourceFile, token)
+            ?? throw new FileNotFoundException(T("找不到转换来源：{0}", sourceFile.RelativePath));
+        var temporaryDirectory = Path.Combine(Path.GetTempPath(), "LibzoraConversions", Guid.NewGuid().ToString("N"));
+        var temporaryOutput = Path.Combine(
+            temporaryDirectory,
+            KindleTransferPolicy.CreateSafeFileName(card.Title, "." + target));
+        try
+        {
+            Directory.CreateDirectory(temporaryDirectory);
+            await _formatConverter.ConvertAsync(
+                sourcePath,
+                temporaryOutput,
+                progress,
+                token,
+                new FormatConversionMetadata(card.Book.Title, card.Book.Authors));
+            beforeAddToLibrary?.Invoke();
+            await _library.AddFileToBookAsync(card.Book.Id, temporaryOutput, token);
+        }
+        finally
+        {
             try
             {
                 if (File.Exists(temporaryOutput)) File.Delete(temporaryOutput);
@@ -472,9 +527,6 @@ public partial class MainWindow
             catch
             {
             }
-            _conversionInProgress = false;
-            _conversionCancellation?.Dispose();
-            _conversionCancellation = null;
         }
     }
 

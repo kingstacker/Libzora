@@ -17,6 +17,7 @@ public partial class MainWindow
         try
         {
             MainThemeBox.SelectedIndex = (int)_appSettings.MainTheme;
+            MainUiFontBox.SelectedIndex = (int)_appSettings.MainUiFont;
             ApplyMainAppearance();
             PreferredOpenFormatBox.SelectedIndex = _appSettings.PreferredOpenFormat switch
             {

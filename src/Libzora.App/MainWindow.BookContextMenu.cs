@@ -29,6 +29,8 @@ namespace Libzora;
 /// </summary>
 public partial class MainWindow
 {
+    private static readonly string[] SupportedLibraryDeleteFormats = ["EPUB", "PDF", "MOBI", "AZW3"];
+
     private ContextMenu BuildBookContextMenu(BookCardViewModel card) =>
         BuildBookContextMenuCore(card, allowSeriesActions: true);
 
@@ -38,96 +40,44 @@ public partial class MainWindow
     private ContextMenu BuildBookContextMenuCore(BookCardViewModel card, bool allowSeriesActions)
     {
         var menu = new ContextMenu();
+        var isSeries = allowSeriesActions && card.IsSeriesStack;
+        var seriesVolumes = isSeries ? OrderLocalSeriesMembers(card) : [];
 
         var openMenu = new MenuItem { Header = T("打开书籍") };
         ApplyLegacyMenuItemSize(openMenu);
         openMenu.Resources["FlyoutThemeMinWidth"] = 0d;
-        var supportedFiles = ReaderBookSelectionPolicy.GetSupportedFiles(card.Book.Files);
-        foreach (var fileGroup in supportedFiles.GroupBy(
-                     file => file.Format.Trim().TrimStart('.'),
-                     StringComparer.OrdinalIgnoreCase))
-        {
-            var files = fileGroup.ToArray();
-            var format = fileGroup.Key.ToUpperInvariant();
-            if (files.Length == 1)
-            {
-                var isPinyinVersion = PinyinBookPolicy.IsGeneratedPinyinVersion(files[0]);
-                var item = new MenuItem
-                {
-                    Header = isPinyinVersion
-                        ? $"{format} · {GetBookFileMenuLabel(files[0])}"
-                        : format,
-                    Width = isPinyinVersion ? double.NaN : 80,
-                    MinWidth = 0,
-                    IsEnabled = true,
-                    Tag = files[0]
-                };
-                ApplyLegacyMenuItemSize(item);
-                item.Click += async (_, _) =>
-                {
-                    if (item.Tag is BookFile selectedFile)
-                        await OpenBookAsync(card, selectedFile);
-                };
-                openMenu.Items.Add(item);
-                continue;
-            }
-
-            // Keep same-format editions together, but expose every file. This
-            // is important for translation: original, translated and
-            // bilingual EPUBs intentionally belong to one book record.
-            var formatMenu = new MenuItem
-            {
-                Header = format,
-                Width = 80,
-                MinWidth = 0,
-                IsEnabled = true
-            };
-            ApplyLegacyMenuItemSize(formatMenu);
-            var labels = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-            foreach (var file in files)
-            {
-                var baseLabel = GetBookFileMenuLabel(file);
-                labels.TryGetValue(baseLabel, out var occurrence);
-                occurrence++;
-                labels[baseLabel] = occurrence;
-                var label = occurrence == 1 ? baseLabel : $"{baseLabel} ({occurrence})";
-                formatMenu.Items.Add(CreateMenuItem(
-                    label,
-                    () => OpenBookAsync(card, file)));
-            }
-            openMenu.Items.Add(formatMenu);
-        }
+        if (isSeries)
+            PopulateSeriesOpenItems(openMenu.Items, seriesVolumes);
+        else
+            PopulateSingleBookOpenItems(openMenu.Items, card);
         openMenu.IsEnabled = openMenu.Items.OfType<MenuItem>().Any(item => item.IsEnabled);
         menu.Items.Add(openMenu);
-        if (allowSeriesActions && card.IsSeriesStack)
+
+        if (isSeries)
         {
             menu.Items.Add(BuildLocalSeriesMenu(card));
             menu.Items.Add(new Separator());
+            menu.Items.Add(BuildSeriesRenameMenu(card, seriesVolumes));
+            menu.Items.Add(BuildSeriesOpenDirectoryMenu(seriesVolumes));
         }
-        menu.Items.Add(CreateMenuItem(T("重命名书籍"), () => RenameBookFromContextAsync(card)));
-        menu.Items.Add(CreateMenuItem(T("打开书籍所在目录"), () => OpenBookDirectoryFromContextAsync(card)));
+        else
+        {
+            menu.Items.Add(CreateMenuItem(T("重命名书籍"), () => RenameBookFromContextAsync(card)));
+            menu.Items.Add(CreateMenuItem(T("打开书籍所在目录"), () => OpenBookDirectoryFromContextAsync(card)));
+        }
         menu.Items.Add(new Separator());
 
         var convertMenu = new MenuItem { Header = T("转换为") };
         ApplyLegacyMenuItemSize(convertMenu);
         convertMenu.Resources["FlyoutThemeMinWidth"] = 0d;
-        foreach (var target in new[] { "epub", "azw3", "pdf" })
-        {
-            var sourceCandidates = BookFormatConversionPolicy.GetSourceCandidates(card.Book.Files, target);
-            var targetMenu = CreateBookVariantMenuItem(
-                target.ToUpperInvariant(),
-                sourceCandidates,
-                sourceFile => ConvertBookAsync(card, target, sourceFile),
-                width: 80);
-            targetMenu.IsEnabled = sourceCandidates.Count > 0
-                && !card.Book.Files.Any(file => string.Equals(
-                    file.Format.Trim().TrimStart('.'), target, StringComparison.OrdinalIgnoreCase));
-            convertMenu.Items.Add(targetMenu);
-        }
+        if (isSeries)
+            PopulateSeriesConvertItems(convertMenu.Items, seriesVolumes);
+        else
+            PopulateSingleBookConvertItems(convertMenu.Items, card);
         menu.Items.Add(convertMenu);
         menu.Items.Add(new Separator());
 
-        if (AddPluginBookActionMenuItems(menu, card))
+        if (AddPluginBookActionMenuItems(menu, card, allowSeriesActions: allowSeriesActions))
             menu.Items.Add(new Separator());
 
         menu.Items.Add(CreateSeriesSendMenuItem(
@@ -139,14 +89,16 @@ public partial class MainWindow
             (volume, sourceFile) => TrackDeviceOperationAsync(
                 () => SendSelectedBookToKindleCoreAsync(sourceFile, volume)),
             volumes => SendBooksToKindleAsync(volumes),
-            allowSeriesActions: allowSeriesActions));
+            allowSeriesActions: allowSeriesActions,
+            orderedMembers: seriesVolumes));
         menu.Items.Add(CreateSeriesSendMenuItem(
             T("发送到 Kindle 邮箱"),
             card,
             book => KindleEmailSelectionPolicy.GetCandidates(book.Files),
             (volume, sourceFile) => SendSelectedBookByEmailCoreAsync(sourceFile, volume),
             volumes => SendBooksByEmailAsync(volumes),
-            allowSeriesActions: allowSeriesActions));
+            allowSeriesActions: allowSeriesActions,
+            orderedMembers: seriesVolumes));
         if (IsSendToKindleWebEnabled())
         {
             var webMenu = CreateSeriesSendMenuItem(
@@ -167,7 +119,8 @@ public partial class MainWindow
                         : AddLibraryFilesToKindleWebAsync(files);
                 },
                 allowSeriesActions: allowSeriesActions,
-                disableWhenEmpty: true);
+                disableWhenEmpty: true,
+                orderedMembers: seriesVolumes);
             menu.Items.Add(webMenu);
         }
 
@@ -226,22 +179,114 @@ public partial class MainWindow
         var deleteFormatMenu = new MenuItem { Header = T("删除格式") };
         ApplyLegacyMenuItemSize(deleteFormatMenu);
         deleteFormatMenu.Resources["FlyoutThemeMinWidth"] = 0d;
-        foreach (var format in new[] { "EPUB", "PDF", "MOBI", "AZW3" })
+        if (isSeries)
         {
-            var files = card.Book.Files.Where(candidate =>
-                string.Equals(candidate.Format, format, StringComparison.OrdinalIgnoreCase));
-            var formatFiles = files.ToArray();
+            PopulateSeriesDeleteFormatItems(deleteFormatMenu.Items, card, seriesVolumes);
+            deleteFormatMenu.IsEnabled = true;
+        }
+        else
+        {
+            PopulateSingleBookDeleteFormatItems(deleteFormatMenu.Items, card, fixedFormatWidth: 80);
+            deleteFormatMenu.IsEnabled = deleteFormatMenu.Items.OfType<MenuItem>().Any(item => item.IsEnabled);
+            deleteFormatMenu.Items.Add(new Separator());
+            deleteFormatMenu.Items.Add(CreateMenuItem(T("全部"), () => DeleteBookFromContextAsync(card)));
+        }
+        menu.Items.Add(deleteFormatMenu);
+
+        AttachInstantMenuHover(menu);
+        return menu;
+    }
+
+    private void PopulateSingleBookOpenItems(ItemCollection items, BookCardViewModel card)
+    {
+        var supportedFiles = ReaderBookSelectionPolicy.GetSupportedFiles(card.Book.Files);
+        foreach (var fileGroup in supportedFiles.GroupBy(
+                     file => file.Format.Trim().TrimStart('.'),
+                     StringComparer.OrdinalIgnoreCase))
+        {
+            var files = fileGroup.ToArray();
+            var format = fileGroup.Key.ToUpperInvariant();
+            if (files.Length == 1)
+            {
+                var isPinyinVersion = PinyinBookPolicy.IsGeneratedPinyinVersion(files[0]);
+                var item = new MenuItem
+                {
+                    Header = isPinyinVersion
+                        ? $"{format} · {GetBookFileMenuLabel(files[0])}"
+                        : format,
+                    Width = isPinyinVersion ? double.NaN : 80,
+                    MinWidth = 0,
+                    IsEnabled = true,
+                    Tag = files[0]
+                };
+                ApplyLegacyMenuItemSize(item);
+                item.Click += async (_, _) =>
+                {
+                    if (item.Tag is BookFile selectedFile)
+                        await OpenBookAsync(card, selectedFile);
+                };
+                items.Add(item);
+                continue;
+            }
+
+            // Keep same-format editions together, but expose every file. This
+            // is important for translation: original, translated and
+            // bilingual EPUBs intentionally belong to one book record.
+            var formatMenu = new MenuItem
+            {
+                Header = format,
+                Width = 80,
+                MinWidth = 0,
+                IsEnabled = true
+            };
+            ApplyLegacyMenuItemSize(formatMenu);
+            formatMenu.Resources["FlyoutThemeMinWidth"] = 0d;
+            PopulateBookFileVariantItems(
+                formatMenu.Items,
+                files,
+                file => OpenBookAsync(card, file));
+            items.Add(formatMenu);
+        }
+    }
+
+    private void PopulateSingleBookConvertItems(ItemCollection items, BookCardViewModel card)
+    {
+        foreach (var target in new[] { "epub", "azw3", "pdf" })
+        {
+            var sourceCandidates = BookFormatConversionPolicy.GetSourceCandidates(card.Book.Files, target);
+            var targetMenu = CreateBookVariantMenuItem(
+                target.ToUpperInvariant(),
+                sourceCandidates,
+                sourceFile => ConvertBookAsync(card, target, sourceFile),
+                width: 80);
+            targetMenu.IsEnabled = sourceCandidates.Count > 0
+                && !card.Book.Files.Any(file => string.Equals(
+                    file.Format.Trim().TrimStart('.'), target, StringComparison.OrdinalIgnoreCase));
+            items.Add(targetMenu);
+        }
+    }
+
+    private void PopulateSingleBookDeleteFormatItems(
+        ItemCollection items,
+        BookCardViewModel card,
+        double? fixedFormatWidth)
+    {
+        foreach (var format in SupportedLibraryDeleteFormats)
+        {
+            var formatFiles = card.Book.Files
+                .Where(candidate => string.Equals(candidate.Format, format, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
             if (formatFiles.Length > 1)
             {
                 // A book can contain several EPUBs (original, translated,
                 // bilingual, and pinyin). Keep the format entry, but expose
                 // every file below it so no edition is hidden behind the
                 // first matching format.
-                deleteFormatMenu.Items.Add(CreateBookVariantMenuItem(
+                items.Add(CreateBookVariantMenuItem(
                     format,
                     formatFiles,
-                    file => file is null ? Task.CompletedTask : DeleteFileAsync(file),
-                    width: 80));
+                    file => file is null ? Task.CompletedTask : DeleteFileAsync(card, file),
+                    width: fixedFormatWidth));
                 continue;
             }
 
@@ -252,7 +297,7 @@ public partial class MainWindow
                 Header = isPinyinVersion
                     ? $"{format} · {GetBookFileMenuLabel(file!)}"
                     : format,
-                Width = isPinyinVersion ? double.NaN : 80,
+                Width = isPinyinVersion || fixedFormatWidth is null ? double.NaN : fixedFormatWidth.Value,
                 MinWidth = 0,
                 IsEnabled = file is not null,
                 Tag = file
@@ -261,17 +306,27 @@ public partial class MainWindow
             item.Click += async (_, _) =>
             {
                 if (item.Tag is BookFile selectedFile)
-                    await DeleteFileAsync(selectedFile);
+                    await DeleteFileAsync(card, selectedFile);
             };
-            deleteFormatMenu.Items.Add(item);
+            items.Add(item);
         }
-        deleteFormatMenu.IsEnabled = deleteFormatMenu.Items.OfType<MenuItem>().Any(item => item.IsEnabled);
-        menu.Items.Add(deleteFormatMenu);
-        deleteFormatMenu.Items.Add(new Separator());
-        deleteFormatMenu.Items.Add(CreateMenuItem(T("全部"), () => DeleteBookFromContextAsync(card)));
+    }
 
-        AttachInstantMenuHover(menu);
-        return menu;
+    private static void PopulateBookFileVariantItems(
+        ItemCollection items,
+        IReadOnlyList<BookFile> files,
+        Func<BookFile, Task> action)
+    {
+        var labels = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var file in files)
+        {
+            var baseLabel = GetBookFileMenuLabel(file);
+            labels.TryGetValue(baseLabel, out var occurrence);
+            occurrence++;
+            labels[baseLabel] = occurrence;
+            var label = occurrence == 1 ? baseLabel : $"{baseLabel} ({occurrence})";
+            items.Add(CreateMenuItem(label, () => action(file)));
+        }
     }
 
     private static string GetBookFileMenuLabel(BookFile file)
@@ -314,16 +369,7 @@ public partial class MainWindow
             item = new MenuItem { Header = header };
             ApplyLegacyMenuItemSize(item);
             item.Resources["FlyoutThemeMinWidth"] = 0d;
-            var labels = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-            foreach (var file in files)
-            {
-                var baseLabel = GetBookFileMenuLabel(file);
-                labels.TryGetValue(baseLabel, out var occurrence);
-                occurrence++;
-                labels[baseLabel] = occurrence;
-                var label = occurrence == 1 ? baseLabel : $"{baseLabel} ({occurrence})";
-                item.Items.Add(CreateMenuItem(label, () => action(file)));
-            }
+            PopulateBookFileVariantItems(item.Items, files, file => action(file));
         }
 
         if (width is { } fixedWidth)
@@ -342,7 +388,8 @@ public partial class MainWindow
         Func<BookCardViewModel, BookFile?, Task> sendSingle,
         Func<IReadOnlyList<BookCardViewModel>, Task> sendAll,
         bool allowSeriesActions = true,
-        bool disableWhenEmpty = false)
+        bool disableWhenEmpty = false,
+        IReadOnlyList<BookCardViewModel>? orderedMembers = null)
     {
         if (!allowSeriesActions || !card.IsSeriesStack)
         {
@@ -356,18 +403,19 @@ public partial class MainWindow
             return singleItem;
         }
 
+        var members = orderedMembers is { Count: > 0 } ? orderedMembers : card.SeriesMembers;
         var parent = new MenuItem { Header = header };
         ApplyLegacyMenuItemSize(parent);
         parent.Resources["FlyoutThemeMinWidth"] = 0d;
-        var hasEligibleVolume = card.SeriesMembers.Any(volume => getCandidates(volume.Book).Count > 0);
+        var hasEligibleVolume = members.Any(volume => getCandidates(volume.Book).Count > 0);
         var sendAllItem = CreateMenuItem(
-            T("全部发送（{0} 本）", card.SeriesMembers.Count),
-            () => sendAll(card.SeriesMembers));
+            T("全部发送（{0} 本）", members.Count),
+            () => sendAll(members));
         if (disableWhenEmpty && !hasEligibleVolume)
             sendAllItem.IsEnabled = false;
         parent.Items.Add(sendAllItem);
         parent.Items.Add(new Separator());
-        foreach (var member in card.SeriesMembers)
+        foreach (var member in members)
         {
             var volume = member;
             var volumeFiles = getCandidates(volume.Book);

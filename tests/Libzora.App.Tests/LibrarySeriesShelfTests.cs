@@ -466,6 +466,309 @@ public sealed partial class SettingsTests
         Assert.False(overlay.IsVisible);
     });
 
+    [Fact]
+    public Task SeriesContextMenuBalancesMultiFormatAndMultiVolumeActions() => Run(async () =>
+    {
+        await using var scope = await TestWindow.Create(new AppSettings
+        {
+            UiLanguage = "zh-CN",
+            OnboardingCompleted = true,
+            NetworkEnabled = false,
+            AutoUpdateCheckEnabled = false,
+            AutoConnectDevice = false,
+            StackBookSeries = true
+        });
+
+        var pluginManager = scope.Field<Libzora.Infrastructure.Plugins.PluginManager>("_pluginManager");
+        var pluginPackage = WriteSeriesTestPlugin();
+        try
+        {
+            var installed = pluginManager.Install(pluginPackage);
+            pluginManager.SetEnabled(installed.Id, true);
+            scope.Call("RefreshPluginContributions");
+            await Render();
+
+            var book1Id = await InsertBookAsync(scope.Paths.Database, "第一部", 1);
+            await InsertFileForBookAsync(scope.Paths.Database, scope.Paths.Library, book1Id, "epub", "vol1.epub");
+            await InsertFileForBookAsync(scope.Paths.Database, scope.Paths.Library, book1Id, "epub", "vol1_zh.epub");
+            await InsertFileForBookAsync(scope.Paths.Database, scope.Paths.Library, book1Id, "pdf", "vol1.pdf");
+
+            var book2Id = await InsertBookAsync(scope.Paths.Database, "第二部", 2);
+            await InsertFileForBookAsync(scope.Paths.Database, scope.Paths.Library, book2Id, "epub", "vol2.epub");
+            await InsertFileForBookAsync(scope.Paths.Database, scope.Paths.Library, book2Id, "epub", "vol2_zh.epub");
+
+            var book3Id = await InsertBookAsync(scope.Paths.Database, "第三部", 3);
+            await InsertFileForBookAsync(scope.Paths.Database, scope.Paths.Library, book3Id, "pdf", "vol3.pdf");
+
+            await scope.Window.ViewModel.RefreshViewAsync();
+            await Render();
+
+            var stack = Assert.Single(scope.Window.ViewModel.ShelfBooks);
+            // Promote vol 2 to front; menus should still keep 1..3 series order.
+            var vol2 = stack.SeriesMembers.Single(m => m.Title == "第二部");
+            scope.Window.ViewModel.PromoteSeriesVolume(stack, vol2);
+            stack = Assert.Single(scope.Window.ViewModel.ShelfBooks);
+
+            var menu = (ContextMenu)scope.Call("BuildBookContextMenu", stack)!;
+            var topItems = menu.Items.OfType<MenuItem>().ToArray();
+
+            // 1) Open menu: multi-format volume nests formats, single-format multi-edition flattens to files, single-file is direct leaf.
+            var openMenu = Assert.Single(topItems, item => Equals(item.Header, "打开书籍"));
+            var openVolumes = openMenu.Items.OfType<MenuItem>().ToArray();
+            Assert.Equal(["1 · 第一部", "2 · 第二部", "3 · 第三部"],
+                openVolumes.Select(item => item.Header?.ToString() ?? string.Empty).ToArray());
+            var openVol1Formats = openVolumes[0].Items.OfType<MenuItem>().ToArray();
+            Assert.Equal(["EPUB", "PDF"], openVol1Formats.Select(item => item.Header?.ToString() ?? string.Empty).ToArray());
+            Assert.Equal(["vol1.epub", "vol1_zh.epub"],
+                openVol1Formats[0].Items.OfType<MenuItem>().Select(item => item.Header?.ToString() ?? string.Empty).ToArray());
+            Assert.Equal(["vol2.epub", "vol2_zh.epub"],
+                openVolumes[1].Items.OfType<MenuItem>().Select(item => item.Header?.ToString() ?? string.Empty).ToArray());
+            Assert.Empty(openVolumes[2].Items.OfType<MenuItem>());
+
+            // 2) Rename menu: series batch rename + individual volumes.
+            var renameMenu = Assert.Single(topItems, item => Equals(item.Header, "重命名"));
+            Assert.Equal(["重命名系列（3 本）", "1 · 第一部", "2 · 第二部", "3 · 第三部"],
+                renameMenu.Items.OfType<MenuItem>().Select(item => item.Header?.ToString() ?? string.Empty).ToArray());
+
+            // 3) Open directory menu: per-volume directories.
+            var dirMenu = Assert.Single(topItems, item => Equals(item.Header, "打开书籍所在目录"));
+            Assert.Equal(["1 · 第一部", "2 · 第二部", "3 · 第三部"],
+                dirMenu.Items.OfType<MenuItem>().Select(item => item.Header?.ToString() ?? string.Empty).ToArray());
+
+            // 4) Convert menu: batch conversion for missing targets + per-volume source selection.
+            var convertMenu = Assert.Single(topItems, item => Equals(item.Header, "转换为"));
+            var convertTargets = convertMenu.Items.OfType<MenuItem>().ToArray();
+            var epubTarget = Assert.Single(convertTargets, item => Equals(item.Header, "EPUB"));
+            Assert.True(epubTarget.IsEnabled);
+            var epubSub = epubTarget.Items.OfType<MenuItem>().ToArray();
+            Assert.Equal("全部转换（1 本）", epubSub[0].Header);
+            Assert.False(epubSub[1].IsEnabled); // Vol 1 already has EPUB
+            Assert.False(epubSub[2].IsEnabled); // Vol 2 already has EPUB
+            Assert.True(epubSub[3].IsEnabled);  // Vol 3 only has PDF
+
+            var azw3Target = Assert.Single(convertTargets, item => Equals(item.Header, "AZW3"));
+            var azw3Sub = azw3Target.Items.OfType<MenuItem>().ToArray();
+            Assert.Equal("全部转换（3 本）", azw3Sub[0].Header);
+            Assert.Equal(["vol1.epub", "vol1_zh.epub", "vol1.pdf"],
+                azw3Sub[1].Items.OfType<MenuItem>().Select(item => item.Header?.ToString() ?? string.Empty).ToArray());
+
+            // 5) Plugin actions: volume list for single-book actions, plus "全部（3 本）" for multi-book actions.
+            var singlePlugin = Assert.Single(topItems, item => Equals(item.Header, "单册插件"));
+            Assert.Equal(["1 · 第一部", "2 · 第二部", "3 · 第三部"],
+                singlePlugin.Items.OfType<MenuItem>().Select(item => item.Header?.ToString() ?? string.Empty).ToArray());
+            var batchPlugin = Assert.Single(topItems, item => Equals(item.Header, "批量插件"));
+            Assert.Equal(["全部（3 本）", "1 · 第一部", "2 · 第二部", "3 · 第三部"],
+                batchPlugin.Items.OfType<MenuItem>().Select(item => item.Header?.ToString() ?? string.Empty).ToArray());
+
+            // 6) Delete format menu: batch delete per format, per-volume submenu, and whole-series delete.
+            var deleteMenu = Assert.Single(topItems, item => Equals(item.Header, "删除格式"));
+            var deleteItems = deleteMenu.Items.OfType<MenuItem>().ToArray();
+            var deleteEpub = Assert.Single(deleteItems, item => Equals(item.Header, "EPUB"));
+            Assert.Equal(["删除全部 EPUB（4 个）", "1 · 第一部", "2 · 第二部"],
+                deleteEpub.Items.OfType<MenuItem>().Select(item => item.Header?.ToString() ?? string.Empty).ToArray());
+            Assert.Equal(["vol1.epub", "vol1_zh.epub"],
+                deleteEpub.Items.OfType<MenuItem>().Skip(1).First().Items.OfType<MenuItem>()
+                    .Select(item => item.Header?.ToString() ?? string.Empty).ToArray());
+
+            var deletePdf = Assert.Single(deleteItems, item => Equals(item.Header, "PDF"));
+            Assert.Equal(["删除全部 PDF（2 个）", "1 · 第一部", "3 · 第三部"],
+                deletePdf.Items.OfType<MenuItem>().Select(item => item.Header?.ToString() ?? string.Empty).ToArray());
+
+            Assert.False(Assert.Single(deleteItems, item => Equals(item.Header, "MOBI")).IsEnabled);
+
+            var byVolume = Assert.Single(deleteItems, item => Equals(item.Header, "按分册删除"));
+            var byVolumeEntries = byVolume.Items.OfType<MenuItem>().ToArray();
+            Assert.Equal(["1 · 第一部", "2 · 第二部", "3 · 第三部"],
+                byVolumeEntries.Select(item => item.Header?.ToString() ?? string.Empty).ToArray());
+            Assert.Equal(["EPUB", "PDF", "MOBI", "AZW3", "全部"],
+                byVolumeEntries[0].Items.OfType<MenuItem>().Select(item => item.Header?.ToString() ?? string.Empty).ToArray());
+
+            Assert.Contains(deleteItems, item => Equals(item.Header, "全部（3 本）"));
+
+            // 7) Single-volume menu from the expanded series strip keeps single-book actions.
+            var singleMenu = (ContextMenu)scope.Call("BuildSingleBookContextMenu", stack)!;
+            var singleTop = singleMenu.Items.OfType<MenuItem>().ToArray();
+            Assert.Contains(singleTop, item => Equals(item.Header, "重命名书籍"));
+            Assert.DoesNotContain(singleTop, item => Equals(item.Header, "重命名"));
+            var singleDelete = Assert.Single(singleTop, item => Equals(item.Header, "删除格式"));
+            Assert.DoesNotContain(singleDelete.Items.OfType<MenuItem>(), item => Equals(item.Header, "按分册删除"));
+            Assert.Contains(singleDelete.Items.OfType<MenuItem>(), item => Equals(item.Header, "全部"));
+
+            pluginManager.Uninstall(installed.Id);
+        }
+        finally
+        {
+            if (File.Exists(pluginPackage)) File.Delete(pluginPackage);
+        }
+    });
+
+    [Fact]
+    public Task SeriesContextMenuExecutesBatchRenameFormatDeleteAndWholeSeriesDelete() => Run(async () =>
+    {
+        await using var scope = await TestWindow.Create(new AppSettings
+        {
+            UiLanguage = "zh-CN",
+            OnboardingCompleted = true,
+            NetworkEnabled = false,
+            AutoUpdateCheckEnabled = false,
+            AutoConnectDevice = false,
+            StackBookSeries = true
+        });
+
+        // Use an inferred series (Series=null) to verify SeriesIndex preservation on rename.
+        var book1Id = await InsertInferredBookAsync(scope.Paths.Database, "星海 第1卷");
+        await InsertFileForBookAsync(scope.Paths.Database, scope.Paths.Library, book1Id, "epub", "sea1.epub");
+        await InsertFileForBookAsync(scope.Paths.Database, scope.Paths.Library, book1Id, "pdf", "sea1.pdf");
+
+        var book2Id = await InsertInferredBookAsync(scope.Paths.Database, "星海 第2卷");
+        await InsertFileForBookAsync(scope.Paths.Database, scope.Paths.Library, book2Id, "epub", "sea2.epub");
+        await InsertFileForBookAsync(scope.Paths.Database, scope.Paths.Library, book2Id, "pdf", "sea2.pdf");
+
+        var book3Id = await InsertInferredBookAsync(scope.Paths.Database, "星海 第3卷");
+        await InsertFileForBookAsync(scope.Paths.Database, scope.Paths.Library, book3Id, "pdf", "sea3.pdf");
+
+        await scope.Window.ViewModel.RefreshViewAsync();
+        await Render();
+
+        var stack = Assert.Single(scope.Window.ViewModel.ShelfBooks);
+        Assert.Equal("星海", stack.DisplayTitle);
+
+        // 1) Batch rename series: updates Series on all 3 books and preserves inferred indices 1..3.
+        var menu = (ContextMenu)scope.Call("BuildBookContextMenu", stack)!;
+        var renameSeriesItem = menu.Items.OfType<MenuItem>()
+            .Single(item => Equals(item.Header, "重命名"))
+            .Items.OfType<MenuItem>()
+            .First();
+        renameSeriesItem.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+        await Until(() => scope.Get<Control>("CollectionNameOverlay").IsVisible);
+        Assert.Equal("星海", scope.Get<TextBox>("CollectionNameBox").Text);
+        scope.Get<TextBox>("CollectionNameBox").Text = "星海传奇";
+        scope.Get<Control>("CollectionNameOverlay")
+            .GetVisualDescendants()
+            .OfType<Button>()
+            .Last()
+            .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await Until(() => !scope.Get<Control>("CollectionNameOverlay").IsVisible
+            && scope.Window.ViewModel.ShelfBooks.FirstOrDefault()?.DisplayTitle == "星海传奇");
+
+        stack = Assert.Single(scope.Window.ViewModel.ShelfBooks);
+        Assert.Equal([1d, 2d, 3d], stack.SeriesMembers.Select(m => m.Book.SeriesIndex ?? -1).ToArray());
+        Assert.All(stack.SeriesMembers, member => Assert.Equal("星海传奇", member.Book.Series));
+
+        // 2) Batch delete PDF across the series: warns that 1 book only has PDF (moved to trash in full).
+        menu = (ContextMenu)scope.Call("BuildBookContextMenu", stack)!;
+        var deletePdfAll = menu.Items.OfType<MenuItem>()
+            .Single(item => Equals(item.Header, "删除格式"))
+            .Items.OfType<MenuItem>()
+            .Single(item => Equals(item.Header, "PDF"))
+            .Items.OfType<MenuItem>()
+            .First();
+        deletePdfAll.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+        await Until(() => scope.Get<Control>("ConfirmationOverlay").IsVisible);
+        var confirmMsg = scope.Get<TextBlock>("ConfirmationMessageText").Text ?? string.Empty;
+        Assert.Contains("3 个 PDF", confirmMsg);
+        Assert.Contains("1 本书仅包含该格式", confirmMsg);
+        scope.Get<Button>("ConfirmationOkButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await Until(() => scope.Window.ViewModel.Books.Count == 2);
+
+        stack = Assert.Single(scope.Window.ViewModel.ShelfBooks);
+        Assert.Equal(2, stack.SeriesCount);
+        Assert.All(stack.SeriesMembers, member =>
+        {
+            var file = Assert.Single(member.Book.Files);
+            Assert.Equal("epub", file.Format);
+        });
+
+        // 3) Batch delete the entire remaining series (2 books).
+        menu = (ContextMenu)scope.Call("BuildBookContextMenu", stack)!;
+        var deleteAllSeries = menu.Items.OfType<MenuItem>()
+            .Single(item => Equals(item.Header, "删除格式"))
+            .Items.OfType<MenuItem>()
+            .Single(item => Equals(item.Header, "全部（2 本）"));
+        deleteAllSeries.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+        await Until(() => scope.Get<Control>("ConfirmationOverlay").IsVisible);
+        Assert.Contains("2 本书", scope.Get<TextBlock>("ConfirmationMessageText").Text);
+        scope.Get<Button>("ConfirmationOkButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await Until(() => scope.Window.ViewModel.Books.Count == 0);
+        Assert.Empty(scope.Window.ViewModel.ShelfBooks);
+    });
+
+    private static string WriteSeriesTestPlugin()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"libzora-series-plugin-{Guid.NewGuid():N}.libzoraplugin");
+        using var archive = System.IO.Compression.ZipFile.Open(path, System.IO.Compression.ZipArchiveMode.Create);
+        AddEntry(archive, "manifest.json",
+            """
+            {
+              "id": "com.example.series.menu",
+              "name": "系列测试插件",
+              "version": "1.0.0",
+              "apiVersion": 1,
+              "permissions": { "library": "read" },
+              "contributes": {
+                "bookActions": [
+                  { "id": "single", "title": "单册插件", "page": "ui/app.html", "multiple": false },
+                  { "id": "batch", "title": "批量插件", "page": "ui/app.html", "multiple": true }
+                ]
+              }
+            }
+            """);
+        AddEntry(archive, "ui/app.html", "<html><body>test</body></html>");
+        return path;
+
+        static void AddEntry(System.IO.Compression.ZipArchive archive, string name, string content)
+        {
+            var entry = archive.CreateEntry(name);
+            using var stream = entry.Open();
+            var bytes = System.Text.Encoding.UTF8.GetBytes(content);
+            stream.Write(bytes, 0, bytes.Length);
+        }
+    }
+
+    private static async Task<Guid> InsertInferredBookAsync(string databasePath, string title)
+    {
+        var bookId = Guid.NewGuid();
+        await using var connection = new SqliteConnection($"Data Source={databasePath}");
+        await connection.OpenAsync();
+        using var command = connection.CreateCommand();
+        command.CommandText =
+            "INSERT INTO Books(Id,Title,Authors,CreatedAt,UpdatedAt) " +
+            "VALUES($id,$title,'测试作者',$time,$time);";
+        command.Parameters.AddWithValue("$id", bookId.ToString());
+        command.Parameters.AddWithValue("$title", title);
+        command.Parameters.AddWithValue("$time", DateTimeOffset.UtcNow.ToString("O"));
+        await command.ExecuteNonQueryAsync();
+        return bookId;
+    }
+
+    private static async Task InsertFileForBookAsync(
+        string databasePath,
+        string libraryDir,
+        Guid bookId,
+        string format,
+        string fileName)
+    {
+        var bookDir = Path.Combine(libraryDir, bookId.ToString("N"));
+        Directory.CreateDirectory(bookDir);
+        var fullPath = Path.Combine(bookDir, fileName);
+        await File.WriteAllTextAsync(fullPath, fileName);
+        var relativePath = Path.Combine("library", bookId.ToString("N"), fileName);
+
+        await using var connection = new SqliteConnection($"Data Source={databasePath}");
+        await connection.OpenAsync();
+        using var command = connection.CreateCommand();
+        command.CommandText =
+            "INSERT INTO BookFiles(Id,BookId,Format,RelativePath,Size,Sha256) " +
+            "VALUES($fileId,$bookId,$format,$path,$size,$sha);";
+        command.Parameters.AddWithValue("$fileId", Guid.NewGuid().ToString());
+        command.Parameters.AddWithValue("$bookId", bookId.ToString());
+        command.Parameters.AddWithValue("$format", format);
+        command.Parameters.AddWithValue("$path", relativePath);
+        command.Parameters.AddWithValue("$size", new FileInfo(fullPath).Length);
+        command.Parameters.AddWithValue("$sha", Guid.NewGuid().ToString("N"));
+        await command.ExecuteNonQueryAsync();
+    }
+
     private static async Task InsertBookWithCoverAndFileAsync(
         string databasePath,
         string title,
@@ -514,19 +817,21 @@ public sealed partial class SettingsTests
         await command.ExecuteNonQueryAsync();
     }
 
-    private static async Task InsertBookAsync(string databasePath, string title, double seriesIndex)
+    private static async Task<Guid> InsertBookAsync(string databasePath, string title, double seriesIndex)
     {
+        var bookId = Guid.NewGuid();
         await using var connection = new SqliteConnection($"Data Source={databasePath}");
         await connection.OpenAsync();
         using var command = connection.CreateCommand();
         command.CommandText =
             "INSERT INTO Books(Id,Title,Authors,Series,SeriesIndex,CreatedAt,UpdatedAt) " +
             "VALUES($id,$title,'测试作者','测试系列',$index,$time,$time);";
-        command.Parameters.AddWithValue("$id", Guid.NewGuid().ToString());
+        command.Parameters.AddWithValue("$id", bookId.ToString());
         command.Parameters.AddWithValue("$title", title);
         command.Parameters.AddWithValue("$index", seriesIndex);
         command.Parameters.AddWithValue("$time", DateTimeOffset.UtcNow.ToString("O"));
         await command.ExecuteNonQueryAsync();
+        return bookId;
     }
 
     private static void InvokeApplyDeviceBookFilter(MainWindow window)

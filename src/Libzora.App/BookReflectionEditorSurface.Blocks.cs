@@ -12,6 +12,7 @@ using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
+using Avalonia.Markup.Xaml.MarkupExtensions;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform.Storage;
@@ -158,9 +159,9 @@ internal sealed partial class BookReflectionEditorSurface : Border
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 VerticalAlignment = VerticalAlignment.Top,
                 TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(0, 5, 0, 5),
-                FontFamily = new FontFamily("fonts:Libzora#KingHwaOldSong")
+                Margin = new Thickness(0, 5, 0, 5)
             };
+            BindDefaultUiFont(richText);
             Grid.SetColumn(richText, 1);
 
             editor = new TextBox
@@ -174,7 +175,6 @@ internal sealed partial class BookReflectionEditorSurface : Border
                 BorderThickness = new Thickness(0),
                 Padding = new Thickness(0, 5, 0, 5),
                 MinHeight = 30,
-                FontFamily = new FontFamily("fonts:Libzora#KingHwaOldSong"),
                 HorizontalContentAlignment = HorizontalAlignment.Stretch,
                 VerticalContentAlignment = VerticalAlignment.Top,
                 Foreground = Brushes.Transparent,
@@ -183,6 +183,7 @@ internal sealed partial class BookReflectionEditorSurface : Border
                 SelectionForegroundBrush = Brushes.Transparent,
                 ClearSelectionOnLostFocus = true
             };
+            BindDefaultUiFont(editor);
             Grid.SetColumn(editor, 1);
             editor.Classes.Add("bookReflectionEditor");
 
@@ -192,7 +193,6 @@ internal sealed partial class BookReflectionEditorSurface : Border
 
             citationSource = new TextBlock
             {
-                FontFamily = new FontFamily("fonts:Libzora#KingHwaOldSong"),
                 FontSize = 11,
                 Foreground = AppAppearanceResources.GetBrush("MutedInkBrush"),
                 TextWrapping = TextWrapping.Wrap,
@@ -202,6 +202,7 @@ internal sealed partial class BookReflectionEditorSurface : Border
                 IsVisible = false,
                 IsHitTestVisible = false
             };
+            BindDefaultUiFont(citationSource);
             Grid.SetColumn(citationSource, 1);
             Grid.SetRow(citationSource, 1);
             contentHost.Children.Add(citationSource);
@@ -287,21 +288,28 @@ internal sealed partial class BookReflectionEditorSurface : Border
         return view;
     }
 
-    private static TextBlock CreateQuoteAdornment(string text, HorizontalAlignment alignment) => new()
+    private static TextBlock CreateQuoteAdornment(string text, HorizontalAlignment alignment)
     {
-        Text = text,
-        MinWidth = QuoteAdornmentMinWidth,
-        FontSize = 31,
-        FontWeight = FontWeight.SemiBold,
-        Foreground = AppAppearanceResources.GetBrush("AccentBrush"),
-        FontFamily = new FontFamily("fonts:Libzora#KingHwaOldSong"),
-        TextAlignment = alignment == HorizontalAlignment.Right ? TextAlignment.Right : TextAlignment.Left,
-        HorizontalAlignment = alignment,
-        VerticalAlignment = text == "“" ? VerticalAlignment.Top : VerticalAlignment.Bottom,
-        Margin = text == "“" ? new Thickness(0, 0, 0, 0) : new Thickness(0, 0, 3, 2),
-        ClipToBounds = false,
-        IsVisible = false,
-        IsHitTestVisible = false,
-        ZIndex = 1
-    };
+        var adornment = new TextBlock
+        {
+            Text = text,
+            MinWidth = QuoteAdornmentMinWidth,
+            FontSize = 31,
+            FontWeight = FontWeight.SemiBold,
+            Foreground = AppAppearanceResources.GetBrush("AccentBrush"),
+            TextAlignment = alignment == HorizontalAlignment.Right ? TextAlignment.Right : TextAlignment.Left,
+            HorizontalAlignment = alignment,
+            VerticalAlignment = text == "“" ? VerticalAlignment.Top : VerticalAlignment.Bottom,
+            Margin = text == "“" ? new Thickness(0, 0, 0, 0) : new Thickness(0, 0, 3, 2),
+            ClipToBounds = false,
+            IsVisible = false,
+            IsHitTestVisible = false,
+            ZIndex = 1
+        };
+        BindDefaultUiFont(adornment);
+        return adornment;
+    }
+
+    private static void BindDefaultUiFont(Control control) =>
+        control.Bind(Avalonia.Controls.Documents.TextElement.FontFamilyProperty, new DynamicResourceExtension("DefaultAppFontFamily"));
 }

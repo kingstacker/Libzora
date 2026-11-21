@@ -2014,6 +2014,10 @@
     <x:String x:Key="Ui.Reader.Appearance">主题与纸感</x:String>
     <x:String x:Key="Ui.Appearance.MainTheme">主界面主题</x:String>
     <x:String x:Key="Ui.Appearance.MainThemeHint">书库、侧栏与设置的配色；阅读器主题可单独设置</x:String>
+    <x:String x:Key="Ui.Appearance.MainUiFont">主界面字体</x:String>
+    <x:String x:Key="Ui.Appearance.MainUiFontHint">书库、侧栏与设置的显示字体；阅读器字体可单独设置</x:String>
+    <x:String x:Key="Ui.Appearance.FontKingHwa">京华老宋体（默认）</x:String>
+    <x:String x:Key="Ui.Appearance.FontSystemDefault">系统默认</x:String>
     <x:String x:Key="Ui.Appearance.Classic">黑白（默认）</x:String>
     <x:String x:Key="Ui.Appearance.Beige">米色</x:String>
     <x:String x:Key="Ui.Appearance.Green">绿色</x:String>
@@ -2983,4 +2987,27 @@
     <x:String x:Key="Ui.Auto.1C5C067138704DDA">视图</x:String>
     <x:String x:Key="Ui.Auto.22EA3F47FEE80536">全屏</x:String>
     <x:String x:Key="Ui.Auto.0F1505B6AD3FAFE4">退出全屏</x:String>
+    <!-- Series context menu & batch operations -->
+    <x:String x:Key="Ui.Auto.0D0CBAC2EEE54113">重命名</x:String>
+    <x:String x:Key="Ui.Auto.C1848604721AE151">重命名系列</x:String>
+    <x:String x:Key="Ui.Auto.E270EE8C4B7E97F5">重命名系列（{0} 本）</x:String>
+    <x:String x:Key="Ui.Auto.DC1166CA8371B99E">请输入新的系列名称。</x:String>
+    <x:String x:Key="Ui.Auto.F6FACFEDE4BEAEB5">无法重命名系列</x:String>
+    <x:String x:Key="Ui.Auto.74CBA203186102DB">当前正在阅读书籍，请先关闭阅读器。</x:String>
+    <x:String x:Key="Ui.Auto.57614D82A54FF661">已将系列“{0}”重命名为“{1}”（共 {2} 本）。</x:String>
+    <x:String x:Key="Ui.Auto.C394927BA823F61C">重命名系列失败：{0}</x:String>
+    <x:String x:Key="Ui.Auto.711C9E04B967BE26">全部转换（{0} 本）</x:String>
+    <x:String x:Key="Ui.Auto.852D697F3CFCC95E">已为系列中 {0} 本书添加 {1} 格式。</x:String>
+    <x:String x:Key="Ui.Auto.756B5C16D3C8098F">系列格式转换完成：成功 {0} 本，失败 {1} 本。</x:String>
+    <x:String x:Key="Ui.Auto.E488B281284F893D">系列格式转换失败：{0}</x:String>
+    <x:String x:Key="Ui.Auto.F33EDCA1C701ED5E">全部（{0} 本）</x:String>
+    <x:String x:Key="Ui.Auto.FA81F20C58E0760A">按分册删除</x:String>
+    <x:String x:Key="Ui.Auto.6A54F276D1AD6CE7">删除全部 {0}（{1} 个）</x:String>
+    <x:String x:Key="Ui.Auto.568DD31AFD855A77">《{0}》系列的 {1} 本书将从书库移除并移入回收站，可恢复。</x:String>
+    <x:String x:Key="Ui.Auto.9973B61836A7CD25">已将《{0}》系列的 {1} 本书移入回收站。</x:String>
+    <x:String x:Key="Ui.Auto.D3F65C6C69E8F84D">确定将系列中 {0} 个 {1} 文件移入回收站吗？可在回收站恢复，其他格式不受影响。</x:String>
+    <x:String x:Key="Ui.Auto.3BF0C7F7C884BE8D">确定将系列中 {0} 个 {1} 文件移入回收站吗？这 {2} 本书仅包含该格式，将会整本移入回收站（均可恢复）。</x:String>
+    <x:String x:Key="Ui.Auto.CCFD202BD41C5280">确定将系列中 {0} 个 {1} 文件移入回收站吗？其中 {2} 本书仅包含该格式，将会整本移入回收站（均可恢复），其余书籍的其他格式不受影响。</x:String>
+    <x:String x:Key="Ui.Auto.83EE935846D12834">已将系列中 {0} 个 {1} 文件移入回收站。</x:String>
+    <x:String x:Key="Ui.Auto.27045A376AF72700">正在转换《{0}》（{1}/{2}）…</x:String>
 </ResourceDictionary>

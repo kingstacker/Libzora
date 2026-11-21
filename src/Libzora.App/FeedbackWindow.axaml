@@ -2,10 +2,10 @@
         x:Class="Libzora.FeedbackWindow" Title="{DynamicResource Ui.Feedback.Title}"
         Width="440" SizeToContent="Height" MaxHeight="640" CanResize="False" ShowInTaskbar="False"
         WindowStartupLocation="CenterOwner" Background="{DynamicResource PaperBrush}"
-        FontFamily="{StaticResource DefaultAppFontFamily}">
+        FontFamily="{DynamicResource DefaultAppFontFamily}">
   <Window.Styles>
-    <Style Selector="TextBlock"><Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" /></Style>
-    <Style Selector="Button"><Setter Property="FontFamily" Value="{StaticResource DefaultAppFontFamily}" /></Style>
+    <Style Selector="TextBlock"><Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" /></Style>
+    <Style Selector="Button"><Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" /></Style>
     <Style Selector="TextBlock.feedbackTitle">
       <Setter Property="FontSize" Value="20" />
       <Setter Property="FontWeight" Value="SemiBold" />

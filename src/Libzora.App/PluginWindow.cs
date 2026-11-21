@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Layout;
+using Avalonia.Markup.Xaml.MarkupExtensions;
 using Avalonia.Media;
 using Avalonia.Platform;
 using Avalonia.Platform.Storage;
@@ -99,6 +100,7 @@ internal sealed class PluginWindow : Window, IPluginUiHost
         MinHeight = 320;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Background = new SolidColorBrush(Color.Parse(theme.Paper));
+        this.Bind(FontFamilyProperty, new DynamicResourceExtension("DefaultAppFontFamily"));
 
         _statusText.Text = UiText.Get("正在加载插件…");
         _statusText.HorizontalAlignment = HorizontalAlignment.Center;

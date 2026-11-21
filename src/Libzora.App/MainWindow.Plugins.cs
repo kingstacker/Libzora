@@ -208,23 +208,53 @@ public partial class MainWindow
     private bool AddPluginBookActionMenuItems(
         ContextMenu menu,
         BookCardViewModel card,
-        IEnumerable<InstalledPlugin>? plugins = null)
+        IEnumerable<InstalledPlugin>? plugins = null,
+        bool allowSeriesActions = true)
     {
         // The context menu belongs to one card, but the user may have selected
         // several books; hand the plugin the whole selection when that card is
         // part of it.
         var selected = GetSelectedCards();
-        var targets = selected.Contains(card) && selected.Count > 1
+        var isMultiSelected = selected.Contains(card) && selected.Count > 1;
+        var targets = isMultiSelected
             ? selected.Where(candidate => candidate.Book is not null).ToArray()
             : [card];
+        var isSeriesStack = allowSeriesActions && card.IsSeriesStack && !isMultiSelected;
+        var seriesVolumes = isSeriesStack ? OrderLocalSeriesMembers(card) : [];
         var added = false;
         foreach (var plugin in plugins ?? _pluginSnapshot)
         {
             foreach (var action in plugin.Manifest.BookActions)
             {
-                menu.Items.Add(CreateMenuItem(
-                    PluginTitle(plugin, action.Id, action.Title),
-                    () => OpenPluginWindowAsync(plugin, action, targets)));
+                var title = PluginTitle(plugin, action.Id, action.Title);
+                if (!isSeriesStack)
+                {
+                    menu.Items.Add(CreateMenuItem(
+                        title,
+                        () => OpenPluginWindowAsync(plugin, action, targets)));
+                    added = true;
+                    continue;
+                }
+
+                var actionMenu = new MenuItem { Header = title };
+                ApplyLegacyMenuItemSize(actionMenu);
+                actionMenu.Resources["FlyoutThemeMinWidth"] = 0d;
+                if (action.AllowsMultipleBooks)
+                {
+                    var allTargets = seriesVolumes.ToArray();
+                    actionMenu.Items.Add(CreateMenuItem(
+                        T("全部（{0} 本）", allTargets.Length),
+                        () => OpenPluginWindowAsync(plugin, action, allTargets)));
+                    actionMenu.Items.Add(new Separator());
+                }
+                foreach (var member in seriesVolumes)
+                {
+                    var volume = member;
+                    actionMenu.Items.Add(CreateMenuItem(
+                        SeriesVolumeLabel(volume.Book.SeriesIndex, volume.Title),
+                        () => OpenPluginWindowAsync(plugin, action, volume)));
+                }
+                menu.Items.Add(actionMenu);
                 added = true;
             }
         }
@@ -240,7 +270,7 @@ public partial class MainWindow
         if (active.Length == 0) return;
 
         var menu = new ContextMenu();
-        if (!AddPluginBookActionMenuItems(menu, card, active))
+        if (!AddPluginBookActionMenuItems(menu, card, active, allowSeriesActions: false))
         {
             menu.Items.Add(new MenuItem
             {

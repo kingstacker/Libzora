@@ -62,11 +62,27 @@ struct KkStatsWidget: Widget {
     }
 }
 
+struct KkReadingTreeWidget: Widget {
+    let kind = "LibzoraTree"
+
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: kind, provider: KkProvider()) { entry in
+            KkReadingTreeWidgetView(entry: entry)
+                .lzWidgetBackground()
+        }
+        .configurationDisplayName("阅读之树")
+        .description("累计阅读浇灌小树苗，枝繁叶茂、开花结果。")
+        .supportedFamilies([.systemSmall, .systemMedium])
+        .contentMarginsDisabled()
+    }
+}
+
 @main
 struct LibzoraWidgetBundle: WidgetBundle {
     @WidgetBundleBuilder
     var body: some Widget {
         KkContinueWidget()
         KkStatsWidget()
+        KkReadingTreeWidget()
     }
 }

@@ -50,6 +50,19 @@ enum KkTheme {
         emphasized ? ink(scheme) : ink(scheme).opacity(scheme == .dark ? 0.42 : 0.26)
     }
 
+    /// Subtle botanical accents matching the reading tree's muted ink-and-paper palette.
+    static func treeLeafAccent(_ scheme: ColorScheme) -> Color {
+        scheme == .dark
+            ? Color(red: 0.52, green: 0.68, blue: 0.56)
+            : Color(red: 0.32, green: 0.48, blue: 0.37)
+    }
+
+    static func treeFruitAccent(_ scheme: ColorScheme) -> Color {
+        scheme == .dark
+            ? Color(red: 0.87, green: 0.45, blue: 0.31)
+            : Color(red: 0.79, green: 0.34, blue: 0.22)
+    }
+
     static func title(_ size: CGFloat, relativeTo style: Font.TextStyle = .headline) -> Font {
         font(size, relativeTo: style, weight: .semibold)
     }

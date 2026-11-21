@@ -118,7 +118,7 @@ enum KkSnapshotStore {
 }
 
 enum KkFormat {
-    private static var isChinese: Bool {
+    static var isChinese: Bool {
         Locale.preferredLanguages.first?.hasPrefix("zh") == true
     }
 

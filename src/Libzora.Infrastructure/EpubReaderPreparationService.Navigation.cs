@@ -247,6 +247,9 @@ public sealed partial class EpubReaderPreparationService
         collidedEntries = 0;
         var result = new List<EpubReaderNavigationItem>();
         var targets = new HashSet<string>(StringComparer.Ordinal);
+        var normalizedCacheRoot = NormalizeRootPath(cacheRoot);
+        var navigationDirectory = Path.GetDirectoryName(navigationDocumentPath)!;
+        var cachedUris = new Dictionary<int, string>();
         foreach (var (title, href, level) in source)
         {
             if (string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(href)) continue;
@@ -257,17 +260,22 @@ public sealed partial class EpubReaderPreparationService
             var pathPart = parts[0].Split('?', 2)[0];
             var targetPath = pathPart.Length == 0
                 ? navigationDocumentPath
-                : ResolvePublicationPath(
-                    Path.GetDirectoryName(navigationDocumentPath)!,
-                    cacheRoot,
+                : ResolvePublicationPathNormalized(
+                    navigationDirectory,
+                    normalizedCacheRoot,
                     Uri.UnescapeDataString(pathPart));
-            if (!chapterIndexByPath.TryGetValue(Path.GetFullPath(targetPath), out var chapterIndex)
-                || !File.Exists(targetPath))
+            if (!chapterIndexByPath.TryGetValue(targetPath, out var chapterIndex))
             {
                 continue;
             }
 
-            var target = new Uri(targetPath).AbsoluteUri;
+            if (!cachedUris.TryGetValue(chapterIndex, out var target))
+            {
+                if (!File.Exists(targetPath))
+                    continue;
+                target = new Uri(targetPath).AbsoluteUri;
+                cachedUris[chapterIndex] = target;
+            }
             if (parts.Length == 2 && parts[1].Length > 0) target += $"#{parts[1]}";
             var fragmentKey = parts.Length == 2 ? DecodeNavigationFragment(parts[1]) : string.Empty;
             // A part heading and its first chapter routinely share one target.

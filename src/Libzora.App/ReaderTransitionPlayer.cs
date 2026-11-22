@@ -11,24 +11,25 @@ namespace Libzora;
 /// <summary>Named overlay elements the reader transition player drives.</summary>
 /// <param name="SnapshotSource">The live reader surface to photograph.</param>
 /// <param name="Snapshot">Image showing the outgoing frame.</param>
-/// <param name="Trail">Wave trail or fade-through backdrop veil.</param>
+/// <param name="Trail">Wave trail, fade-through backdrop veil, or cover dimming veil.</param>
 /// <param name="Front">Wave leading band.</param>
-/// <param name="Edge">Slide edge shadow.</param>
+/// <param name="Edge">Slide/cover edge shadow.</param>
+/// <param name="BackdropSource">Panel providing the paper background behind transparent reader hosts.</param>
+/// <param name="IncomingSheet">Optional live control transformed for Push and backward Cover transitions.</param>
 internal sealed record ReaderTransitionSurface(
     Visual SnapshotSource,
     Image Snapshot,
     Rectangle Trail,
     Rectangle Front,
     Rectangle Edge,
-    Panel BackdropSource);
+    Panel BackdropSource,
+    Control? IncomingSheet = null);
 
 /// <summary>
-/// Native playback of the three reader page-turn animations: a
-/// RenderTargetBitmap of the outgoing frame is layered over the freshly
-/// rendered incoming frame and animated away — a quiet 495ms fade-through, a
-/// 495ms slide, or a 368ms e-ink wave. All three are eased on one
-/// shared gentle curve and used by both the self-drawn reader surface and the
-/// Linux text-fallback surface.
+/// Native playback of reader page-turn animations: a Retina-scaled
+/// RenderTargetBitmap of the outgoing frame is composited with the live
+/// incoming frame and driven on VSync (<see cref="TopLevel.RequestAnimationFrame"/>)
+/// with a headless-safe timer fallback.
 ///
 /// Snapshot capture failure degrades silently to an instant switch so a
 /// cosmetic hiccup can never block navigation.
@@ -40,35 +41,54 @@ internal static class ReaderTransitionPlayer
     internal const int AnimationFade = 1;
     internal const int AnimationSlide = 2;
     internal const int AnimationWave = 3;
+    internal const int AnimationPush = 4;
+    internal const int AnimationCover = 5;
 
-    private const int FrameIntervalMs = 15;
+    private const int FallbackIntervalMs = 16;
 
-    // Softening follows three rules across all three animations: ease with a
-    // curve that never sits still at the start, keep overlays wide but faint
-    // (a broad pale shadow reads gentler than a narrow dark one), and give the
-    // motion enough time that it never snaps. cubic-bezier(.25,.1,.25,1) is the
-    // shared gentle curve — it leaves immediately and lands on a long tail.
-    private const double SoftX1 = 0.25;
-    private const double SoftY1 = 0.1;
-    private const double SoftX2 = 0.25;
-    private const double SoftY2 = 1d;
+    // Smooth cubic-bezier(.25,.1,.25,1) curve: starts immediately without a
+    // harsh front-loaded snap and glides into place at a natural reading pace.
+    private const double EaseX1 = 0.25;
+    private const double EaseY1 = 0.1;
+    private const double EaseX2 = 0.25;
+    private const double EaseY2 = 1.0;
 
-    private const double FadeOutMs = 232.5;
-    private const double FadeInMs = 262.5;
-    private const double SlideDurationMs = 495;
-    private const double SlideShadowWidthRatio = 0.02;
-    private const double SlideShadowMinWidth = 4;
+    private const double FadeOutMs = 190;
+    private const double FadeInMs = 210;
+    private const double FadeEaseX1 = 0.4;
+    private const double FadeEaseY1 = 0.0;
+    private const double FadeEaseX2 = 0.6;
+    private const double FadeEaseY2 = 1.0;
+    private const double SlideDurationMs = 430;
+    private const double PushDurationMs = 410;
+    private const double CoverDurationMs = 420;
+    private const double SlideShadowWidthRatio = 0.025;
+    private const double SlideShadowMinWidth = 6;
     private const double SlideShadowMaxWidth = 14;
-    private const byte SlideShadowAlpha = 24;
-    private const double WaveSweepMs = 367.5;
+    private const byte LightShadowAlpha = 20;
+    private const byte DarkShadowAlpha = 52;
+    private const double LightCoverDimOpacity = 0.055;
+    private const double DarkCoverDimOpacity = 0.22;
+    private const double WaveSweepMs = 368;
     private const double WaveBandWidthRatio = 0.11;
     private const double WaveLeadBandAlpha = 0.055;
 
     // Canonical sibling Z order restored by Reset(): content < snapshot <
     // trail/front bands + slide shadow on top.
+    private const int ZContent = 0;
+    private const int ZSnapshotBehind = 10;
+    private const int ZDimBetween = 15;
     private const int ZSnapshot = 20;
+    private const int ZIncomingCover = 25;
     private const int ZTrail = 30;
     private const int ZTop = 40;
+
+    private static readonly SolidColorBrush BlackDimBrush = new(Colors.Black);
+    private static readonly LinearGradientBrush LightShadowRight = CreateHorizontalShadowGradient(true, LightShadowAlpha);
+    private static readonly LinearGradientBrush LightShadowLeft = CreateHorizontalShadowGradient(false, LightShadowAlpha);
+    private static readonly LinearGradientBrush DarkShadowRight = CreateHorizontalShadowGradient(true, DarkShadowAlpha);
+    private static readonly LinearGradientBrush DarkShadowLeft = CreateHorizontalShadowGradient(false, DarkShadowAlpha);
+    private static readonly LinearGradientBrush WaveBandBrush = CreateWaveBandBrush(WaveLeadBandAlpha);
 
     public static async Task<T> RunAsync<T>(
         ReaderTransitionSurface surface,
@@ -85,8 +105,9 @@ internal static class ReaderTransitionPlayer
         // Clear stale overlays before photographing so the snapshot shows
         // only live reader content.
         Reset(surface);
-        using var backdrop = CaptureBackdrop(surface);
-        var snapshot = backdrop is null ? null : Capture(surface.SnapshotSource, backdrop);
+        var scaling = ResolveCaptureScaling(surface.SnapshotSource);
+        using var backdrop = CaptureBackdrop(surface, scaling);
+        var snapshot = backdrop is null ? null : Capture(surface.SnapshotSource, backdrop, scaling);
         if (snapshot is null)
         {
             Reset(surface);
@@ -96,19 +117,15 @@ internal static class ReaderTransitionPlayer
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            Begin(surface, snapshot, backdrop!, animation);
-            // Let the compositor submit the outgoing frame before the live
-            // surface switches to the next page. The snapshot bitmap is large
-            // enough that its first upload can lag a frame; without this the
-            // new page shows through for an instant and the turn reads as a
-            // flash before the animation starts.
-            await Task.Delay(TimeSpan.FromMilliseconds(34), cancellationToken);
+            Begin(surface, snapshot, backdrop!, animation, visualDirection);
+
             // Keep the outgoing snapshot visible while the new content is
             // being composed/configured. Starting the clock before this task
             // completes could expose a blank or partially laid-out page on a
             // slow chapter switch.
             var changedContent = await changeContentAsync();
             cancellationToken.ThrowIfCancellationRequested();
+
             // With animation disabled, chapter loads still keep the old page
             // in place until the new one is ready, then reveal it immediately.
             if (animation != AnimationNone)
@@ -128,41 +145,236 @@ internal static class ReaderTransitionPlayer
         }
     }
 
-    private static async Task PlayFramesAsync(
+    /// <summary>
+    /// Captures the outgoing page and prepares the surface for 1:1 interactive
+    /// drag tracking (Push or Cover). Returns null if capture fails or the
+    /// animation does not support interactive dragging.
+    /// </summary>
+    internal static InteractiveTransitionSession? BeginInteractive(
+        ReaderTransitionSurface surface,
+        int animation,
+        int visualDirection)
+    {
+        if (animation is not (AnimationPush or AnimationCover or AnimationSlide))
+            return null;
+
+        Reset(surface);
+        var scaling = ResolveCaptureScaling(surface.SnapshotSource);
+        using var backdrop = CaptureBackdrop(surface, scaling);
+        var snapshot = backdrop is null ? null : Capture(surface.SnapshotSource, backdrop, scaling);
+        if (snapshot is null)
+        {
+            Reset(surface);
+            return null;
+        }
+
+        Begin(surface, snapshot, backdrop!, animation, visualDirection);
+        DrawProgress(surface, animation, visualDirection, 0d);
+        return new InteractiveTransitionSession(surface, snapshot, animation, visualDirection);
+    }
+
+    internal sealed class InteractiveTransitionSession : IDisposable
+    {
+        private readonly ReaderTransitionSurface _surface;
+        private readonly RenderTargetBitmap _snapshot;
+        private readonly int _animation;
+        private readonly int _visualDirection;
+        private double _progress;
+        private bool _disposed;
+
+        internal InteractiveTransitionSession(
+            ReaderTransitionSurface surface,
+            RenderTargetBitmap snapshot,
+            int animation,
+            int visualDirection)
+        {
+            _surface = surface;
+            _snapshot = snapshot;
+            _animation = animation;
+            _visualDirection = visualDirection;
+        }
+
+        public double Progress => _progress;
+
+        public void Update(double progress)
+        {
+            if (_disposed) return;
+            _progress = Math.Clamp(progress, 0d, 1d);
+            DrawProgress(_surface, _animation, _visualDirection, _progress);
+        }
+
+        public async Task FinishAsync(
+            double targetProgress,
+            double durationMs,
+            CancellationToken cancellationToken,
+            Action? onBeforeReset = null)
+        {
+            if (_disposed) return;
+            var start = _progress;
+            var target = Math.Clamp(targetProgress, 0d, 1d);
+            try
+            {
+                if (durationMs > 8 && Math.Abs(target - start) > 0.002)
+                {
+                    await PlayProgressAsync(
+                        _surface,
+                        _animation,
+                        _visualDirection,
+                        start,
+                        target,
+                        durationMs,
+                        cancellationToken);
+                }
+                else
+                {
+                    DrawProgress(_surface, _animation, _visualDirection, target);
+                }
+            }
+            finally
+            {
+                onBeforeReset?.Invoke();
+                Dispose();
+            }
+        }
+
+        public void Cancel(Action? onBeforeReset = null)
+        {
+            if (_disposed) return;
+            try
+            {
+                onBeforeReset?.Invoke();
+            }
+            finally
+            {
+                Dispose();
+            }
+        }
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            Reset(_surface);
+            _snapshot.Dispose();
+        }
+    }
+
+    private static Task PlayFramesAsync(
         ReaderTransitionSurface surface,
         int animation,
         int visualDirection,
         CancellationToken cancellationToken)
     {
+        return RunVSyncLoopAsync(
+            surface.SnapshotSource,
+            elapsed => DrawFrame(surface, animation, visualDirection, elapsed),
+            cancellationToken);
+    }
+
+    private static Task PlayProgressAsync(
+        ReaderTransitionSurface surface,
+        int animation,
+        int visualDirection,
+        double startProgress,
+        double endProgress,
+        double durationMs,
+        CancellationToken cancellationToken)
+    {
+        return RunVSyncLoopAsync(
+            surface.SnapshotSource,
+            elapsed =>
+            {
+                if (elapsed >= durationMs)
+                {
+                    DrawProgress(surface, animation, visualDirection, endProgress);
+                    return false;
+                }
+
+                var t = EaseOut(elapsed / durationMs);
+                var progress = startProgress + (endProgress - startProgress) * t;
+                DrawProgress(surface, animation, visualDirection, progress);
+                return true;
+            },
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Drives frame updates on the host <see cref="TopLevel"/>'s VSync callback
+    /// (supporting 120Hz ProMotion on iOS/macOS) with a DispatcherTimer watchdog
+    /// so Avalonia Headless tests advance without manual render-timer ticks.
+    /// </summary>
+    private static async Task RunVSyncLoopAsync(
+        Visual anchor,
+        Func<double, bool> step,
+        CancellationToken cancellationToken)
+    {
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var clock = Stopwatch.StartNew();
-        var timer = new DispatcherTimer(DispatcherPriority.Render)
+        var topLevel = TopLevel.GetTopLevel(anchor);
+        var finished = false;
+        var lastRafMs = -100d;
+        DispatcherTimer? watchdog = null;
+
+        void Complete(Exception? error = null, bool canceled = false)
         {
-            Interval = TimeSpan.FromMilliseconds(FrameIntervalMs)
-        };
-        timer.Tick += (_, _) =>
+            if (finished) return;
+            finished = true;
+            watchdog?.Stop();
+            if (error is not null) completion.TrySetException(error);
+            else if (canceled) completion.TrySetCanceled(cancellationToken);
+            else completion.TrySetResult();
+        }
+
+        void Tick(bool fromRaf)
         {
+            if (finished) return;
+            if (fromRaf) lastRafMs = clock.Elapsed.TotalMilliseconds;
             try
             {
-                if (!cancellationToken.IsCancellationRequested
-                    && DrawFrame(surface, animation, visualDirection, clock.Elapsed.TotalMilliseconds))
+                if (cancellationToken.IsCancellationRequested)
                 {
+                    Complete(canceled: true);
                     return;
                 }
 
-                timer.Stop();
-                if (cancellationToken.IsCancellationRequested)
-                    completion.TrySetCanceled(cancellationToken);
-                else
-                    completion.TrySetResult();
+                if (!step(clock.Elapsed.TotalMilliseconds))
+                {
+                    Complete();
+                    return;
+                }
+
+                if (fromRaf && topLevel is not null)
+                    topLevel.RequestAnimationFrame(_ => Tick(fromRaf: true));
             }
             catch (Exception ex)
             {
-                timer.Stop();
-                completion.TrySetException(ex);
+                Complete(error: ex);
             }
+        }
+
+        using var cancelRegistration = cancellationToken.Register(() =>
+        {
+            if (Dispatcher.UIThread.CheckAccess()) Complete(canceled: true);
+            else Dispatcher.UIThread.Post(() => Complete(canceled: true), DispatcherPriority.Send);
+        });
+
+        if (topLevel is not null)
+            topLevel.RequestAnimationFrame(_ => Tick(fromRaf: true));
+
+        watchdog = new DispatcherTimer(DispatcherPriority.Render)
+        {
+            Interval = TimeSpan.FromMilliseconds(FallbackIntervalMs)
         };
-        timer.Start();
+        watchdog.Tick += (_, _) =>
+        {
+            // When VSync RequestAnimationFrame is actively firing (real displays),
+            // let RAF own every frame without double-stepping.
+            if (clock.Elapsed.TotalMilliseconds - lastRafMs < FallbackIntervalMs * 1.5)
+                return;
+            Tick(fromRaf: false);
+        };
+        watchdog.Start();
+
         await completion.Task;
     }
 
@@ -175,20 +387,58 @@ internal static class ReaderTransitionPlayer
         return animation switch
         {
             AnimationFade => DrawFadeFrame(surface, elapsed),
-            AnimationSlide => DrawSlideFrame(surface, visualDirection, elapsed),
+            AnimationSlide => DrawTimedProgress(surface, animation, visualDirection, elapsed, SlideDurationMs),
+            AnimationPush => DrawTimedProgress(surface, animation, visualDirection, elapsed, PushDurationMs),
+            AnimationCover => DrawTimedProgress(surface, animation, visualDirection, elapsed, CoverDurationMs),
             AnimationWave => DrawWaveFrame(surface, visualDirection, elapsed),
             _ => false
         };
     }
 
-    /// <summary>Fade-through-background: the outgoing page dissolves into a
+    private static bool DrawTimedProgress(
+        ReaderTransitionSurface surface,
+        int animation,
+        int visualDirection,
+        double elapsed,
+        double durationMs)
+    {
+        if (elapsed >= durationMs)
+            return false;
+
+        var progress = EaseOut(elapsed / durationMs);
+        DrawProgress(surface, animation, visualDirection, progress);
+        return true;
+    }
+
+    internal static void DrawProgress(
+        ReaderTransitionSurface surface,
+        int animation,
+        int visualDirection,
+        double progress)
+    {
+        progress = Math.Clamp(progress, 0d, 1d);
+        switch (animation)
+        {
+            case AnimationPush:
+                DrawPushProgress(surface, visualDirection, progress);
+                break;
+            case AnimationCover:
+                DrawCoverProgress(surface, visualDirection, progress);
+                break;
+            case AnimationSlide:
+                DrawSlideProgress(surface, visualDirection, progress);
+                break;
+        }
+    }
+
+    /// <summary>Fade-through-background: the outgoing page dissolves into an
     /// opaque paper backdrop, then the new page is revealed underneath. Only
     /// one page's glyphs can be visible during either half.</summary>
     private static bool DrawFadeFrame(ReaderTransitionSurface surface, double elapsed)
     {
         if (elapsed < FadeOutMs)
         {
-            var progress = EaseSoft(elapsed / FadeOutMs);
+            var progress = EaseFade(elapsed / FadeOutMs);
             surface.Snapshot.Opacity = 1d - progress;
             surface.Trail.Opacity = 1;
             return true;
@@ -198,7 +448,7 @@ internal static class ReaderTransitionPlayer
         var revealElapsed = elapsed - FadeOutMs;
         if (revealElapsed < FadeInMs)
         {
-            surface.Trail.Opacity = 1d - EaseSoft(revealElapsed / FadeInMs);
+            surface.Trail.Opacity = 1d - EaseFade(revealElapsed / FadeInMs);
             return true;
         }
 
@@ -206,35 +456,174 @@ internal static class ReaderTransitionPlayer
         return false;
     }
 
-    private static bool DrawSlideFrame(
+    /// <summary>Side-by-side push (平移): outgoing and incoming sheets move
+    /// together in lockstep with no overlay shadow bar.</summary>
+    private static void DrawPushProgress(
         ReaderTransitionSurface surface,
         int visualDirection,
-        double elapsed)
+        double p)
     {
-        if (elapsed >= SlideDurationMs)
-            return false;
-
         var forward = visualDirection >= 0;
-        var p = EaseSoft(elapsed / SlideDurationMs);
+        var width = surface.SnapshotSource.Bounds.Width;
+        var outgoingX = (forward ? -width : width) * p;
+        var incomingX = forward ? outgoingX + width : outgoingX - width;
+
+        SetTranslateX(surface.Snapshot, outgoingX);
+        if (surface.IncomingSheet is { } incoming)
+        {
+            EnsureIncomingPaperBacking(incoming, surface.BackdropSource);
+            SetTranslateX(incoming, incomingX);
+        }
+
+        surface.Edge.IsVisible = false;
+        surface.Trail.IsVisible = false;
+    }
+
+    /// <summary>Bidirectional cover (覆盖): forward slides the outgoing page off
+    /// to the left exposing the incoming page; backward slides the incoming page
+    /// in from the left over the stationary outgoing page.</summary>
+    private static void DrawCoverProgress(
+        ReaderTransitionSurface surface,
+        int visualDirection,
+        double p)
+    {
+        var forward = visualDirection >= 0;
+        var width = surface.SnapshotSource.Bounds.Width;
+        var height = surface.SnapshotSource.Bounds.Height;
+        var dark = IsDarkPaper(surface.BackdropSource);
+        var dimPeak = dark ? DarkCoverDimOpacity : LightCoverDimOpacity;
+
+        if (forward || surface.IncomingSheet is null)
+        {
+            var offsetX = (forward ? -width : width) * p;
+            surface.Snapshot.ZIndex = ZSnapshot;
+            SetTranslateX(surface.Snapshot, offsetX);
+            if (surface.IncomingSheet is { } incoming)
+            {
+                incoming.ZIndex = ZContent;
+                incoming.RenderTransform = null;
+            }
+
+            // Subtle full-screen dim over the exposed page fades smoothly to 0.
+            var dim = surface.Trail;
+            dim.ZIndex = ZDimBetween;
+            dim.Fill = BlackDimBrush;
+            dim.Width = width;
+            dim.Height = height;
+            dim.Opacity = dimPeak * (1d - p);
+            dim.IsVisible = dim.Opacity > 0.002;
+
+            ConfigureEdgeShadow(
+                surface.Edge,
+                width,
+                height,
+                forward ? offsetX + width : offsetX - ShadowWidth(width),
+                opaqueAtStart: forward,
+                dark,
+                EdgeFadeEnvelope(p));
+            return;
+        }
+
+        // Backward cover: incoming sheet slides in from the left (-width -> 0)
+        // on top of the stationary outgoing snapshot.
+        var incomingSheet = surface.IncomingSheet;
+        var incomingX = -width * (1d - p);
+
+        surface.Snapshot.ZIndex = ZSnapshotBehind;
+        surface.Snapshot.RenderTransform = null;
+
+        EnsureIncomingPaperBacking(incomingSheet, surface.BackdropSource);
+        incomingSheet.ZIndex = ZIncomingCover;
+        SetTranslateX(incomingSheet, incomingX);
+
+        var veil = surface.Trail;
+        veil.ZIndex = ZDimBetween;
+        veil.Fill = BlackDimBrush;
+        veil.Width = width;
+        veil.Height = height;
+        veil.Opacity = dimPeak * p;
+        veil.IsVisible = veil.Opacity > 0.002;
+
+        // Soft trailing shadow sits on the RIGHT edge of the incoming sheet and
+        // fades out before either screen edge so it never lingers as a gray bar.
+        ConfigureEdgeShadow(
+            surface.Edge,
+            width,
+            height,
+            incomingX + width,
+            opaqueAtStart: true,
+            dark,
+            EdgeFadeEnvelope(p));
+    }
+
+    private static void DrawSlideProgress(
+        ReaderTransitionSurface surface,
+        int visualDirection,
+        double p)
+    {
+        var forward = visualDirection >= 0;
         var width = surface.SnapshotSource.Bounds.Width;
         var height = surface.SnapshotSource.Bounds.Height;
         var offsetX = (forward ? -width : width) * p;
-        surface.Snapshot.RenderTransform = new TranslateTransform(offsetX, 0);
+        SetTranslateX(surface.Snapshot, offsetX);
 
-        // Shadow hugs the page's trailing edge and falls onto the new page.
-        var shadowWidth = Math.Clamp(
-            width * SlideShadowWidthRatio,
-            SlideShadowMinWidth,
-            SlideShadowMaxWidth);
-        var edge = surface.Edge;
-        edge.Fill = CreateHorizontalShadowGradient(forward);
-        edge.Width = shadowWidth;
-        edge.Height = height;
-        edge.RenderTransform = new TranslateTransform(
+        var shadowWidth = ShadowWidth(width);
+        ConfigureEdgeShadow(
+            surface.Edge,
+            width,
+            height,
             forward ? offsetX + width : offsetX - shadowWidth,
-            0);
+            opaqueAtStart: forward,
+            IsDarkPaper(surface.BackdropSource),
+            EdgeFadeEnvelope(p));
+    }
+
+    private static double ShadowWidth(double viewportWidth) =>
+        Math.Clamp(viewportWidth * SlideShadowWidthRatio, SlideShadowMinWidth, SlideShadowMaxWidth);
+
+    /// <summary>Fades the edge shadow gently at both start and end so no vertical
+    /// bar ever pops in or lingers against a screen edge.</summary>
+    private static double EdgeFadeEnvelope(double p) =>
+        Math.Clamp(Math.Min(p * 8d, (1d - p) * 4d), 0d, 1d);
+
+    private static void ConfigureEdgeShadow(
+        Rectangle edge,
+        double viewportWidth,
+        double height,
+        double x,
+        bool opaqueAtStart,
+        bool dark,
+        double opacity)
+    {
+        if (opacity <= 0.005)
+        {
+            edge.IsVisible = false;
+            return;
+        }
+
+        edge.ZIndex = ZTop;
+        edge.Fill = dark
+            ? (opaqueAtStart ? DarkShadowRight : DarkShadowLeft)
+            : (opaqueAtStart ? LightShadowRight : LightShadowLeft);
+        edge.Width = ShadowWidth(viewportWidth);
+        edge.Height = height;
+        edge.Opacity = opacity;
+        SetTranslateX(edge, x);
         edge.IsVisible = true;
-        return true;
+    }
+
+    private static void EnsureIncomingPaperBacking(Control incoming, Panel backdropSource)
+    {
+        if (incoming is ContentControl content && content.Background != backdropSource.Background)
+            content.Background = backdropSource.Background;
+    }
+
+    private static void SetTranslateX(Visual visual, double x)
+    {
+        if (visual.RenderTransform is TranslateTransform existing)
+            existing.X = x;
+        else
+            visual.RenderTransform = new TranslateTransform(x, 0);
     }
 
     private static bool DrawWaveFrame(
@@ -248,17 +637,14 @@ internal static class ReaderTransitionPlayer
 
         if (elapsed < WaveSweepMs)
         {
-            var p = EaseSoft(elapsed / WaveSweepMs);
+            var p = EaseOut(elapsed / WaveSweepMs);
             var boundary = forward ? width * (1d - p) : width * p;
-            // Keep the two pages on opposite sides of the refresh front.
-            // Softening the glyph mask crossfades unrelated lines of text;
-            // the separate shading band provides the soft edge instead.
             var bandWidth = Math.Max(24, width * WaveBandWidthRatio);
             surface.Snapshot.Clip = new RectangleGeometry(forward
                 ? new Rect(0, 0, boundary, height)
                 : new Rect(boundary, 0, width - boundary, height));
 
-            ConfigureWaveBand(surface.Front, boundary, bandWidth, height, WaveLeadBandAlpha, forward);
+            ConfigureWaveBand(surface.Front, boundary, bandWidth, height, forward);
             surface.Trail.IsVisible = false;
             return true;
         }
@@ -278,17 +664,13 @@ internal static class ReaderTransitionPlayer
         double boundary,
         double bandWidth,
         double height,
-        double alpha,
         bool forward)
     {
-        // The single band travels on the newly revealed side of the sweep
-        // boundary and fades at both edges.
         var x = forward ? boundary : boundary - bandWidth;
-        band.Fill = CreateWaveBandBrush(alpha);
+        band.Fill = WaveBandBrush;
         band.Width = bandWidth;
-        // Pin() aligns the band to the top, so its height must be explicit.
         band.Height = height;
-        band.RenderTransform = new TranslateTransform(x, 0);
+        SetTranslateX(band, x);
         band.IsVisible = true;
     }
 
@@ -300,9 +682,6 @@ internal static class ReaderTransitionPlayer
             StartPoint = new RelativePoint(0, 0.5, RelativeUnit.Relative),
             EndPoint = new RelativePoint(1, 0.5, RelativeUnit.Relative)
         };
-        // Transparent edges keep the two overlapping bands from becoming a
-        // pair of hard grey bars. The small shoulder gives the wave a visible
-        // centre without making it heavier than the page shadow.
         brush.GradientStops.Add(new GradientStop(Color.FromArgb(0, 0, 0, 0), 0));
         brush.GradientStops.Add(new GradientStop(
             Color.FromArgb((byte)Math.Round(peak * 0.35), 0, 0, 0), 0.22));
@@ -313,7 +692,7 @@ internal static class ReaderTransitionPlayer
         return brush;
     }
 
-    private static LinearGradientBrush CreateHorizontalShadowGradient(bool opaqueAtStart)
+    private static LinearGradientBrush CreateHorizontalShadowGradient(bool opaqueAtStart, byte alpha)
     {
         var brush = new LinearGradientBrush
         {
@@ -321,27 +700,38 @@ internal static class ReaderTransitionPlayer
             EndPoint = new RelativePoint(1, 0.5, RelativeUnit.Relative)
         };
         var transparent = Color.FromArgb(0, 0, 0, 0);
-        var shadow = Color.FromArgb(SlideShadowAlpha, 0, 0, 0);
+        var shadow = Color.FromArgb(alpha, 0, 0, 0);
         brush.GradientStops.Add(new GradientStop(opaqueAtStart ? shadow : transparent, 0));
         brush.GradientStops.Add(new GradientStop(
             opaqueAtStart
-                ? Color.FromArgb((byte)Math.Round(SlideShadowAlpha * 0.55), 0, 0, 0)
-                : Color.FromArgb((byte)Math.Round(SlideShadowAlpha * 0.12), 0, 0, 0),
+                ? Color.FromArgb((byte)Math.Round(alpha * 0.52), 0, 0, 0)
+                : Color.FromArgb((byte)Math.Round(alpha * 0.10), 0, 0, 0),
             0.38));
         brush.GradientStops.Add(new GradientStop(
             opaqueAtStart
-                ? Color.FromArgb((byte)Math.Round(SlideShadowAlpha * 0.12), 0, 0, 0)
-                : Color.FromArgb((byte)Math.Round(SlideShadowAlpha * 0.55), 0, 0, 0),
+                ? Color.FromArgb((byte)Math.Round(alpha * 0.10), 0, 0, 0)
+                : Color.FromArgb((byte)Math.Round(alpha * 0.52), 0, 0, 0),
             0.72));
         brush.GradientStops.Add(new GradientStop(opaqueAtStart ? transparent : shadow, 1));
         return brush;
+    }
+
+    private static bool IsDarkPaper(Panel backdropSource)
+    {
+        if (backdropSource.Background is ISolidColorBrush solid)
+        {
+            var c = solid.Color;
+            return (0.299 * c.R + 0.587 * c.G + 0.114 * c.B) < 128;
+        }
+        return false;
     }
 
     private static void Begin(
         ReaderTransitionSurface surface,
         RenderTargetBitmap snapshot,
         RenderTargetBitmap backdrop,
-        int animation)
+        int animation,
+        int visualDirection)
     {
         Reset(surface);
 
@@ -352,11 +742,10 @@ internal static class ReaderTransitionPlayer
         surface.Snapshot.Source = snapshot;
         surface.Snapshot.Width = width;
         surface.Snapshot.Height = height;
-        // Capture() already uses the reader's logical-DIP size, so the
-        // snapshot is a 1:1 page image. Keeping Stretch.None here prevents
-        // Avalonia from moving the page's text toward the overlay's top-left
-        // corner while it calculates a second fit.
-        surface.Snapshot.Stretch = Stretch.None;
+        // The composited snapshot is stored at 96 DPI with physical Retina pixel
+        // dimensions so Avalonia's Skia SurfaceRenderTarget.Draw samples the full
+        // pixel buffer (0..PixelWidth, 0..PixelHeight) without DPI cropping/magnification.
+        surface.Snapshot.Stretch = Stretch.Fill;
         surface.Snapshot.Clip = null;
         surface.Snapshot.RenderTransform = null;
         surface.Snapshot.Opacity = 1;
@@ -366,12 +755,23 @@ internal static class ReaderTransitionPlayer
         {
             // Fade repurposes the trail rectangle as a background-coloured
             // veil between the incoming page and the outgoing snapshot.
-            Pin(surface.Trail, ZSnapshot - 5);
+            Pin(surface.Trail, ZDimBetween);
             surface.Trail.Fill = new ImageBrush(backdrop) { Stretch = Stretch.Fill };
             surface.Trail.Width = width;
             surface.Trail.Height = height;
             surface.Trail.Opacity = 1;
             surface.Trail.IsVisible = true;
+        }
+        else if (animation is AnimationPush or AnimationCover
+                 && surface.IncomingSheet is { } incoming)
+        {
+            EnsureIncomingPaperBacking(incoming, surface.BackdropSource);
+            if (animation == AnimationCover && visualDirection < 0)
+            {
+                // Keep snapshot on top during async loading until DrawProgress
+                // takes over once the incoming page is ready.
+                surface.Snapshot.ZIndex = ZSnapshot;
+            }
         }
     }
 
@@ -388,6 +788,13 @@ internal static class ReaderTransitionPlayer
         ResetRectangle(surface.Trail, ZTrail);
         ResetRectangle(surface.Front, ZTop);
         ResetRectangle(surface.Edge, ZTop);
+        if (surface.IncomingSheet is { } incoming)
+        {
+            incoming.RenderTransform = null;
+            incoming.ZIndex = ZContent;
+            if (incoming is ContentControl content)
+                content.Background = Brushes.Transparent;
+        }
     }
 
     private static void ResetImage(Image image, int zIndex)
@@ -415,22 +822,31 @@ internal static class ReaderTransitionPlayer
         Pin(rectangle, zIndex);
     }
 
-    private static RenderTargetBitmap? CaptureBackdrop(ReaderTransitionSurface surface)
+    private static double ResolveCaptureScaling(Visual source)
+    {
+        var raw = TopLevel.GetTopLevel(source)?.RenderScaling ?? 1d;
+        return double.IsFinite(raw) ? Math.Clamp(raw, 1d, 4d) : 1d;
+    }
+
+    internal static RenderTargetBitmap? CaptureBackdrop(ReaderTransitionSurface surface, double scaling)
     {
         RenderTargetBitmap? bitmap = null;
         try
         {
             var size = surface.SnapshotSource.Bounds.Size;
             if (size.Width < 16 || size.Height < 16) return null;
-            bitmap = new RenderTargetBitmap(
-                new PixelSize((int)Math.Ceiling(size.Width), (int)Math.Ceiling(size.Height)),
-                new Vector(96, 96));
+            var pixelWidth = Math.Max(1, (int)Math.Ceiling(size.Width * scaling));
+            var pixelHeight = Math.Max(1, (int)Math.Ceiling(size.Height * scaling));
+            // Keep 96 DPI on the final bitmap so Bitmap.Size equals PixelSize;
+            // Avalonia's Skia SurfaceRenderTarget.Draw treats sourceRect as physical pixels.
+            bitmap = new RenderTargetBitmap(new PixelSize(pixelWidth, pixelHeight), new Vector(96, 96));
             var paper = surface.BackdropSource;
             var origin = surface.SnapshotSource.TranslatePoint(default, paper) ?? default;
             using (var context = bitmap.CreateDrawingContext())
             {
                 // Sample the shared paper at the reader's actual offset so
                 // texture does not jump when an overlay appears or disappears.
+                using (context.PushTransform(Matrix.CreateScale(scaling, scaling)))
                 using (context.PushTransform(Matrix.CreateTranslation(-origin.X, -origin.Y)))
                     context.FillRectangle(paper.Background ?? Brushes.White, new Rect(paper.Bounds.Size));
             }
@@ -443,31 +859,26 @@ internal static class ReaderTransitionPlayer
         }
     }
 
-    private static RenderTargetBitmap? Capture(Visual source, RenderTargetBitmap backdrop)
+    internal static RenderTargetBitmap? Capture(Visual source, RenderTargetBitmap backdrop, double scaling)
     {
         RenderTargetBitmap? bitmap = null;
         try
         {
             var bounds = source.Bounds;
-            // The reader host has its own high-DPI backing bitmap. Capturing
-            // at the host's logical size lets its normal Render() path do the
-            // one required downsample, keeping the transition image in the
-            // same coordinate system as the live page.
-            var pixelWidth = (int)Math.Ceiling(bounds.Width);
-            var pixelHeight = (int)Math.Ceiling(bounds.Height);
-            if (pixelWidth < 16 || pixelHeight < 16)
+            var pixelWidth = (int)Math.Ceiling(bounds.Width * scaling);
+            var pixelHeight = (int)Math.Ceiling(bounds.Height * scaling);
+            if (bounds.Width < 16 || bounds.Height < 16 || pixelWidth < 16 || pixelHeight < 16)
                 return null;
 
-            using var content = new RenderTargetBitmap(
-                new PixelSize(pixelWidth, pixelHeight),
-                new Vector(96, 96));
+            var scaledDpi = new Vector(96 * scaling, 96 * scaling);
+            using var content = new RenderTargetBitmap(new PixelSize(pixelWidth, pixelHeight), scaledDpi);
             content.Render(source);
             bitmap = new RenderTargetBitmap(content.PixelSize, new Vector(96, 96));
             using (var context = bitmap.CreateDrawingContext())
             {
-                var rect = new Rect(content.Size);
-                context.DrawImage(backdrop, rect);
-                context.DrawImage(content, rect);
+                var pixelRect = new Rect(0, 0, content.PixelSize.Width, content.PixelSize.Height);
+                context.DrawImage(backdrop, pixelRect, pixelRect);
+                context.DrawImage(content, pixelRect, pixelRect);
             }
             return bitmap;
         }
@@ -478,9 +889,13 @@ internal static class ReaderTransitionPlayer
         }
     }
 
-    /// <summary>The one gentle curve all three animations ease on.</summary>
-    private static double EaseSoft(double t) =>
-        EaseCubicBezier(t, SoftX1, SoftY1, SoftX2, SoftY2);
+    /// <summary>Shared ease-out curve for crisp, tail-free spatial page transitions.</summary>
+    private static double EaseOut(double t) =>
+        EaseCubicBezier(t, EaseX1, EaseY1, EaseX2, EaseY2);
+
+    /// <summary>Symmetric dissolve curve so opacity fades stay smooth without snapping.</summary>
+    private static double EaseFade(double t) =>
+        EaseCubicBezier(t, FadeEaseX1, FadeEaseY1, FadeEaseX2, FadeEaseY2);
 
     /// <summary>CSS cubic-bezier(x1,y1,x2,y2) progress evaluator via binary
     /// search on the curve parameter.</summary>

@@ -26,6 +26,11 @@ public sealed class TypesetPaintTheme
     public SKColor Rule { get; init; }
 }
 
+public sealed record TypesetResumeMarker(
+    SKRect AnchorRect,
+    IReadOnlyList<SKRect>? HighlightBands = null,
+    bool IsImage = false);
+
 /// <summary>
 /// One painted page: overlay bands (selection/annotations/search), structural
 /// decorations, images and finally glyph runs. Glyph ids come straight from
@@ -109,12 +114,18 @@ public sealed class TypesetPainter
         IReadOnlyList<TypesetAnnotationOverlay>? annotationOverlays = null,
         bool showVerticalDebugBoxes = false,
         IReadOnlyList<SKRect>? focusedSearchBands = null,
-        bool paintBackground = true)
+        bool paintBackground = true,
+        TypesetResumeMarker? resumeMarker = null)
     {
         if (paintBackground)
         {
             using var background = new SKPaint { Color = _theme.Background, Style = SKPaintStyle.Fill };
             canvas.DrawRect(0, 0, page.Width, page.Height, background);
+        }
+
+        if (resumeMarker is not null)
+        {
+            TypesetResumeMarkerPainter.PaintTint(canvas, resumeMarker, _theme.Background);
         }
 
         if (highlightBands is not null)
@@ -302,6 +313,10 @@ public sealed class TypesetPainter
         // pre-glyph line can be completely hidden by a descender when the
         // font's ink extends beyond the approximate character rectangle.
         PaintAnnotationUnderlines(canvas, page, annotationOverlays);
+        if (resumeMarker is not null)
+        {
+            TypesetResumeMarkerPainter.PaintIndicator(canvas, page, resumeMarker, _theme.Background);
+        }
 
         if (showVerticalDebugBoxes && page.WritingMode == TypesetWritingMode.VerticalRl)
         {

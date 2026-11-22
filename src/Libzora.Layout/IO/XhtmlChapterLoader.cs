@@ -167,9 +167,15 @@ public sealed partial class XhtmlChapterLoader
         }
     }
 
+    private static readonly object StylesheetCacheLock = new();
+    private static readonly Dictionary<string, (string Key, MicroCss Css)> StylesheetCache =
+        new(StringComparer.Ordinal);
+    private const int StylesheetCacheCapacity = 32;
+
     private MicroCss CollectStylesheets(XDocument document, string chapterDir, string resourceRoot)
     {
-        var sources = new List<string>();
+        var externalPaths = new List<string>();
+        var inlineStyles = new List<string>();
         var head = document.Root?
             .Descendants()
             .FirstOrDefault(e => e.Name.LocalName.Equals("head", StringComparison.OrdinalIgnoreCase));
@@ -186,26 +192,86 @@ public sealed partial class XhtmlChapterLoader
                 }
 
                 var cssPath = ResolveLocalPath(href, chapterDir, resourceRoot);
-                if (cssPath is not null && File.Exists(cssPath))
+                if (cssPath is not null)
                 {
-                    try
-                    {
-                        sources.Add(File.ReadAllText(cssPath));
-                    }
-                    catch (IOException)
-                    {
-                        // Unreadable stylesheet: the block still lays out plain.
-                    }
+                    externalPaths.Add(cssPath);
                 }
             }
 
             foreach (var style in head.Descendants().Where(e => e.Name.LocalName.Equals("style", StringComparison.OrdinalIgnoreCase)))
             {
-                sources.Add(style.Value);
+                inlineStyles.Add(style.Value);
             }
         }
 
+        if (externalPaths.Count == 1 && inlineStyles.Count == 0
+            && TryGetCachedExternalStylesheet(externalPaths[0], out var cachedSingle))
+        {
+            return cachedSingle;
+        }
+
+        if (externalPaths.Count == 1 && TryGetCachedExternalStylesheet(externalPaths[0], out var cachedBase))
+        {
+            var merged = cachedBase.Clone();
+            foreach (var inline in inlineStyles)
+                merged.Append(inline);
+            return merged;
+        }
+
+        var sources = new List<string>(externalPaths.Count + inlineStyles.Count);
+        foreach (var cssPath in externalPaths)
+        {
+            if (File.Exists(cssPath))
+            {
+                try
+                {
+                    sources.Add(File.ReadAllText(cssPath));
+                }
+                catch (IOException)
+                {
+                    // Unreadable stylesheet: the block still lays out plain.
+                }
+            }
+        }
+        sources.AddRange(inlineStyles);
+
         return MicroCss.Parse(sources.ToArray());
+    }
+
+    private static bool TryGetCachedExternalStylesheet(string cssPath, out MicroCss css)
+    {
+        css = null!;
+        try
+        {
+            var info = new FileInfo(cssPath);
+            if (!info.Exists)
+                return false;
+            var cacheKey = $"{cssPath}|{info.Length}|{info.LastWriteTimeUtc.Ticks}";
+            lock (StylesheetCacheLock)
+            {
+                if (StylesheetCache.TryGetValue(cssPath, out var entry)
+                    && string.Equals(entry.Key, cacheKey, StringComparison.Ordinal))
+                {
+                    css = entry.Css;
+                    return true;
+                }
+            }
+
+            var text = File.ReadAllText(cssPath);
+            var parsed = MicroCss.Parse(text);
+            lock (StylesheetCacheLock)
+            {
+                if (StylesheetCache.Count >= StylesheetCacheCapacity)
+                    StylesheetCache.Clear();
+                StylesheetCache[cssPath] = (cacheKey, parsed);
+            }
+            css = parsed;
+            return true;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
     }
 
     private static string? ResolveLocalPath(string href, string baseDir, string resourceRoot)
@@ -249,14 +315,29 @@ public sealed partial class XhtmlChapterLoader
         // EPUB extraction uses the SHA-256 key as the cache directory name.
         // Finding that path boundary lets legal ../ links reach package files
         // while preventing a chapter from reading files outside its archive.
-        for (var directory = new DirectoryInfo(chapterDirectory); directory is not null; directory = directory.Parent)
+        var current = chapterDirectory;
+        while (!string.IsNullOrEmpty(current))
         {
-            var name = directory.Name;
-            if (name.Length == 64 && name.All(Uri.IsHexDigit))
-                return directory.FullName;
+            var name = Path.GetFileName(current.AsSpan());
+            if (name.Length == 64 && IsAllHex(name))
+                return current;
+            var parent = Path.GetDirectoryName(current);
+            if (string.Equals(parent, current, StringComparison.Ordinal))
+                break;
+            current = parent;
         }
 
         return chapterDirectory;
+    }
+
+    private static bool IsAllHex(ReadOnlySpan<char> value)
+    {
+        foreach (var ch in value)
+        {
+            if (!Uri.IsHexDigit(ch))
+                return false;
+        }
+        return true;
     }
 
     private static StringComparison PathComparison => OperatingSystem.IsWindows()

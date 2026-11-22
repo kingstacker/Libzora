@@ -22,6 +22,36 @@ public sealed partial class EpubReaderPreparationService
         catch (UnauthorizedAccessException) { }
     }
 
+    private static XDocument LoadXmlFromBytes(byte[] rawBytes, int length)
+    {
+        try
+        {
+            using var stream = new MemoryStream(rawBytes, 0, length, writable: false);
+            using var reader = XmlReader.Create(stream, CreateSecureXmlReaderSettings(asynchronous: false));
+            return XDocument.Load(reader, LoadOptions.PreserveWhitespace);
+        }
+        catch (XmlException originalFailure)
+        {
+            var markup = DecodeTextFromBytes(rawBytes, length);
+            var normalized = DecodeKnownHtmlEntities(markup);
+            if (!string.Equals(markup, normalized, StringComparison.Ordinal))
+            {
+                try { return ParseXml(normalized); }
+                catch (XmlException) { }
+            }
+
+            return TryLoadRepairedHtml(normalized)
+                ?? throw new XmlException(originalFailure.Message, originalFailure);
+        }
+    }
+
+    private static string DecodeTextFromBytes(byte[] rawBytes, int length)
+    {
+        using var stream = new MemoryStream(rawBytes, 0, length, writable: false);
+        using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+        return reader.ReadToEnd();
+    }
+
     private static async Task<XDocument> LoadXmlAsync(string path, CancellationToken cancellationToken)
     {
         try
@@ -201,6 +231,12 @@ public sealed partial class EpubReaderPreparationService
         try { markup = await File.ReadAllTextAsync(path, cancellationToken); }
         catch (IOException) { markup = string.Empty; }
 
+        var document = BuildDegradedTextDocument(markup);
+        await WriteXmlAsync(document, path, cancellationToken);
+    }
+
+    private static XDocument BuildDegradedTextDocument(string markup)
+    {
         var text = HiddenContentPattern.Replace(markup, " ");
         text = BlockBreakPattern.Replace(text, "\n");
         text = HtmlTagPattern.Replace(text, " ");
@@ -224,6 +260,6 @@ public sealed partial class EpubReaderPreparationService
         document.Root!.Element(XhtmlNamespace + "body")!
             .SetAttributeValue("data-libzora-degraded", "html-parse-failed");
         MarkVerticalInlineRuns(document.Root!);
-        await WriteXmlAsync(document, path, cancellationToken);
+        return document;
     }
 }

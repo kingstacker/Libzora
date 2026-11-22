@@ -28,12 +28,6 @@ public partial class MainWindow
     private int _seriesShelfTileCount;
     private int? _seriesShelfPendingCenterIndex;
     private int _seriesShelfTransitionVersion;
-    private bool _seriesShelfDragScrollAttached;
-    private bool _seriesShelfDragPressed;
-    private bool _seriesShelfDragActive;
-    private bool _seriesShelfSuppressTileClick;
-    private Point _seriesShelfDragStartPoint;
-    private double _seriesShelfDragStartOffsetX;
 
     private bool IsSeriesOverlayHoldingCard(BookCardViewModel card) =>
         SeriesShelfOverlay.IsVisible && _seriesShelfHeldCards.Contains(card);
@@ -622,112 +616,6 @@ public partial class MainWindow
     {
         if (e.Key != Key.Escape) return;
         CloseSeriesShelfOverlay();
-        e.Handled = true;
-    }
-
-    private void EnsureSeriesShelfDragScrollAttached()
-    {
-        if (_seriesShelfDragScrollAttached) return;
-        _seriesShelfDragScrollAttached = true;
-        SeriesShelfScrollViewer.AddHandler(
-            InputElement.PointerPressedEvent,
-            SeriesShelfScrollViewer_PointerPressed,
-            RoutingStrategies.Tunnel | RoutingStrategies.Bubble,
-            handledEventsToo: true);
-        SeriesShelfScrollViewer.AddHandler(
-            InputElement.PointerMovedEvent,
-            SeriesShelfScrollViewer_PointerMoved,
-            RoutingStrategies.Tunnel | RoutingStrategies.Bubble,
-            handledEventsToo: true);
-        SeriesShelfScrollViewer.AddHandler(
-            InputElement.PointerReleasedEvent,
-            SeriesShelfScrollViewer_PointerReleased,
-            RoutingStrategies.Tunnel | RoutingStrategies.Bubble,
-            handledEventsToo: true);
-        SeriesShelfScrollViewer.PointerCaptureLost += SeriesShelfScrollViewer_PointerCaptureLost;
-    }
-
-    private void ResetSeriesShelfDragState()
-    {
-        _seriesShelfDragPressed = false;
-        _seriesShelfDragActive = false;
-        _seriesShelfSuppressTileClick = false;
-        SeriesShelfScrollViewer.Cursor = Cursor.Default;
-    }
-
-    private void SeriesShelfScrollViewer_PointerPressed(object? sender, PointerPressedEventArgs e)
-    {
-        if (!SeriesShelfOverlay.IsVisible
-            || !e.GetCurrentPoint(SeriesShelfScrollViewer).Properties.IsLeftButtonPressed)
-            return;
-
-        _seriesShelfDragPressed = true;
-        _seriesShelfDragActive = false;
-        _seriesShelfSuppressTileClick = false;
-        _seriesShelfDragStartPoint = e.GetPosition(SeriesShelfScrollViewer);
-        _seriesShelfDragStartOffsetX = SeriesShelfScrollViewer.Offset.X;
-    }
-
-    private void SeriesShelfScrollViewer_PointerMoved(object? sender, PointerEventArgs e)
-    {
-        if (!_seriesShelfDragPressed || !SeriesShelfOverlay.IsVisible) return;
-        if (!e.GetCurrentPoint(SeriesShelfScrollViewer).Properties.IsLeftButtonPressed)
-        {
-            ResetSeriesShelfDragState();
-            return;
-        }
-
-        var current = e.GetPosition(SeriesShelfScrollViewer);
-        var dx = current.X - _seriesShelfDragStartPoint.X;
-        var maxX = Math.Max(0d, SeriesShelfScrollViewer.Extent.Width - SeriesShelfScrollViewer.Viewport.Width);
-        if (!_seriesShelfDragActive)
-        {
-            if (Math.Abs(dx) < 6d || maxX <= 0d) return;
-            _seriesShelfDragActive = true;
-            _seriesShelfSuppressTileClick = true;
-            _seriesShelfPendingCenterIndex = null;
-            SeriesShelfScrollViewer.Cursor = new Cursor(StandardCursorType.Hand);
-            e.Pointer.Capture(SeriesShelfScrollViewer);
-        }
-
-        var targetX = Math.Clamp(_seriesShelfDragStartOffsetX - dx, 0d, maxX);
-        SeriesShelfScrollViewer.Offset = new Vector(targetX, 0d);
-        e.Handled = true;
-    }
-
-    private void SeriesShelfScrollViewer_PointerReleased(object? sender, PointerReleasedEventArgs e)
-    {
-        if (!_seriesShelfDragPressed) return;
-        var wasDragging = _seriesShelfDragActive;
-        _seriesShelfDragPressed = false;
-        _seriesShelfDragActive = false;
-        SeriesShelfScrollViewer.Cursor = Cursor.Default;
-        if (ReferenceEquals(e.Pointer.Captured, SeriesShelfScrollViewer))
-            e.Pointer.Capture(null);
-
-        if (wasDragging)
-            e.Handled = true;
-        else
-            _seriesShelfSuppressTileClick = false;
-    }
-
-    private void SeriesShelfScrollViewer_PointerCaptureLost(object? sender, PointerCaptureLostEventArgs e)
-    {
-        _seriesShelfDragPressed = false;
-        _seriesShelfDragActive = false;
-        SeriesShelfScrollViewer.Cursor = Cursor.Default;
-    }
-
-    private void SeriesShelfScrollViewer_PointerWheelChanged(object? sender, PointerWheelEventArgs e)
-    {
-        _seriesShelfPendingCenterIndex = null;
-        if (e.Handled || Math.Abs(e.Delta.Y) <= Math.Abs(e.Delta.X) || e.Delta.Y == 0)
-            return;
-        var maxX = Math.Max(0, SeriesShelfScrollViewer.Extent.Width - SeriesShelfScrollViewer.Viewport.Width);
-        if (maxX <= 0) return;
-        var current = SeriesShelfScrollViewer.Offset;
-        var targetX = Math.Clamp(current.X - e.Delta.Y * 48, 0, maxX);
-        SeriesShelfScrollViewer.Offset = new Vector(targetX, current.Y);
         e.Handled = true;
     }
 

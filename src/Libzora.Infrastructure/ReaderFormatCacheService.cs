@@ -7,12 +7,13 @@ namespace Libzora.Infrastructure;
 public sealed record ReaderFormatCacheResult(string EpubPath, string CacheKey, bool CacheHit);
 
 /// <summary>
-/// Keeps native AZW3/MOBI resources for repeated opens.
+/// Keeps converted AZW3/MOBI/TXT resources as deterministic EPUBs for repeated opens.
 /// </summary>
 public sealed class ReaderFormatCacheService
 {
     private const string CacheVersion = "v6";
     private const string Azw3CacheVersion = "v4";
+    private const string TxtCacheVersion = "v3";
     private readonly string _cacheDirectory;
     private readonly SemaphoreSlim _conversionGate = new(1, 1);
 
@@ -29,34 +30,55 @@ public sealed class ReaderFormatCacheService
     {
         var cacheKey = NormalizeHash(sourceHash);
         var format = sourceFormat.Trim().TrimStart('.').ToLowerInvariant();
-        if (format is not ("azw3" or "mobi"))
+        if (format is not ("azw3" or "mobi" or "txt"))
             throw new NotSupportedException($"不支持为 {sourceFormat} 创建阅读缓存。");
-        var cacheVersion = format == "azw3" ? Azw3CacheVersion : CacheVersion;
+        var cacheVersion = format switch
+        {
+            "azw3" => Azw3CacheVersion,
+            "txt" => TxtCacheVersion,
+            _ => CacheVersion
+        };
 
         Directory.CreateDirectory(_cacheDirectory);
         var destination = Path.GetFullPath(Path.Combine(_cacheDirectory, $"{cacheVersion}-{format}-{cacheKey}.epub"));
+        var readyMarker = destination + ".ready";
         EnsureContainedPath(destination);
-        if (IsUsable(destination))
+        if (IsFastReadyUsable(destination, readyMarker))
             return new ReaderFormatCacheResult(destination, cacheKey, CacheHit: true);
+        if (IsUsable(destination))
+        {
+            TryWriteReadyMarker(destination, readyMarker);
+            return new ReaderFormatCacheResult(destination, cacheKey, CacheHit: true);
+        }
 
         await _conversionGate.WaitAsync(cancellationToken);
         try
         {
-            if (IsUsable(destination))
+            if (IsFastReadyUsable(destination, readyMarker))
                 return new ReaderFormatCacheResult(destination, cacheKey, CacheHit: true);
+            if (IsUsable(destination))
+            {
+                TryWriteReadyMarker(destination, readyMarker);
+                return new ReaderFormatCacheResult(destination, cacheKey, CacheHit: true);
+            }
 
             if (File.Exists(destination)) File.Delete(destination);
+            if (File.Exists(readyMarker)) TryDeleteQuietly(readyMarker);
             var temporary = Path.Combine(
                 _cacheDirectory,
                 $".{cacheVersion}-{format}-{cacheKey}-{Guid.NewGuid():N}.tmp.epub");
             EnsureContainedPath(temporary);
             try
             {
-                await Azw3ReaderService.PrepareEpubAsync(sourcePath, temporary, cancellationToken);
+                if (format == "txt")
+                    await TxtToEpubService.ConvertWithRulesAsync(sourcePath, temporary, TxtImportRules.Default, cancellationToken);
+                else
+                    await Azw3ReaderService.PrepareEpubAsync(sourcePath, temporary, cancellationToken);
                 cancellationToken.ThrowIfCancellationRequested();
                 if (!IsUsable(temporary))
-                    throw new InvalidDataException("AZW3/MOBI 转换未生成有效的 EPUB 阅读缓存，请重试。");
+                    throw new InvalidDataException("格式转换未生成有效的 EPUB 阅读缓存，请重试。");
                 File.Move(temporary, destination, overwrite: false);
+                TryWriteReadyMarker(destination, readyMarker);
             }
             finally
             {
@@ -78,6 +100,39 @@ public sealed class ReaderFormatCacheService
         if (normalized.Length != 64)
             throw new InvalidDataException("书籍校验值无效。");
         return normalized;
+    }
+
+    private static bool IsFastReadyUsable(string path, string readyMarker)
+    {
+        try
+        {
+            var info = new FileInfo(path);
+            if (!info.Exists || info.Length <= 0 || !File.Exists(readyMarker))
+                return false;
+            var marker = File.ReadAllText(readyMarker);
+            return string.Equals(
+                marker,
+                $"{info.Length}\n{info.LastWriteTimeUtc.Ticks}",
+                StringComparison.Ordinal);
+        }
+        catch { return false; }
+    }
+
+    private static void TryWriteReadyMarker(string path, string readyMarker)
+    {
+        try
+        {
+            var info = new FileInfo(path);
+            if (info.Exists && info.Length > 0)
+                File.WriteAllText(readyMarker, $"{info.Length}\n{info.LastWriteTimeUtc.Ticks}");
+        }
+        catch { }
+    }
+
+    private static void TryDeleteQuietly(string path)
+    {
+        try { File.Delete(path); }
+        catch { }
     }
 
     private static bool IsUsable(string path)

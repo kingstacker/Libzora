@@ -548,7 +548,7 @@ public sealed class PdfReaderTests(SettingsUiSession session)
         pdf.SelectRange(first.StartOffset, first.EndOffset);
         await ReaderTests.Render();
         var stylesButton = scope.Get<Button>("ReaderSelectionHighlightMenuButton");
-        stylesButton.Flyout!.ShowAt(stylesButton);
+        FlyoutBase.GetAttachedFlyout(stylesButton)!.ShowAt(stylesButton);
         await ReaderTests.Render();
         Assert.Equal(Avalonia.Media.Color.Parse("#FFD54F"),
             Assert.IsAssignableFrom<Avalonia.Media.ISolidColorBrush>(

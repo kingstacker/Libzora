@@ -339,11 +339,13 @@ public partial class MainWindow
                 e.Handled = true;
                 await ReaderInPageSearchCloseAsync();
             }
-            else if (e.Key == Key.Enter)
+            else if (e.Key == Key.Enter
+                || (e.Key == Key.G
+                    && (e.KeyModifiers & (KeyModifiers.Control | KeyModifiers.Meta)) != 0
+                    && (e.KeyModifiers & KeyModifiers.Alt) == 0))
             {
                 e.Handled = true;
-                await NavigateReaderSearchAsync(_readerSearchIndex + ((e.KeyModifiers & KeyModifiers.Shift) != 0 ? -1 : 1));
-                ReaderInPageSearchCountText.Text = _readerSearchCount <= 0 ? "0/0" : $"{_readerSearchIndex + 1}/{_readerSearchCount}";
+                await StepReaderInPageSearchAsync((e.KeyModifiers & KeyModifiers.Shift) != 0 ? -1 : 1);
             }
         }
         catch (OperationCanceledException) when (ReaderToken.IsCancellationRequested)
@@ -352,6 +354,14 @@ public partial class MainWindow
         catch
         {
         }
+    }
+
+    private async Task StepReaderInPageSearchAsync(int step)
+    {
+        await NavigateReaderSearchAsync(_readerSearchIndex + step);
+        ReaderInPageSearchCountText.Text = _readerSearchCount <= 0
+            ? "0/0"
+            : $"{_readerSearchIndex + 1}/{_readerSearchCount}";
     }
 
     private async void ReaderInPageSearchPreviousButton_Click(object? sender, RoutedEventArgs e)

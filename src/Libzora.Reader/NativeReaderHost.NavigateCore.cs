@@ -122,6 +122,9 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
 
         var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         _navigationTask = completion.Task;
+        var navigationFragments = SnapshotNavigationFragments();
+        var companionChapterPath = _spreadCompanionChapterPath;
+        var isSpread = IsSpread;
         _ = Dispatcher.UIThread.InvokeAsync(async () =>
         {
             TypesetEngine? navigationEngine = null;
@@ -134,7 +137,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
                     var loader = new XhtmlChapterLoader(settings.ParagraphIndent,
                         string.IsNullOrWhiteSpace(fragment) ? null : NormalizeFragment(fragment));
                     var content = loader.Load(chapterPath, navigationToken);
-                    var options = BuildOptions(settings, width, height, _showVerticalDebugBoxes);
+                    var options = BuildOptions(settings, width, height, _showVerticalDebugBoxes, navigationFragments);
                     var fonts = FontLibrary;
                     fontUse = fonts.BeginComposition();
                     navigationEngine = new TypesetEngine(fonts, ownsFonts: false);
@@ -145,7 +148,14 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
                         : null;
                     var layout = navigationEngine.Compose(content, options, navigationToken,
                         anchorPageStart ? readingAnchor?.TextOffset : null, stopAfter);
-                    return (content, options, layout);
+                    var companionLayout = ComposeSpreadCompanion(
+                        isSpread,
+                        companionChapterPath,
+                        options,
+                        layout,
+                        navigationEngine,
+                        navigationToken);
+                    return (content, options, layout, companionLayout);
                 }, navigationToken);
 
                 navigationToken.ThrowIfCancellationRequested();
@@ -170,6 +180,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
                 _loadedFootnoteFragment = string.IsNullOrWhiteSpace(fragment) ? null : NormalizeFragment(fragment);
                 _options = composed.options;
                 _layout = composed.layout;
+                _spreadCompanionLayout = composed.companionLayout;
                 RetainInstalledLayoutFonts();
                 InvalidateSpeechTextSnapshot();
                 _loadedParagraphIndent = settings.ParagraphIndent;
@@ -241,6 +252,27 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
                 return _fontLibrary ??= CreateFontLibrary();
             }
         }
+    }
+
+    private static ChapterLayout? ComposeSpreadCompanion(
+        bool isSpread,
+        string? companionPath,
+        TypesetLayoutOptions options,
+        ChapterLayout primaryLayout,
+        TypesetEngine engine,
+        CancellationToken cancellationToken)
+    {
+        if (!isSpread
+            || !options.MangaMode
+            || primaryLayout.Pages.Count != 1
+            || string.IsNullOrWhiteSpace(companionPath)
+            || !File.Exists(companionPath))
+        {
+            return null;
+        }
+
+        var content = new XhtmlChapterLoader(options.ParagraphIndent).Load(companionPath, cancellationToken);
+        return engine.Compose(content, options, cancellationToken);
     }
 
     private ChapterLayout Compose(
@@ -357,7 +389,12 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         return null;
     }
 
-    private static IReadOnlyList<string> GetReaderFontCandidates()
+    private static readonly Lazy<IReadOnlyList<string>> CachedReaderFontCandidates =
+        new(ProbeReaderFontCandidates);
+
+    private static IReadOnlyList<string> GetReaderFontCandidates() => CachedReaderFontCandidates.Value;
+
+    private static IReadOnlyList<string> ProbeReaderFontCandidates()
     {
         var paths = new List<string>(GetBundledFallbackFontPaths());
         var windowsFontDirectory = Environment.GetFolderPath(Environment.SpecialFolder.Fonts);
@@ -519,7 +556,8 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         ReaderLayoutSettings settings,
         double width,
         double height,
-        bool collectDebugBoxes = false)
+        bool collectDebugBoxes = false,
+        IReadOnlySet<string>? navigationFragments = null)
     {
         var mangaMode = settings.MangaMode;
         var vertical = !mangaMode && settings.VerticalWriting;
@@ -567,6 +605,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
             InsetVertical = (float)verticalInset,
             InsetBottom = mangaMode ? 0f : (float?)settings.BodyBottomPadding,
             CollectDebugBoxes = collectDebugBoxes,
+            NavigationFragments = navigationFragments,
         };
     }
 
@@ -590,7 +629,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         TypesetFontLibrary? sharedFonts = null,
         (string ChapterPath, int PageCount)? knownChapter = null)
     {
-        var cacheKey = BuildPageCountCacheKey(
+        var (cacheKey, cacheRoot, persistentKey) = BuildPageCountCacheKeys(
             chapterPaths, settings, width, height, knownChapter);
         lock (PageCountCacheLock)
         {
@@ -601,10 +640,25 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
             }
         }
 
+        if (cacheRoot is not null && persistentKey is not null
+            && TryLoadPersistentPageCounts(cacheRoot, persistentKey, chapterPaths.Count) is { } persisted)
+        {
+            StoreInMemoryPageCountCache(cacheKey, persisted);
+            return persisted;
+        }
+
         var counts = EstimatePageCountsCore(
             chapterPaths, settings, width, height, cancellationToken, sharedFonts, knownChapter);
         cancellationToken.ThrowIfCancellationRequested();
 
+        StoreInMemoryPageCountCache(cacheKey, counts);
+        if (cacheRoot is not null && persistentKey is not null)
+            SavePersistentPageCounts(cacheRoot, persistentKey, counts);
+        return counts;
+    }
+
+    private static void StoreInMemoryPageCountCache(long cacheKey, int[] counts)
+    {
         lock (PageCountCacheLock)
         {
             PageCountCache[cacheKey] = (counts.ToArray(), ++_pageCountCacheTick);
@@ -622,6 +676,5 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
                 PageCountCache.Remove(key);
             }
         }
-        return counts;
     }
 }

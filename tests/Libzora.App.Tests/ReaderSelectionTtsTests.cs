@@ -67,6 +67,7 @@ public sealed class ReaderSelectionTtsTests(SettingsUiSession session)
             var button = scope.Get<Button>("ReaderSelectionSpeakButton");
             Assert.Equal("朗读", ToolTip.GetTip(button));
             var highlightButton = scope.Get<Button>("ReaderSelectionHighlightMenuButton");
+            var highlightFlyout = Assert.IsType<MenuFlyout>(FlyoutBase.GetAttachedFlyout(highlightButton));
             var root = TopLevel.GetTopLevel(highlightButton)!;
             var copyButton = ((Panel)scope.Get<Border>("ReaderSelectionPopupBar").Child!).Children.OfType<Button>().First();
             var copyPoint = copyButton.TranslatePoint(new Avalonia.Point(16, 16), root)!.Value;
@@ -80,27 +81,24 @@ public sealed class ReaderSelectionTtsTests(SettingsUiSession session)
             Assert.False(ToolTip.GetIsOpen(copyButton), "Copy tooltip should dismiss while the pointer stays over it.");
             var hoverPoint = highlightButton.TranslatePoint(new Avalonia.Point(20, 16), root)!.Value;
             root.MouseMove(hoverPoint);
-            scope.Call("StopReaderSelectionHighlightPointerTracking");
-            // The production timer polls the native screen cursor, which is
-            // separate from the headless pointer. Feed its hover samples here.
-            scope.Call("UpdateReaderSelectionHighlightToolTip", true);
-            Assert.False(ToolTip.GetIsOpen(highlightButton));
             await Task.Delay(ToolTip.GetShowDelay(highlightButton) + 150);
-            scope.Call("UpdateReaderSelectionHighlightToolTip", true);
             await ReaderTests.Render();
-            Assert.True(highlightButton.Flyout!.IsOpen);
-            Assert.True(ToolTip.GetIsOpen(highlightButton), "Highlight tooltip should appear while its menu is open.");
+            Assert.False(highlightFlyout.IsOpen, "Hovering should not open the highlight style menu.");
+            Assert.True(ToolTip.GetIsOpen(highlightButton), "Highlight tooltip should appear on hover.");
             AssertToolTipOutsideToolbar(highlightButton, scope.Get<Border>("ReaderSelectionPopupBar"));
             await Task.Delay(950);
-            scope.Call("UpdateReaderSelectionHighlightToolTip", true);
             await ReaderTests.Render();
-            Assert.False(ToolTip.GetIsOpen(highlightButton), "Highlight tooltip should dismiss even with its menu open.");
-            scope.Call("UpdateReaderSelectionHighlightToolTip", true);
-            Assert.False(ToolTip.GetIsOpen(highlightButton), "A stationary pointer must not reopen the tooltip.");
-            scope.Call("UpdateReaderSelectionHighlightToolTip", false);
-            Assert.False(ToolTip.GetIsOpen(highlightButton));
+            Assert.False(ToolTip.GetIsOpen(highlightButton), "Highlight tooltip should dismiss while the pointer stays over it.");
+            root.MouseDown(hoverPoint, Avalonia.Input.MouseButton.Left);
+            await Task.Delay(380);
+            await ReaderTests.Render();
+            Assert.True(highlightFlyout.IsOpen, "Long press should open the highlight style menu.");
+            Assert.False(ToolTip.GetIsOpen(highlightButton), "Highlight tooltip should close when the menu opens.");
             Assert.Contains("active", highlightButton.Classes);
-            highlightButton.Flyout.Hide();
+            root.MouseUp(hoverPoint, Avalonia.Input.MouseButton.Left);
+            await ReaderTests.Render();
+            Assert.True(highlightFlyout.IsOpen, "Releasing after long press must keep the highlight menu open.");
+            highlightFlyout.Hide();
             button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await finished.Task.WaitAsync(TimeSpan.FromSeconds(5));
             Assert.Equal(text, engine.Text);

@@ -18,6 +18,7 @@ internal sealed partial class HorizontalComposer
     private readonly CellFactory _cells;
     private readonly PageBuilder _pages;
     private float _cursorY;
+    private float _previousBlockBottomSpace;
 
     public HorizontalComposer(ComposerContext context, CellFactory cells, PageBuilder pages)
     {
@@ -41,6 +42,7 @@ internal sealed partial class HorizontalComposer
 
     public void Compose(ChapterContent content)
     {
+        _previousBlockBottomSpace = 0f;
         var previousBlockWasHeading = false;
         var previousBlockWasParagraph = false;
         var blockIndex = 0;
@@ -51,12 +53,15 @@ internal sealed partial class HorizontalComposer
             {
                 case BlockKind.Image:
                     PlaceImageBlock(block);
+                    _previousBlockBottomSpace = 0f;
                     break;
                 case BlockKind.Rule:
                     PlaceRule(block);
+                    _previousBlockBottomSpace = 0f;
                     break;
                 case BlockKind.Table:
                     PlaceTable(block);
+                    _previousBlockBottomSpace = 0f;
                     break;
                 default:
                     PlaceTextBlock(block, previousBlockWasHeading, previousBlockWasParagraph,
@@ -105,8 +110,7 @@ internal sealed partial class HorizontalComposer
         var startsAtPageTop = block.PageBreakBefore
             || (isHeading
                 && !followsHeading
-                && (!string.IsNullOrWhiteSpace(block.ElementId)
-                    || block.FragmentIds.Any(id => !block.FootnoteReferenceFragmentIds.Contains(id))));
+                && ComposerContext.IsHeadingNavigationTarget(block, _context.Options.NavigationFragments));
         float leftInset = 0f;
         float rightInset = 0f;
         if (block.Kind == BlockKind.Blockquote)
@@ -163,12 +167,24 @@ internal sealed partial class HorizontalComposer
             // in the old document reader.
             _pages.NextIfUsed();
             _cursorY = InsetV;
+            _previousBlockBottomSpace = 0f;
         }
-        else if (!(block.Kind == BlockKind.Paragraph && followsParagraph
-            && (_context.Options.ParagraphSpacingMatchesLineHeight || _context.Options.OverridePublisherParagraphSpacing)))
+        else
         {
-            _cursorY += block.SpaceBeforeLines * BodyLineHeight
-                + block.MarginTopEm * BaseFontSize;
+            var beforeSpace = 0f;
+            if (!(block.Kind == BlockKind.Paragraph && (followsParagraph || followsHeading)
+                && (_context.Options.ParagraphSpacingMatchesLineHeight || _context.Options.OverridePublisherParagraphSpacing)))
+            {
+                beforeSpace = block.SpaceBeforeLines * BodyLineHeight
+                    + block.MarginTopEm * BaseFontSize;
+            }
+            if (followsHeading)
+            {
+                // Collapse the first paragraph's top margin against the heading's
+                // bottom space instead of stacking both margins together.
+                beforeSpace = Math.Max(0f, beforeSpace - _previousBlockBottomSpace);
+            }
+            _cursorY += beforeSpace;
         }
 
         // True float:left drop cap: extract an initial oversized floated letter
@@ -397,19 +413,28 @@ internal sealed partial class HorizontalComposer
         {
             _pages.NextIfUsed();
             _cursorY = InsetV;
+            _previousBlockBottomSpace = 0f;
         }
         else if (block.Kind == BlockKind.Paragraph && precedesParagraph
             && _context.Options.OverridePublisherParagraphSpacing)
         {
-            _cursorY += paragraphSpacing * BaseFontSize;
+            var bottomSpace = paragraphSpacing * BaseFontSize;
+            _previousBlockBottomSpace = bottomSpace;
+            _cursorY += bottomSpace;
         }
         else if (!(block.Kind == BlockKind.Paragraph && precedesParagraph
             && _context.Options.ParagraphSpacingMatchesLineHeight))
         {
-            _cursorY += block.SpaceAfterLines * BodyLineHeight
+            var bottomSpace = block.SpaceAfterLines * BodyLineHeight
                 + block.MarginBottomEm * BaseFontSize;
             if (block.Kind == BlockKind.Paragraph)
-                _cursorY += paragraphSpacing * BaseFontSize;
+                bottomSpace += paragraphSpacing * BaseFontSize;
+            _previousBlockBottomSpace = bottomSpace;
+            _cursorY += bottomSpace;
+        }
+        else
+        {
+            _previousBlockBottomSpace = 0f;
         }
     }
 

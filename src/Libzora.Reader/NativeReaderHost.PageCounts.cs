@@ -21,11 +21,18 @@ namespace Libzora;
 /// </summary>
 public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPageSnapshotProvider, IReaderAppearanceHost, IReaderConfiguredHost, IReaderLocationHost, IReaderLayoutNavigationHost, IReaderPaginationHost, IReaderAnnotationHost, IReaderSpeechHost, IReaderSelectionHost, IReaderAnnotationBoundsHost, IReaderFootnoteVisualHost, IReaderPageCountHost, IReaderVisualTransitionHost
 {
+    private const string PersistentPageCountFileName = ".libzora-page-counts-v1.json";
+    private const int PersistentPageCountCapacity = 8;
+
     private static readonly object PageCountCacheLock = new();
+    private static readonly object PersistentPageCountIoLock = new();
     private static readonly Dictionary<long, (int[] Counts, long LastUse)> PageCountCache = [];
     private static long _pageCountCacheTick;
 
-    private static long BuildPageCountCacheKey(
+    private sealed record PersistentPageCountEntry(string Key, int[] Counts);
+    private sealed record PersistentPageCountDocument(List<PersistentPageCountEntry> Entries);
+
+    private static (long SessionKey, string? CacheRoot, string? PersistentKey) BuildPageCountCacheKeys(
         IReadOnlyList<string> chapterPaths,
         ReaderLayoutSettings settings,
         double width,
@@ -33,6 +40,10 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         (string ChapterPath, int PageCount)? knownChapter)
     {
         var hash = new HashCode();
+        var persistent = new Fnv1a64();
+        var cacheRoot = chapterPaths.Count > 0 ? FindEpubCacheRoot(chapterPaths[0]) : null;
+        var rootPrefixLength = cacheRoot is null ? 0 : cacheRoot.TrimEnd(Path.DirectorySeparatorChar).Length + 1;
+
         hash.Add(width);
         hash.Add(height);
         hash.Add(settings.VerticalWriting);
@@ -58,14 +69,203 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         hash.Add(settings.LatinFontFamily, StringComparer.Ordinal);
         hash.Add(knownChapter?.ChapterPath, StringComparer.Ordinal);
         hash.Add(knownChapter?.PageCount ?? -1);
+
+        if (cacheRoot is not null)
+        {
+            persistent.AddDouble(width);
+            persistent.AddDouble(height);
+            persistent.AddBool(settings.VerticalWriting);
+            persistent.AddInt(settings.FlowMode);
+            persistent.AddBool(settings.MangaMode);
+            persistent.AddBool(settings.MangaAutoCrop);
+            persistent.AddBool(settings.ParagraphIndent);
+            persistent.AddDouble(settings.ParagraphSpacing);
+            persistent.AddBool(settings.ParagraphSpacingMatchesLineHeight);
+            persistent.AddBool(settings.OverridePublisherLineHeight);
+            persistent.AddBool(settings.OverridePublisherParagraphSpacing);
+            persistent.AddBool(settings.NaturalLatinTypography);
+            persistent.AddBool(settings.HyphenateEnglish);
+            persistent.AddBool(settings.AvoidWidowsAndOrphans);
+            persistent.AddBool(settings.AlignLeft);
+            persistent.AddBool(settings.CjkLatinSpacing);
+            persistent.AddDouble(settings.FontScale);
+            persistent.AddDouble(settings.LineHeight);
+            persistent.AddDouble(settings.MaxWidth);
+            persistent.AddDouble(settings.BodyPadding);
+            persistent.AddDouble(settings.BodyBottomPadding ?? -1d);
+            persistent.AddString(settings.FontFamily);
+            persistent.AddString(settings.LatinFontFamily);
+            persistent.AddString(knownChapter?.ChapterPath is { } kc && kc.Length > rootPrefixLength && kc.StartsWith(cacheRoot, StringComparison.OrdinalIgnoreCase)
+                ? kc[rootPrefixLength..].Replace('\\', '/')
+                : knownChapter?.ChapterPath);
+            persistent.AddInt(knownChapter?.PageCount ?? -1);
+            persistent.AddInt(chapterPaths.Count);
+        }
+
         foreach (var path in chapterPaths)
         {
             var info = new FileInfo(path);
+            var exists = info.Exists;
+            var length = exists ? info.Length : -1;
+            var ticks = exists ? info.LastWriteTimeUtc.Ticks : 0;
             hash.Add(path, StringComparer.Ordinal);
-            hash.Add(info.Exists ? info.Length : -1);
-            hash.Add(info.Exists ? info.LastWriteTimeUtc.Ticks : 0);
+            hash.Add(length);
+            hash.Add(ticks);
+            if (cacheRoot is not null)
+            {
+                var rel = path.Length > rootPrefixLength && path.StartsWith(cacheRoot, StringComparison.OrdinalIgnoreCase)
+                    ? path[rootPrefixLength..].Replace('\\', '/')
+                    : path;
+                persistent.AddString(rel);
+                persistent.AddLong(length);
+                persistent.AddLong(ticks);
+            }
         }
-        return hash.ToHashCode();
+
+        return (hash.ToHashCode(), cacheRoot, cacheRoot is null ? null : persistent.FinishHex());
+    }
+
+    private static string? FindEpubCacheRoot(string? path)
+    {
+        var current = string.IsNullOrWhiteSpace(path) ? null : Path.GetDirectoryName(path);
+        while (!string.IsNullOrEmpty(current))
+        {
+            var name = Path.GetFileName(current.AsSpan());
+            if (name.Length == 64 && IsAllHexDigits(name))
+                return current;
+            var parent = Path.GetDirectoryName(current);
+            if (string.Equals(parent, current, StringComparison.Ordinal))
+                break;
+            current = parent;
+        }
+        return null;
+    }
+
+    private static bool IsAllHexDigits(ReadOnlySpan<char> value)
+    {
+        foreach (var ch in value)
+        {
+            if (!Uri.IsHexDigit(ch))
+                return false;
+        }
+        return true;
+    }
+
+    private static int[]? TryLoadPersistentPageCounts(string cacheRoot, string key, int expectedCount)
+    {
+        var path = Path.Combine(cacheRoot, PersistentPageCountFileName);
+        if (!File.Exists(path)) return null;
+        try
+        {
+            lock (PersistentPageCountIoLock)
+            {
+                if (!File.Exists(path)) return null;
+                using var stream = File.OpenRead(path);
+                var doc = JsonSerializer.Deserialize<PersistentPageCountDocument>(stream);
+                var entry = doc?.Entries?.FirstOrDefault(item => string.Equals(item.Key, key, StringComparison.Ordinal));
+                if (entry?.Counts is { Length: > 0 } counts && counts.Length == expectedCount)
+                    return counts.ToArray();
+            }
+        }
+        catch
+        {
+        }
+        return null;
+    }
+
+    private static void SavePersistentPageCounts(string cacheRoot, string key, int[] counts)
+    {
+        var path = Path.Combine(cacheRoot, PersistentPageCountFileName);
+        var tempPath = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            lock (PersistentPageCountIoLock)
+            {
+                List<PersistentPageCountEntry> entries = [];
+                if (File.Exists(path))
+                {
+                    try
+                    {
+                        using var existingStream = File.OpenRead(path);
+                        var existing = JsonSerializer.Deserialize<PersistentPageCountDocument>(existingStream);
+                        if (existing?.Entries is { Count: > 0 })
+                        {
+                            foreach (var item in existing.Entries)
+                            {
+                                if (!string.Equals(item.Key, key, StringComparison.Ordinal))
+                                    entries.Add(item);
+                            }
+                        }
+                    }
+                    catch { }
+                }
+
+                entries.Insert(0, new PersistentPageCountEntry(key, counts.ToArray()));
+                if (entries.Count > PersistentPageCountCapacity)
+                    entries.RemoveRange(PersistentPageCountCapacity, entries.Count - PersistentPageCountCapacity);
+
+                using (var output = File.Create(tempPath))
+                    JsonSerializer.Serialize(output, new PersistentPageCountDocument(entries));
+                File.Move(tempPath, path, overwrite: true);
+            }
+        }
+        catch
+        {
+        }
+        finally
+        {
+            try { if (File.Exists(tempPath)) File.Delete(tempPath); }
+            catch { }
+        }
+    }
+
+    private struct Fnv1a64
+    {
+        private ulong _hash;
+
+        public Fnv1a64() => _hash = 14695981039346656037UL;
+
+        public void AddByte(byte b)
+        {
+            _hash ^= b;
+            _hash *= 1099511628211UL;
+        }
+
+        public void AddBool(bool v) => AddByte(v ? (byte)1 : (byte)0);
+
+        public void AddInt(int v) => AddLong(v);
+
+        public void AddLong(long v)
+        {
+            unchecked
+            {
+                var u = (ulong)v;
+                for (var i = 0; i < 8; i++)
+                {
+                    AddByte((byte)u);
+                    u >>= 8;
+                }
+            }
+        }
+
+        public void AddDouble(double v) => AddLong(BitConverter.DoubleToInt64Bits(v));
+
+        public void AddString(string? s)
+        {
+            if (s is null)
+            {
+                AddInt(-1);
+                return;
+            }
+            AddInt(s.Length);
+            foreach (var c in s)
+            {
+                AddByte((byte)c);
+                AddByte((byte)(c >> 8));
+            }
+        }
+
+        public readonly string FinishHex() => _hash.ToString("x16", CultureInfo.InvariantCulture);
     }
 
     private static int[] EstimatePageCountsCore(

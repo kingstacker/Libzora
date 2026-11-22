@@ -282,6 +282,7 @@ public partial class MainWindow : Window
         InitializeReaderAppearance();
         InitializeReaderToolbarAutoHide();
         InitializeReaderSelectionToolTips();
+        InitializeReaderSelectionHighlightButton();
         // Keep the reader's nested menu on the same hover branch and chevron
         // state as the book-library context menu.
         if (ReaderMoreButton.Flyout is MenuFlyout readerMoreMenu)

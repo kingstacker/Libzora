@@ -514,6 +514,29 @@ public partial class MainWindow
             return;
         }
 
+        if (!chapterOnly
+            && host is NativeReaderHost { IsShowingCompanionSpread: true }
+            && _readerDocument is not null)
+        {
+            if (direction > 0)
+            {
+                if (_readerChapterIndex + 2 < _readerDocument.Chapters.Count)
+                {
+                    await MoveReaderChapterAsync(2);
+                    return;
+                }
+                ReaderStatusText.Text = T("已经是最后一页。");
+                return;
+            }
+
+            if (direction < 0 && _readerChapterIndex > 0)
+            {
+                var step = _readerChapterIndex >= 2 ? -2 : -1;
+                await MoveReaderChapterAsync(step, positionAtStart: true);
+                return;
+            }
+        }
+
         if (direction > 0 && _readerDocument is not null
             && _readerChapterIndex < _readerDocument.Chapters.Count - 1)
         {
@@ -533,9 +556,13 @@ public partial class MainWindow
             host,
             host,
             direction,
-            () => host is IReaderPaginationHost nativeTurn
-                ? Task.FromResult<string?>(nativeTurn.TurnPage(direction) ? "true" : "false")
-                : Task.FromResult<string?>(null),
+            () =>
+            {
+                ClearActiveReaderSyncedMarker();
+                return host is IReaderPaginationHost nativeTurn
+                    ? Task.FromResult<string?>(nativeTurn.TurnPage(direction) ? "true" : "false")
+                    : Task.FromResult<string?>(null);
+            },
             ReaderToken);
     }
 

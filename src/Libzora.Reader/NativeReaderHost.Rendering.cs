@@ -53,15 +53,16 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
                 // Two half-width composed pages fill the viewport side by side.
                 // Right-to-left manga places the earlier page on the right half.
                 var half = (float)(Math.Max(1, Bounds.Width) / 2);
-                if (_settings.MangaMode && _settings.MangaRightToLeft)
+                var firstOffset = _settings.MangaMode && _settings.MangaRightToLeft ? half : 0f;
+                var secondOffset = _settings.MangaMode && _settings.MangaRightToLeft ? 0f : half;
+                PaintPage(canvas, _pageIndex, firstOffset, 0f);
+                if (_pageIndex + 1 < (_layout?.Pages.Count ?? 0))
                 {
-                    PaintPage(canvas, _pageIndex, half, 0f);
-                    PaintPage(canvas, _pageIndex + 1, 0f, 0f);
+                    PaintPage(canvas, _pageIndex + 1, secondOffset, 0f);
                 }
-                else
+                else if (IsShowingCompanionSpread && _spreadCompanionLayout is { Pages.Count: > 0 } companion)
                 {
-                    PaintPage(canvas, _pageIndex, 0f, 0f);
-                    PaintPage(canvas, _pageIndex + 1, half, 0f);
+                    PaintLayoutPage(canvas, companion.Pages[0], secondOffset, 0f, includeTextOverlays: false);
                 }
                 break;
             }
@@ -147,14 +148,20 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
             return;
         }
 
-        var page = _layout.Pages[pageIndex];
+        PaintLayoutPage(canvas, _layout.Pages[pageIndex], offsetX, offsetY, includeTextOverlays: true);
+    }
+
+    private void PaintLayoutPage(SKCanvas canvas, LayoutPage page, float offsetX, float offsetY, bool includeTextOverlays)
+    {
         using var imagePins = PinImages(page.Images.Select(image => image.Path));
         canvas.Save();
         canvas.Translate(offsetX, offsetY);
-        var selectionBands = SelectionBandsFor(page);
-        var annotationOverlays = AnnotationOverlaysFor(page);
-        var searchBands = SearchBandsFor(page);
-        var focusedSearchBands = FocusedSearchBandsFor(page);
+        var selectionBands = includeTextOverlays ? SelectionBandsFor(page) : null;
+        var annotationOverlays = includeTextOverlays ? AnnotationOverlaysFor(page) : null;
+        var searchBands = includeTextOverlays ? SearchBandsFor(page) : null;
+        var focusedSearchBands = includeTextOverlays ? FocusedSearchBandsFor(page) : null;
+        var highlightBands = includeTextOverlays ? SpeechBandsFor(page) : null;
+        var resumeMarker = includeTextOverlays ? ResumeMarkerFor(page) : null;
         lock (_engineGate)
         {
             var painter = new TypesetPainter(Engine.Fonts, _paintTheme, ResolveImage);
@@ -162,12 +169,13 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
                 canvas,
                 page,
                 selectionBands,
-                highlightBands: SpeechBandsFor(page),
+                highlightBands: highlightBands,
                 searchBands: searchBands,
                 annotationOverlays: annotationOverlays,
                 showVerticalDebugBoxes: _showVerticalDebugBoxes,
                 focusedSearchBands: focusedSearchBands,
-                paintBackground: false);
+                paintBackground: false,
+                resumeMarker: resumeMarker);
         }
 
         canvas.Restore();

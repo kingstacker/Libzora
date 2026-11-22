@@ -57,6 +57,7 @@ internal static class ReaderReadingDataReset
         command.Transaction = transaction;
         command.CommandText = """
             DELETE FROM ReaderProgress;
+            DELETE FROM ReaderSyncedPositionMarkers;
             DELETE FROM ReaderReadingSessions;
             DELETE FROM ReaderReadingStats;
             DELETE FROM ReaderReadingHistory;

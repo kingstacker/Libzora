@@ -80,24 +80,27 @@ public partial class MainWindow
                 offset,
                 async () =>
                 {
+                    ClearActiveReaderSyncedMarker();
                     var loaded = await NavigateReaderHostAndWaitAsync(host, target, token);
                     LogReaderChapterTiming("move.navigated", chapterTiming);
                     if (!loaded) throw new InvalidOperationException(T("章节加载失败。"));
 
-                    await ApplySavedAnnotationsAsync(host, token);
+                    if (host is not IReaderConfiguredHost)
+                        await ApplySavedAnnotationsAsync(host, token);
+                    _readerChapterIndex = targetIndex;
                     await PositionReaderChapterBoundaryAsync(
                         host,
                         moveToEnd: offset < 0 && !positionAtStart,
                         token);
                     LogReaderChapterTiming("move.boundary", chapterTiming);
-                    _readerChapterIndex = targetIndex;
                     // host was picked as the hidden host, so the layer must flip
                     // unconditionally; deriving it from CurrentReaderHost would read
                     // the stale pre-swap flag and freeze the visible chapter after the
                     // first jump (TOC / next-chapter worked only once).
                     _readerShowingPreload = ReferenceEquals(host, _readerPreloadHost);
                     SetReaderHostLayer();
-                    await UpdateReaderScrollStateAsync(host);
+                    if (host is not IReaderLocationHost)
+                        await UpdateReaderScrollStateAsync(host);
                     await UpdateLinuxReaderTextFallbackAsync(token);
                     PositionLinuxReaderTextFallbackAtChapterEnd(
                         moveLinuxFallbackToEnd);
@@ -113,7 +116,15 @@ public partial class MainWindow
             ReaderStatusText.Text = string.Empty;
             SetReaderTocSelectionForLocation(targetIndex, _readerCurrentFragment);
             await UpdateReaderBookmarkIndicatorAsync();
-            await SaveReaderProgressAsync(sessionToken);
+            if (IsReaderMangaMode)
+            {
+                var saveSequence = ++_readerProgressSaveSequence;
+                _ = SaveReaderProgressAfterScrollAsync(saveSequence);
+            }
+            else
+            {
+                await SaveReaderProgressAsync(sessionToken);
+            }
             _ = PreloadNextReaderChapterAsync(sessionToken);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -231,9 +242,14 @@ public partial class MainWindow
         var hiddenSlot = _readerShowingPreload ? ReaderActiveHostSlot : ReaderPreloadHostSlot;
         // Native webviews are HWND-backed. Opacity and ZIndex alone only affect
         // the Avalonia wrapper; the hidden child window can still cover the
-        // visible chapter and consume input. Toggle actual visibility as well.
+        // visible chapter and consume input. Toggle actual visibility as well,
+        // while keeping the pure-Avalonia preload NativeReaderHost measured at
+        // real viewport bounds so preloaded pages never compose at 0x0.
+        var keepHiddenSlotMeasured = !_readerIsPdf
+            && !IsLinuxReaderTextFallbackActive()
+            && hiddenSlot.Content is NativeReaderHost;
         activeSlot.IsVisible = revealActiveHost;
-        hiddenSlot.IsVisible = false;
+        hiddenSlot.IsVisible = keepHiddenSlotMeasured;
         activeSlot.Opacity = revealActiveHost ? 1 : 0;
         activeSlot.IsHitTestVisible = revealActiveHost;
         hiddenSlot.Opacity = 0;

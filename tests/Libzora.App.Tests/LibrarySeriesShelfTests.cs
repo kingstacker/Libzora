@@ -467,6 +467,76 @@ public sealed partial class SettingsTests
     });
 
     [Fact]
+    public Task SeriesShelfOverlayEdgeDragOverscrollsAndBouncesBack() => Run(async () =>
+    {
+        await using var scope = await TestWindow.Create(new AppSettings
+        {
+            UiLanguage = "zh-CN",
+            OnboardingCompleted = true,
+            NetworkEnabled = false,
+            AutoUpdateCheckEnabled = false,
+            AutoConnectDevice = false,
+            StackBookSeries = true
+        });
+
+        for (var i = 1; i <= 8; i++)
+            await InsertBookWithFileAsync(scope.Paths.Database, $"卷 {i}", i, $"bounce-vol-{i}.epub");
+
+        await scope.Window.ViewModel.RefreshViewAsync();
+        await Render();
+
+        var grid = scope.Get<ListBox>("BookGrid");
+        await Until(() => grid.ContainerFromIndex(0) is not null);
+        var badge = grid.ContainerFromIndex(0)!.GetVisualDescendants()
+            .OfType<Button>()
+            .Single(button => button.Classes.Contains("seriesBadge"));
+        badge.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await Render();
+
+        var overlay = scope.Get<Grid>("SeriesShelfOverlay");
+        var scrollViewer = scope.Get<ScrollViewer>("SeriesShelfScrollViewer");
+        var strip = scope.Get<StackPanel>("SeriesShelfItemsHost");
+        Assert.True(overlay.IsVisible);
+        Assert.True(scrollViewer.Extent.Width > scrollViewer.Viewport.Width);
+
+        // 1) At the left boundary (Offset.X == 0), dragging right pulls the strip into positive overscroll
+        //    and releasing animates it smoothly back to rest without activating a tile.
+        scrollViewer.Offset = new Vector(0, 0);
+        await Render();
+        var dragOrigin = scrollViewer.TranslatePoint(new Point(scrollViewer.Bounds.Width / 2, 80), scope.Window)!.Value;
+        scope.Window.MouseDown(dragOrigin, MouseButton.Left, RawInputModifiers.None);
+        scope.Window.MouseMove(new Point(dragOrigin.X + 90, dragOrigin.Y), RawInputModifiers.LeftMouseButton);
+        await Render();
+        Assert.Equal(0, scrollViewer.Offset.X);
+        var leftOverscroll = Assert.IsType<TranslateTransform>(strip.RenderTransform);
+        Assert.InRange(leftOverscroll.X, 15, 112);
+
+        scope.Window.MouseUp(new Point(dragOrigin.X + 90, dragOrigin.Y), MouseButton.Left, RawInputModifiers.None);
+        await UntilSettled(() => strip.RenderTransform is null, "left overscroll should bounce back to rest");
+        Assert.Null(strip.RenderTransform);
+        Assert.All(strip.Children, tile =>
+            Assert.False(tile.GetVisualDescendants().OfType<Button>()
+                .Single(btn => btn.Classes.Contains("coverReadAction")).IsVisible));
+
+        // 2) At the right boundary (Offset.X == maxX), dragging left pulls the strip into negative overscroll
+        //    and releasing animates it back to rest.
+        var maxX = Math.Max(0d, scrollViewer.Extent.Width - scrollViewer.Viewport.Width);
+        Assert.True(maxX > 0);
+        scrollViewer.Offset = new Vector(maxX, 0);
+        await Render();
+        scope.Window.MouseDown(dragOrigin, MouseButton.Left, RawInputModifiers.None);
+        scope.Window.MouseMove(new Point(dragOrigin.X - 90, dragOrigin.Y), RawInputModifiers.LeftMouseButton);
+        await Render();
+        Assert.InRange(scrollViewer.Offset.X, maxX - 0.5, maxX + 0.5);
+        var rightOverscroll = Assert.IsType<TranslateTransform>(strip.RenderTransform);
+        Assert.InRange(rightOverscroll.X, -112, -15);
+
+        scope.Window.MouseUp(new Point(dragOrigin.X - 90, dragOrigin.Y), MouseButton.Left, RawInputModifiers.None);
+        await UntilSettled(() => strip.RenderTransform is null, "right overscroll should bounce back to rest");
+        Assert.Null(strip.RenderTransform);
+    });
+
+    [Fact]
     public Task SeriesContextMenuBalancesMultiFormatAndMultiVolumeActions() => Run(async () =>
     {
         await using var scope = await TestWindow.Create(new AppSettings

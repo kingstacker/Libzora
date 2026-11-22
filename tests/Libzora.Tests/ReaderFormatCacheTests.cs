@@ -40,6 +40,39 @@ public sealed class ReaderFormatCacheTests
         }
     }
 
+    [Fact]
+    public async Task ConvertsTxtAndCachesReadableEpubWithDetectedToc()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            paths.EnsureDirectories();
+            var source = Path.Combine(root, "novel.txt");
+            await File.WriteAllTextAsync(source, "第一章 初见\n正文第一段。\n第二章 重逢\n正文第二段。");
+            var converter = new FakeConverter();
+            var cache = new ReaderFormatCacheService(paths, converter);
+            var hash = await Hashing.Sha256Async(source);
+
+            var first = await cache.PrepareEpubAsync(source, hash, "txt");
+            var second = await cache.PrepareEpubAsync(source, hash, "txt");
+
+            Assert.False(first.CacheHit);
+            Assert.True(second.CacheHit);
+            Assert.Equal(first.EpubPath, second.EpubPath);
+            Assert.Equal(0, converter.CallCount);
+            var document = await new EpubReaderPreparationService(paths).PrepareAsync(
+                first.EpubPath,
+                await Hashing.Sha256Async(first.EpubPath));
+            Assert.Equal(2, document.Chapters.Count);
+            Assert.Equal(["第一章 初见", "第二章 重逢"], document.Navigation.Select(item => item.Title).ToArray());
+        }
+        finally
+        {
+            TestHelpers.TryDelete(root);
+        }
+    }
+
     private sealed class FakeConverter : IBookFormatConverter
     {
         public int CallCount { get; private set; }

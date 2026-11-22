@@ -102,6 +102,7 @@ public partial class MainWindow
         HideReaderSelectionPopup();
         HideReaderAnnotationInputPopup();
         HideReaderAnnotationHoverPopup();
+        ClearActiveReaderSyncedMarker();
         if (await pdf.NavigateHistoryAsync(direction, ReaderToken) && ReferenceEquals(pdf, CurrentReaderHost))
         {
             SyncReaderPdfTocSelection();

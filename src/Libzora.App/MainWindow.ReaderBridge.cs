@@ -58,6 +58,7 @@ public partial class MainWindow
                         RememberCurrentPdfPageText();
                         if (_readerPdfPage != previousPdfPage)
                         {
+                            ClearActiveReaderSyncedMarker();
                             HideReaderSelectionPopup();
                             // Continuous scrolling can change the current page
                             // while the edited annotation's page is still visible.
@@ -100,6 +101,17 @@ public partial class MainWindow
                         ? Math.Max(0, _readerScrollWidth - _readerClientWidth)
                         : Math.Max(0, _readerScrollHeight - _readerClientHeight);
                     _readerScrollRatio = max > 0 ? Math.Clamp(_readerScrollPosition / max, 0, 1) : 0;
+                    if (_readerSyncedMarkerScrollArmed
+                        && _readerActiveSyncedMarker is not null
+                        && !_readerIsPdf
+                        && !IsReaderPaginated)
+                    {
+                        var viewportExtent = _readerLayout.VerticalWriting ? _readerClientWidth : _readerClientHeight;
+                        if (Math.Abs(_readerScrollPosition - _readerSyncedMarkerScrollOrigin) >= Math.Max(120, viewportExtent * 0.45))
+                        {
+                            ClearActiveReaderSyncedMarker();
+                        }
+                    }
                     SyncReaderTocSelectionWithReadingPosition();
                     _ = SaveReaderProgressAfterScrollAsync(++_readerProgressSaveSequence);
                     // The bridge already supplied the exact scroll position

@@ -55,7 +55,9 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         var initialScroll = _scrollOffset;
         var content = _content;
         var settings = _settings;
-        var options = BuildOptions(settings, width, height, _showVerticalDebugBoxes);
+        var options = BuildOptions(settings, width, height, _showVerticalDebugBoxes, SnapshotNavigationFragments());
+        var companionPath = _spreadCompanionChapterPath;
+        var isSpread = IsSpread;
         _relayoutCts?.Cancel();
         using var request = new CancellationTokenSource();
         _relayoutCts = request;
@@ -72,8 +74,16 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
                 workerEngine = new TypesetEngine(fonts, ownsFonts: false);
                 SelectReaderMainFont(workerEngine, settings.FontFamily);
                 SelectReaderLatinFont(workerEngine, settings.LatinFontFamily);
-                return workerEngine.Compose(content, options, token,
+                var layout = workerEngine.Compose(content, options, token,
                     anchorPageStart ? viewportAnchor?.TextOffset : null);
+                var companionLayout = ComposeSpreadCompanion(
+                    isSpread,
+                    companionPath,
+                    options,
+                    layout,
+                    workerEngine,
+                    token);
+                return (layout, companionLayout);
             }, token);
             if (_disposed || token.IsCancellationRequested || !ReferenceEquals(content, _content)) return;
             if (_layout is { Pages.Count: > 0 }
@@ -85,7 +95,8 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
                 _engine = workerEngine;
                 workerEngine = null;
                 _options = options;
-                _layout = result;
+                _layout = result.layout;
+                _spreadCompanionLayout = result.companionLayout;
                 previous?.Dispose();
                 RetainInstalledLayoutFonts();
             }

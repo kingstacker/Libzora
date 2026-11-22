@@ -26,7 +26,10 @@ public sealed partial class XhtmlChapterLoader
             if (first.Kind != BlockKind.Heading
                 || second.Kind != BlockKind.Heading
                 || first.Items.Count == 0
-                || second.Items.Count == 0)
+                || second.Items.Count == 0
+                || first.PageBreakAfter
+                || second.PageBreakBefore
+                || (first.HeadingLevel > 0 && second.HeadingLevel > 0 && second.HeadingLevel < first.HeadingLevel))
             {
                 index++;
                 continue;
@@ -68,6 +71,9 @@ public sealed partial class XhtmlChapterLoader
                 MarginRightEm = first.MarginRightEm,
                 PaddingLeftEm = first.PaddingLeftEm,
                 PaddingRightEm = first.PaddingRightEm,
+                HeadingLevel = first.HeadingLevel > 0 && second.HeadingLevel > 0
+                    ? Math.Min(first.HeadingLevel, second.HeadingLevel)
+                    : Math.Max(first.HeadingLevel, second.HeadingLevel),
                 Items = items,
             };
             _blocks.RemoveAt(index + 1);
@@ -113,8 +119,8 @@ public sealed partial class XhtmlChapterLoader
             Center = true,
             Justify = false,
             TextIndentEm = 0f,
-            SpaceBeforeLines = 1.15f,
-            SpaceAfterLines = 1.25f,
+            SpaceBeforeLines = 0.85f,
+            SpaceAfterLines = 0.55f,
             LineHeightFactor = first.LineHeightFactor,
             MarginTopEm = first.MarginTopEm,
             MarginBottomEm = first.MarginBottomEm,
@@ -137,6 +143,9 @@ public sealed partial class XhtmlChapterLoader
         public required IReadOnlyDictionary<string, string> Notes { get; init; }
         /// <summary>Body-text offset of each note's first block, used to jump to the definition.</summary>
         public required IReadOnlyDictionary<string, int> DefinitionOffsets { get; init; }
+        /// <summary>When non-null, note definitions live in a separate endnote chapter file.</summary>
+        public string? TargetChapterPath { get; init; }
+        public bool IsExternal => TargetChapterPath is not null;
     }
 
     /// <summary>Shared by sibling list items; nested lists own a fresh counter.</summary>
@@ -211,6 +220,20 @@ public sealed partial class XhtmlChapterLoader
             SpaceBeforeLines = 0.2f,
             SpaceAfterLines = 0.8f,
             BaseStyle = BaseStyle with { FontSizeFactor = ScaleFontSize(BaseStyle.FontSizeFactor, 0.9f) },
+        };
+
+        public FlowContext AsHeadingCaption(float explicitFontSizeFactor) => this with
+        {
+            IsCaption = true,
+            NoJustify = true,
+            Justify = false,
+            TextIndentEm = 0f,
+            ExplicitTextIndent = true,
+            SpaceBeforeLines = 0.2f,
+            SpaceAfterLines = 0.6f,
+            BaseStyle = float.IsNaN(explicitFontSizeFactor)
+                ? BaseStyle with { FontSizeFactor = ScaleFontSize(BaseStyle.FontSizeFactor, 0.9f) }
+                : BaseStyle,
         };
 
         public FlowContext AsPreformatted() => this with
@@ -316,6 +339,8 @@ public sealed partial class XhtmlChapterLoader
             var borderLeftEm = !float.IsNaN(hints.BorderLeftEm) && hints.BorderLeftEm > 0f
                 ? Math.Clamp(hints.BorderLeftEm, 0.05f, 1f)
                 : BorderLeftEm;
+            var hasExplicitMarginTop = !float.IsNaN(hints.MarginTopEm) && hints.MarginTopEm > 0f;
+            var hasExplicitMarginBottom = !float.IsNaN(hints.MarginBottomEm) && hints.MarginBottomEm > 0f;
             return this with
             {
                 Kind = kind,
@@ -327,8 +352,8 @@ public sealed partial class XhtmlChapterLoader
                 Justify = !isHeading && !hints.Center && !hints.NoJustify && !NoJustify && !preserveWs && !IsCaption,
                 TextIndentEm = textIndentEm,
                 ExplicitTextIndent = hasExplicitIndent || ExplicitTextIndent,
-                SpaceBeforeLines = isHeading ? 1.15f : SpaceBeforeLines,
-                SpaceAfterLines = isHeading ? 1.25f : SpaceAfterLines,
+                SpaceBeforeLines = isHeading ? (hasExplicitMarginTop ? 0f : 0.85f) : SpaceBeforeLines,
+                SpaceAfterLines = isHeading ? (hasExplicitMarginBottom ? 0f : 0.55f) : SpaceAfterLines,
                 LineHeightFactor = float.IsNaN(hints.LineHeightFactor)
                     ? LineHeightFactor
                     : hints.LineHeightFactor,

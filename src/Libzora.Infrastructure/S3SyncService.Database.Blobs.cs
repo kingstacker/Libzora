@@ -81,6 +81,18 @@ public sealed partial class S3SyncService
             "ProgressPercent",
             "FlowMode",
             "UpdatedAt");
+        var moveSyncedMarkers = commandCache.Get(
+            """
+            UPDATE OR IGNORE ReaderSyncedPositionMarkers
+            SET BookId = $canonical, BookFileId = $target
+            WHERE BookFileId = $source;
+            DELETE FROM ReaderSyncedPositionMarkers
+            WHERE BookFileId = $source;
+            """);
+        AddParameter(moveSyncedMarkers, "$canonical", canonicalBookId.ToString());
+        AddParameter(moveSyncedMarkers, "$target", targetFileId.ToString());
+        AddParameter(moveSyncedMarkers, "$source", sourceFileId.ToString());
+        await moveSyncedMarkers.ExecuteNonQueryAsync(cancellationToken);
         await MergeVersionedFileRowAsync(
             connection,
             transaction,
@@ -196,6 +208,7 @@ public sealed partial class S3SyncService
         {
             "UPDATE ReaderAnnotations SET BookId = $bookId WHERE BookFileId = $fileId;",
             "UPDATE ReaderProgress SET BookId = $bookId WHERE BookFileId = $fileId;",
+            "UPDATE ReaderSyncedPositionMarkers SET BookId = $bookId WHERE BookFileId = $fileId;",
             "UPDATE ReaderBookmarks SET BookId = $bookId WHERE BookFileId = $fileId;",
             "UPDATE ReaderLayoutSettings SET BookId = $bookId WHERE BookFileId = $fileId;",
             "UPDATE ReaderReadingStats SET BookId = $bookId WHERE BookFileId = $fileId;",

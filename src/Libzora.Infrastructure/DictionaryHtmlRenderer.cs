@@ -57,7 +57,7 @@ public static class DictionaryHtmlRenderer
             <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
             <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; script-src 'nonce-{{nonce}}'; base-uri 'none'; form-action 'none'">
             <style>:root{--paper:{{Color(palette.Paper)}};--ink:{{Color(palette.Ink)}};--muted:{{Color(palette.Muted)}};--soft:{{Color(palette.Soft)}};--line:{{Color(palette.Border)}}}
-            html,body{margin:0;padding:0;background:var(--paper);color:var(--ink);scrollbar-color:var(--line) var(--paper)}body{padding:10px;font:15px/1.55 sans-serif;overflow-wrap:anywhere}
+            html,body{margin:0;padding:0;background:var(--paper);color:var(--ink);scrollbar-color:var(--line) var(--paper);-webkit-text-size-adjust:100%}body{padding:10px;font:15px/1.55 sans-serif;overflow-wrap:anywhere}
             section.libzora-dictionary-entry+section.libzora-dictionary-entry{border-top:1px solid var(--line);margin-top:14px;padding-top:10px}.libzora-dictionary-name{font:12px sans-serif;color:var(--muted);margin-bottom:8px}
             pre{white-space:pre-wrap;font:inherit}img{max-width:100%}
             </style><style>{{css}}</style></head><body>{{body}}

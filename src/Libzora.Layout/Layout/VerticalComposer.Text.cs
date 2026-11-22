@@ -11,8 +11,7 @@ internal sealed partial class VerticalComposer
         var startsAtPageTop = block.PageBreakBefore
             || (isHeading
                 && !followsHeading
-                && (!string.IsNullOrWhiteSpace(block.ElementId)
-                    || block.FragmentIds.Any(id => !block.FootnoteReferenceFragmentIds.Contains(id))));
+                && ComposerContext.IsHeadingNavigationTarget(block, _context.Options.NavigationFragments));
 
         float rightInset = 0f;
         if (block.Kind == BlockKind.Blockquote)

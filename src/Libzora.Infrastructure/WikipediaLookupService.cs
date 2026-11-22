@@ -97,7 +97,7 @@ public sealed class WikipediaLookupService
                 continue;
 
             var title = ReadString(page, "title");
-            var extract = ReadString(page, "extract");
+            var extract = NormalizeExtract(ReadString(page, "extract"));
             var pageUrl = ReadString(page, "fullurl");
             if (title.Length == 0 || extract.Length == 0
                 || !Uri.TryCreate(pageUrl, UriKind.Absolute, out var uri)
@@ -130,5 +130,31 @@ public sealed class WikipediaLookupService
         element.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.String
             ? value.GetString()?.Trim() ?? string.Empty
             : string.Empty;
+
+    internal static string NormalizeExtract(string extract)
+    {
+        if (string.IsNullOrWhiteSpace(extract)) return string.Empty;
+        var lines = extract.Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace('\r', '\n')
+            .Split('\n');
+        var normalized = new List<string>(lines.Length);
+        var previousBlank = false;
+        foreach (var rawLine in lines)
+        {
+            var trimmed = rawLine.Trim();
+            if (trimmed.Length == 0)
+            {
+                if (normalized.Count > 0 && !previousBlank)
+                    normalized.Add(string.Empty);
+                previousBlank = true;
+                continue;
+            }
+            normalized.Add(trimmed);
+            previousBlank = false;
+        }
+        while (normalized.Count > 0 && normalized[^1].Length == 0)
+            normalized.RemoveAt(normalized.Count - 1);
+        return string.Join("\n", normalized);
+    }
 
 }

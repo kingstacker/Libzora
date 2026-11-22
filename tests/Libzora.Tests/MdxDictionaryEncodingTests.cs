@@ -40,39 +40,103 @@ public sealed class MdxDictionaryEncodingTests
         finally { Directory.Delete(root, true); }
     }
 
-    private static byte[] CreateMdx(string name, Encoding encoding)
+    [Fact]
+    public async Task ResolvesMdxLinkRedirectsAndClosingHeaderTags()
+    {
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var file = Path.Combine(root, "linked.mdx");
+            await File.WriteAllBytesAsync(file, CreateMdxWithEntries(
+                "UTF-8",
+                Encoding.UTF8,
+                [
+                    ("apple", "<p>fruit</p>"),
+                    ("apples", "@@@LINK=apple\r\n"),
+                    ("loop1", "@@@LINK=loop2"),
+                    ("loop2", "@@@LINK=loop1")
+                ],
+                useClosingTag: true));
+            var service = new DictionaryService(new AppPaths(Path.Combine(root, "app")));
+            var imported = await service.ImportAsync(file);
+            Assert.Equal(4, imported.EntryCount);
+            var redirected = Assert.Single(await service.LookupAsync("apples"));
+            Assert.Equal("apple", redirected.Term);
+            Assert.Contains("fruit", redirected.Definition);
+            Assert.Contains("<p>fruit</p>", redirected.Html);
+            var loop = Assert.Single(await service.LookupAsync("loop1"));
+            Assert.StartsWith("@@@LINK=", loop.Definition);
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    [Fact]
+    public void NormalizesWikipediaExtractParagraphEdges()
+    {
+        var raw = "  第一段内容。  \r\n\r\n\r\n   第二段内容。 \n  \n";
+        Assert.Equal("第一段内容。\n\n第二段内容。", WikipediaLookupService.NormalizeExtract(raw));
+    }
+
+    private static byte[] CreateMdx(string name, Encoding encoding) =>
+        CreateMdxWithEntries(name, encoding, [("apple", "<p>苹果 fruit</p>")], useClosingTag: false);
+
+    private static byte[] CreateMdxWithEntries(
+        string name,
+        Encoding encoding,
+        IReadOnlyList<(string Key, string Value)> items,
+        bool useClosingTag)
     {
         using var output = new MemoryStream();
-        var header = Encoding.Unicode.GetBytes($"<Dictionary GeneratedByEngineVersion=\"2.0\" RequiredEngineVersion=\"2.0\" Encoding=\"{name}\" Encrypted=\"No\"/>\0");
+        var headerText = useClosingTag
+            ? $"<Dictionary GeneratedByEngineVersion=\"2.0\" RequiredEngineVersion=\"2.0\" Encoding=\"{name}\" Encrypted=\"No\" StyleSheet=\"1\n&lt;b&gt;\n&lt;/b&gt;\n\"></Dictionary>\0"
+            : $"<Dictionary GeneratedByEngineVersion=\"2.0\" RequiredEngineVersion=\"2.0\" Encoding=\"{name}\" Encrypted=\"No\"/>\0";
+        var header = Encoding.Unicode.GetBytes(headerText);
         WriteNumber(output, header.Length, 4);
         output.Write(header);
         output.Write(BitConverter.GetBytes(Adler(header)));
-        var word = encoding.GetBytes("apple\0");
-        var key = new byte[8].Concat(word).ToArray();
-        var record = encoding.GetBytes("<p>苹果 fruit</p>\0");
-        using var info = new MemoryStream();
-        WriteNumber(info, 1);
-        for (var i = 0; i < 2; i++)
+
+        using var keysStream = new MemoryStream();
+        using var recordsStream = new MemoryStream();
+        long recordOffset = 0;
+        byte[]? firstWord = null;
+        byte[]? lastWord = null;
+        foreach (var (keyText, valueText) in items)
         {
-            WriteNumber(info, 5, 2);
-            info.Write(word);
+            var wordBytes = encoding.GetBytes(keyText + "\0");
+            firstWord ??= wordBytes;
+            lastWord = wordBytes;
+            WriteNumber(keysStream, recordOffset);
+            keysStream.Write(wordBytes);
+            var recordBytes = encoding.GetBytes(valueText + "\0");
+            recordsStream.Write(recordBytes);
+            recordOffset += recordBytes.Length;
         }
-        WriteNumber(info, key.Length + 8);
-        WriteNumber(info, key.Length);
+        var keyBlock = keysStream.ToArray();
+        var recordBlock = recordsStream.ToArray();
+
+        using var info = new MemoryStream();
+        WriteNumber(info, items.Count);
+        WriteNumber(info, items[0].Key.Length, 2);
+        info.Write(firstWord!);
+        WriteNumber(info, items[^1].Key.Length, 2);
+        info.Write(lastWord!);
+        WriteNumber(info, keyBlock.Length + 8);
+        WriteNumber(info, keyBlock.Length);
         using var compressed = new MemoryStream();
         compressed.Write(new byte[] { 2, 0, 0, 0 });
         WriteNumber(compressed, Adler(info.ToArray()), 4);
         using (var zlib = new ZLibStream(compressed, CompressionLevel.Fastest, true)) info.WriteTo(zlib);
         using var numbers = new MemoryStream();
-        foreach (var number in new long[] { 1, 1, info.Length, compressed.Length, key.Length + 8 }) WriteNumber(numbers, number);
+        foreach (var number in new long[] { 1, items.Count, info.Length, compressed.Length, keyBlock.Length + 8 }) WriteNumber(numbers, number);
         numbers.WriteTo(output);
         WriteNumber(output, Adler(numbers.ToArray()), 4);
         compressed.WriteTo(output);
         output.Write(new byte[8]); // uncompressed block marker and unused checksum
-        output.Write(key);
-        foreach (var number in new long[] { 1, 1, 16, record.Length + 8, record.Length + 8, record.Length }) WriteNumber(output, number);
+        output.Write(keyBlock);
+        foreach (var number in new long[] { 1, items.Count, 16, recordBlock.Length + 8, recordBlock.Length + 8, recordBlock.Length }) WriteNumber(output, number);
         output.Write(new byte[8]);
-        output.Write(record);
+        output.Write(recordBlock);
         return output.ToArray();
     }
 

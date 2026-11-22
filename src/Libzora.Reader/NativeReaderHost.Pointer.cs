@@ -37,8 +37,11 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         // Only a genuine double-click supersedes the deferred first click.
         // Cancelling on every press swallowed the first of two independent
         // single clicks that happened to land within the double-click window.
-        if (e.ClickCount > 1)
+        if (e.ClickCount > 1
+            && (!_settings.MangaMode || GetPageClickSide(e.GetPosition(this)) is null || IsScroll || _mangaZoom > 1.01))
+        {
             CancelPendingPageClick();
+        }
         if (IsOverScrollBar(e.GetPosition(this)))
         {
             return;
@@ -319,24 +322,31 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
 
         // Resolve a mouse double-click only after release. Opening the popup
         // on press would steal input from a possible drag on the second click.
+        // In paginated manga mode at 100% zoom, keep outer-third double-clicks
+        // turning pages so rapid clicks never trap the reader in 200% zoom;
+        // double-clicking the center third (or anywhere while zoomed/Webtoon)
+        // toggles zoom.
+        var allowMangaDoubleClickZoom = clickSide is null || IsScroll || _mangaZoom > 1.01;
         if (!wasDrag && insideSurface && e.Pointer.Type == PointerType.Mouse
             && _pointerClickCount >= 2)
         {
             if (_settings.MangaMode)
             {
-                var nextZoom = _mangaZoom > 1.05 ? 1.0 : 2.0;
-                SetMangaZoom(nextZoom, position);
-                _wordSelectionActive = false;
-                _selectionAnchor = -1;
-                _selectionActiveOffset = -1;
-                _selectionStart = -1;
-                _selectionEnd = -1;
-                _pointerDownOffset = -1;
-                e.Handled = true;
-                return;
+                if (allowMangaDoubleClickZoom)
+                {
+                    var nextZoom = _mangaZoom > 1.05 ? 1.0 : 2.0;
+                    SetMangaZoom(nextZoom, position);
+                    _wordSelectionActive = false;
+                    _selectionAnchor = -1;
+                    _selectionActiveOffset = -1;
+                    _selectionStart = -1;
+                    _selectionEnd = -1;
+                    _pointerDownOffset = -1;
+                    e.Handled = true;
+                    return;
+                }
             }
-
-            if (releasedMap is { } zoomMap && TryEmitImageZoom(zoomMap.Page, zoomMap.Local))
+            else if (releasedMap is { } zoomMap && TryEmitImageZoom(zoomMap.Page, zoomMap.Local))
             {
                 _wordSelectionActive = false;
                 _selectionAnchor = -1;
@@ -390,7 +400,8 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
             var overBlockImage = releasedMap is { } imageMap
                 && IsBlockImageAt(imageMap.Page, imageMap.Local);
             EmitPageClick(clickSide, IsPaginated
-                && (_pointerDownOffset >= 0 || overBlockImage || _settings.MangaMode)
+                && !_settings.MangaMode
+                && (_pointerDownOffset >= 0 || overBlockImage)
                 && e.Pointer.Type == PointerType.Mouse);
         }
         else if (_pointerDownOffset >= 0)
@@ -482,13 +493,14 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         CancelPendingPageClick();
         _lastImageTapAt = DateTimeOffset.MinValue;
         var ctrl = (e.KeyModifiers & (KeyModifiers.Control | KeyModifiers.Meta)) != 0;
-        if (ctrl && _settings.MangaMode && e.Key is Key.D0 or Key.NumPad0)
+        var noShiftOrAlt = (e.KeyModifiers & (KeyModifiers.Shift | KeyModifiers.Alt)) == 0;
+        if (ctrl && noShiftOrAlt && _settings.MangaMode && e.Key is Key.D0 or Key.NumPad0)
         {
             ResetMangaZoom();
             e.Handled = true;
             return;
         }
-        if (ctrl && e.Key is Key.F or Key.B)
+        if (ctrl && noShiftOrAlt && e.Key is Key.F or Key.B)
         {
             Emit(new { type = "shortcut", key = e.Key == Key.F ? "f" : "b", ctrlKey = true });
             e.Handled = true;

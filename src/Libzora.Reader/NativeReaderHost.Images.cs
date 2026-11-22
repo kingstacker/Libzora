@@ -49,6 +49,14 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
                     paths.Add(image.Path);
             }
         }
+        if (IsShowingCompanionSpread && _spreadCompanionLayout is { Pages.Count: > 0 } companion)
+        {
+            foreach (var image in companion.Pages[0].Images)
+            {
+                if (!string.IsNullOrWhiteSpace(image.Path) && seen.Add(image.Path))
+                    paths.Add(image.Path);
+            }
+        }
         if (paths.Count == 0) return;
 
         var warmCrop = manga && _settings.MangaAutoCrop;
@@ -210,6 +218,144 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         }
 
         return bands.Count > 0 ? bands : null;
+    }
+
+    public void SetResumeMarker(ReaderResumeMarker? marker)
+    {
+        if (Equals(_resumeMarker, marker)) return;
+        _resumeMarker = marker;
+        _bitmapDirty = true;
+        InvalidateVisual();
+    }
+
+    private TypesetResumeMarker? ResumeMarkerFor(LayoutPage page)
+    {
+        if (_resumeMarker is not { } marker || _layout is null || _content is null)
+        {
+            return null;
+        }
+
+        if (marker.ContentPosition is { } pos)
+        {
+            if (pos.ImageIndex is { } imageOrdinal)
+            {
+                var offset = 0;
+                foreach (var item in _layout.Pages)
+                {
+                    if (item.Index == page.Index)
+                    {
+                        var localIndex = imageOrdinal - offset;
+                        return localIndex >= 0 && localIndex < page.Images.Count
+                            ? new TypesetResumeMarker(page.Images[localIndex].Rect, IsImage: true)
+                            : null;
+                    }
+                    offset += item.Images.Count;
+                }
+                return null;
+            }
+
+            if (pos.TextOffset >= 0)
+            {
+                if (_layout.GetPageIndexOfOffset(pos.TextOffset) != page.Index)
+                {
+                    return null;
+                }
+
+                return BuildTextResumeMarker(page, pos.TextOffset);
+            }
+        }
+
+        var fallbackPage = ResolveFallbackResumeMarkerPage(marker);
+        if (fallbackPage != page.Index)
+        {
+            return null;
+        }
+
+        var firstRun = page.Runs.FirstOrDefault(run => run.TextStart >= 0 && run.TextLength > 0);
+        if (firstRun is not null)
+        {
+            return BuildTextResumeMarker(page, firstRun.TextStart);
+        }
+
+        return page.Images.Count > 0
+            ? new TypesetResumeMarker(page.Images[0].Rect, IsImage: true)
+            : null;
+    }
+
+    private int ResolveFallbackResumeMarkerPage(ReaderResumeMarker marker)
+    {
+        if (_layout is null || _layout.Pages.Count == 0) return -1;
+        if (!string.IsNullOrWhiteSpace(marker.Fragment))
+        {
+            var fragmentPage = _layout.GetPageIndexOfFragment(NormalizeFragment(marker.Fragment));
+            if (fragmentPage >= 0) return fragmentPage;
+        }
+        if (IsScroll)
+        {
+            var height = Math.Max(1, _layout.Pages[0].Height);
+            return Math.Clamp((int)(marker.ScrollPosition / height), 0, _layout.Pages.Count - 1);
+        }
+        return _pageIndex;
+    }
+
+    private TypesetResumeMarker? BuildTextResumeMarker(LayoutPage page, int textOffset)
+    {
+        if (_layout is null || _content is null) return null;
+        var body = _content.BodyText;
+        if (body.Length == 0)
+        {
+            return page.Images.Count > 0
+                ? new TypesetResumeMarker(page.Images[0].Rect, IsImage: true)
+                : null;
+        }
+
+        var pageEnd = page.TextEndOffset > textOffset ? Math.Min(page.TextEndOffset, body.Length) : body.Length;
+        var scanLimit = Math.Min(pageEnd, textOffset + 48);
+        var anchorOffset = -1;
+        SKRect? anchorRect = null;
+        for (var offset = Math.Clamp(textOffset, 0, body.Length - 1); offset < scanLimit; offset++)
+        {
+            if (_layout.GetCharRect(page.Index, offset) is { } rect)
+            {
+                anchorOffset = offset;
+                anchorRect = rect;
+                break;
+            }
+        }
+
+        if (anchorRect is null)
+        {
+            var run = page.Runs.FirstOrDefault(r => r.TextStart >= 0 && r.TextLength > 0);
+            if (run is not null && _layout.GetCharRect(page.Index, run.TextStart) is { } fallbackRect)
+            {
+                anchorOffset = run.TextStart;
+                anchorRect = fallbackRect;
+            }
+        }
+
+        if (anchorRect is null || anchorOffset < 0)
+        {
+            return page.Images.Count > 0
+                ? new TypesetResumeMarker(page.Images[0].Rect, IsImage: true)
+                : null;
+        }
+
+        var highlightEnd = Math.Min(pageEnd, anchorOffset + 12);
+        var length = 0;
+        while (anchorOffset + length < highlightEnd && body[anchorOffset + length] is not ('\n' or '\r'))
+        {
+            length++;
+        }
+
+        var bands = length > 0
+            ? _layout.GetOverlayRects(page.Index, anchorOffset, length)
+            : [];
+        if (bands.Count > 1)
+        {
+            bands = [bands[0]];
+        }
+
+        return new TypesetResumeMarker(anchorRect.Value, bands);
     }
 
     // ---- input and bridge protocol ----------------------------------------

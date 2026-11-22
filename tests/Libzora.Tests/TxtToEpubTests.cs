@@ -274,6 +274,159 @@ public sealed class TxtToEpubTests
         finally { TestHelpers.TryDelete(root); }
     }
 
+    [Fact]
+    public async Task RecognizesExpandedChineseEnglishVolumesEpisodesAndBrackets()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var source = Path.Combine(root, "expanded.txt");
+            await File.WriteAllTextAsync(source, string.Join("\n",
+                "Prologue",
+                "Opening background.",
+                "卷一 起风了",
+                "【第一话 启程】",
+                "正文开始。",
+                "Part 2 Journey",
+                "Second section.",
+                "番外一 日常",
+                "Bonus story.",
+                "Epilogue",
+                "Closing lines."));
+            var epub = Path.Combine(root, "expanded.epub");
+            await TxtToEpubService.ConvertAsync(source, epub);
+            using var zip = ZipFile.OpenRead(epub);
+            XNamespace ns = "http://www.w3.org/1999/xhtml";
+            Assert.Equal(
+                ["Prologue", "卷一 起风了", "第一话 启程", "Part 2 Journey", "番外一 日常", "Epilogue"],
+                ReadXml(zip, "OEBPS/nav.xhtml").Descendants(ns + "a").Select(a => a.Value).ToArray());
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
+    public async Task TrimsChapterBlankLinesAndSkipsEmptyNonVolumeChapters()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var source = Path.Combine(root, "blank-gaps.txt");
+            await File.WriteAllTextAsync(source, string.Join("\n",
+                "",
+                "目录占位",
+                "第一章 占位",
+                "",
+                "第二章 占位",
+                "",
+                "第一章 真实开篇",
+                "",
+                "",
+                "第一段内容。",
+                "",
+                "",
+                "",
+                "第二段内容。",
+                "",
+                "",
+                "",
+                "第二章 下一章",
+                "",
+                "下一章正文。",
+                "",
+                ""));
+            var epub = Path.Combine(root, "blank-gaps.epub");
+            await TxtToEpubService.ConvertAsync(source, epub);
+            using var zip = ZipFile.OpenRead(epub);
+            XNamespace ns = "http://www.w3.org/1999/xhtml";
+            Assert.Equal(
+                ["前言", "第一章 真实开篇", "第二章 下一章"],
+                ReadXml(zip, "OEBPS/nav.xhtml").Descendants(ns + "a").Select(a => a.Value).ToArray());
+
+            var chapter1 = ReadXml(zip, "OEBPS/chapter-00002.xhtml");
+            var paragraphs = chapter1.Descendants(ns + "p").ToArray();
+            Assert.Equal(3, paragraphs.Length);
+            Assert.Equal("第一段内容。", paragraphs[0].Value);
+            Assert.NotNull(paragraphs[1].Element(ns + "br"));
+            Assert.Equal("第二段内容。", paragraphs[2].Value);
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
+    public async Task ConvertedTxtHonorsParagraphIndentToggleAndJustifiesRightMargin()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var source = Path.Combine(root, "indent-and-justify.txt");
+            await File.WriteAllTextAsync(source, string.Join("\n",
+                "第1章 黑影",
+                "\u3000\u3000李夜来甚至可以透过浓雾，依稀看到那黑影扭曲的体态，无数触手自其身后蔓延扭动，一张张模糊的面容或诡异的肢体在其身上浮现沉沦。在更深处的光影中，则是有着四道粗壮的锁链伸出死死拖拽着黑影，约束着它的前进。",
+                "\u3000\u3000三号边境城，老城区的一间公寓中，一位相貌清秀的青年在睡梦中忽然惊醒。"));
+            var epub = Path.Combine(root, "indent-and-justify.epub");
+            await TxtToEpubService.ConvertAsync(source, epub);
+
+            var extract = Path.Combine(root, "epub");
+            ZipFile.ExtractToDirectory(epub, extract);
+            var chapterPath = Path.Combine(extract, "OEBPS", "chapter-00001.xhtml");
+            var css = await File.ReadAllTextAsync(Path.Combine(extract, "OEBPS", "style.css"));
+            Assert.DoesNotContain("pre-wrap", css, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("text-indent", css, StringComparison.OrdinalIgnoreCase);
+
+            var noIndent = new Libzora.Layout.XhtmlChapterLoader(paragraphIndent: false).Load(chapterPath);
+            var withIndent = new Libzora.Layout.XhtmlChapterLoader(paragraphIndent: true).Load(chapterPath);
+            Assert.DoesNotContain("\u3000", noIndent.BodyText);
+            Assert.All(noIndent.Blocks.Where(b => b.Kind == Libzora.Layout.BlockKind.Paragraph), b =>
+            {
+                Assert.True(b.Justify);
+                Assert.Equal(0f, b.TextIndentEm);
+            });
+            Assert.All(withIndent.Blocks.Where(b => b.Kind == Libzora.Layout.BlockKind.Paragraph), b =>
+            {
+                Assert.True(b.Justify);
+                Assert.Equal(2f, b.TextIndentEm);
+            });
+
+            var fontDir = new DirectoryInfo(AppContext.BaseDirectory);
+            string? fontPath = null;
+            while (fontDir is not null)
+            {
+                var candidate = Path.Combine(fontDir.FullName, "src", "Libzora.App", "Assets", "Fonts", "KingHwaOldSong-v3.0.ttf");
+                if (File.Exists(candidate)) { fontPath = candidate; break; }
+                fontDir = fontDir.Parent;
+            }
+            Assert.NotNull(fontPath);
+            using var fonts = new Libzora.Layout.TypesetFontLibrary(fontPath!);
+            using var engine = new Libzora.Layout.TypesetEngine(fonts, ownsFonts: false);
+            var options = new Libzora.Layout.TypesetLayoutOptions
+            {
+                ViewportWidth = 342f,
+                ViewportHeight = 760f,
+                InsetHorizontal = 24f,
+                InsetVertical = 24f,
+                BaseFontSize = 21.6f,
+                LineHeight = 1.75f,
+                ParagraphIndent = true,
+                AlignLeft = false
+            };
+            var layout = engine.Compose(withIndent, options);
+            var page = Assert.Single(layout.Pages);
+            var bodyLines = page.Runs
+                .GroupBy(r => MathF.Round(r.OriginY, 1))
+                .OrderBy(g => g.Key)
+                .Skip(1) // skip heading
+                .Select(g => (MinX: g.Min(r => r.OriginX), MaxRight: g.Max(r => r.OriginX + r.FlowAdvance)))
+                .ToArray();
+            var contentRight = options.ViewportWidth - options.InsetHorizontal;
+            Assert.True(bodyLines[0].MinX > options.InsetHorizontal + options.BaseFontSize * 1.5f);
+            Assert.Equal(options.InsetHorizontal, bodyLines[1].MinX, 1.5f);
+            // Non-final wrapped lines extend flush to the right margin via justification.
+            Assert.InRange(bodyLines[0].MaxRight, contentRight - 4f, contentRight + 10f);
+            Assert.InRange(bodyLines[1].MaxRight, contentRight - 4f, contentRight + 10f);
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
     private static XDocument ReadXml(ZipArchive zip, string path)
     {
         using var stream = zip.GetEntry(path)!.Open();

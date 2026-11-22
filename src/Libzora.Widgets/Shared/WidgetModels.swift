@@ -4,60 +4,74 @@ import Foundation
 /// with the C# records; the extension only consumes the file and never writes
 /// app data back.
 struct KkSnapshot: Decodable {
+    /// Interface font mirrored from the host app (`0` = KingHwaOldSong, `1` = system default).
+    /// Optional so snapshots produced by older app versions decode as the bundled font.
+    let uiFont: Int?
     let continueReading: KkBook?
     /// In-progress books ordered by the moment they were last read. Newer
     /// publishers always send it; older snapshots fall back to continueReading.
     let continueBooks: [KkBook]?
     let reading: KkReading
 
-    static let sample = KkSnapshot(
-        continueReading: sampleBooks[0],
-        continueBooks: sampleBooks,
-        reading: KkReading(
-            todaySeconds: 2_460,
-            streakDays: 7,
-            weekSeconds: 14_760,
-            totalSeconds: 186_480,
-            booksStarted: 18,
-            booksFinished: 6,
-            bookmarkCount: 24,
-            annotationCount: 81,
-            days: [
-                KkDay(date: "2026-11-06", seconds: 1_200),
-                KkDay(date: "2026-11-07", seconds: 2_820),
-                KkDay(date: "2026-11-08", seconds: 900),
-                KkDay(date: "2026-11-09", seconds: 3_480),
-                KkDay(date: "2026-11-10", seconds: 1_980),
-                KkDay(date: "2026-11-11", seconds: 3_900),
-                KkDay(date: "2026-11-12", seconds: 2_460)
-            ]))
+    var useSystemFont: Bool { uiFont == 1 }
 
-    private static let sampleBooks = [
-        KkBook(
-            id: "6B1A2D5E-3C4F-4A6B-8C9D-0E1F2A3B4C5D",
-            title: "夜航西飞",
-            authors: "柏瑞尔·马卡姆",
-            progress: 42,
-            cover: nil),
-        KkBook(
-            id: "7C2B3E6F-4D5A-4B7C-9DAE-1F2A3B4C5D6E",
-            title: "银河系漫游指南",
-            authors: "道格拉斯·亚当斯",
-            progress: 68,
-            cover: nil),
-        KkBook(
-            id: "8D3C4F7A-5E6B-4C8D-AEBF-2A3B4C5D6E7F",
-            title: "百年孤独",
-            authors: "加西亚·马尔克斯",
-            progress: 12,
-            cover: nil),
-        KkBook(
-            id: "9E4D5A8B-6F7C-4D9E-BFC0-3B4C5D6E7F80",
-            title: "万有引力之虹",
-            authors: "托马斯·品钦",
-            progress: 87,
-            cover: nil)
-    ]
+    static var sample: KkSnapshot { sample(isChinese: KkFormat.isChinese) }
+
+    static func sample(isChinese: Bool) -> KkSnapshot {
+        let books = sampleBooks(isChinese: isChinese)
+        return KkSnapshot(
+            uiFont: 0,
+            continueReading: books[0],
+            continueBooks: books,
+            reading: KkReading(
+                todaySeconds: 2_460,
+                streakDays: 7,
+                weekSeconds: 14_760,
+                totalSeconds: 186_480,
+                booksStarted: 18,
+                booksFinished: 6,
+                bookmarkCount: 24,
+                annotationCount: 81,
+                days: [
+                    KkDay(date: "2026-11-06", seconds: 1_200),
+                    KkDay(date: "2026-11-07", seconds: 2_820),
+                    KkDay(date: "2026-11-08", seconds: 900),
+                    KkDay(date: "2026-11-09", seconds: 3_480),
+                    KkDay(date: "2026-11-10", seconds: 1_980),
+                    KkDay(date: "2026-11-11", seconds: 3_900),
+                    KkDay(date: "2026-11-12", seconds: 2_460)
+                ]))
+    }
+
+    private static func sampleBooks(isChinese: Bool) -> [KkBook] {
+        let author = isChinese ? "示例作者" : "Sample Author"
+        return [
+            KkBook(
+                id: "6B1A2D5E-3C4F-4A6B-8C9D-0E1F2A3B4C5D",
+                title: isChinese ? "示例书籍一" : "Sample Book 1",
+                authors: author,
+                progress: 42,
+                cover: nil),
+            KkBook(
+                id: "7C2B3E6F-4D5A-4B7C-9DAE-1F2A3B4C5D6E",
+                title: isChinese ? "示例书籍二" : "Sample Book 2",
+                authors: author,
+                progress: 68,
+                cover: nil),
+            KkBook(
+                id: "8D3C4F7A-5E6B-4C8D-AEBF-2A3B4C5D6E7F",
+                title: isChinese ? "示例书籍三" : "Sample Book 3",
+                authors: author,
+                progress: 12,
+                cover: nil),
+            KkBook(
+                id: "9E4D5A8B-6F7C-4D9E-BFC0-3B4C5D6E7F80",
+                title: isChinese ? "示例书籍四" : "Sample Book 4",
+                authors: author,
+                progress: 87,
+                cover: nil)
+        ]
+    }
 }
 
 struct KkBook: Decodable, Identifiable {
@@ -133,10 +147,22 @@ enum KkFormat {
         return isChinese ? "不到 1 分钟" : "<1 min"
     }
 
-    static func compactHours(_ seconds: Int64) -> String {
-        let hours = Double(max(0, seconds)) / 3_600
-        if hours < 1 { return duration(seconds) }
-        let value = hours >= 10 ? String(format: "%.0f", hours) : String(format: "%.1f", hours)
+    static func compactHours(_ seconds: Int64, isChinese: Bool = KkFormat.isChinese) -> String {
+        let clamped = max(0, seconds)
+        if clamped == 0 { return isChinese ? "0 分钟" : "0 min" }
+        if clamped < 60 { return isChinese ? "<1 分钟" : "<1 min" }
+        let hours = Double(clamped) / 3_600
+        if hours < 1 {
+            let minutes = Int(clamped / 60)
+            return isChinese ? "\(minutes) 分钟" : "\(minutes) min"
+        }
+        let roundedTenths = (hours * 10).rounded() / 10
+        let value: String
+        if roundedTenths >= 10 || roundedTenths == roundedTenths.rounded() {
+            value = String(format: "%.0f", roundedTenths)
+        } else {
+            value = String(format: "%.1f", roundedTenths)
+        }
         return isChinese ? "\(value) 小时" : "\(value) hr"
     }
 

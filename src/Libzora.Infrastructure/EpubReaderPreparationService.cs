@@ -108,8 +108,9 @@ public sealed partial class EpubReaderPreparationService
             // older sanitizer and would leave bridge changes version-skewed.
             try
             {
-                await ExtractSafelyAsync(epubPath, cacheRoot, cancellationToken);
-                await SanitizeExtractedResourcesAsync(cacheRoot, cancellationToken);
+                var sanitizedDuringExtract = await ExtractSafelyAsync(epubPath, cacheRoot, cancellationToken);
+                if (!sanitizedDuringExtract)
+                    await SanitizeExtractedResourcesAsync(cacheRoot, cancellationToken);
                 await File.WriteAllTextAsync(
                     extractionReadyPath,
                     $"{cacheKey}\n{ExtractionFormatVersion}",
@@ -155,6 +156,7 @@ public sealed partial class EpubReaderPreparationService
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
 
         var packageDirectory = Path.GetDirectoryName(packagePath)!;
+        var normalizedCacheRoot = NormalizeRootPath(cacheRoot);
         var chapters = new List<string>();
         foreach (var itemRef in package.Descendants().Where(element => element.Name.LocalName == "itemref"))
         {
@@ -164,7 +166,7 @@ public sealed partial class EpubReaderPreparationService
             if (item.MediaType is not ("application/xhtml+xml" or "text/html")) continue;
 
             var href = Uri.UnescapeDataString(item.Href!.Split('#')[0]);
-            var chapterPath = ResolvePublicationPath(packageDirectory, cacheRoot, href);
+            var chapterPath = ResolvePublicationPathNormalized(packageDirectory, normalizedCacheRoot, href);
             if (File.Exists(chapterPath)) chapters.Add(chapterPath);
         }
 

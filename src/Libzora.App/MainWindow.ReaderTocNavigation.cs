@@ -128,6 +128,8 @@ public partial class MainWindow
         HideReaderSelectionPopup();
         if (!ReaderNavigationLocationPolicy.UsesRestorePosition(intent))
             _readerRestoredProgress = null;
+        if (intent != ReaderNavigationIntent.None)
+            ClearActiveReaderSyncedMarker();
         ResetReaderContinuousEdgeTracking();
         var linuxFallbackStartsAtTarget = UseLinuxPlainTextRecoveryFallback
             && OperatingSystem.IsLinux()

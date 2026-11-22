@@ -20,20 +20,23 @@ struct KkProvider: TimelineProvider {
         return KkEntry(
             date: Date(),
             snapshot: snapshot,
-            hasData: snapshot != nil)
+            hasData: snapshot != nil,
+            isPlaceholder: false)
     }
 }
 
 struct KkContinueWidget: Widget {
     let kind = "LibzoraContinue"
+    private var isChinese: Bool { KkFormat.isChinese }
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: KkProvider()) { entry in
             KkContinueWidgetView(entry: entry)
+                .environment(\.kkUseSystemFont, entry.snapshot?.useSystemFont ?? false)
                 .lzWidgetBackground()
         }
-        .configurationDisplayName("继续阅读")
-        .description("在读的几本书，点哪一本就从哪一本继续。")
+        .configurationDisplayName(isChinese ? "继续阅读" : "Continue Reading")
+        .description(isChinese ? "在读的几本书，点哪一本就从哪一本继续。" : "Jump right back into the books you are reading.")
         .supportedFamilies(families)
         .contentMarginsDisabled()
     }
@@ -49,14 +52,16 @@ struct KkContinueWidget: Widget {
 
 struct KkStatsWidget: Widget {
     let kind = "LibzoraStats"
+    private var isChinese: Bool { KkFormat.isChinese }
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: KkProvider()) { entry in
             KkStatsWidgetView(entry: entry)
+                .environment(\.kkUseSystemFont, entry.snapshot?.useSystemFont ?? false)
                 .lzWidgetBackground()
         }
-        .configurationDisplayName("阅读数据")
-        .description("本周阅读时长、连续天数、读完的书与笔记数量。")
+        .configurationDisplayName(isChinese ? "阅读数据" : "Reading Stats")
+        .description(isChinese ? "本周阅读时长、连续天数、读完的书与笔记数量。" : "Track daily reading time, streak, finished books, and notes.")
         .supportedFamilies([.systemMedium, .systemLarge])
         .contentMarginsDisabled()
     }
@@ -64,14 +69,16 @@ struct KkStatsWidget: Widget {
 
 struct KkReadingTreeWidget: Widget {
     let kind = "LibzoraTree"
+    private var isChinese: Bool { KkFormat.isChinese }
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: KkProvider()) { entry in
             KkReadingTreeWidgetView(entry: entry)
+                .environment(\.kkUseSystemFont, entry.snapshot?.useSystemFont ?? false)
                 .lzWidgetBackground()
         }
-        .configurationDisplayName("阅读之树")
-        .description("累计阅读浇灌小树苗，枝繁叶茂、开花结果。")
+        .configurationDisplayName(isChinese ? "阅读之树" : "Reading Tree")
+        .description(isChinese ? "累计阅读浇灌小树苗，枝繁叶茂、开花结果。" : "Watch your reading tree grow, blossom, and bear fruit.")
         .supportedFamilies([.systemSmall, .systemMedium])
         .contentMarginsDisabled()
     }

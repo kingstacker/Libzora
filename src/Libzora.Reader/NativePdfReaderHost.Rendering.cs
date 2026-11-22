@@ -179,12 +179,81 @@ public sealed partial class NativePdfReaderHost
                     context.DrawImage(SelectionInversionPixel.Value, selection.Bounds);
                 }
             }
+            DrawResumeMarker(context, page, pageNumber);
         }
 
         if (_annotationCalloutVisible && _annotationCallout is { } callout)
             DrawAnnotationCalloutConnector(context, callout.Anchor, callout.Bounds, _palette.Ink);
         foreach (var additional in _additionalAnnotationConnectors)
             DrawAnnotationCalloutConnector(context, additional.Anchor, additional.Bounds, _palette.Ink);
+    }
+
+    public void SetResumeMarker(ReaderResumeMarker? marker)
+    {
+        if (Equals(_resumeMarker, marker)) return;
+        _resumeMarker = marker;
+        InvalidateVisual();
+    }
+
+    private void DrawResumeMarker(DrawingContext context, Rect page, int pageNumber)
+    {
+        if (_resumeMarker is not { } marker || marker.ChapterIndex + 1 != pageNumber)
+            return;
+
+        var size = GetUnrotatedPageSize(page);
+        var isDark = _palette.Page.R < 80;
+        var accent = isDark ? Color.FromArgb(225, 245, 158, 11) : Color.FromArgb(225, 217, 119, 6);
+        var accentBrush = new SolidColorBrush(accent);
+        var borderPen = new Pen(new SolidColorBrush(Color.FromArgb(200, _palette.Page.R, _palette.Page.G, _palette.Page.B)), 1);
+
+        if (TryParsePdfPanY(marker.Fragment, out var panYFraction) && panYFraction is > 0.03 and < 0.95)
+        {
+            var y = Math.Clamp(panYFraction * size.Height, 6, Math.Max(6, size.Height - 6));
+            var guidePen = new Pen(
+                new SolidColorBrush(Color.FromArgb(140, accent.R, accent.G, accent.B)),
+                1.25,
+                new DashStyle([5, 4], 0));
+            context.DrawLine(guidePen, new Point(14, y), new Point(size.Width - 6, y));
+
+            var tag = new StreamGeometry();
+            using (var gc = tag.Open())
+            {
+                gc.BeginFigure(new Point(0, y - 5), true);
+                gc.LineTo(new Point(10, y - 5));
+                gc.LineTo(new Point(15, y));
+                gc.LineTo(new Point(10, y + 5));
+                gc.LineTo(new Point(0, y + 5));
+                gc.EndFigure(true);
+            }
+            context.DrawGeometry(accentBrush, borderPen, tag);
+            return;
+        }
+
+        const double width = 14;
+        const double height = 24;
+        var x = Math.Max(6, size.Width - width - 16);
+        var ribbon = new StreamGeometry();
+        using (var gc = ribbon.Open())
+        {
+            gc.BeginFigure(new Point(x, 0), true);
+            gc.LineTo(new Point(x + width, 0));
+            gc.LineTo(new Point(x + width, height));
+            gc.LineTo(new Point(x + width * 0.5, height - 5.5));
+            gc.LineTo(new Point(x, height));
+            gc.EndFigure(true);
+        }
+        context.DrawGeometry(accentBrush, borderPen, ribbon);
+    }
+
+    private static bool TryParsePdfPanY(string? fragment, out double panY)
+    {
+        panY = 0;
+        if (string.IsNullOrWhiteSpace(fragment) || !fragment.StartsWith("pdf-view:", StringComparison.Ordinal))
+            return false;
+        var parts = fragment[9..].Split(';');
+        return parts.Length >= 3
+            && double.TryParse(parts[2], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out panY)
+            && double.IsFinite(panY);
     }
 
     private static void DrawAnnotationCalloutConnector(DrawingContext context, Point anchor, Rect bounds, Color color)

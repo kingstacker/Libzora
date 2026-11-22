@@ -36,7 +36,8 @@ public static class WidgetSnapshotPublisher
         bool colorfulMode,
         int themeMode,
         string sharedRoot,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        int uiFont = 0)
     {
         ArgumentNullException.ThrowIfNull(paths);
         ArgumentNullException.ThrowIfNull(library);
@@ -118,11 +119,13 @@ public static class WidgetSnapshotPublisher
             ? annotationBook
             : null;
 
+        var normalizedUiFont = Enum.IsDefined((AppUiFont)uiFont) ? uiFont : 0;
         var snapshot = new WidgetSnapshot(
             Version: 1,
             GeneratedAt: DateTimeOffset.UtcNow.ToString("O"),
             ColorfulMode: colorfulMode,
             ThemeMode: themeMode,
+            UiFont: normalizedUiFont,
             ContinueReading: continueBook is null ? null : ToWidgetBook(
                 continueBook, progress.GetValueOrDefault(continueBook.Id), publishedCovers),
             ContinueBooks: continueBooks.Select(book => ToWidgetBook(
@@ -269,6 +272,7 @@ public static class WidgetSnapshotPublisher
         string GeneratedAt,
         bool ColorfulMode,
         int ThemeMode,
+        int UiFont,
         WidgetBook? ContinueReading,
         IReadOnlyList<WidgetBook> ContinueBooks,
         IReadOnlyList<WidgetBook> Books,

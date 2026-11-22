@@ -5,11 +5,22 @@ struct KkEntry: TimelineEntry {
     let date: Date
     let snapshot: KkSnapshot?
     let hasData: Bool
+    let isPlaceholder: Bool
 
-    static let placeholder = KkEntry(
-        date: Date(),
-        snapshot: .sample,
-        hasData: true)
+    init(date: Date, snapshot: KkSnapshot?, hasData: Bool, isPlaceholder: Bool = false) {
+        self.date = date
+        self.snapshot = snapshot
+        self.hasData = hasData
+        self.isPlaceholder = isPlaceholder
+    }
+
+    static var placeholder: KkEntry {
+        KkEntry(
+            date: Date(),
+            snapshot: .sample,
+            hasData: true,
+            isPlaceholder: true)
+    }
 }
 
 struct KkContinueWidgetView: View {
@@ -17,6 +28,7 @@ struct KkContinueWidgetView: View {
     @Environment(\.widgetFamily) private var family
     @Environment(\.colorScheme) private var scheme
 
+    private var isChinese: Bool { KkFormat.isChinese }
     private var book: KkBook? { entry.snapshot?.continueReading }
     /// In-progress books, newest reading first. Newer snapshots list several;
     /// older ones fall back to the single continueReading book.
@@ -25,7 +37,7 @@ struct KkContinueWidgetView: View {
         return book.map { [$0] } ?? []
     }
     private var url: URL? {
-        guard let id = book?.id else { return nil }
+        guard !entry.isPlaceholder, let id = book?.id else { return nil }
         return URL(string: "libzora://read/\(id)")
     }
 
@@ -36,9 +48,11 @@ struct KkContinueWidgetView: View {
             case .accessoryRectangular:
                 accessoryRectangular
             case .accessoryInline:
-                Label(book.map { "继续阅读《\($0.title)》" } ?? "打开 Libzora 开始阅读",
-                      systemImage: "book")
-                    .font(KkTheme.body(12))
+                Label(
+                    book.map { isChinese ? "继续阅读《\($0.title)》" : "Continue \($0.title)" }
+                        ?? (isChinese ? "打开 Libzora 开始阅读" : "Open Libzora to read"),
+                    systemImage: "book")
+                    .kkBodyFont(12)
             default:
                 homeContent
             }
@@ -52,7 +66,9 @@ struct KkContinueWidgetView: View {
     @ViewBuilder
     private var homeContent: some View {
         if !entry.hasData {
-            KkEmptyState(title: "继续阅读", message: "打开 Libzora，开始阅读")
+            KkEmptyState(
+                title: isChinese ? "继续阅读" : "Continue Reading",
+                message: isChinese ? "打开 Libzora，开始阅读" : "Open Libzora to start reading")
         } else if !books.isEmpty {
             if family == .systemMedium {
                 medium(books)
@@ -60,7 +76,9 @@ struct KkContinueWidgetView: View {
                 small(books[0])
             }
         } else {
-            KkEmptyState(title: "书架还空着", message: "导入一本书，开始阅读")
+            KkEmptyState(
+                title: isChinese ? "书架还空着" : "Empty Shelf",
+                message: isChinese ? "导入一本书，开始阅读" : "Import a book to start reading")
         }
     }
 
@@ -68,11 +86,11 @@ struct KkContinueWidgetView: View {
         VStack(alignment: .leading, spacing: 0) {
             heading
             Spacer(minLength: 8)
-            HStack(alignment: .center, spacing: 10) {
-                KkCover(book: book, width: 52, height: 74)
+            HStack(alignment: .center, spacing: 9) {
+                KkCover(book: book, width: 50, height: 72, blankPlaceholder: entry.isPlaceholder)
                 VStack(alignment: .leading, spacing: 5) {
                     Text(book.title)
-                        .font(KkTheme.title(14))
+                        .kkTitleFont(13)
                         .foregroundStyle(KkTheme.ink(scheme))
                         .lineLimit(3)
                         .minimumScaleFactor(0.85)
@@ -83,7 +101,7 @@ struct KkContinueWidgetView: View {
             Spacer(minLength: 10)
             progress(book, compact: true)
         }
-        .padding(16)
+        .padding(14)
     }
 
     /// The medium widget arranges up to four actively-read books horizontally so
@@ -99,9 +117,9 @@ struct KkContinueWidgetView: View {
                 let verticalPadding: CGFloat = 12
                 let spacing: CGFloat = 10
                 let availableWidth = max(120, geometry.size.width - horizontalPadding * 2)
-                let slotWidth = floor((availableWidth - spacing * 3) / 4)
+                let slotWidth = (availableWidth - spacing * 3) / 4
                 let availableHeight = max(80, geometry.size.height - verticalPadding * 2)
-                let maxCoverHeight = max(44, availableHeight - 52)
+                let maxCoverHeight = max(44, availableHeight - 58)
                 let coverHeight = min(maxCoverHeight, floor(slotWidth / 0.70))
                 let coverWidth = floor(coverHeight * 0.70)
 
@@ -123,11 +141,11 @@ struct KkContinueWidgetView: View {
 
     private func mediumBook(_ book: KkBook) -> some View {
         HStack(alignment: .center, spacing: 18) {
-            KkCover(book: book, width: 86, height: 124)
+            KkCover(book: book, width: 86, height: 124, blankPlaceholder: entry.isPlaceholder)
             VStack(alignment: .leading, spacing: 0) {
                 heading
                 Text(book.title)
-                    .font(KkTheme.title(20))
+                    .kkTitleFont(20)
                     .foregroundStyle(KkTheme.ink(scheme))
                     .lineLimit(2)
                     .minimumScaleFactor(0.82)
@@ -144,7 +162,7 @@ struct KkContinueWidgetView: View {
 
     @ViewBuilder
     private func bookColumn(_ book: KkBook, slotWidth: CGFloat, coverWidth: CGFloat, coverHeight: CGFloat) -> some View {
-        if let destination = URL(string: "libzora://read/\(book.id)") {
+        if !entry.isPlaceholder, let destination = URL(string: "libzora://read/\(book.id)") {
             Link(destination: destination) {
                 bookColumnContent(book, slotWidth: slotWidth, coverWidth: coverWidth, coverHeight: coverHeight)
             }
@@ -155,17 +173,18 @@ struct KkContinueWidgetView: View {
 
     private func bookColumnContent(_ book: KkBook, slotWidth: CGFloat, coverWidth: CGFloat, coverHeight: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            KkCover(book: book, width: coverWidth, height: coverHeight)
+            KkCover(book: book, width: coverWidth, height: coverHeight, blankPlaceholder: entry.isPlaceholder)
                 .frame(maxWidth: .infinity, alignment: .center)
             Text(book.title)
-                .font(KkTheme.title(10.5))
+                .kkTitleFont(10.5)
                 .foregroundStyle(KkTheme.ink(scheme))
                 .lineLimit(1)
+                .minimumScaleFactor(0.85)
                 .frame(maxWidth: .infinity, alignment: .leading)
             HStack(spacing: 4) {
                 KkProgressBar(progress: book.progress, height: 2)
                 Text(KkFormat.percent(book.progress))
-                    .font(KkTheme.label(9, weight: .medium))
+                    .kkLabelFont(9, weight: .medium)
                     .foregroundStyle(KkTheme.secondaryInk(scheme))
                     .monospacedDigit()
                     .fixedSize()
@@ -177,8 +196,8 @@ struct KkContinueWidgetView: View {
     }
 
     private var heading: some View {
-        Text("继续阅读")
-            .font(KkTheme.label(11, weight: .medium))
+        Text(isChinese ? "继续阅读" : "Continue Reading")
+            .kkLabelFont(11, weight: .medium)
             .foregroundStyle(KkTheme.secondaryInk(scheme))
     }
 
@@ -186,7 +205,7 @@ struct KkContinueWidgetView: View {
     private func authors(_ book: KkBook, size: CGFloat) -> some View {
         if !book.authors.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             Text(book.authors)
-                .font(KkTheme.body(size))
+                .kkBodyFont(size)
                 .foregroundStyle(KkTheme.secondaryInk(scheme))
                 .lineLimit(1)
         }
@@ -195,11 +214,11 @@ struct KkContinueWidgetView: View {
     private func progress(_ book: KkBook, compact: Bool) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .center, spacing: 4) {
-                Text("已读")
-                    .font(KkTheme.label(10, weight: .regular))
+                Text(isChinese ? "已读" : "Read")
+                    .kkLabelFont(10, weight: .regular)
                     .foregroundStyle(KkTheme.secondaryInk(scheme))
                 Text(KkFormat.percent(book.progress))
-                    .font(KkTheme.label(11, weight: .semibold))
+                    .kkLabelFont(11, weight: .semibold)
                     .foregroundStyle(KkTheme.ink(scheme))
                     .monospacedDigit()
                 Spacer(minLength: 4)
@@ -216,14 +235,14 @@ struct KkContinueWidgetView: View {
     #if os(iOS)
     private var accessoryRectangular: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Label("继续阅读", systemImage: "book")
-                .font(KkTheme.label(11))
-            Text(book?.title ?? "打开 Libzora，开始阅读")
-                .font(KkTheme.title(12))
+            Label(isChinese ? "继续阅读" : "Continue", systemImage: "book")
+                .kkLabelFont(11)
+            Text(book?.title ?? (isChinese ? "打开 Libzora，开始阅读" : "Open Libzora to read"))
+                .kkTitleFont(12)
                 .lineLimit(1)
             if let book {
-                Text("已读 \(KkFormat.percent(book.progress))")
-                    .font(KkTheme.body(10))
+                Text(isChinese ? "已读 \(KkFormat.percent(book.progress))" : "\(KkFormat.percent(book.progress)) read")
+                    .kkBodyFont(10)
                     .opacity(0.72)
                     .lineLimit(1)
             }
@@ -237,13 +256,16 @@ struct KkStatsWidgetView: View {
     @Environment(\.widgetFamily) private var family
     @Environment(\.colorScheme) private var scheme
 
+    private var isChinese: Bool { KkFormat.isChinese }
     private var reading: KkReading { entry.snapshot?.reading ?? .sample }
 
     var body: some View {
         Group {
             if !entry.hasData {
-                KkEmptyState(title: "阅读数据", message: "打开 Libzora，记录阅读时光",
-                             systemImage: "chart.bar")
+                KkEmptyState(
+                    title: isChinese ? "阅读数据" : "Reading Stats",
+                    message: isChinese ? "打开 Libzora，记录阅读时光" : "Open Libzora to track your reading",
+                    systemImage: "chart.bar")
             } else if family == .systemLarge {
                 large
             } else {
@@ -256,32 +278,34 @@ struct KkStatsWidgetView: View {
     private var medium: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .firstTextBaseline) {
-                Text("阅读数据")
-                    .font(KkTheme.title(14))
+                Text(isChinese ? "阅读数据" : "Reading Stats")
+                    .kkTitleFont(14)
                     .foregroundStyle(KkTheme.ink(scheme))
                 Spacer(minLength: 6)
                 streak
             }
             Spacer(minLength: 8)
-            HStack(alignment: .bottom, spacing: 20) {
+            HStack(alignment: .bottom, spacing: 14) {
                 VStack(alignment: .leading, spacing: 3) {
                     today(size: 36)
-                    Text("本周 \(KkFormat.duration(reading.weekSeconds))")
-                        .font(KkTheme.label(9, weight: .regular))
+                    Text(isChinese ? "本周 \(KkFormat.duration(reading.weekSeconds))" : "Week \(KkFormat.duration(reading.weekSeconds))")
+                        .kkLabelFont(9, weight: .regular)
                         .foregroundStyle(KkTheme.secondaryInk(scheme))
                         .lineLimit(1)
-                        .minimumScaleFactor(0.8)
+                        .minimumScaleFactor(0.75)
                 }
-                .frame(width: 106, alignment: .leading)
+                .frame(width: 102, alignment: .leading)
                 KkWeekBars(days: reading.days, maxHeight: 46, barWidth: 12)
                     .frame(maxWidth: .infinity)
             }
             Spacer(minLength: 8)
             divider
-            HStack(spacing: 12) {
-                KkStat(value: "\(reading.booksFinished)", label: "读完", inline: true)
-                KkStat(value: "\(reading.bookmarkCount)", label: "书签", inline: true)
-                KkStat(value: "\(reading.annotationCount)", label: "划线", inline: true)
+            HStack(spacing: 0) {
+                KkStat(value: "\(reading.booksFinished)", label: isChinese ? "读完" : "Finished", inline: true)
+                Spacer(minLength: 8)
+                KkStat(value: "\(reading.bookmarkCount)", label: isChinese ? "书签" : "Bookmarks", inline: true)
+                Spacer(minLength: 8)
+                KkStat(value: "\(reading.annotationCount)", label: isChinese ? "划线" : "Notes", inline: true)
             }
             .padding(.top, 9)
         }
@@ -292,8 +316,8 @@ struct KkStatsWidgetView: View {
     private var large: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .firstTextBaseline) {
-                Text("阅读数据")
-                    .font(KkTheme.title(18))
+                Text(isChinese ? "阅读数据" : "Reading Stats")
+                    .kkTitleFont(18)
                     .foregroundStyle(KkTheme.ink(scheme))
                 Spacer(minLength: 6)
                 streak
@@ -303,25 +327,28 @@ struct KkStatsWidgetView: View {
                 today(size: 52)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 VStack(alignment: .leading, spacing: 12) {
-                    durationStat("本周阅读", value: KkFormat.duration(reading.weekSeconds))
-                    durationStat("累计阅读", value: KkFormat.compactHours(reading.totalSeconds))
+                    durationStat(isChinese ? "本周阅读" : "This Week", value: KkFormat.duration(reading.weekSeconds))
+                    durationStat(isChinese ? "累计阅读" : "Total Time", value: KkFormat.compactHours(reading.totalSeconds))
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             Spacer(minLength: 18)
             VStack(alignment: .leading, spacing: 10) {
-                Text("近 7 天")
-                    .font(KkTheme.label(10, weight: .medium))
+                Text(isChinese ? "近 7 天" : "Last 7 Days")
+                    .kkLabelFont(10, weight: .medium)
                     .foregroundStyle(KkTheme.secondaryInk(scheme))
                 KkWeekBars(days: reading.days, maxHeight: 92, barWidth: 20)
             }
             Spacer(minLength: 14)
             divider
-            HStack(spacing: 12) {
-                KkStat(value: "\(reading.booksStarted)", label: "开始阅读")
-                KkStat(value: "\(reading.booksFinished)", label: "已读完")
-                KkStat(value: "\(reading.bookmarkCount)", label: "书签")
-                KkStat(value: "\(reading.annotationCount)", label: "划线笔记")
+            HStack(spacing: 0) {
+                KkStat(value: "\(reading.booksStarted)", label: isChinese ? "开始阅读" : "Started", alignment: .center)
+                Spacer(minLength: 8)
+                KkStat(value: "\(reading.booksFinished)", label: isChinese ? "已读完" : "Finished", alignment: .center)
+                Spacer(minLength: 8)
+                KkStat(value: "\(reading.bookmarkCount)", label: isChinese ? "书签" : "Bookmarks", alignment: .center)
+                Spacer(minLength: 8)
+                KkStat(value: "\(reading.annotationCount)", label: isChinese ? "划线笔记" : "Notes", alignment: .center)
             }
             .padding(.top, 12)
         }
@@ -330,29 +357,32 @@ struct KkStatsWidgetView: View {
 
     private func today(size: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text("今日阅读")
-                .font(KkTheme.label(10, weight: .regular))
+            Text(isChinese ? "今日阅读" : "Today")
+                .kkLabelFont(10, weight: .regular)
                 .foregroundStyle(KkTheme.secondaryInk(scheme))
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text("\(max(0, reading.todaySeconds / 60))")
-                    .font(KkTheme.number(size))
+                    .kkNumberFont(size)
                     .foregroundStyle(KkTheme.ink(scheme))
                     .monospacedDigit()
                     .lineLimit(1)
                     .minimumScaleFactor(0.65)
-                Text("分钟")
-                    .font(KkTheme.label(10, weight: .regular))
+                Text(isChinese ? "分钟" : "min")
+                    .kkLabelFont(10, weight: .regular)
                     .foregroundStyle(KkTheme.secondaryInk(scheme))
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
             }
         }
         .accessibilityElement(children: .combine)
     }
 
     private var streak: some View {
-        Text("连续 \(max(0, reading.streakDays)) 天")
-            .font(KkTheme.label(10, weight: .medium))
+        Text(isChinese ? "连续 \(max(0, reading.streakDays)) 天" : "\(max(0, reading.streakDays))d streak")
+            .kkLabelFont(10, weight: .medium)
             .foregroundStyle(KkTheme.secondaryInk(scheme))
             .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .background(KkTheme.track(scheme), in: Capsule())
@@ -368,10 +398,10 @@ struct KkStatsWidgetView: View {
     private func durationStat(_ label: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(label)
-                .font(KkTheme.label(10, weight: .regular))
+                .kkLabelFont(10, weight: .regular)
                 .foregroundStyle(KkTheme.secondaryInk(scheme))
             Text(value)
-                .font(KkTheme.label(14, weight: .medium))
+                .kkLabelFont(14, weight: .medium)
                 .foregroundStyle(KkTheme.ink(scheme))
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
@@ -400,22 +430,24 @@ struct KkWeekBars: View {
             }
             .frame(height: maxHeight)
             .accessibilityHidden(true)
-            HStack(alignment: .bottom, spacing: 6) {
-                ForEach(recent) { day in
-                    VStack(spacing: 7) {
-                        RoundedRectangle(cornerRadius: 3, style: .continuous)
-                            .fill(KkTheme.bar(scheme, emphasized: day.date == recent.last?.date))
-                            .frame(width: barWidth, height: barHeight(day))
-                            .frame(height: maxHeight, alignment: .bottom)
-                        Text(KkFormat.weekday(day.date))
-                            .font(KkTheme.label(9, weight: day.date == recent.last?.date ? .semibold : .regular))
-                            .foregroundStyle(day.date == recent.last?.date
-                                             ? KkTheme.ink(scheme) : KkTheme.faintInk(scheme))
-                            .lineLimit(1)
+            if !recent.isEmpty {
+                HStack(alignment: .bottom, spacing: 6) {
+                    ForEach(recent) { day in
+                        VStack(spacing: 7) {
+                            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                .fill(KkTheme.bar(scheme, emphasized: day.date == recent.last?.date))
+                                .frame(width: barWidth, height: barHeight(day))
+                                .frame(height: maxHeight, alignment: .bottom)
+                            Text(KkFormat.weekday(day.date))
+                                .kkLabelFont(9, weight: day.date == recent.last?.date ? .semibold : .regular)
+                                .foregroundStyle(day.date == recent.last?.date
+                                                 ? KkTheme.ink(scheme) : KkTheme.faintInk(scheme))
+                                .lineLimit(1)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("\(KkFormat.weekday(day.date))，\(day.seconds > 0 ? KkFormat.duration(day.seconds) : (KkFormat.isChinese ? "0 分钟" : "0 min"))")
                     }
-                    .frame(maxWidth: .infinity)
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("\(KkFormat.weekday(day.date))，\(day.seconds > 0 ? KkFormat.duration(day.seconds) : "0 分钟")")
                 }
             }
         }
@@ -447,10 +479,10 @@ struct KkEmptyState: View {
                 .padding(.bottom, 3)
                 .accessibilityHidden(true)
             Text(title)
-                .font(KkTheme.title(14))
+                .kkTitleFont(14)
                 .foregroundStyle(KkTheme.ink(scheme))
             Text(message)
-                .font(KkTheme.body(11))
+                .kkBodyFont(11)
                 .foregroundStyle(KkTheme.secondaryInk(scheme))
                 .lineLimit(2)
         }
@@ -461,7 +493,7 @@ struct KkEmptyState: View {
 }
 
 private extension KkReading {
-    static let sample = KkSnapshot.sample.reading
+    static var sample: KkReading { KkSnapshot.sample.reading }
 }
 
 extension View {
@@ -480,12 +512,13 @@ extension View {
 
     @ViewBuilder
     func lzWidgetBackground() -> some View {
+        let clamped = self.dynamicTypeSize(.small ... .large)
         if #available(iOS 17.0, macOS 14.0, *) {
-            self.containerBackground(for: .widget) {
+            clamped.containerBackground(for: .widget) {
                 KkBackdrop()
             }
         } else {
-            self.background(KkBackdrop())
+            clamped.background(KkBackdrop())
         }
     }
 }

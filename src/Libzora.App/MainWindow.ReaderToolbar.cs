@@ -295,6 +295,30 @@ public partial class MainWindow
         await SaveCurrentReaderPreferencesAsync(CancellationToken.None);
     }
 
+    private async Task ResetReaderZoomOrFontAsync()
+    {
+        if (_readerIsPdf && CurrentReaderHost is IPdfReadingHost pdf)
+        {
+            await pdf.SetFitModeAsync(PdfReaderFitMode.Width);
+            UpdateReaderZoomLabel();
+            return;
+        }
+        if (IsReaderMangaMode && CurrentReaderHost is NativeReaderHost manga)
+        {
+            manga.ResetMangaZoom();
+            UpdateReaderZoomLabel();
+            return;
+        }
+        _readerLayout = NormalizeReaderLayoutForPlatform(_readerLayout with
+        {
+            FontScale = ReaderLayoutDefaults.DefaultFontScale
+        });
+        _readerBaseLayout = _readerLayout;
+        UpdateReaderZoomLabel();
+        await ApplyReaderLayoutToHostsAsync(_readerSession.GetTokenOr(CancellationToken.None));
+        await SaveCurrentReaderPreferencesAsync(CancellationToken.None);
+    }
+
     private void ReaderBookmarkButton_Click(object? sender, RoutedEventArgs e)
     {
         ShowReaderBookmarkTab();

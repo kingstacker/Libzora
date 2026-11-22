@@ -25,7 +25,8 @@ public partial class MainWindow
                 false,
                 0,
                 sharedRoot,
-                token),
+                token,
+                uiFont: (int)_appSettings.MainUiFont),
             published: ReloadMacWidgets);
         _widgetSnapshots.Schedule();
     }

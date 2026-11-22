@@ -186,16 +186,24 @@ public sealed partial class S3SyncService
                 && !IsTombstoned(tombstoneIndex, "reflection", reflection.BookId,
                     reflection.UpdatedAt, reflection.SyncVersion))
             .ToArray();
-        var remoteProgress = snapshots
+        var remoteProgressCandidates = snapshots
             .Where(snapshot => snapshot.ReadingDataReset == readingReset)
-            .SelectMany(snapshot => snapshot.Progress)
-            .GroupBy(item => item.BookFileId)
-            .Select(group => LatestVersioned(group, item => item.UpdatedAt, item => item.SyncVersion)!)
-            .Where(item => !tombstonedBooks.Contains(item.BookId)
-                && !IsTombstoned(tombstoneIndex, "book", item.BookId, item.UpdatedAt, item.SyncVersion)
-                && !IsTombstoned(tombstoneIndex, "progress", item.BookFileId, item.UpdatedAt, item.SyncVersion)
-                && !IsTombstoned(tombstoneIndex, "file", item.BookFileId, item.UpdatedAt, item.SyncVersion))
+            .SelectMany(snapshot => snapshot.Progress.Select(item => (Snapshot: snapshot, Item: item)))
+            .GroupBy(entry => entry.Item.BookFileId)
+            .Select(group =>
+            {
+                var bestItem = LatestVersioned(group.Select(entry => entry.Item), item => item.UpdatedAt, item => item.SyncVersion)!;
+                return group.First(entry => ReferenceEquals(entry.Item, bestItem));
+            })
+            .Where(entry => !tombstonedBooks.Contains(entry.Item.BookId)
+                && !IsTombstoned(tombstoneIndex, "book", entry.Item.BookId, entry.Item.UpdatedAt, entry.Item.SyncVersion)
+                && !IsTombstoned(tombstoneIndex, "progress", entry.Item.BookFileId, entry.Item.UpdatedAt, entry.Item.SyncVersion)
+                && !IsTombstoned(tombstoneIndex, "file", entry.Item.BookFileId, entry.Item.UpdatedAt, entry.Item.SyncVersion))
             .ToArray();
+        var remoteProgressSourceDevices = new Dictionary<S3SyncProgress, string>(ReferenceEqualityComparer.Instance);
+        foreach (var candidate in remoteProgressCandidates)
+            remoteProgressSourceDevices[candidate.Item] = candidate.Snapshot.DeviceId;
+        var remoteProgress = remoteProgressCandidates.Select(entry => entry.Item).ToArray();
         var remoteBookmarks = snapshots
             .SelectMany(snapshot => snapshot.Bookmarks)
             .GroupBy(bookmark => bookmark.Id)
@@ -866,6 +874,7 @@ public sealed partial class S3SyncService
                 changed |= await command.ExecuteNonQueryAsync(cancellationToken) > 0;
             }
 
+            var localDeviceId = NormalizeDeviceId(localSnapshot.DeviceId);
             foreach (var item in remoteProgress)
             {
                 if (!TryMapReaderRow(item.BookFileId, fileMap, locallyKnownFiles, out var localBookId, out var localFileId))
@@ -901,7 +910,37 @@ public sealed partial class S3SyncService
                 AddParameter(command, "$flowMode", item.FlowMode);
                 AddParameter(command, "$updatedAt", item.UpdatedAt.ToString("O"));
                 AddParameter(command, "$contentPosition", item.ContentPositionJson);
-                changed |= await command.ExecuteNonQueryAsync(cancellationToken) > 0;
+                var progressApplied = await command.ExecuteNonQueryAsync(cancellationToken) > 0;
+                changed |= progressApplied;
+                if (progressApplied)
+                {
+                    var snapshotDeviceId = remoteProgressSourceDevices.GetValueOrDefault(item, string.Empty);
+                    var originDeviceId = S3SyncVersion.TryParse(item.SyncVersion, out _, out _, out var versionDeviceId)
+                        ? NormalizeKnownDeviceId(versionDeviceId)
+                        : NormalizeKnownDeviceId(snapshotDeviceId);
+                    if (!string.IsNullOrEmpty(originDeviceId)
+                        && !string.Equals(originDeviceId, localDeviceId, StringComparison.OrdinalIgnoreCase)
+                        && !ReaderSyncedPositionMarkerStore.AreSameReadingPosition(localProgress, item))
+                    {
+                        await ReaderSyncedPositionMarkerStore.UpsertInTransactionAsync(
+                            connection,
+                            transaction,
+                            localBookId,
+                            localFileId,
+                            item,
+                            originDeviceId,
+                            DateTimeOffset.UtcNow,
+                            cancellationToken);
+                    }
+                    else if (string.Equals(originDeviceId, localDeviceId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        await ReaderSyncedPositionMarkerStore.DeleteInTransactionAsync(
+                            connection,
+                            transaction,
+                            localFileId,
+                            cancellationToken);
+                    }
+                }
             }
 
             foreach (var bookmark in remoteBookmarks)

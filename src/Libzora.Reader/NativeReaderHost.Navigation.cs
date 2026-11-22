@@ -78,6 +78,27 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
 
     private bool IsSpread => _presentation == ReaderPresentation.Spread;
 
+    public bool IsShowingCompanionSpread =>
+        IsSpread
+        && _settings.MangaMode
+        && _layout is { Pages.Count: 1 }
+        && _spreadCompanionLayout is { Pages.Count: > 0 };
+
+    public void SetSpreadCompanionChapterPath(string? chapterPath)
+    {
+        var normalized = string.IsNullOrWhiteSpace(chapterPath) ? null : Path.GetFullPath(chapterPath);
+        if (string.Equals(
+                _spreadCompanionChapterPath,
+                normalized,
+                OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _spreadCompanionChapterPath = normalized;
+        _spreadCompanionLayout = null;
+    }
+
     private bool IsScroll => _presentation == ReaderPresentation.Scroll;
 
     /// <summary>Composed pages turned per step: two for the spread layout.</summary>
@@ -94,6 +115,9 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
     public int PageCount => _layout?.Pages.Count ?? 0;
 
     public int CurrentPage => _pageIndex;
+
+    /// <summary>True when the current chapter was reloaded to reveal a hidden footnote fragment.</summary>
+    public bool HasLoadedFootnoteFragment => _loadedFootnoteFragment is not null;
 
     /// <summary>
     /// False while the opening pass has only composed the first screen of a

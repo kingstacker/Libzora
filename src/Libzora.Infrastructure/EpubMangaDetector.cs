@@ -58,8 +58,8 @@ public static partial class EpubMangaDetector
 
         try
         {
-            var opf = Directory.EnumerateFiles(rootPath, "*.opf", SearchOption.AllDirectories)
-                .FirstOrDefault();
+            var opf = TryResolveOpfFromContainer(rootPath)
+                ?? Directory.EnumerateFiles(rootPath, "*.opf", SearchOption.AllDirectories).FirstOrDefault();
             if (opf is null) return default;
             var xml = File.ReadAllText(opf);
             var prePaginated = xml.Contains("pre-paginated", StringComparison.OrdinalIgnoreCase);
@@ -74,6 +74,41 @@ public static partial class EpubMangaDetector
             return default;
         }
     }
+
+    private static string? TryResolveOpfFromContainer(string rootPath)
+    {
+        var containerPath = Path.Combine(rootPath, "META-INF", "container.xml");
+        if (!File.Exists(containerPath))
+            return null;
+
+        try
+        {
+            var xml = File.ReadAllText(containerPath);
+            var match = ContainerRootFileRegex().Match(xml);
+            if (!match.Success)
+                return null;
+
+            var relative = Uri.UnescapeDataString(match.Groups[1].Value.Trim())
+                .Replace('/', Path.DirectorySeparatorChar);
+            if (string.IsNullOrWhiteSpace(relative))
+                return null;
+
+            var normalizedRoot = Path.GetFullPath(rootPath).TrimEnd(Path.DirectorySeparatorChar)
+                + Path.DirectorySeparatorChar;
+            var candidate = Path.GetFullPath(Path.Combine(rootPath, relative));
+            return candidate.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase)
+                && File.Exists(candidate)
+                ? candidate
+                : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    [GeneratedRegex(@"<rootfile\b[^>]*full-path\s*=\s*[""']([^""']+)[""']", RegexOptions.IgnoreCase)]
+    private static partial Regex ContainerRootFileRegex();
 
     [GeneratedRegex(@"page-progression-direction\s*=\s*[""'](rtl|ltr)[""']", RegexOptions.IgnoreCase)]
     private static partial Regex PageProgressionRegex();

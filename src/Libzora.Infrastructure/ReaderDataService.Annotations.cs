@@ -353,6 +353,31 @@ public sealed partial class ReaderDataService
         }
     }
 
+    public async Task<ReaderSyncedPositionMarker?> GetSyncedPositionMarkerAsync(
+        Guid bookFileId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        return await ReaderSyncedPositionMarkerStore.GetAsync(connection, bookFileId, cancellationToken);
+    }
+
+    public async Task ClearSyncedPositionMarkerAsync(
+        Guid bookFileId,
+        CancellationToken cancellationToken = default)
+    {
+        using var processLease = await AppDataProcessLock.AcquireAsync(_paths, cancellationToken);
+        await _databaseGate.WaitAsync(cancellationToken);
+        try
+        {
+            await using var connection = await OpenConnectionAsync(cancellationToken);
+            await ReaderSyncedPositionMarkerStore.ClearAsync(connection, bookFileId, cancellationToken);
+        }
+        finally
+        {
+            _databaseGate.Release();
+        }
+    }
+
     // ------------------------------------------------------------------
     // Bookmarks.
     // ------------------------------------------------------------------

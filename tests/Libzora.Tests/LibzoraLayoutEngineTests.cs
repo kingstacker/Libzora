@@ -311,6 +311,19 @@ public sealed class LibzoraLayoutEngineTests : IDisposable
         Assert.Equal(4, content.Blocks.Count);
     }
 
+    [Fact]
+    public void TrailingEmptyParagraphsDoNotCreateBlankFinalPage()
+    {
+        var trailingBlanks = string.Concat(Enumerable.Repeat("<p><br/></p>", 25));
+        var content = new XhtmlChapterLoader().Load(WriteChapter(
+            "<h1>第一章</h1><p>正文内容。</p>" + trailingBlanks));
+        using var engine = CreateEngine();
+        var layout = engine.Compose(content, Options(TypesetWritingMode.HorizontalTb));
+
+        Assert.Single(layout.Pages);
+        Assert.Contains(layout.Pages[0].Runs, run => run.Glyphs.Length > 0);
+    }
+
     [Theory]
     [InlineData(TypesetWritingMode.HorizontalTb)]
     [InlineData(TypesetWritingMode.VerticalRl)]
@@ -1250,6 +1263,113 @@ public sealed class LibzoraLayoutEngineTests : IDisposable
     }
 
     [Fact]
+    public void Loader_ResolvesUnlinkedBracketEndnotesFromCompanionEndnoteChapter()
+    {
+        var epubTextDir = Path.Combine(_tempDir, "companion-endnotes-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(epubTextDir);
+
+        var chapter1Path = Path.Combine(epubTextDir, "part0007.xhtml");
+        var chapter5Path = Path.Combine(epubTextDir, "part0012.xhtml");
+        var chapter21Path = Path.Combine(epubTextDir, "part0028.xhtml");
+        var endnotePath = Path.Combine(epubTextDir, "part0029.xhtml");
+
+        File.WriteAllText(
+            chapter1Path,
+            """
+            <?xml version="1.0" encoding="utf-8"?>
+            <html xmlns="http://www.w3.org/1999/xhtml">
+              <head><title>引　子</title></head>
+              <body>
+                <p class="title1">引　子</p>
+                <p>第一段引文<sup>［1］</sup>与译者注<sup><a id="fhzs1" href="part0007.xhtml#zhushi1">〔1〕</a></sup>并存，后接第二处<sup>［2］</sup>。</p>
+                <p class="zy1" id="zhushi1"><a href="part0007.xhtml#fhzs1">〔1〕</a>本章译者注内容。</p>
+              </body>
+            </html>
+            """);
+
+        File.WriteAllText(
+            chapter5Path,
+            """
+            <?xml version="1.0" encoding="utf-8"?>
+            <html xmlns="http://www.w3.org/1999/xhtml">
+              <head><title>第五章　斗争（1927—1935）</title></head>
+              <body>
+                <p class="title1">第五章　斗争（1927—1935）</p>
+                <p>井冈山时期记录<sup>［1］</sup>以及无上标方括号［2］引用。</p>
+              </body>
+            </html>
+            """);
+
+        File.WriteAllText(
+            chapter21Path,
+            """
+            <?xml version="1.0" encoding="utf-8"?>
+            <html xmlns="http://www.w3.org/1999/xhtml">
+              <head><title>二十一章　飞鸣镝将坠（1976）</title></head>
+              <body>
+                <p class="title1">二十一章　飞鸣镝将坠（1976）</p>
+                <p>尾声记录<sup>［1］</sup>。</p>
+              </body>
+            </html>
+            """);
+
+        File.WriteAllText(
+            endnotePath,
+            """
+            <?xml version="1.0" encoding="utf-8"?>
+            <html xmlns="http://www.w3.org/1999/xhtml">
+              <head><title>注释</title></head>
+              <body>
+                <p class="title1">注　释</p>
+                <p class="normaltext3">引子</p>
+                <p class="normaltext">［1］引子第一条文献出处。</p>
+                <p class="normaltext">［2］引子第二条文献出处。</p>
+                <p class="normaltext3">第五章　斗争（1927—1935）</p>
+                <p class="normaltext">注：毛泽东在这个时期的很多活动，在斯诺的《西行漫记》第四、第五章中有生动叙述，本章注释不再逐一重复这些背景说明。</p>
+                <p class="normaltext">［1］第五章第一条文献出处。</p>
+                <p class="normaltext">［2］第五章第二条文献出处。</p>
+                <p class="normaltext3">第二十一章　飞鸣镝将坠（1976）</p>
+                <p class="normaltext">［1］第二十一章第一条文献出处。</p>
+              </body>
+            </html>
+            """);
+
+        var loader = new XhtmlChapterLoader();
+        var chapter1 = loader.Load(chapter1Path);
+        var chapter1Markers = chapter1.Blocks
+            .SelectMany(block => block.Items)
+            .Where(item => item.Kind == InlineKind.FootnoteMarker)
+            .ToList();
+
+        Assert.Equal(3, chapter1Markers.Count);
+        Assert.Equal("［1］", chapter1Markers[0].Text);
+        Assert.Equal("引子第一条文献出处。", chapter1Markers[0].FootnoteText);
+        Assert.Contains("part0029.xhtml#__libzora-plain-footnote-", chapter1Markers[0].FootnoteHref, StringComparison.OrdinalIgnoreCase);
+
+        Assert.Equal("〔1〕", chapter1Markers[1].Text);
+        Assert.Contains("part0007.xhtml#zhushi1", chapter1Markers[1].FootnoteHref, StringComparison.OrdinalIgnoreCase);
+
+        Assert.Equal("［2］", chapter1Markers[2].Text);
+        Assert.Equal("引子第二条文献出处。", chapter1Markers[2].FootnoteText);
+
+        var chapter5 = loader.Load(chapter5Path);
+        var chapter5Markers = chapter5.Blocks
+            .SelectMany(block => block.Items)
+            .Where(item => item.Kind == InlineKind.FootnoteMarker)
+            .ToList();
+
+        Assert.Equal(2, chapter5Markers.Count);
+        Assert.Equal("第五章第一条文献出处。", chapter5Markers[0].FootnoteText);
+        Assert.Equal("第五章第二条文献出处。", chapter5Markers[1].FootnoteText);
+
+        var chapter21 = loader.Load(chapter21Path);
+        var chapter21Marker = Assert.Single(
+            chapter21.Blocks.SelectMany(block => block.Items),
+            item => item.Kind == InlineKind.FootnoteMarker);
+        Assert.Equal("第二十一章第一条文献出处。", chapter21Marker.FootnoteText);
+    }
+
+    [Fact]
     public void Horizontal_FootnoteMarkerRisesAboveTheBaseline()
     {
         var path = Path.Combine(_tempDir, "footnote-baseline.xhtml");
@@ -1557,6 +1677,123 @@ public sealed class LibzoraLayoutEngineTests : IDisposable
             Assert.Equal(firstPage, secondPage);
             Assert.Equal(secondPage, layout.GetPageIndexOfOffset(secondHeadingOffset));
         }
+    }
+
+    [Fact]
+    public void FigureCaptionHeadingDoesNotMergeIntoFollowingSectionHeading()
+    {
+        var imageName = $"fig-{Guid.NewGuid():N}.png";
+        File.WriteAllBytes(Path.Combine(_tempDir, imageName), Convert.FromBase64String(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+X2S0AAAAASUVORK5CYII="));
+        var path = WriteChapter(
+            "<p>前一小节的正文内容需要超过四十个字符以免被自动识别为章首标题，这里继续补充一些示例文字。</p>"
+            + $"<div class=\"chatu\" id=\"aid-wrap\"><img src=\"{imageName}\" alt=\"\" /><h5 id=\"aid-cap\">▲ 图5-3 航拍图</h5></div>"
+            + "<h2 id=\"sigil_toc_id_38\">2. 城市、城市化和全球可持续性</h2>"
+            + "<p>第二节正文。</p>");
+
+        var content = new XhtmlChapterLoader().Load(path);
+        var captionBlock = Assert.Single(content.Blocks, b => b.IsCaption);
+        Assert.Equal(BlockKind.Paragraph, captionBlock.Kind);
+        Assert.Contains("图5-3", string.Concat(captionBlock.Items.Select(i => i.Text)));
+
+        var sectionHeading = Assert.Single(content.Blocks, b => b.Kind == BlockKind.Heading);
+        Assert.Equal("2. 城市、城市化和全球可持续性", string.Concat(sectionHeading.Items.Select(i => i.Text)));
+
+        var imageBlock = Assert.Single(content.Blocks, b => b.Kind == BlockKind.Image);
+        Assert.True(imageBlock.KeepWithNext);
+
+        using var engine = CreateEngine();
+        foreach (var mode in new[] { TypesetWritingMode.HorizontalTb, TypesetWritingMode.VerticalRl })
+        {
+            var layout = engine.Compose(content, Options(mode));
+            var captionPage = layout.GetPageIndexOfFragment("aid-cap");
+            var sectionPage = layout.GetPageIndexOfFragment("sigil_toc_id_38");
+            Assert.True(sectionPage > captionPage, $"Section heading should start on a fresh page after figure caption in {mode}");
+            var sectionOffset = content.BodyText.IndexOf("2. 城市", StringComparison.Ordinal);
+            Assert.Equal(sectionOffset, layout.Pages[sectionPage].TextStartOffset);
+        }
+    }
+
+    [Fact]
+    public void SubordinateHeadingDoesNotMergeIntoHigherLevelHeading()
+    {
+        var path = WriteChapter(
+            "<h5 id=\"sub-label\">附注说明</h5>"
+            + "<h2 id=\"toc-next\">第二章</h2>"
+            + "<p>正文内容。</p>");
+
+        var content = new XhtmlChapterLoader().Load(path);
+        var headings = content.Blocks.Where(b => b.Kind == BlockKind.Heading).ToArray();
+        Assert.Equal(2, headings.Length);
+        Assert.Equal("附注说明", string.Concat(headings[0].Items.Select(i => i.Text)));
+        Assert.Equal("第二章", string.Concat(headings[1].Items.Select(i => i.Text)));
+    }
+
+    [Fact]
+    public void NavigationFragmentsPreventInternalIdSubheadingsFromBreakingPages()
+    {
+        var path = WriteChapter(
+            "<p>第一段正文。</p>"
+            + "<h3 id=\"aid-sub\">空间填充</h3>"
+            + "<p>小节正文。</p>"
+            + "<h2 id=\"sigil_toc_id_38\">2. 下一节</h2>"
+            + "<p>第二节正文。</p>");
+
+        var content = new XhtmlChapterLoader().Load(path);
+        var options = new TypesetLayoutOptions
+        {
+            ViewportWidth = 420f,
+            ViewportHeight = 640f,
+            NavigationFragments = new HashSet<string>(["sigil_toc_id_38"], StringComparer.Ordinal),
+        };
+
+        using var engine = CreateEngine();
+        var layout = engine.Compose(content, options);
+        Assert.Equal(0, layout.GetPageIndexOfFragment("aid-sub"));
+        Assert.Equal(1, layout.GetPageIndexOfFragment("sigil_toc_id_38"));
+    }
+
+    [Fact]
+    public void HeadingToBodySpacingCollapsesPublisherMarginsAndStaysCompact()
+    {
+        var path = Path.Combine(_tempDir, $"chapter-{Guid.NewGuid():N}.xhtml");
+        File.WriteAllText(path, """
+            <?xml version="1.0" encoding="utf-8"?>
+            <html xmlns="http://www.w3.org/1999/xhtml">
+            <head>
+              <style>
+                h2.sec { font-size: 1.125em; line-height: 1.2; margin: 2em 0 1em; }
+                p.body { line-height: 1.84; margin: 1em 0 0; }
+              </style>
+            </head>
+            <body>
+              <h2 class="sec" id="toc-1">2. 城市、城市化和全球可持续性</h2>
+              <p class="body">或许，我们最伟大的发明便是城市。</p>
+            </body>
+            </html>
+            """);
+
+        var content = new XhtmlChapterLoader(paragraphIndent: false).Load(path);
+        var options = new TypesetLayoutOptions
+        {
+            BaseFontSize = 20f,
+            LineHeight = 1.75f,
+            ViewportWidth = 600f,
+            ViewportHeight = 800f,
+            InsetHorizontal = 24f,
+            InsetVertical = 24f,
+        };
+
+        using var engine = CreateEngine();
+        var layout = engine.Compose(content, options);
+        var headingOffset = content.BodyText.IndexOf("2. 城市", StringComparison.Ordinal);
+        var bodyOffset = content.BodyText.IndexOf("或许", StringComparison.Ordinal);
+        var headingRect = layout.GetCharRect(0, headingOffset)!.Value;
+        var bodyRect = layout.GetCharRect(0, bodyOffset)!.Value;
+        var visualGap = bodyRect.Top - headingRect.Bottom;
+
+        // Collapsed 1em margin instead of stacking 1.25*BodyLineHeight + 1em + 1em (~84px).
+        Assert.InRange(visualGap, options.BaseFontSize * 0.6f, options.BaseFontSize * 1.6f);
     }
 
     [Fact]

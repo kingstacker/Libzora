@@ -12,18 +12,20 @@ namespace Libzora.Infrastructure;
 public static class TxtToEpubService
 {
     private static readonly Regex NumberedHeading = new(
-        @"^(?:第\s*[零〇一二三四五六七八九十百千万两\d]+\s*[章回节卷部篇](?:\s*[:：、.．\-—]?\s*.*)?|Chapter\s+\d+(?:\s*[:.\-–—]?\s*.*)?)$",
+        @"^(?:第\s*[零〇一二三四五六七八九十百千万两\d]+\s*[章回节卷部篇话集幕折讲课辑](?:\s*[:：、.．\-—]?\s*.*)?|卷\s*[零〇一二三四五六七八九十百千万两\d]+(?:\s*[:：、.．\-—]?\s*.*)?|[上中下][卷部篇](?:\s*[:：、.．\-—]?\s*.*)?|(?:Chapter|Part|Book|Volume|Vol\.?|Section)\s+(?:\d+|[IVXLCDM]+)(?:\s*[:.\-–—]?\s*.*)?)$",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
     private static readonly Regex ChineseNumberedHeading = new(
-        @"^第\s*[零〇一二三四五六七八九十百千万两\d]+\s*[章回节卷部篇](?:\s*[:：、.．\-—]?\s*.*)?$",
+        @"^(?:第\s*[零〇一二三四五六七八九十百千万两\d]+\s*[章回节卷部篇话集幕折讲课辑]|卷\s*[零〇一二三四五六七八九十百千万两\d]+|[上中下][卷部篇])(?:\s*[:：、.．\-—]?\s*.*)?$",
         RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
     private static readonly Regex EnglishChapterHeading = new(
-        @"^Chapter\s+\d+(?:\s*[:.\-–—]?\s*.*)?$",
+        @"^(?:Chapter|Part|Book|Volume|Vol\.?|Section)\s+(?:\d+|[IVXLCDM]+)(?:\s*[:.\-–—]?\s*.*)?$",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
     private static readonly Regex SpecialHeading = new(
-        @"^(?:序章|序言|序|楔子|前言|引子|尾声|终章|后记|结束语)(?:\s+.{1,30})?$",
-        RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
-    private static readonly Regex VolumeHeading = new(@"^第\s*[零〇一二三四五六七八九十百千万两\d]+\s*[卷部篇]", RegexOptions.CultureInvariant);
+        @"^(?:序章|序言|序幕|序|楔子|前言|引子|引言|尾声|终章|后记|后序|尾记|结束语|完本感言|番外(?:\s*[零〇一二三四五六七八九十百千万两\d]+|篇)?|外传|Prologue|Epilogue)(?:\s*[:：\-—.]?\s*.{0,30})?$",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
+    private static readonly Regex VolumeHeading = new(
+        @"^(?:第\s*[零〇一二三四五六七八九十百千万两\d]+\s*[卷部篇]|卷\s*[零〇一二三四五六七八九十百千万两\d]+|[上中下][卷部篇]|(?:Volume|Vol\.?|Book|Part)\s+(?:\d+|[IVXLCDM]+))",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     private static readonly Regex NumberedListPrefix = new(@"^(?<index>\d+)[.．、]\s*(?=第\s*(?<chapter>\d+)\s*章)", RegexOptions.CultureInvariant);
     private static readonly Regex SpacedNumberedHeading = new(@"^第\s*[零〇一二三四五六七八九十百千万两\d]+\s*[章回节卷部篇]\s+", RegexOptions.CultureInvariant);
     private static readonly Regex ArabicNumberedHeading = new(@"^第\s*\d+\s*[章回节卷部篇]", RegexOptions.CultureInvariant);
@@ -122,7 +124,7 @@ public static class TxtToEpubService
             Write(archive, "META-INF/container.xml", new XDocument(new XElement(XName.Get("container", "urn:oasis:names:tc:opendocument:xmlns:container"),
                 new XAttribute("version", "1.0"), new XElement(XName.Get("rootfiles", "urn:oasis:names:tc:opendocument:xmlns:container"),
                     new XElement(XName.Get("rootfile", "urn:oasis:names:tc:opendocument:xmlns:container"), new XAttribute("full-path", "OEBPS/content.opf"), new XAttribute("media-type", "application/oebps-package+xml"))))).ToString());
-            Write(archive, "OEBPS/style.css", "body { line-height: 1.6; } p { white-space: pre-wrap; text-indent: 2em; margin: 0.5em 0; } h1 { text-align: center; }");
+            Write(archive, "OEBPS/style.css", "body { line-height: 1.6; } p { margin: 0.5em 0; } h1 { text-align: center; }");
             var manifest = new XElement(Opf + "manifest",
                 new XElement(Opf + "item", new XAttribute("id", "cover"), new XAttribute("href", "cover.png"), new XAttribute("media-type", "image/png"), new XAttribute("properties", "cover-image")),
                 new XElement(Opf + "item", new XAttribute("id", "nav"), new XAttribute("href", "nav.xhtml"), new XAttribute("media-type", "application/xhtml+xml"), new XAttribute("properties", "nav")),
@@ -139,8 +141,8 @@ public static class TxtToEpubService
                 var chapter = chapters[i];
                 var name = $"chapter-{i + 1:D5}.xhtml";
                 var body = new XElement(Xhtml + "body", new XElement(Xhtml + "h1", chapter.Title));
-                foreach (var line in chapter.Lines)
-                    body.Add(string.IsNullOrWhiteSpace(line) ? new XElement(Xhtml + "p", new XElement(Xhtml + "br")) : new XElement(Xhtml + "p", line));
+                foreach (var line in NormalizeChapterLines(chapter.Lines))
+                    body.Add(string.IsNullOrWhiteSpace(line) ? new XElement(Xhtml + "p", new XElement(Xhtml + "br")) : new XElement(Xhtml + "p", line.TrimStart()));
                 Write(archive, "OEBPS/" + name, Document(chapter.Title, body).ToString());
                 manifest.Add(new XElement(Opf + "item", new XAttribute("id", $"c{i}"), new XAttribute("href", name), new XAttribute("media-type", "application/xhtml+xml")));
                 spine.Add(new XElement(Opf + "itemref", new XAttribute("idref", $"c{i}")));
@@ -290,7 +292,7 @@ public static class TxtToEpubService
             if (isHeading)
             {
                 hasHeadings = true;
-                if (current.HasNonWhitespace || completedChapterCount > 0 || current.Title != "前言") FinishCurrent();
+                if (current.HasNonWhitespace || current.Volume) FinishCurrent();
                 current = new ChapterBuilder(heading, lineNumber, isVolume, includeLines);
                 sectionTitle = heading;
                 part = 1;
@@ -307,7 +309,7 @@ public static class TxtToEpubService
             }
         }
 
-        if (current.HasNonWhitespace || current.Title != "前言") FinishCurrent();
+        if (current.HasNonWhitespace || current.Volume) FinishCurrent();
         if (!hasHeadings)
         {
             for (var i = 0; i < chapters.Count; i++)
@@ -323,9 +325,37 @@ public static class TxtToEpubService
         return chapters;
     }
 
+    private static List<string> NormalizeChapterLines(List<string> lines)
+    {
+        var start = 0;
+        var end = lines.Count - 1;
+        while (start <= end && string.IsNullOrWhiteSpace(lines[start])) start++;
+        while (end >= start && string.IsNullOrWhiteSpace(lines[end])) end--;
+        if (start > end) return [];
+
+        var result = new List<string>(end - start + 1);
+        var previousWasBlank = false;
+        for (var i = start; i <= end; i++)
+        {
+            var isBlank = string.IsNullOrWhiteSpace(lines[i]);
+            if (isBlank && previousWasBlank) continue;
+            result.Add(lines[i]);
+            previousWasBlank = isBlank;
+        }
+        return result;
+    }
+
     private static string NormalizeHeading(string line)
     {
         var heading = line.Trim().TrimStart('\uFEFF');
+        if (heading.Length >= 4
+            && ((heading.StartsWith('【') && heading.EndsWith('】'))
+                || (heading.StartsWith('〔') && heading.EndsWith('〕'))))
+        {
+            var inner = heading[1..^1].Trim();
+            if (inner.Length > 0 && (NumberedHeading.IsMatch(inner) || SpecialHeading.IsMatch(inner)))
+                heading = inner;
+        }
         var prefix = NumberedListPrefix.Match(heading);
         if (prefix.Success && prefix.Groups["index"].Value == prefix.Groups["chapter"].Value)
             heading = heading[prefix.Length..];

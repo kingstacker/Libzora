@@ -481,6 +481,7 @@ public partial class MainWindow
             _readerLastMarkerColor = NormalizeReaderAnnotationColor(color ?? _readerLastMarkerColor);
             color = _readerLastMarkerColor;
         }
+        RefreshReaderSelectionHighlightButton();
         await SaveReaderAnnotationAsync(
             null,
             underlineStyle: _readerLastHighlightStyle,
@@ -571,7 +572,9 @@ public partial class MainWindow
         _readerPendingSelectionEndOffset = annotation.EndOffset;
         _readerPendingSelectionPrefix = annotation.Prefix;
         _readerPendingSelectionSuffix = annotation.Suffix;
-        _readerLastHighlightStyle = annotation.UnderlineStyle;
+        _readerLastHighlightStyle = NormalizeReaderAnnotationStyle(annotation.UnderlineStyle);
+        _readerLastMarkerColor = NormalizeReaderAnnotationColor(annotation.Color);
+        RefreshReaderSelectionHighlightButton();
         _readerLastSelectionPopupAnchor = null;
         _readerLastSelectionPopupBottom = null;
         if (CurrentReaderHost is IPdfAnnotationVisualHost pdf && pdf.View is Control pdfView)

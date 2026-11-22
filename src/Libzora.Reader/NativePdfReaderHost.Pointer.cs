@@ -302,7 +302,9 @@ public sealed partial class NativePdfReaderHost
             e.Handled = true;
             return;
         }
-        if (e.Key == Key.Delete && e.KeyModifiers == KeyModifiers.None && _selectedAnnotationId is { } id)
+        if ((e.Key == Key.Delete && e.KeyModifiers is KeyModifiers.None or KeyModifiers.Meta
+             || e.Key == Key.Back && e.KeyModifiers == KeyModifiers.Meta)
+            && _selectedAnnotationId is { } id)
         {
             Emit(new { type = "pdfAnnotationDelete", id });
             e.Handled = true;
@@ -310,7 +312,7 @@ public sealed partial class NativePdfReaderHost
         }
         if (e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Meta))
         {
-            if (e.Key == Key.A) { SelectRange(0, PageContent?.Text.Length ?? 0); e.Handled = true; }
+            if (e.Key == Key.A && !e.KeyModifiers.HasFlag(KeyModifiers.Shift)) { SelectRange(0, PageContent?.Text.Length ?? 0); e.Handled = true; }
             else if (e.Key == Key.C && _selectionEnd > _selectionStart) { Emit(new { type = "selectionAction", action = "copy" }); e.Handled = true; }
             else if (e.Key is Key.D0 or Key.NumPad0) { _ = SetFitModeAsync(PdfReaderFitMode.Width); e.Handled = true; }
         }

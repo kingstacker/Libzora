@@ -272,6 +272,8 @@ public partial class MainWindow
                 .Select(item => Uri.TryCreate(item.Target, UriKind.Absolute, out var uri) ? uri : null)
                 .Where(uri => uri is not null && ReaderNavigationLocationPolicy.TargetsSameDocument(uri, target))
                 .Select(uri => uri!.Fragment));
+            if (host is NativeReaderHost nativeHost)
+                nativeHost.SetSpreadCompanionChapterPath(ResolveSpreadCompanionChapterPath(target));
             nativeReader.Navigate(target, _readerLayout, ShouldShowReaderVerticalDebugBoxes());
             return true;
         }
@@ -297,16 +299,30 @@ public partial class MainWindow
         return true;
     }
 
+    private string? ResolveSpreadCompanionChapterPath(Uri target)
+    {
+        if (_readerDocument is null || !target.IsFile) return null;
+        var targetPath = Path.GetFullPath(target.LocalPath);
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        for (var i = 0; i + 1 < _readerDocument.Chapters.Count; i++)
+        {
+            if (string.Equals(Path.GetFullPath(_readerDocument.Chapters[i]), targetPath, comparison))
+                return _readerDocument.Chapters[i + 1];
+        }
+        return null;
+    }
+
     private async Task PreloadNextReaderChapterAsync(CancellationToken cancellationToken)
     {
         var document = _readerDocument;
         var sourceChapterIndex = _readerChapterIndex;
+        var step = CurrentReaderHost is NativeReaderHost { IsShowingCompanionSpread: true } ? 2 : 1;
         if (document is null
             || HiddenReaderHost is not { } host
             || !IsReaderHostReady(host)
-            || sourceChapterIndex >= document.Chapters.Count - 1) return;
+            || sourceChapterIndex + step >= document.Chapters.Count) return;
 
-        var targetChapterIndex = sourceChapterIndex + 1;
+        var targetChapterIndex = sourceChapterIndex + step;
         var target = new Uri(document.Chapters[targetChapterIndex]);
         CancelReaderChapterPreload();
         using var preloadCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);

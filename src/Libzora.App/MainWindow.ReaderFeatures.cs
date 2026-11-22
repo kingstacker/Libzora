@@ -56,10 +56,11 @@ public partial class MainWindow
     private void MainWindow_KeyDown(object? sender, KeyEventArgs e)
     {
         if (!ReaderRoot.IsVisible) return;
-        // F11 toggles zen mode (enter/exit), matching the common fullscreen
-        // convention used by browsers and readers; Esc is an additional way to
-        // leave zen mode (both from the WinUI reference's global hook).
-        if (e.Key == Key.F11)
+        // F11 (and Control+Command+Z on macOS, where F11 is intercepted by
+        // Mission Control Show Desktop) toggles zen mode; Esc is an additional
+        // way to leave zen mode (both from the WinUI reference's global hook).
+        if (e.Key == Key.F11
+            || (e.Key == Key.Z && e.KeyModifiers == (KeyModifiers.Control | KeyModifiers.Meta)))
         {
             e.Handled = true;
             ToggleReaderZenMode();
@@ -70,11 +71,69 @@ public partial class MainWindow
             e.Handled = HandleReaderEscapeShortcut();
             return;
         }
-        if ((e.KeyModifiers & (KeyModifiers.Control | KeyModifiers.Meta)) != 0 && e.Key == Key.F)
+        var control = (e.KeyModifiers & (KeyModifiers.Control | KeyModifiers.Meta)) != 0;
+        var shift = (e.KeyModifiers & KeyModifiers.Shift) != 0;
+        var alt = (e.KeyModifiers & KeyModifiers.Alt) != 0;
+        if (control && !alt && e.Key == Key.F)
         {
             e.Handled = true;
-            OpenReaderSearchShortcut();
+            if (shift)
+                ToggleReaderWholeBookSearch();
+            else
+                OpenReaderSearchShortcut();
             return;
+        }
+        if (control && !alt && e.Key == Key.G && ReaderInPageSearchBar.IsVisible)
+        {
+            e.Handled = true;
+            _ = ObserveReaderTaskAsync(StepReaderInPageSearchAsync(shift ? -1 : 1));
+            return;
+        }
+        if (!IsReaderTextInputFocused())
+        {
+            if (control && shift && !alt && e.Key == Key.T)
+            {
+                e.Handled = true;
+                ReaderTocButton_Click(this, new RoutedEventArgs());
+                return;
+            }
+            if (control && alt && !shift && e.Key == Key.B)
+            {
+                e.Handled = true;
+                ToggleReaderBookmarkPanel();
+                return;
+            }
+            if (control && shift && !alt && e.Key == Key.A && !_readerZenMode)
+            {
+                e.Handled = true;
+                ReaderAssistantToggleButton_Click(this, new RoutedEventArgs());
+                return;
+            }
+            if (control && !shift && !alt
+                && (e.Key == Key.B || (OperatingSystem.IsMacOS() && e.Key == Key.D)))
+            {
+                e.Handled = true;
+                _ = ObserveReaderTaskAsync(ToggleReaderBookmarkAsync());
+                return;
+            }
+            if (control && !alt && e.Key is Key.OemPlus or Key.Add)
+            {
+                e.Handled = true;
+                _ = ObserveReaderTaskAsync(ChangeReaderFontAsync(0.1));
+                return;
+            }
+            if (control && !alt && e.Key is Key.OemMinus or Key.Subtract)
+            {
+                e.Handled = true;
+                _ = ObserveReaderTaskAsync(ChangeReaderFontAsync(-0.1));
+                return;
+            }
+            if (control && !shift && !alt && e.Key is Key.D0 or Key.NumPad0)
+            {
+                e.Handled = true;
+                _ = ObserveReaderTaskAsync(ResetReaderZoomOrFontAsync());
+                return;
+            }
         }
 
         if (IsLinuxReaderTextFallbackActive()
@@ -95,6 +154,7 @@ public partial class MainWindow
             && e.Key is Key.Home or Key.End)
         {
             e.Handled = true;
+            ClearActiveReaderSyncedMarker();
             nativeReader.SeekToBoundary(e.Key == Key.End);
             _ = ObserveReaderTaskAsync(UpdateReaderScrollStateAsync(nativeReader));
             return;
@@ -176,13 +236,33 @@ public partial class MainWindow
                 return;
             }
         }
+    }
 
-        if ((e.KeyModifiers & (KeyModifiers.Control | KeyModifiers.Meta)) != 0 && e.Key == Key.B
-            && !IsReaderTextInputFocused())
+    private void ToggleReaderWholeBookSearch()
+    {
+        if (!ReaderRoot.IsVisible) return;
+        if (_readerSearchVisible)
+            HideReaderSearchPanel();
+        else
+            ShowReaderSearchPanel();
+    }
+
+    private void ToggleReaderBookmarkPanel()
+    {
+        if (!ReaderRoot.IsVisible) return;
+        if (_readerSearchVisible)
         {
-            e.Handled = true;
-            _ = ObserveReaderTaskAsync(ToggleReaderBookmarkAsync());
+            HideReaderSearchPanel(restorePreviousLayout: false);
+            ShowReaderBookmarkTab();
+            return;
         }
+        if (_readerTocExpanded && ReaderBookmarkPane.IsVisible)
+        {
+            _readerTocExpanded = false;
+            ApplyReaderPanelLayout();
+            return;
+        }
+        ShowReaderBookmarkTab();
     }
 
     private bool IsReaderTextInputFocused()
@@ -300,6 +380,12 @@ public partial class MainWindow
             if (progress is not null)
                 _readerPdfPage = Math.Clamp(progress.ChapterIndex + 1, 1, pageCount);
             _readerChapterIndex = _readerPdfPage - 1;
+            var syncedMarker = await _readerData.GetSyncedPositionMarkerAsync(file.Id, token);
+            token.ThrowIfCancellationRequested();
+            if (syncedMarker is not null && Math.Clamp(syncedMarker.ChapterIndex + 1, 1, pageCount) == _readerPdfPage)
+            {
+                _readerActiveSyncedMarker = syncedMarker with { ChapterIndex = _readerPdfPage - 1 };
+            }
             _readerTocItems = [];
             BuildReaderTocRows();
             RefreshReaderTocRows();
@@ -345,6 +431,9 @@ public partial class MainWindow
             if (progress is not null)
                 await host.RestoreViewStateAsync(progress.Fragment, progress.ScrollPosition);
             token.ThrowIfCancellationRequested();
+            (host as IReaderResumeMarkerHost)?.SetResumeMarker(ToResumeMarker(_readerActiveSyncedMarker));
+            _readerSyncedMarkerScrollOrigin = _readerScrollPosition;
+            _readerSyncedMarkerScrollArmed = _readerActiveSyncedMarker is not null;
             hostView.Opacity = 1;
             RememberCurrentPdfPageText();
             SyncReaderPdfTocSelection();
@@ -408,11 +497,16 @@ public partial class MainWindow
         // Resolve its full destination without playing a spread-turn animation.
         var sameSpread = host.DisplayMode == PdfReaderDisplayMode.TwoPage
             && (targetPage - 1) / 2 == (host.PageNumber - 1) / 2;
+        var pageChanged = targetPage != host.PageNumber;
         var loaded = host.DisplayMode == PdfReaderDisplayMode.Continuous
-            ? await host.NavigateAsync(source, cancellationToken)
+            ? await NavigatePdfAndClearMarkerAsync(host, source, pageChanged, cancellationToken)
             : await RunReaderContentTransitionAsync(host, host, Math.Sign(targetPage - host.PageNumber),
-                () => host.NavigateAsync(source, cancellationToken, preserveVerticalPosition: preserveVerticalPosition), cancellationToken,
-                animate: targetPage != host.PageNumber && !sameSpread, holdOutgoingPage: true);
+                () =>
+                {
+                    if (pageChanged) ClearActiveReaderSyncedMarker();
+                    return host.NavigateAsync(source, cancellationToken, preserveVerticalPosition: preserveVerticalPosition);
+                }, cancellationToken,
+                animate: pageChanged && !sameSpread, holdOutgoingPage: true);
         if (!loaded)
         {
             if (!string.IsNullOrWhiteSpace(host.LastError)) ReaderStatusText.Text = host.LastError;
@@ -430,6 +524,16 @@ public partial class MainWindow
         await UpdateReaderBookmarkIndicatorAsync();
         if (saveProgress) await SaveReaderProgressAsync(cancellationToken);
         return true;
+    }
+
+    private Task<bool> NavigatePdfAndClearMarkerAsync(
+        IPdfReadingHost host,
+        Uri source,
+        bool pageChanged,
+        CancellationToken cancellationToken)
+    {
+        if (pageChanged) ClearActiveReaderSyncedMarker();
+        return host.NavigateAsync(source, cancellationToken);
     }
 
     private void CancelReaderPdfNavigation()

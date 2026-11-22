@@ -45,6 +45,7 @@ public partial class MainWindow
         if (Application.Current is App app) app.ApplyUiFont(font);
         ScheduleAppSettingsAutoSave();
         _appSettings = _appSettings with { MainUiFont = font };
+        _widgetSnapshots?.Schedule();
     }
 
     private AppUiFont ReadMainUiFontFromControls() =>

@@ -59,16 +59,23 @@ public sealed partial class EpubReaderPreparationService
                 return null;
             }
 
+            var normalizedRoot = NormalizeRootPath(cacheRoot);
             var chapters = new List<string>(cache.Chapters.Count);
             foreach (var relativePath in cache.Chapters)
             {
                 if (string.IsNullOrWhiteSpace(relativePath)) return null;
-                var chapterPath = ResolveContainedPath(cacheRoot, relativePath);
-                if (!File.Exists(chapterPath)) return null;
-                chapters.Add(chapterPath);
+                chapters.Add(ResolveContainedPathNormalized(normalizedRoot, cacheRoot, relativePath));
             }
 
-            var chapterIndexByPath = CreateChapterIndexLookup(chapters);
+            if (!File.Exists(chapters[0])
+                || (chapters.Count > 2 && !File.Exists(chapters[chapters.Count / 2]))
+                || (chapters.Count > 1 && !File.Exists(chapters[^1])))
+            {
+                return null;
+            }
+
+            var chapterUris = new string?[chapters.Count];
+            IReadOnlyDictionary<string, int>? chapterIndexByPath = null;
             var navigation = new List<EpubReaderNavigationItem>(cache.Navigation.Count);
             foreach (var item in cache.Navigation)
             {
@@ -81,12 +88,22 @@ public sealed partial class EpubReaderPreparationService
                     return null;
                 }
 
-                var targetPath = ResolveContainedPath(cacheRoot, item.TargetPath);
-                if (!File.Exists(targetPath)
-                    || !chapterIndexByPath.TryGetValue(targetPath, out var actualChapterIndex)
-                    || actualChapterIndex != item.ChapterIndex)
+                string targetUri;
+                if (string.Equals(item.TargetPath, cache.Chapters[item.ChapterIndex], StringComparison.Ordinal))
                 {
-                    return null;
+                    targetUri = chapterUris[item.ChapterIndex] ??= new Uri(chapters[item.ChapterIndex]).AbsoluteUri;
+                }
+                else
+                {
+                    var targetPath = ResolveContainedPathNormalized(normalizedRoot, cacheRoot, item.TargetPath);
+                    chapterIndexByPath ??= CreateChapterIndexLookup(chapters);
+                    if (!File.Exists(targetPath)
+                        || !chapterIndexByPath.TryGetValue(targetPath, out var actualChapterIndex)
+                        || actualChapterIndex != item.ChapterIndex)
+                    {
+                        return null;
+                    }
+                    targetUri = new Uri(targetPath).AbsoluteUri;
                 }
 
                 var fragment = item.Fragment ?? string.Empty;
@@ -94,7 +111,7 @@ public sealed partial class EpubReaderPreparationService
                     fragment = $"#{fragment}";
                 navigation.Add(new EpubReaderNavigationItem(
                     item.Title,
-                    new Uri(targetPath).AbsoluteUri + fragment,
+                    targetUri + fragment,
                     item.ChapterIndex,
                     item.Level));
             }

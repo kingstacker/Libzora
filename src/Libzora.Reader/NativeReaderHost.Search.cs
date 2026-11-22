@@ -71,9 +71,17 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         }
     }
 
-    public void SetNavigationFragments(IEnumerable<string> fragments) =>
+    public void SetNavigationFragments(IEnumerable<string> fragments)
+    {
         _navigationFragments = fragments.Select(NormalizeFragment)
             .Where(fragment => fragment.Length > 0).Distinct(StringComparer.Ordinal).ToArray();
+        _navigationFragmentsConfigured = true;
+    }
+
+    private IReadOnlySet<string>? SnapshotNavigationFragments() =>
+        _navigationFragmentsConfigured
+            ? new HashSet<string>(_navigationFragments, StringComparer.Ordinal)
+            : null;
 
     public string? GetCurrentNavigationFragment()
     {

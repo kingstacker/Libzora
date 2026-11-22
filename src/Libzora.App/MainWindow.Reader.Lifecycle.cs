@@ -233,6 +233,9 @@ public partial class MainWindow
         HideReaderAnnotationHoverPopup();
         _readerBookmarkIndicatorSequence++;
         ReaderBookmarkCornerMarker.IsVisible = false;
+        _readerActiveSyncedMarker = null;
+        _readerSyncedMarkerScrollOrigin = 0;
+        _readerSyncedMarkerScrollArmed = false;
         ReaderTocCompactPanel.IsVisible = false;
         _readerSliderDragging = false;
         _readerSliderPreviewVisible = false;

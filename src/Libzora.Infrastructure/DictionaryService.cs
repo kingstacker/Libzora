@@ -214,12 +214,44 @@ public sealed partial class DictionaryService
             var match = await LookupIndexedAsync(path, normalized, cancellationToken).ConfigureAwait(false);
             if (match is not null)
             {
-                var rich = await ReadRichEntryAsync(path, match.Value.Term, cancellationToken).ConfigureAwait(false);
-                result.Add(new DictionaryEntry(match.Value.Term, match.Value.Definition, dictionary.Name, rich.Html, rich.Css));
+                var resolved = await ResolveEntryAsync(path, match.Value, cancellationToken).ConfigureAwait(false);
+                result.Add(new DictionaryEntry(resolved.Term, resolved.Definition, dictionary.Name, resolved.Html, resolved.Css));
             }
             if (result.Count >= 8) break;
         }
         return result;
+    }
+
+    private async Task<(string Term, string Definition, string? Html, string? Css)> ResolveEntryAsync(
+        string path,
+        (string Term, string Definition) initialMatch,
+        CancellationToken cancellationToken)
+    {
+        var current = initialMatch;
+        var rich = await ReadRichEntryAsync(path, current.Term, cancellationToken).ConfigureAwait(false);
+        HashSet<string>? visited = null;
+        for (var hop = 0; hop < 4; hop++)
+        {
+            var payload = (rich.Html ?? current.Definition).Trim();
+            if (!payload.StartsWith("@@@LINK=", StringComparison.OrdinalIgnoreCase))
+                break;
+
+            var target = payload["@@@LINK=".Length..].Split(['\r', '\n'], 2)[0].Trim();
+            if (target.Length == 0)
+                break;
+
+            visited ??= new HashSet<string>(StringComparer.CurrentCultureIgnoreCase) { current.Term };
+            if (!visited.Add(target))
+                break;
+
+            var nextMatch = await LookupIndexedAsync(path, target, cancellationToken).ConfigureAwait(false);
+            if (nextMatch is null)
+                break;
+
+            current = nextMatch.Value;
+            rich = await ReadRichEntryAsync(path, current.Term, cancellationToken).ConfigureAwait(false);
+        }
+        return (current.Term, current.Definition, rich.Html, rich.Css);
     }
 
     internal static async Task<Dictionary<string, string>> ParseAsync(string path, CancellationToken cancellationToken = default, IProgress<DictionaryImportProgress>? progress = null)

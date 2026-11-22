@@ -131,12 +131,78 @@ public partial class MainWindow
     private async void CreateCollectionButton_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
         => await CreateCollectionAsync();
 
+    private bool HasBlockingOverlayVisible() =>
+        OnboardingOverlay.IsVisible || MessageOverlay.IsVisible
+        || ConfirmationOverlay.IsVisible || CollectionNameOverlay.IsVisible
+        || DevicePromptOverlay.IsVisible || DeviceModelInputOverlay.IsVisible
+        || ImportFormatSelectionOverlay.IsVisible || ImportConflictOverlay.IsVisible;
+
+    private bool IsTextInputFocused()
+    {
+        var focused = TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement();
+        return focused is TextBox or ComboBox
+            || (focused as Visual)?.GetVisualAncestors().Any(parent => parent is TextBox or ComboBox) == true;
+    }
+
+    private static bool IsMacSettingsGesture(KeyEventArgs e) =>
+        OperatingSystem.IsMacOS()
+        && e.Key == Key.OemComma
+        && e.KeyModifiers == KeyModifiers.Meta;
+
+    private static bool IsMacShortcutsHelpGesture(KeyEventArgs e) =>
+        OperatingSystem.IsMacOS()
+        && e.Key == Key.OemQuestion
+        && (e.KeyModifiers == KeyModifiers.Meta
+            || e.KeyModifiers == (KeyModifiers.Meta | KeyModifiers.Shift));
+
+    private static bool IsLibraryDeleteGesture(KeyEventArgs e) =>
+        (e.Key == Key.Delete && e.KeyModifiers == KeyModifiers.None)
+        || (OperatingSystem.IsMacOS()
+            && e.Key is Key.Back or Key.Delete
+            && e.KeyModifiers == KeyModifiers.Meta);
+
+    private void SwitchLibraryViewModeFromShortcut(LibraryViewMode mode)
+    {
+        if (BlockNavigationWhileTransferring()) return;
+        if (!LibraryWorkspace.IsVisible)
+            ShowLibraryPage();
+        if (mode == LibraryViewMode.Collections && ViewModel.CollectionFilterId is not null)
+        {
+            ViewModel.CollectionFilterId = null;
+            ViewModel.CollectionFilterName = null;
+            ViewModel.RefreshView();
+        }
+        SetLibraryViewMode(mode);
+    }
+
+    private void ToggleLibraryDetailInspector()
+    {
+        if (!LibraryRoot.IsVisible || !LibraryWorkspace.IsVisible) return;
+        if (LibraryDetailPane.IsVisible)
+        {
+            ClearSelectedBook();
+            return;
+        }
+        if ((GetSingleSelectedLibraryBook() ?? _selectedCard) is { } card)
+            SelectBook(card);
+    }
+
+    private async Task RefreshCurrentPageFromShortcutAsync()
+    {
+        if (!LibraryRoot.IsVisible) return;
+        if (LibraryWorkspace.IsVisible)
+            await RefreshLibraryAsync();
+        else if (ReadingDashboardPage.IsVisible)
+            await RefreshReadingDashboardAsync();
+        else if (DevicePage.IsVisible)
+            await RefreshDevicesAsync(scanBooks: true);
+        else if (ReadingMaterialsPage.IsVisible)
+            await RefreshReadingMaterialsAsync();
+    }
+
     private async void MainWindow_GlobalKeyDown(object? sender, KeyEventArgs e)
     {
-        if (e.Handled || OnboardingOverlay.IsVisible || MessageOverlay.IsVisible
-            || ConfirmationOverlay.IsVisible || CollectionNameOverlay.IsVisible
-            || DevicePromptOverlay.IsVisible || DeviceModelInputOverlay.IsVisible
-            || ImportFormatSelectionOverlay.IsVisible || ImportConflictOverlay.IsVisible)
+        if (e.Handled || HasBlockingOverlayVisible())
             return;
         if (TryExitReadingMaterialsExport(e)) return;
         if (ReaderRoot.IsVisible && IsReaderReturnGesture(e) && !IsReaderTextInputFocused())
@@ -152,7 +218,13 @@ public partial class MainWindow
             return;
         }
         if (TryHandleReaderPdfHistoryKey(e)) return;
-        if (e.Key == Key.F1)
+        if (IsMacSettingsGesture(e))
+        {
+            e.Handled = true;
+            await OpenApplicationSettingsAsync();
+            return;
+        }
+        if (e.Key == Key.F1 || (IsMacShortcutsHelpGesture(e) && !IsTextInputFocused()))
         {
             e.Handled = true;
             await ShowKeyboardShortcutsAsync();
@@ -165,7 +237,9 @@ public partial class MainWindow
         // Command is the primary modifier on macOS; Control stays for the
         // Windows and Linux heads.
         var control = (e.KeyModifiers & (KeyModifiers.Control | KeyModifiers.Meta)) != 0;
-        if (control && e.Key == Key.F)
+        var shift = (e.KeyModifiers & KeyModifiers.Shift) != 0;
+        var alt = (e.KeyModifiers & KeyModifiers.Alt) != 0;
+        if (control && !shift && !alt && e.Key == Key.F)
         {
             e.Handled = true;
             ShowLibraryPage();
@@ -173,14 +247,60 @@ public partial class MainWindow
             SearchBox.SelectAll();
             return;
         }
-        if (control && e.Key == Key.I)
+        if (control && !alt && e.Key == Key.I)
         {
             e.Handled = true;
-            ImportFilesButton_Click(this, new RoutedEventArgs());
+            if (shift)
+                ImportFolderButton_Click(this, new RoutedEventArgs());
+            else
+                ImportFilesButton_Click(this, new RoutedEventArgs());
+            return;
+        }
+        if (control && !shift && !alt && e.Key == Key.R
+            && (LibraryWorkspace.IsVisible || ReadingDashboardPage.IsVisible || DevicePage.IsVisible || ReadingMaterialsPage.IsVisible))
+        {
+            e.Handled = true;
+            await RefreshCurrentPageFromShortcutAsync();
+            return;
+        }
+        if (control && !shift && !alt && e.Key is Key.D1 or Key.NumPad1 or Key.D2 or Key.NumPad2 or Key.D3 or Key.NumPad3)
+        {
+            e.Handled = true;
+            SwitchLibraryViewModeFromShortcut(e.Key switch
+            {
+                Key.D2 or Key.NumPad2 => LibraryViewMode.List,
+                Key.D3 or Key.NumPad3 => LibraryViewMode.Collections,
+                _ => LibraryViewMode.Grid
+            });
             return;
         }
         if (!LibraryWorkspace.IsVisible) return;
-        if (control && e.Key == Key.A)
+        if (control && shift && !alt && e.Key == Key.N)
+        {
+            e.Handled = true;
+            await CreateCollectionAsync();
+            return;
+        }
+        if (control && alt && !shift && e.Key == Key.F)
+        {
+            e.Handled = true;
+            FilterButton_Click(this, new RoutedEventArgs());
+            return;
+        }
+        if (control && alt && !shift && e.Key == Key.I)
+        {
+            e.Handled = true;
+            ToggleLibraryDetailInspector();
+            return;
+        }
+        if (control && shift && !alt && e.Key == Key.R)
+        {
+            e.Handled = true;
+            if ((GetSingleSelectedLibraryBook() ?? _selectedCard) is { } card)
+                await OpenBookDirectoryFromContextAsync(card);
+            return;
+        }
+        if (control && !shift && !alt && e.Key == Key.A)
         {
             e.Handled = true;
             _selectedBookIds.Clear();
@@ -189,7 +309,7 @@ public partial class MainWindow
             UpdateMultiSelectionUi();
             return;
         }
-        if (e.Key == Key.Delete && _selectedBookIds.Count > 0)
+        if (IsLibraryDeleteGesture(e) && _selectedBookIds.Count > 0)
         {
             e.Handled = true;
             DeleteSelectedBooksButton_Click(this, new RoutedEventArgs());
@@ -225,9 +345,37 @@ public partial class MainWindow
 
     private Task ShowKeyboardShortcutsAsync()
     {
-        // macOS uses Command for the same bindings; the shortcut text should
-        // match the key the user actually presses.
-        var modifier = OperatingSystem.IsMacOS() ? "Cmd" : "Ctrl";
+        if (OperatingSystem.IsMacOS())
+        {
+            return ShowMessageAsync(
+                T("键盘快捷键"),
+                string.Join("\n", new[]
+                {
+                    T("⌘F  搜索书库 / 页内搜索"),
+                    T("⇧⌘F  全书搜索（阅读器）"),
+                    T("⌘G / ⇧⌘G  查找下一个 / 上一个"),
+                    T("⌘I / ⇧⌘I  导入书籍 / 导入文件夹"),
+                    T("⇧⌘N  新建收藏夹"),
+                    T("⌘O / Enter  阅读所选书籍"),
+                    T("⌥⌘I  显示或隐藏书籍详情"),
+                    T("⌥⌘F  显示或隐藏筛选面板"),
+                    T("⌘1 / ⌘2 / ⌘3  网格 / 列表 / 收藏夹视图"),
+                    T("⌘R / ⇧⌘R  刷新 / 打开书籍所在目录"),
+                    T("⌘A  全选当前页"),
+                    T("⌘⌫ / Delete  删除选中的书"),
+                    T("⌘D / ⌘B  添加或取消书签"),
+                    T("⇧⌘T / ⌥⌘B  目录 / 书签栏"),
+                    T("⇧⌘A  AI 与笔记侧栏"),
+                    T("⌘+ / ⌘- / ⌘0  缩放或调整字号"),
+                    T("⌃⌘F / ⌃⌘Z  全屏 / 禅模式"),
+                    T("{0}  返回上一页面", ReaderReturnShortcut),
+                    T("⌘,  打开设置"),
+                    T("Esc  关闭浮层、清除搜索或选择"),
+                    T("⌘/ 或 F1  显示本帮助")
+                }));
+        }
+
+        const string modifier = "Ctrl";
         string Shortcut(string source) =>
             T(source).Replace("Ctrl", modifier, StringComparison.Ordinal);
 
@@ -236,13 +384,18 @@ public partial class MainWindow
             string.Join("\n", new[]
             {
                 Shortcut("Ctrl+F  搜索书库"),
+                Shortcut("Ctrl+Shift+F  全书搜索（阅读器）"),
                 Shortcut("Ctrl+I  导入书籍"),
+                Shortcut("Ctrl+Shift+I  导入文件夹"),
                 Shortcut("Ctrl+A  全选当前页"),
                 T("Enter  打开选中的书"),
                 T("Delete  删除选中的书"),
                 T("Esc  清除搜索或选择"),
                 Shortcut("Ctrl+O  阅读所选书籍"),
+                Shortcut("Ctrl+B  添加或取消书签"),
+                Shortcut("Ctrl++ / Ctrl+- / Ctrl+0  缩放或调整字号"),
                 T("{0}  返回上一页面", ReaderReturnShortcut),
+                T("F11  切换禅模式"),
                 T("F1  显示本帮助")
             }));
     }

@@ -10,7 +10,7 @@ using Libzora.Infrastructure;
 namespace Libzora;
 
 /// <summary>Virtualized PDF pages, rasterized from the original PDF at device resolution.</summary>
-public sealed partial class NativePdfReaderHost : Control, IReaderHost, IReaderPageSnapshotProvider, IReaderAppearanceHost, IPdfZoomHost, IPdfAnnotationsHost, IPdfSearchHost, IPdfThumbnailHost, IPdfAnnotationVisualHost, IReaderKeyboardHost, IReaderVisualTransitionHost, IReaderSelectionHost
+public sealed partial class NativePdfReaderHost : Control, IReaderHost, IReaderPageSnapshotProvider, IReaderAppearanceHost, IPdfZoomHost, IPdfAnnotationsHost, IPdfSearchHost, IPdfThumbnailHost, IPdfAnnotationVisualHost, IReaderKeyboardHost, IReaderVisualTransitionHost, IReaderSelectionHost, IReaderResumeMarkerHost
 {
     private sealed class CachedPage(PdfPageContent content) : IDisposable
     {
@@ -85,6 +85,7 @@ public sealed partial class NativePdfReaderHost : Control, IReaderHost, IReaderP
     private Point _handDragStart;
     private Vector _handDragOrigin;
     private (Point Anchor, Rect Bounds)? _annotationCallout;
+    private ReaderResumeMarker? _resumeMarker;
 
     public NativePdfReaderHost() : this(new PdfiumDocumentFactory()) { }
 

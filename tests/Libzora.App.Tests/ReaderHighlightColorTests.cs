@@ -112,7 +112,7 @@ public sealed class ReaderHighlightColorTests(SettingsUiSession session)
         var selectionActions = ((Panel)scope.Get<Border>("ReaderSelectionPopupBar").Child!).Children.OfType<Button>().ToArray();
         Assert.Equal(8, selectionActions.Length);
         Assert.DoesNotContain(selectionActions, action => ToolTip.GetTip(action) as string is "删除" or "Delete");
-        var flyout = Assert.IsType<MenuFlyout>(button.Flyout);
+        var flyout = Assert.IsType<MenuFlyout>(FlyoutBase.GetAttachedFlyout(button));
         Assert.Equal(6, flyout.Items.OfType<MenuItem>().Count());
         Assert.Single(flyout.Items.OfType<MenuItem>(), item => item.Tag as string == "marker");
         var picker = scope.Get<Button>("ReaderSelectionMarkerColorButton");
@@ -134,9 +134,6 @@ public sealed class ReaderHighlightColorTests(SettingsUiSession session)
             Assert.True(scope.Get<Popup>("ReaderSelectionHostPopup").IsOpen);
             Assert.False(string.IsNullOrWhiteSpace(scope.Field<string?>("_readerPendingSelection")));
             Assert.Equal(before, Assert.Single(scope.Window.ReaderAnnotations).Color);
-            scope.Call("StartReaderSelectionHighlightPointerTracking");
-            await ReaderTests.Render();
-            Assert.True(flyout.IsOpen); // Moving into the palette must not dismiss its parent.
             var color = Assert.IsType<string>(item.Tag);
             Assert.False(string.IsNullOrWhiteSpace(AutomationProperties.GetName(item)));
             var swatch = Assert.IsType<Border>(item.Content);
@@ -236,6 +233,214 @@ public sealed class ReaderHighlightColorTests(SettingsUiSession session)
             scope.Set("_readerPendingSelection", text.Substring(offset, 12));
             scope.Set("_readerPendingSelectionStartOffset", offset);
             scope.Set("_readerPendingSelectionEndOffset", offset + 12);
+        }
+    });
+
+    [Fact]
+    public Task HighlightButtonUsesLongPressMenuShortClickApplyAndDynamicUnderlineGlyph() => Run(async () =>
+    {
+        await using var scope = await ReaderTestWindow.Create();
+        using var host = await ReaderAppearanceTests.LoadChapter(scope, new());
+        var path = Path.Combine(scope.Paths.ReaderCache, "highlight-longpress.epub");
+        using (var archive = ZipFile.Open(path, ZipArchiveMode.Create))
+        {
+            WriteEntry("mimetype", "application/epub+zip");
+            WriteEntry("META-INF/container.xml", "<container xmlns='urn:oasis:names:tc:opendocument:xmlns:container' version='1.0'><rootfiles><rootfile full-path='content.opf' media-type='application/oebps-package+xml'/></rootfiles></container>");
+            WriteEntry("content.opf", "<package xmlns='http://www.idpf.org/opf' version='2.0' unique-identifier='book'><metadata xmlns:dc='http://purl.org/dc/elements/1.1/'><dc:identifier id='book'>highlight-longpress</dc:identifier><dc:title>Highlight long press</dc:title></metadata><manifest><item id='chapter' href='appearance.xhtml' media-type='application/xhtml+xml'/></manifest><spine><itemref idref='chapter'/></spine></package>");
+            WriteEntry("appearance.xhtml", await File.ReadAllTextAsync(host.Source!.LocalPath));
+
+            void WriteEntry(string name, string contents)
+            {
+                using var writer = new StreamWriter(archive.CreateEntry(name).Open());
+                writer.Write(contents);
+            }
+        }
+        var library = new SqliteBookLibraryService(scope.Paths, new BookMetadataService());
+        await library.ImportAsync([path]);
+        var book = Assert.Single(await library.SearchAsync());
+        var file = Assert.Single(book.Files);
+        using var card = new BookCardViewModel(book, scope.Paths.Data);
+        scope.Set("_readerBookCard", card);
+        scope.Set("_readerBookFile", file);
+
+        var text = host.BodyText!;
+        var start = text.IndexOf("第1段", StringComparison.Ordinal);
+        Assert.True(start >= 0);
+
+        var button = scope.Get<Button>("ReaderSelectionHighlightMenuButton");
+        var flyout = Assert.IsType<MenuFlyout>(FlyoutBase.GetAttachedFlyout(button));
+        var solidLine = scope.Get<Control>("ReaderSelectionHighlightSolidLine");
+        var doubleLine = scope.Get<Control>("ReaderSelectionHighlightDoubleLine");
+        var dashedLine = scope.Get<Control>("ReaderSelectionHighlightDashedLine");
+        var dottedLine = scope.Get<Control>("ReaderSelectionHighlightDottedLine");
+        var wavyLine = scope.Get<Control>("ReaderSelectionHighlightWavyLine");
+        var markerBar = scope.Get<Border>("ReaderSelectionHighlightMarkerBar");
+
+        void AssertVisibleGlyph(string expectedStyle)
+        {
+            Assert.Equal(expectedStyle == "solid", solidLine.IsVisible);
+            Assert.Equal(expectedStyle == "double", doubleLine.IsVisible);
+            Assert.Equal(expectedStyle == "dashed", dashedLine.IsVisible);
+            Assert.Equal(expectedStyle == "dotted", dottedLine.IsVisible);
+            Assert.Equal(expectedStyle == "wavy", wavyLine.IsVisible);
+            Assert.Equal(expectedStyle == "marker", markerBar.IsVisible);
+        }
+
+        // Default style is solid; hovering must not open the style menu.
+        ShowSelection(start);
+        await ReaderTests.Render();
+        AssertVisibleGlyph("solid");
+        var root = TopLevel.GetTopLevel(button)!;
+        var center = button.TranslatePoint(new Point(button.Bounds.Width / 2, button.Bounds.Height / 2), root)!.Value;
+        root.MouseMove(center);
+        await Task.Delay(250);
+        await ReaderTests.Render();
+        Assert.False(flyout.IsOpen);
+
+        // Short click applies the current active style (solid) without opening the menu.
+        Click(button);
+        await WaitForSave();
+        Assert.False(flyout.IsOpen);
+        var first = Assert.Single(scope.Window.ReaderAnnotations);
+        Assert.Equal("solid", first.UnderlineStyle);
+
+        // Dragging away cancels long press.
+        ShowSelection(start + 20);
+        await ReaderTests.Render();
+        center = button.TranslatePoint(new Point(button.Bounds.Width / 2, button.Bounds.Height / 2), root)!.Value;
+        root.MouseMove(center);
+        root.MouseDown(center, MouseButton.Left);
+        root.MouseMove(new Point(center.X + 26, center.Y));
+        await Task.Delay(380);
+        await ReaderTests.Render();
+        Assert.False(flyout.IsOpen);
+        root.MouseUp(new Point(center.X + 26, center.Y), MouseButton.Left);
+        await ReaderTests.Render();
+        Assert.Single(scope.Window.ReaderAnnotations);
+
+        // Long press opens the menu; releasing does not apply or dismiss.
+        root.MouseMove(center);
+        root.MouseDown(center, MouseButton.Left);
+        await Task.Delay(380);
+        await ReaderTests.Render();
+        Assert.True(flyout.IsOpen);
+        root.MouseUp(center, MouseButton.Left);
+        await ReaderTests.Render();
+        Assert.True(flyout.IsOpen);
+        Assert.Single(scope.Window.ReaderAnnotations);
+
+        // Select each underline style from the menu and confirm the U glyph updates
+        // and subsequent short clicks reuse the chosen style.
+        var cursorOffset = start + 40;
+        foreach (var style in new[] { "double", "dashed", "dotted", "wavy" })
+        {
+            var menuItem = flyout.Items.OfType<MenuItem>().Single(item => item.Tag as string == style);
+            Click(menuItem);
+            await WaitForSave();
+            AssertVisibleGlyph(style);
+            var created = scope.Window.ReaderAnnotations.OrderByDescending(item => item.UpdatedAt).First();
+            Assert.Equal(style, created.UnderlineStyle);
+
+            var quickOffset = cursorOffset;
+            cursorOffset += 15;
+            ShowSelection(quickOffset);
+            await ReaderTests.Render();
+            Click(button);
+            await WaitForSave();
+            var quick = scope.Window.ReaderAnnotations.Single(item => item.StartOffset == quickOffset);
+            Assert.Equal(style, quick.UnderlineStyle);
+
+            // Re-open via long press for the next iteration.
+            if (style != "wavy")
+            {
+                var nextMenuOffset = cursorOffset;
+                cursorOffset += 15;
+                ShowSelection(nextMenuOffset);
+                await ReaderTests.Render();
+                center = button.TranslatePoint(new Point(button.Bounds.Width / 2, button.Bounds.Height / 2), root)!.Value;
+                root.MouseMove(center);
+                root.MouseDown(center, MouseButton.Left);
+                await Task.Delay(380);
+                await ReaderTests.Render();
+                Assert.True(flyout.IsOpen);
+                root.MouseUp(center, MouseButton.Left);
+                await ReaderTests.Render();
+            }
+        }
+
+        // Long press -> pick marker color -> verify U bar turns into that color and short click reuses it.
+        ShowSelection(cursorOffset);
+        cursorOffset += 15;
+        await ReaderTests.Render();
+        center = button.TranslatePoint(new Point(button.Bounds.Width / 2, button.Bounds.Height / 2), root)!.Value;
+        root.MouseMove(center);
+        root.MouseDown(center, MouseButton.Left);
+        await Task.Delay(380);
+        await ReaderTests.Render();
+        Assert.True(flyout.IsOpen);
+        root.MouseUp(center, MouseButton.Left);
+        await ReaderTests.Render();
+
+        Click(scope.Get<Button>("ReaderSelectionMarkerColorButton"));
+        await ReaderTests.Render();
+        var green = scope.Get<StackPanel>("ReaderSelectionMarkerPalette").Children.OfType<Button>().Single(item => item.Tag as string == "#81C784");
+        Click(green);
+        await WaitForSave();
+        AssertVisibleGlyph("marker");
+        Assert.Equal(Color.Parse("#81C784"), Assert.IsAssignableFrom<ISolidColorBrush>(markerBar.Background).Color);
+
+        ShowSelection(cursorOffset);
+        cursorOffset += 15;
+        await ReaderTests.Render();
+        Click(button);
+        await WaitForSave();
+        var quickMarker = scope.Window.ReaderAnnotations.Single(item => item.StartOffset == cursorOffset - 15);
+        Assert.Equal("marker", quickMarker.UnderlineStyle);
+        Assert.Equal("#81C784", quickMarker.Color);
+
+        // Long press again -> verify active MenuItem class -> pick black marker -> verify ReaderInkBrush bar.
+        ShowSelection(cursorOffset);
+        await ReaderTests.Render();
+        center = button.TranslatePoint(new Point(button.Bounds.Width / 2, button.Bounds.Height / 2), root)!.Value;
+        root.MouseMove(center);
+        root.MouseDown(center, MouseButton.Left);
+        await Task.Delay(380);
+        await ReaderTests.Render();
+        Assert.True(flyout.IsOpen);
+        root.MouseUp(center, MouseButton.Left);
+        await ReaderTests.Render();
+        Assert.Contains("active", flyout.Items.OfType<MenuItem>().Single(item => item.Tag as string == "marker").Classes);
+        Assert.DoesNotContain("active", flyout.Items.OfType<MenuItem>().Single(item => item.Tag as string == "solid").Classes);
+
+        Click(scope.Get<Button>("ReaderSelectionMarkerColorButton"));
+        await ReaderTests.Render();
+        var black = scope.Get<StackPanel>("ReaderSelectionMarkerPalette").Children.OfType<Button>().Single(item => item.Tag as string == "#000000");
+        Click(black);
+        await WaitForSave();
+        AssertVisibleGlyph("marker");
+        Assert.Equal(
+            Assert.IsAssignableFrom<ISolidColorBrush>(scope.Window.FindResource("ReaderInkBrush")).Color,
+            Assert.IsAssignableFrom<ISolidColorBrush>(markerBar.Background).Color);
+
+        scope.Set("_readerActiveHost", null);
+        scope.Set("_readerBookCard", null);
+        scope.Set("_readerBookFile", null);
+        scope.Get<ContentControl>("ReaderActiveHostSlot").Content = null;
+
+        void ShowSelection(int offset)
+        {
+            scope.Set("_selectedReaderAnnotation", null);
+            scope.Set("_readerPendingSelection", text.Substring(offset, 10));
+            scope.Set("_readerPendingSelectionStartOffset", offset);
+            scope.Set("_readerPendingSelectionEndOffset", offset + 10);
+            scope.Call("ShowReaderSelectionPopup", new Point(450, 180), 210d);
+        }
+
+        async Task WaitForSave()
+        {
+            for (var attempt = 0; attempt < 500 && scope.Field<string?>("_readerPendingSelection") is not null; attempt++)
+                await Task.Delay(10);
+            Assert.Null(scope.Field<string?>("_readerPendingSelection"));
         }
     });
 

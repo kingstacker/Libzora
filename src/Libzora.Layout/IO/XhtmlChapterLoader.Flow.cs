@@ -71,7 +71,15 @@ public sealed partial class XhtmlChapterLoader
             case "h6":
                 FlushParagraph(ctx);
                 TrackId(element);
-                WalkBlockParagraph(element, BlockKind.Heading, ctx, headingLevel: local[1] - '0');
+                if (IsFigureCaptionHeading(element, local))
+                {
+                    WalkBlockParagraph(element, BlockKind.Paragraph,
+                        ctx.AsHeadingCaption(ResolveHints(element).FontSizeFactor));
+                }
+                else
+                {
+                    WalkBlockParagraph(element, BlockKind.Heading, ctx, headingLevel: local[1] - '0');
+                }
                 break;
             case "li":
                 FlushParagraph(ctx);
@@ -114,6 +122,7 @@ public sealed partial class XhtmlChapterLoader
                 var containerContext = ctx.WithContainerHints(divHints);
                 WalkFlow(element, containerContext);
                 FlushParagraph(containerContext);
+                LinkFigureCaptions(divStart);
                 ApplyContainerPageBreaks(divStart, divHints);
                 break;
             case "table":
@@ -212,6 +221,40 @@ public sealed partial class XhtmlChapterLoader
 
                 break;
         }
+    }
+
+    private bool IsFigureCaptionHeading(XElement element, string local)
+    {
+        if (local is not ("h4" or "h5" or "h6"))
+            return false;
+
+        if (local is "h5" or "h6"
+            && _blocks.Count > 0
+            && _blocks[^1].Kind == BlockKind.Image)
+        {
+            return true;
+        }
+
+        var parent = element.Parent;
+        if (parent is not null
+            && parent.Name.LocalName.ToLowerInvariant() is "div" or "figure")
+        {
+            var hasVisual = parent.Descendants().Any(descendant =>
+                descendant.Name.LocalName.ToLowerInvariant() is "img" or "svg" or "table");
+            if (hasVisual)
+            {
+                var hasProse = parent.Descendants().Any(descendant =>
+                {
+                    var name = descendant.Name.LocalName.ToLowerInvariant();
+                    return name is "h1" or "h2" or "h3"
+                        || (name == "p" && !string.IsNullOrWhiteSpace(descendant.Value));
+                });
+                if (!hasProse)
+                    return true;
+            }
+        }
+
+        return false;
     }
 
     private FlowContext ListContext(XElement element, FlowContext ctx, bool ordered)

@@ -116,6 +116,143 @@ public sealed class ReaderTransitionRenderingTests(SettingsUiSession session)
         return true;
     }, CancellationToken.None);
 
+    [Theory]
+    [InlineData(ReaderTransitionPlayer.AnimationPush, 1, ReaderTheme.Classic)]
+    [InlineData(ReaderTransitionPlayer.AnimationPush, -1, ReaderTheme.Ink)]
+    [InlineData(ReaderTransitionPlayer.AnimationCover, 1, ReaderTheme.Classic)]
+    [InlineData(ReaderTransitionPlayer.AnimationCover, -1, ReaderTheme.Beige)]
+    public Task PushAndCoverTransitionsKeepInkSeparateAndClearEdges(
+        int animation, int direction, ReaderTheme theme) => session.Session.Dispatch(async () =>
+    {
+        var paper = new SolidColorBrush(ReaderPalette.For(theme).Page);
+        var content = new InkPage();
+        var hostSlot = new ContentControl
+        {
+            Background = Brushes.Transparent,
+            Content = content
+        };
+        var snapshot = new Image();
+        var trail = new Rectangle();
+        var front = new Rectangle();
+        var edge = new Rectangle();
+        var root = new Grid
+        {
+            Background = paper,
+            ClipToBounds = true,
+            Children = { hostSlot, snapshot, trail, front, edge }
+        };
+        var window = new Window { Width = 360, Height = 220, Content = root };
+        using var cancellation = new CancellationTokenSource();
+        var release = new TaskCompletionSource();
+        Task<bool>? turn = null;
+        try
+        {
+            window.Show();
+            await ReaderTests.Render();
+            var surface = new ReaderTransitionSurface(hostSlot, snapshot, trail, front, edge, root, hostSlot);
+            turn = ReaderTransitionPlayer.RunAsync(surface, animation, direction, async () =>
+            {
+                content.Incoming = true;
+                content.InvalidateVisual();
+                await release.Task;
+                return true;
+            }, cancellation.Token);
+            await ReaderTests.Render();
+
+            ReaderTransitionPlayer.DrawProgress(surface, animation, direction, 0d);
+            Assert.False(edge.IsVisible);
+            ReaderTransitionPlayer.DrawProgress(surface, animation, direction, 1d);
+            Assert.False(edge.IsVisible);
+
+            var sawOld = false;
+            var sawNew = false;
+            foreach (var progress in new[] { 0.15, 0.5, 0.85 })
+            {
+                ReaderTransitionPlayer.DrawProgress(surface, animation, direction, progress);
+                await ReaderTests.Render();
+                using var frame = Capture(root);
+                var overlappingColumns = 0;
+                for (var x = 10; x < 350; x++)
+                {
+                    var oldInk = frame.GetPixel(x, 35);
+                    var newInk = frame.GetPixel(x, 75);
+                    var hasOld = oldInk.Red > oldInk.Green + 30 && oldInk.Red > oldInk.Blue + 30;
+                    var hasNew = newInk.Blue > newInk.Green + 30 && newInk.Blue > newInk.Red + 30;
+                    if (hasOld && hasNew) overlappingColumns++;
+                    sawOld |= hasOld;
+                    sawNew |= hasNew;
+                }
+                Assert.InRange(overlappingColumns, 0, 1);
+            }
+
+            Assert.True(sawOld);
+            Assert.True(sawNew);
+        }
+        finally
+        {
+            cancellation.Cancel();
+            release.TrySetResult();
+            if (turn is not null)
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => turn);
+            Assert.Null(snapshot.Source);
+            Assert.Null(hostSlot.RenderTransform);
+            Assert.Equal(Brushes.Transparent, hostSlot.Background);
+            Assert.All(new Control[] { snapshot, trail, front, edge }, control => Assert.False(control.IsVisible));
+            window.Close();
+        }
+        return true;
+    }, CancellationToken.None);
+
+    [Fact]
+    public Task HiDpiCapturePreservesFullViewportWithoutBottomMagnification() => session.Session.Dispatch(async () =>
+    {
+        var paper = new SolidColorBrush(Colors.White);
+        var content = new InkPage();
+        var hostSlot = new ContentControl
+        {
+            Background = Brushes.Transparent,
+            Padding = new Thickness(0, 59, 0, 34),
+            Content = content
+        };
+        var snapshot = new Image();
+        var trail = new Rectangle();
+        var front = new Rectangle();
+        var edge = new Rectangle();
+        var root = new Grid
+        {
+            Background = paper,
+            ClipToBounds = true,
+            Children = { hostSlot, snapshot, trail, front, edge }
+        };
+        var window = new Window { Width = 360, Height = 240, Content = root };
+        try
+        {
+            window.Show();
+            await ReaderTests.Render();
+            var surface = new ReaderTransitionSurface(hostSlot, snapshot, trail, front, edge, root, hostSlot);
+            const double scaling = 3.0;
+            using var backdrop = ReaderTransitionPlayer.CaptureBackdrop(surface, scaling)!;
+            using var captured = ReaderTransitionPlayer.Capture(hostSlot, backdrop, scaling)!;
+            Assert.NotNull(backdrop);
+            Assert.NotNull(captured);
+            Assert.Equal(360 * 3, captured.PixelSize.Width);
+            Assert.Equal(240 * 3, captured.PixelSize.Height);
+            // Red stripe is at y = 59 (top padding) + 30..42 = 89..101 DIPs -> 267..303 physical px.
+            // Bottom padding zone (y = 206..240 DIPs -> 618..720 px) must remain pure white paper,
+            // never containing magnified ink from the top of the page.
+            using var decoded = Decode(captured);
+            var redPixel = decoded.GetPixel(180 * 3, 95 * 3);
+            Assert.True(redPixel.Red > 200 && redPixel.Green < 40 && redPixel.Blue < 40);
+            var bottomPixel = decoded.GetPixel(180 * 3, 220 * 3);
+            Assert.True(bottomPixel.Red > 245 && bottomPixel.Green > 245 && bottomPixel.Blue > 245);
+        }
+        finally
+        {
+            window.Close();
+        }
+        return true;
+    }, CancellationToken.None);
+
     private static SKBitmap Capture(Control control)
     {
         using var bitmap = new RenderTargetBitmap(new PixelSize(

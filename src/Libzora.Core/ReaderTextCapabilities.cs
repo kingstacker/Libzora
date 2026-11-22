@@ -79,6 +79,22 @@ public interface IReaderAnnotationHost : IReaderHost
     void SetAnnotations(IReadOnlyList<ReaderAnnotation> annotations);
 }
 
+/// <summary>
+/// Body-text location indicator for a reading position synced from another
+/// device, shown until the user turns or leaves the restored page.
+/// </summary>
+public sealed record ReaderResumeMarker(
+    int ChapterIndex,
+    int ScrollPosition,
+    string? Fragment,
+    ReaderContentPosition? ContentPosition);
+
+/// <summary>Renders an ephemeral resume-reading marker inside the page body.</summary>
+public interface IReaderResumeMarkerHost : IReaderHost
+{
+    void SetResumeMarker(ReaderResumeMarker? marker);
+}
+
 /// <summary>Optional renderer-specific estimates for a whole book.</summary>
 public interface IReaderPageCountHost : IReaderHost
 {

@@ -52,6 +52,7 @@ public partial class MainWindow
         // open at the same spot after the bar hands off to it.
         _readerLastSelectionPopupAnchor = placementPoint;
         _readerLastSelectionPopupBottom = selectionBottom;
+        RefreshReaderSelectionHighlightButton();
         ShowReaderPopupNearSelection(
             ReaderSelectionHostPopup,
             ReaderSelectionPopupBar,
@@ -139,8 +140,8 @@ public partial class MainWindow
         HideReaderTranslationPopup(clearSelection: false);
         HideReaderDictionaryPopup(clearSelection: false);
         ReaderMarkerPaletteFlyout?.Hide();
-        StopReaderSelectionHighlightPointerTracking();
-        if (ReaderSelectionHighlightMenuButton?.Flyout is PopupFlyoutBase { IsOpen: true } flyout)
+        StopReaderSelectionHighlightLongPress(resetSuppressClick: true);
+        if (ReaderHighlightStyleFlyout is { IsOpen: true } flyout)
             flyout.Hide();
         if (ReaderSelectionHostPopup is not null)
             ReaderSelectionHostPopup.IsOpen = false;
@@ -207,19 +208,111 @@ public partial class MainWindow
         await PerformReaderSelectionCopyAsync();
     }
 
-    private async void ReaderSelectionHighlightButton_Click(object? sender, RoutedEventArgs e)
+    private void InitializeReaderSelectionHighlightButton()
     {
-        await ApplyReaderHighlightStyleAsync("solid");
+        if (ReaderSelectionHighlightMenuButton is not { } button) return;
+        button.AddHandler(
+            InputElement.PointerPressedEvent,
+            ReaderSelectionHighlightMenuButton_PointerPressed,
+            RoutingStrategies.Tunnel,
+            handledEventsToo: true);
+        button.AddHandler(
+            InputElement.PointerMovedEvent,
+            ReaderSelectionHighlightMenuButton_PointerMoved,
+            RoutingStrategies.Bubble,
+            handledEventsToo: true);
+        button.AddHandler(
+            InputElement.PointerReleasedEvent,
+            ReaderSelectionHighlightMenuButton_PointerReleased,
+            RoutingStrategies.Bubble,
+            handledEventsToo: true);
+        button.AddHandler(
+            InputElement.PointerCaptureLostEvent,
+            ReaderSelectionHighlightMenuButton_PointerCaptureLost,
+            RoutingStrategies.Bubble,
+            handledEventsToo: true);
+        RefreshReaderSelectionHighlightButton();
     }
 
-    private void ReaderSelectionHighlightMenuButton_PointerEntered(object? sender, PointerEventArgs e)
+    private async void ReaderSelectionHighlightButton_Click(object? sender, RoutedEventArgs e)
     {
-        if (string.IsNullOrWhiteSpace(_readerPendingSelection)) return;
-        if (sender is Button { Flyout: { IsOpen: false } flyout } button)
+        if (_readerSelectionHighlightSuppressClick)
         {
-            flyout.ShowAt(button);
-            StartReaderSelectionHighlightPointerTracking();
+            _readerSelectionHighlightSuppressClick = false;
+            return;
         }
+        if (string.IsNullOrWhiteSpace(_readerPendingSelection)) return;
+        var style = NormalizeReaderAnnotationStyle(_readerLastHighlightStyle);
+        await ApplyReaderHighlightStyleAsync(style, style == "marker" ? ReaderMarkerColorForSelection() : null);
+    }
+
+    private void ReaderSelectionHighlightMenuButton_PointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (sender is not Button button
+            || string.IsNullOrWhiteSpace(_readerPendingSelection)
+            || !e.GetCurrentPoint(button).Properties.IsLeftButtonPressed)
+            return;
+
+        StopReaderSelectionHighlightLongPress(resetSuppressClick: true);
+        _readerSelectionHighlightPressActive = true;
+        _readerSelectionHighlightPressPoint = e.GetPosition(button);
+        _readerSelectionHighlightLongPressTimer ??= new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(ReaderSelectionHighlightLongPressMs)
+        };
+        _readerSelectionHighlightLongPressTimer.Tick -= ReaderSelectionHighlightLongPressTimer_Tick;
+        _readerSelectionHighlightLongPressTimer.Tick += ReaderSelectionHighlightLongPressTimer_Tick;
+        _readerSelectionHighlightLongPressTimer.Start();
+    }
+
+    private void ReaderSelectionHighlightMenuButton_PointerMoved(object? sender, PointerEventArgs e)
+    {
+        if (!_readerSelectionHighlightPressActive
+            || _readerSelectionHighlightLongPressTriggered
+            || sender is not Button button)
+            return;
+
+        var point = e.GetPosition(button);
+        if (Math.Abs(point.X - _readerSelectionHighlightPressPoint.X) > ReaderSelectionHighlightLongPressMaxDistance
+            || Math.Abs(point.Y - _readerSelectionHighlightPressPoint.Y) > ReaderSelectionHighlightLongPressMaxDistance)
+        {
+            StopReaderSelectionHighlightLongPress(resetSuppressClick: false);
+        }
+    }
+
+    private void ReaderSelectionHighlightMenuButton_PointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        StopReaderSelectionHighlightLongPress(resetSuppressClick: true);
+    }
+
+    private void ReaderSelectionHighlightMenuButton_PointerCaptureLost(object? sender, PointerCaptureLostEventArgs e)
+    {
+        StopReaderSelectionHighlightLongPress(resetSuppressClick: true);
+    }
+
+    private void ReaderSelectionHighlightLongPressTimer_Tick(object? sender, EventArgs e)
+    {
+        _readerSelectionHighlightLongPressTimer?.Stop();
+        if (!_readerSelectionHighlightPressActive || string.IsNullOrWhiteSpace(_readerPendingSelection))
+        {
+            _readerSelectionHighlightPressActive = false;
+            return;
+        }
+
+        _readerSelectionHighlightPressActive = false;
+        _readerSelectionHighlightLongPressTriggered = true;
+        _readerSelectionHighlightSuppressClick = true;
+        ToolTip.SetIsOpen(ReaderSelectionHighlightMenuButton, false);
+        ReaderHighlightStyleFlyout?.ShowAt(ReaderSelectionHighlightMenuButton);
+    }
+
+    private void StopReaderSelectionHighlightLongPress(bool resetSuppressClick)
+    {
+        _readerSelectionHighlightLongPressTimer?.Stop();
+        _readerSelectionHighlightPressActive = false;
+        _readerSelectionHighlightLongPressTriggered = false;
+        if (resetSuppressClick)
+            _readerSelectionHighlightSuppressClick = false;
     }
 
     private void InitializeReaderSelectionToolTips()
@@ -241,93 +334,6 @@ public partial class MainWindow
         }
     }
 
-    private void StartReaderSelectionHighlightPointerTracking()
-    {
-        StopReaderSelectionHighlightPointerTracking();
-        _readerSelectionHighlightOpenedTick = Environment.TickCount64;
-        _readerSelectionHighlightToolTipHoverTick = _readerSelectionHighlightOpenedTick;
-        _readerSelectionHighlightOutsideTicks = 0;
-        _readerSelectionHighlightPointerTimer ??= new DispatcherTimer
-        {
-            Interval = TimeSpan.FromMilliseconds(40)
-        };
-        _readerSelectionHighlightPointerTimer.Tick -= ReaderSelectionHighlightPointerTimer_Tick;
-        _readerSelectionHighlightPointerTimer.Tick += ReaderSelectionHighlightPointerTimer_Tick;
-        _readerSelectionHighlightPointerTimer.Start();
-    }
-
-    private void StopReaderSelectionHighlightPointerTracking()
-    {
-        _readerSelectionHighlightPointerTimer?.Stop();
-        UpdateReaderSelectionHighlightToolTip(false);
-    }
-
-    private void UpdateReaderSelectionHighlightToolTip(bool pointerOverButton)
-    {
-        if (!pointerOverButton)
-        {
-            _readerSelectionHighlightToolTipHoverTick = null;
-            ToolTip.SetIsOpen(ReaderSelectionHighlightMenuButton, false);
-            return;
-        }
-
-        // The menu's overlay clears IsPointerOver on the anchor button. Use
-        // the same screen-pointer tracking that keeps this hover menu open.
-        _readerSelectionHighlightToolTipHoverTick ??= Environment.TickCount64;
-        var elapsed = Environment.TickCount64 - _readerSelectionHighlightToolTipHoverTick.Value;
-        var delay = ToolTip.GetShowDelay(ReaderSelectionHighlightMenuButton);
-        // Keep the hover start after dismissal so a stationary pointer cannot
-        // repeatedly reopen the tooltip through the menu overlay.
-        ToolTip.SetIsOpen(ReaderSelectionHighlightMenuButton,
-            elapsed >= delay && elapsed < delay + ReaderSelectionToolTipDurationMs);
-    }
-
-    private void ReaderSelectionHighlightPointerTimer_Tick(object? sender, EventArgs e)
-    {
-        if (ReaderSelectionHighlightMenuButton.Flyout is not PopupFlyoutBase { IsOpen: true } flyout)
-        {
-            StopReaderSelectionHighlightPointerTracking();
-            return;
-        }
-        // The palette has its own popup root. Keep the style menu open while
-        // the pointer crosses into it; light dismiss closes the palette.
-        if (ReaderMarkerPaletteFlyout is { IsOpen: true })
-        {
-            UpdateReaderSelectionHighlightToolTip(false);
-            _readerSelectionHighlightOutsideTicks = 0;
-            return;
-        }
-        if (!TryGetReaderCursorScreenPoint(out var screenPoint))
-            return;
-
-        var buttonRect = GetReaderScreenRect(ReaderSelectionHighlightMenuButton);
-        UpdateReaderSelectionHighlightToolTip(ContainsReaderScreenPoint(buttonRect, screenPoint));
-        var presenter = ReaderSelectionHighlightSolidItem
-            .GetVisualAncestors()
-            .OfType<MenuFlyoutPresenter>()
-            .FirstOrDefault();
-        if (presenter is null
-            && Environment.TickCount64 - _readerSelectionHighlightOpenedTick < 400)
-            return;
-        PixelRect? presenterRect = presenter is null ? null : GetReaderScreenRect(presenter);
-        if (ContainsReaderScreenPoint(buttonRect, screenPoint)
-            || presenterRect is { } menuRect && ContainsReaderScreenPoint(menuRect, screenPoint)
-            || IsReaderSelectionHighlightMenuBridge(screenPoint, buttonRect, presenterRect))
-        {
-            _readerSelectionHighlightOutsideTicks = 0;
-            return;
-        }
-
-        // Require two consecutive outside samples. A single X11 sample can
-        // briefly land between the button and a newly arranged flyout while
-        // the compositor is moving it into its final tangent position.
-        if (++_readerSelectionHighlightOutsideTicks < 2)
-            return;
-
-        flyout.Hide();
-        StopReaderSelectionHighlightPointerTracking();
-    }
-
     private static PixelRect GetReaderScreenRect(Control control)
     {
         var topLeft = control.PointToScreen(new Point(0, 0));
@@ -344,23 +350,6 @@ public partial class MainWindow
         && point.X <= rect.X + rect.Width
         && point.Y >= rect.Y
         && point.Y <= rect.Y + rect.Height;
-
-    private static bool IsReaderSelectionHighlightMenuBridge(
-        PixelPoint point,
-        PixelRect button,
-        PixelRect? presenter)
-    {
-        if (presenter is not { } menu) return false;
-        var left = Math.Max(button.X, menu.X);
-        var right = Math.Min(button.X + button.Width, menu.X + menu.Width);
-        var top = Math.Min(button.Y + button.Height, menu.Y + menu.Height);
-        var bottom = Math.Max(button.Y, menu.Y);
-        return left <= right
-            && point.X >= left
-            && point.X <= right
-            && point.Y >= top
-            && point.Y <= bottom;
-    }
 
     private async void ReaderSelectionHighlightStyleItem_Click(object? sender, RoutedEventArgs e)
     {

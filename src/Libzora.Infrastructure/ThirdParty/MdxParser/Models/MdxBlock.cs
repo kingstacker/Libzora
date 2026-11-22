@@ -172,14 +172,14 @@ namespace MdxParser.Models
                 // text head size
                 headSize = readWidth(keyBlockInfo[i..(i + byteWidth)]);
                 i += byteWidth;
-                if (document.Encoding != Encoding.GetEncoding("UTF-16"))
+                if (document.Encoding.CodePage is not (1200 or 1201))
                     i += headSize + textTerm;
                 else
                     i += (headSize + textTerm) * 2;
                 // text tail size
                 tailSize = readWidth(keyBlockInfo[i..(i + byteWidth)]);
                 i += byteWidth;
-                if (document.Encoding != Encoding.GetEncoding("UTF-16"))
+                if (document.Encoding.CodePage is not (1200 or 1201))
                     i += tailSize + textTerm;
                 else
                     i += (tailSize + textTerm) * 2;

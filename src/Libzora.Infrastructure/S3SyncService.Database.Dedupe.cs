@@ -281,6 +281,7 @@ public sealed partial class S3SyncService
         {
             "UPDATE ReaderAnnotations SET BookId = $canonical WHERE BookId = $duplicate;",
             "UPDATE ReaderProgress SET BookId = $canonical WHERE BookId = $duplicate;",
+            "UPDATE ReaderSyncedPositionMarkers SET BookId = $canonical WHERE BookId = $duplicate;",
             "UPDATE ReaderBookmarks SET BookId = $canonical WHERE BookId = $duplicate;",
             "UPDATE ReaderLayoutSettings SET BookId = $canonical WHERE BookId = $duplicate;",
             "UPDATE ReaderReadingStats SET BookId = $canonical WHERE BookId = $duplicate;",

@@ -98,12 +98,20 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         _showVerticalDebugBoxes = showVerticalDebugBoxes;
         if (modeChanged) ResetMangaZoom();
 
+        var companionNeeded = IsSpread
+            && _settings.MangaMode
+            && _layout is { Pages.Count: 1 }
+            && !string.IsNullOrEmpty(_spreadCompanionChapterPath)
+            && _spreadCompanionLayout is null;
+        if (!IsSpread || !_settings.MangaMode)
+            _spreadCompanionLayout = null;
+
         Task<bool>? reload = null;
         if (indentChanged)
         {
             reload = ReloadChapterForIndentChange(readingAnchor, anchorPageStart);
         }
-        else if (_content is not null && (settingsChanged || _layout is null))
+        else if (_content is not null && (settingsChanged || _layout is null || companionNeeded))
         {
             _relayoutTimer?.Stop();
             await (RelayoutTask = RecomposeAsync(readingAnchor, anchorPageStart));

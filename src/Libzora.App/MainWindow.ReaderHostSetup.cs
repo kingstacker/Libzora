@@ -70,6 +70,9 @@ public partial class MainWindow
         SyncReaderBookScopeControls();
         _readerTocItems = BuildReaderNavigationItems(document);
         _readerRestoredProgress = null;
+        _readerActiveSyncedMarker = null;
+        _readerSyncedMarkerScrollOrigin = 0;
+        _readerSyncedMarkerScrollArmed = false;
         _readerBookmarkIndicatorSequence++;
         ClearReaderBookmarkPendingLocation();
         _readerCurrentFragment = null;
@@ -266,6 +269,11 @@ public partial class MainWindow
         // to jump to its heading whenever the reader's layout is configured.
         // A pending restore must use its saved values even if the initial
         // native scroll event has already reported the document origin.
+        if (host is NativeReaderHost mangaHost && host.Source is { } hostSource)
+        {
+            mangaHost.SetSpreadCompanionChapterPath(ResolveSpreadCompanionChapterPath(hostSource));
+        }
+
         await nativeReader.Configure(
             _readerLayout,
             progress?.ScrollPosition ?? _readerScrollPosition,
@@ -277,6 +285,13 @@ public partial class MainWindow
         if (progress is not null)
         {
             _readerRestoredProgress = null;
+        }
+        if (ReferenceEquals(host, CurrentReaderHost))
+        {
+            (host as IReaderResumeMarkerHost)?.SetResumeMarker(
+                _readerActiveSyncedMarker?.ChapterIndex == _readerChapterIndex
+                    ? ToResumeMarker(_readerActiveSyncedMarker)
+                    : null);
         }
 
         await ApplySavedAnnotationsAsync(host, cancellationToken);

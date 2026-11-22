@@ -89,6 +89,26 @@ public sealed record ReaderProgressRow(
     public ReaderContentPosition? ContentPosition { get; init; }
 }
 
+/// <summary>
+/// Local-only record of a reading position synced from another device so the
+/// reader highlights the resume location on the first page shown until the
+/// user turns or leaves the page.
+/// </summary>
+public sealed record ReaderSyncedPositionMarker(
+    Guid BookId,
+    Guid BookFileId,
+    string ChapterPath,
+    string? Fragment,
+    int ChapterIndex,
+    int ScrollPosition,
+    double ProgressPercent,
+    int FlowMode,
+    string SourceDeviceId,
+    DateTimeOffset SyncedAt)
+{
+    public ReaderContentPosition? ContentPosition { get; init; }
+}
+
 public sealed class ReaderBookmark
 {
     public Guid Id { get; set; } = Guid.NewGuid();

@@ -238,6 +238,7 @@ public sealed partial class ReaderDataService
             await EnsureReaderBookmarkPositionColumnsAsync(connection, cancellationToken);
             await EnsureReaderContentPositionColumnsAsync(connection, cancellationToken);
             await EnsureTextExtractionVersionColumnAsync(connection, cancellationToken);
+            await ReaderSyncedPositionMarkerStore.EnsureSchemaAsync(connection, null, cancellationToken);
             await ReaderAnnotationCascade.EnsureAsync(connection, cancellationToken);
             await ReaderReadingHistory.EnsureAsync(connection, cancellationToken);
 

@@ -2,9 +2,8 @@ import SwiftUI
 import WidgetKit
 
 /// Botanical ink-and-paper tree rendered with SwiftUI Canvas. Growth stages,
-/// foliage fullness, fruits (finished books), blossoms (annotations), and
-/// daily/streak vitality accents are all driven deterministically by
-/// `KkReadingTreeProfile`.
+/// foliage fullness, flower-to-fruit progression ("花果同枝"), and daily/streak
+/// vitality accents are all driven deterministically by `KkReadingTreeProfile`.
 struct KkReadingTreeCanvas: View {
     let profile: KkReadingTreeProfile
     @Environment(\.colorScheme) private var scheme
@@ -16,26 +15,31 @@ struct KkReadingTreeCanvas: View {
         Canvas { context, size in
             guard size.width > 12, size.height > 12 else { return }
             let palette = TreePalette(scheme: scheme, isFullColor: isFullColor)
-            let groundY = size.height * 0.87
-            let centerX = size.width * 0.5
+            let viewport = KkTreeSkeleton.viewport(in: size)
+            let rect = viewport.frame
+            let unit = viewport.unit
+            let groundY = rect.minY + rect.height * 0.87
+            let centerX = rect.midX
+            let sun = KkTreeSkeleton.sunPlacement(in: size)
 
-            if profile.hasReadToday {
-                drawSunGlow(in: &context, size: size, groundY: groundY, palette: palette)
-            }
-
-            drawGround(in: &context, width: size.width, groundY: groundY, palette: palette)
+            drawGround(in: &context, rect: rect, groundY: groundY, palette: palette)
 
             switch profile.stage {
             case .seed:
-                drawSeed(in: &context, centerX: centerX, groundY: groundY, size: size, palette: palette)
+                drawSeed(in: &context, centerX: centerX, groundY: groundY, unit: unit, palette: palette)
             case .sprout:
-                drawSprout(in: &context, centerX: centerX, groundY: groundY, size: size, palette: palette)
+                drawSprout(in: &context, centerX: centerX, groundY: groundY, unit: unit, palette: palette)
             case .seedling, .sapling, .leafy, .lush, .ancient:
-                drawTree(in: &context, centerX: centerX, groundY: groundY, size: size, palette: palette)
+                drawTree(in: &context, size: size, unit: unit, sun: sun, palette: palette)
             }
 
             if profile.isThriving && profile.stage.rawValue >= KkTreeStage.seedling.rawValue {
-                drawFloatingMotes(in: &context, size: size, groundY: groundY, palette: palette)
+                drawFloatingMotes(in: &context, rect: rect, groundY: groundY, unit: unit, sun: sun, palette: palette)
+            }
+
+            // Draw sun (light) or crescent moon (dark) unobstructed in upper-right sky.
+            if profile.hasReadToday {
+                drawCelestialBody(in: &context, sun: sun, isDark: scheme == .dark, palette: palette)
             }
         }
         .accessibilityHidden(true)
@@ -43,49 +47,59 @@ struct KkReadingTreeCanvas: View {
 
     // MARK: - Atmosphere & Ground
 
-    private func drawSunGlow(in context: inout GraphicsContext, size: CGSize, groundY: CGFloat, palette: TreePalette) {
-        let minDim = min(size.width, size.height)
-        let sunCenter = CGPoint(x: size.width * 0.78, y: groundY * 0.24)
-        let haloRadius = minDim * 0.16
-        let coreRadius = minDim * 0.055
+    private func drawCelestialBody(in context: inout GraphicsContext, sun: KkSunPlacement, isDark: Bool, palette: TreePalette) {
+        let haloRect = CGRect(
+            x: sun.center.x - sun.haloRadius,
+            y: sun.center.y - sun.haloRadius,
+            width: sun.haloRadius * 2,
+            height: sun.haloRadius * 2)
+        context.fill(
+            Path(ellipseIn: haloRect),
+            with: .radialGradient(
+                Gradient(colors: [palette.celestialHalo, palette.celestialHalo.opacity(0.0)]),
+                center: sun.center,
+                startRadius: sun.coreRadius * 0.7,
+                endRadius: sun.haloRadius))
 
-        context.fill(
-            Path(ellipseIn: CGRect(
-                x: sunCenter.x - haloRadius, y: sunCenter.y - haloRadius,
-                width: haloRadius * 2, height: haloRadius * 2)),
-            with: .color(palette.sunHalo))
-        context.fill(
-            Path(ellipseIn: CGRect(
-                x: sunCenter.x - coreRadius, y: sunCenter.y - coreRadius,
-                width: coreRadius * 2, height: coreRadius * 2)),
-            with: .color(palette.sunCore))
+        switch KkTreeSkeleton.celestialKind(isDark: isDark) {
+        case .sun:
+            let coreRect = CGRect(
+                x: sun.center.x - sun.coreRadius,
+                y: sun.center.y - sun.coreRadius,
+                width: sun.coreRadius * 2,
+                height: sun.coreRadius * 2)
+            context.fill(Path(ellipseIn: coreRect), with: .color(palette.celestialCore))
+        case .moon:
+            let moonPath = Path(KkTreeSkeleton.crescentMoonCGPath(center: sun.center, radius: sun.coreRadius * 1.18))
+            context.fill(moonPath, with: .color(palette.celestialCore))
+        }
     }
 
-    private func drawGround(in context: inout GraphicsContext, width: CGFloat, groundY: CGFloat, palette: TreePalette) {
-        let span = width * 0.72
-        let startX = (width - span) * 0.5
+    private func drawGround(in context: inout GraphicsContext, rect: CGRect, groundY: CGFloat, palette: TreePalette) {
+        let span = rect.width * 0.72
+        let startX = rect.minX + (rect.width - span) * 0.5
         let endX = startX + span
 
         var mound = Path()
         mound.move(to: CGPoint(x: startX, y: groundY))
         mound.addQuadCurve(
             to: CGPoint(x: endX, y: groundY),
-            control: CGPoint(x: width * 0.5, y: groundY - max(4, width * 0.04)))
+            control: CGPoint(x: rect.midX, y: groundY - max(4, rect.width * 0.04)))
         context.stroke(mound, with: .color(palette.groundLine),
                        style: StrokeStyle(lineWidth: 1.1, lineCap: .round))
 
         var wash = mound
         wash.addQuadCurve(
             to: CGPoint(x: startX, y: groundY),
-            control: CGPoint(x: width * 0.5, y: groundY + max(5, width * 0.05)))
+            control: CGPoint(x: rect.midX, y: groundY + max(5, rect.width * 0.05)))
         wash.closeSubpath()
         context.fill(wash, with: .color(palette.groundWash))
 
         // Tiny grass tufts anchored on the earth line.
         let tuftOffsets: [(CGFloat, CGFloat)] = [(-0.22, 0.8), (-0.16, 0.6), (0.19, 0.75), (0.25, 0.55)]
         for (offset, scale) in tuftOffsets {
-            let x = width * 0.5 + span * offset
-            let h = max(3, width * 0.032) * scale
+            let x = rect.midX + span * offset
+            let h = max(3, rect.width * 0.032) * scale
             var blade = Path()
             blade.move(to: CGPoint(x: x, y: groundY - 0.5))
             blade.addQuadCurve(
@@ -99,8 +113,7 @@ struct KkReadingTreeCanvas: View {
     // MARK: - Early Stages
 
     private func drawSeed(in context: inout GraphicsContext, centerX: CGFloat, groundY: CGFloat,
-                          size: CGSize, palette: TreePalette) {
-        let unit = min(size.width, size.height)
+                          unit: CGFloat, palette: TreePalette) {
         let seedW = unit * 0.085
         let seedH = unit * 0.115
         let seedY = groundY - seedH * 0.42
@@ -134,8 +147,7 @@ struct KkReadingTreeCanvas: View {
     }
 
     private func drawSprout(in context: inout GraphicsContext, centerX: CGFloat, groundY: CGFloat,
-                            size: CGSize, palette: TreePalette) {
-        let unit = min(size.width, size.height)
+                            unit: CGFloat, palette: TreePalette) {
         let stemHeight = unit * (0.24 + 0.08 * profile.stageProgress)
         let top = CGPoint(x: centerX + unit * 0.015, y: groundY - stemHeight)
 
@@ -161,297 +173,316 @@ struct KkReadingTreeCanvas: View {
             for idx in 0..<profile.renderedFruits {
                 let fx = centerX + (idx == 0 ? -unit * 0.14 : unit * 0.15)
                 let fy = groundY - fruitR * 0.95
-                drawFruit(in: &context, at: CGPoint(x: fx, y: fy), radius: fruitR, palette: palette)
+                drawRipeFruit(in: &context, at: CGPoint(x: fx, y: fy), radius: fruitR, heirloom: false, palette: palette)
             }
         }
     }
 
     // MARK: - Procedural Tree (Seedling -> Ancient)
 
-    private struct BranchSegment {
-        let start: CGPoint
-        let control: CGPoint
-        let end: CGPoint
-        let startWidth: CGFloat
-        let endWidth: CGFloat
-        let depth: Int
-        let maxDepth: Int
-    }
+    private func drawTree(in context: inout GraphicsContext, size: CGSize, unit: CGFloat, sun: KkSunPlacement, palette: TreePalette) {
+        let skeleton = KkTreeSkeleton.generate(profile: profile, size: size)
 
-    private struct CanopyNode {
-        let point: CGPoint
-        let angle: CGFloat
-        let depth: Int
-    }
+        // 1. Back-layer shaded foliage tucked behind the branches (crisp leaves only, no backdrop circles).
+        drawFoliageLeaves(
+            in: &context,
+            nodes: skeleton.canopyNodes,
+            sun: sun,
+            unit: unit,
+            palette: palette,
+            backLayer: true)
 
-    private func drawTree(in context: inout GraphicsContext, centerX: CGFloat, groundY: CGFloat,
-                          size: CGSize, palette: TreePalette) {
-        let unit = min(size.width, size.height)
-        let stageFactor: CGFloat
-        let trunkHeightRatio: CGFloat
-        let baseThickness: CGFloat
-
-        switch profile.stage {
-        case .seedling:
-            stageFactor = 0.52 + 0.10 * CGFloat(profile.stageProgress)
-            trunkHeightRatio = 0.24
-            baseThickness = unit * 0.036
-        case .sapling:
-            stageFactor = 0.66 + 0.10 * CGFloat(profile.stageProgress)
-            trunkHeightRatio = 0.25
-            baseThickness = unit * 0.048
-        case .leafy:
-            stageFactor = 0.80 + 0.08 * CGFloat(profile.stageProgress)
-            trunkHeightRatio = 0.26
-            baseThickness = unit * 0.060
-        case .lush:
-            stageFactor = 0.91 + 0.06 * CGFloat(profile.stageProgress)
-            trunkHeightRatio = 0.265
-            baseThickness = unit * 0.072
-        case .ancient:
-            stageFactor = 1.0
-            trunkHeightRatio = 0.27
-            baseThickness = unit * 0.084
-        default:
-            stageFactor = 0.5
-            trunkHeightRatio = 0.24
-            baseThickness = unit * 0.04
-        }
-
-        let maxDepth = profile.stage.branchDepth
-        let availableHeight = groundY - size.height * 0.09
-        let trunkLen = availableHeight * trunkHeightRatio * stageFactor
-        let rootPoint = CGPoint(x: centerX, y: groundY - 1)
-        let trunkTop = CGPoint(x: centerX - unit * 0.01, y: groundY - trunkLen)
-
-        var branches: [BranchSegment] = []
-        var canopyNodes: [CanopyNode] = []
-
-        // Root flare accents for sapling and above.
+        // 2. Root flare, tapered trunk, spreading boughs, and drooping outer twigs.
         if profile.stage.rawValue >= KkTreeStage.sapling.rawValue {
-            drawRootFlare(in: &context, root: rootPoint, thickness: baseThickness, palette: palette)
+            drawRootFlare(in: &context, root: skeleton.rootPoint, thickness: skeleton.baseThickness, palette: palette)
         }
-
-        let trunkControl = CGPoint(x: centerX + unit * 0.018, y: groundY - trunkLen * 0.52)
-        branches.append(BranchSegment(
-            start: rootPoint,
-            control: trunkControl,
-            end: trunkTop,
-            startWidth: baseThickness,
-            endWidth: baseThickness * 0.66,
-            depth: 0,
-            maxDepth: maxDepth))
-
-        var rng = SeededGenerator(seed: 0x4C69627A6F7261) // "Libzora"
-        buildBranches(
-            from: trunkTop,
-            angle: -.pi / 2,
-            length: trunkLen * 0.82,
-            width: baseThickness * 0.66,
-            depth: 1,
-            maxDepth: maxDepth,
-            stageFactor: stageFactor,
-            rng: &rng,
-            branches: &branches,
-            canopyNodes: &canopyNodes)
-
-        // 1. Soft ink-wash foliage clouds behind branches for depth.
-        drawCanopyWash(in: &context, nodes: canopyNodes, unit: unit, palette: palette)
-
-        // 2. Trunk & branches drawn back-to-front by depth.
-        for segment in branches {
+        for segment in skeleton.branches {
             drawTaperedSegment(in: &context, segment: segment, palette: palette)
         }
 
-        // 3. Individual botanical leaves clustered on terminal & sub-terminal twigs.
-        drawFoliageLeaves(in: &context, nodes: canopyNodes, unit: unit, palette: palette)
+        // 3. Front sunlit leaf clusters and hanging leaf sprays along drooping twigs.
+        drawFoliageLeaves(
+            in: &context,
+            nodes: skeleton.canopyNodes,
+            sun: sun,
+            unit: unit,
+            palette: palette,
+            backLayer: false)
 
-        // 4. Blossoms (annotations) & Fruits (finished books) on outer canopy nodes.
-        drawCanopyAccents(in: &context, nodes: canopyNodes, unit: unit, palette: palette)
-    }
-
-    private func buildBranches(
-        from start: CGPoint,
-        angle: CGFloat,
-        length: CGFloat,
-        width: CGFloat,
-        depth: Int,
-        maxDepth: Int,
-        stageFactor: CGFloat,
-        rng: inout SeededGenerator,
-        branches: inout [BranchSegment],
-        canopyNodes: inout [CanopyNode]
-    ) {
-        if depth > maxDepth {
-            canopyNodes.append(CanopyNode(point: start, angle: angle, depth: depth - 1))
-            return
-        }
-
-        let childCount = (depth == 1 && maxDepth >= 3) ? 3 : 2
-        let spreadBase: CGFloat = depth == 1 ? 0.52 : 0.42
-
-        for index in 0..<childCount {
-            let offsetUnit: CGFloat
-            if childCount == 3 {
-                offsetUnit = CGFloat(index - 1) * 0.92
-            } else {
-                offsetUnit = index == 0 ? -0.58 : 0.58
-            }
-            let jitter = CGFloat(rng.nextUnit() - 0.5) * 0.16
-            var childAngle = angle + offsetUnit * spreadBase + jitter
-            // Gentle upward phototropism so outer branches stay inside the widget frame.
-            childAngle = childAngle * 0.84 + (-.pi / 2) * 0.16
-
-            let lenScale = (0.72 + CGFloat(rng.nextUnit()) * 0.14) * (childCount == 3 && index == 1 ? 0.92 : 1.0)
-            let childLength = length * lenScale
-            let end = CGPoint(
-                x: start.x + cos(childAngle) * childLength,
-                y: start.y + sin(childAngle) * childLength)
-            let mid = CGPoint(x: (start.x + end.x) * 0.5, y: (start.y + end.y) * 0.5)
-            let normalAngle = childAngle + .pi / 2
-            let bow = (CGFloat(rng.nextUnit()) - 0.5) * childLength * 0.22
-            let control = CGPoint(x: mid.x + cos(normalAngle) * bow, y: mid.y + sin(normalAngle) * bow)
-
-            let childWidth = max(1.0, width * 0.66)
-            branches.append(BranchSegment(
-                start: start,
-                control: control,
-                end: end,
-                startWidth: width,
-                endWidth: childWidth,
-                depth: depth,
-                maxDepth: maxDepth))
-
-            if depth >= max(1, maxDepth - 1) {
-                canopyNodes.append(CanopyNode(point: end, angle: childAngle, depth: depth))
-            }
-
-            buildBranches(
-                from: end,
-                angle: childAngle,
-                length: childLength,
-                width: childWidth,
-                depth: depth + 1,
-                maxDepth: maxDepth,
-                stageFactor: stageFactor,
-                rng: &rng,
-                branches: &branches,
-                canopyNodes: &canopyNodes)
-        }
+        // 4. Flower-to-fruit lifecycle accents ("花果同枝") nestled along outer & drooping boughs.
+        drawCanopyAccents(
+            in: &context,
+            nodes: skeleton.canopyNodes,
+            sun: sun,
+            unit: unit,
+            palette: palette)
     }
 
     private func drawRootFlare(in context: inout GraphicsContext, root: CGPoint, thickness: CGFloat, palette: TreePalette) {
+        let flareSpread: CGFloat = profile.stage.rawValue >= KkTreeStage.lush.rawValue ? 1.48 : 1.22
         var flare = Path()
-        flare.move(to: CGPoint(x: root.x - thickness * 1.15, y: root.y + 0.5))
+        flare.move(to: CGPoint(x: root.x - thickness * flareSpread, y: root.y + 0.6))
         flare.addQuadCurve(
-            to: CGPoint(x: root.x - thickness * 0.35, y: root.y - thickness * 1.4),
-            control: CGPoint(x: root.x - thickness * 0.45, y: root.y - thickness * 0.15))
-        flare.addLine(to: CGPoint(x: root.x + thickness * 0.35, y: root.y - thickness * 1.4))
+            to: CGPoint(x: root.x - thickness * 0.38, y: root.y - thickness * 1.55),
+            control: CGPoint(x: root.x - thickness * 0.56, y: root.y - thickness * 0.12))
+        flare.addLine(to: CGPoint(x: root.x + thickness * 0.38, y: root.y - thickness * 1.55))
         flare.addQuadCurve(
-            to: CGPoint(x: root.x + thickness * 1.15, y: root.y + 0.5),
-            control: CGPoint(x: root.x + thickness * 0.45, y: root.y - thickness * 0.15))
+            to: CGPoint(x: root.x + thickness * flareSpread, y: root.y + 0.6),
+            control: CGPoint(x: root.x + thickness * 0.56, y: root.y - thickness * 0.12))
         flare.closeSubpath()
         context.fill(flare, with: .color(palette.trunk))
     }
 
-    private func drawTaperedSegment(in context: inout GraphicsContext, segment: BranchSegment, palette: TreePalette) {
-        var path = Path()
-        path.move(to: segment.start)
-        path.addQuadCurve(to: segment.end, control: segment.control)
-        let avgWidth = (segment.startWidth + segment.endWidth) * 0.5
-        let alpha = segment.depth <= 1 ? 1.0 : max(0.74, 1.0 - Double(segment.depth - 1) * 0.08)
-        context.stroke(path, with: .color(palette.trunk.opacity(alpha)),
-                       style: StrokeStyle(lineWidth: avgWidth, lineCap: .round, lineJoin: .round))
-    }
+    /// Renders a smoothly tapered organic limb along a quadratic Bezier curve.
+    private func drawTaperedSegment(in context: inout GraphicsContext, segment: KkTreeBranch, palette: TreePalette) {
+        let alpha = segment.depth <= 1 ? 1.0 : max(0.76, 1.0 - Double(segment.depth - 1) * 0.06)
+        let color = palette.trunk.opacity(alpha)
 
-    private func drawCanopyWash(in context: inout GraphicsContext, nodes: [CanopyNode], unit: CGFloat, palette: TreePalette) {
-        guard !nodes.isEmpty else { return }
-        let density = profile.foliageDensity
-        let strideStep = max(1, nodes.count / 18)
-        let baseRadius = unit * (0.065 + 0.04 * CGFloat(density))
-
-        for (index, node) in nodes.enumerated() where index % strideStep == 0 {
-            let r = baseRadius * (node.depth == profile.stage.branchDepth ? 1.0 : 0.85)
-            let rect = CGRect(x: node.point.x - r, y: node.point.y - r * 0.88, width: r * 2, height: r * 1.76)
-            context.fill(Path(ellipseIn: rect), with: .color(palette.canopyWash))
+        // Slender terminal twigs render crisply as rounded strokes.
+        if segment.startWidth <= 1.6 {
+            var path = Path()
+            path.move(to: segment.start)
+            path.addQuadCurve(to: segment.end, control: segment.control)
+            context.stroke(
+                path,
+                with: .color(color),
+                style: StrokeStyle(lineWidth: (segment.startWidth + segment.endWidth) * 0.5, lineCap: .round, lineJoin: .round))
+            return
         }
+
+        let steps = 7
+        var leftEdge: [CGPoint] = []
+        var rightEdge: [CGPoint] = []
+        leftEdge.reserveCapacity(steps + 1)
+        rightEdge.reserveCapacity(steps + 1)
+
+        for i in 0...steps {
+            let t = CGFloat(i) / CGFloat(steps)
+            let mt = 1 - t
+            let px = mt * mt * segment.start.x + 2 * mt * t * segment.control.x + t * t * segment.end.x
+            let py = mt * mt * segment.start.y + 2 * mt * t * segment.control.y + t * t * segment.end.y
+            let tx = 2 * mt * (segment.control.x - segment.start.x) + 2 * t * (segment.end.x - segment.control.x)
+            let ty = 2 * mt * (segment.control.y - segment.start.y) + 2 * t * (segment.end.y - segment.control.y)
+            let norm = max(0.001, hypot(tx, ty))
+            let nx = -ty / norm
+            let ny = tx / norm
+            let halfW = (segment.startWidth + (segment.endWidth - segment.startWidth) * t) * 0.5
+            leftEdge.append(CGPoint(x: px + nx * halfW, y: py + ny * halfW))
+            rightEdge.append(CGPoint(x: px - nx * halfW, y: py - ny * halfW))
+        }
+
+        var polygon = Path()
+        polygon.move(to: leftEdge[0])
+        for point in leftEdge.dropFirst() { polygon.addLine(to: point) }
+        for point in rightEdge.reversed() { polygon.addLine(to: point) }
+        polygon.closeSubpath()
+        context.fill(polygon, with: .color(color))
+
+        // Rounded joint caps prevent tiny notch artifacts at branch forks.
+        let endR = segment.endWidth * 0.5
+        context.fill(
+            Path(ellipseIn: CGRect(x: segment.end.x - endR, y: segment.end.y - endR, width: endR * 2, height: endR * 2)),
+            with: .color(color))
     }
 
-    private func drawFoliageLeaves(in context: inout GraphicsContext, nodes: [CanopyNode], unit: CGFloat, palette: TreePalette) {
+    private func isInsideSunDisc(_ point: CGPoint, sun: KkSunPlacement, padding: CGFloat) -> Bool {
+        hypot(point.x - sun.center.x, point.y - sun.center.y) < sun.coreRadius + padding
+    }
+
+    private func drawFoliageLeaves(
+        in context: inout GraphicsContext,
+        nodes: [KkTreeCanopyNode],
+        sun: KkSunPlacement,
+        unit: CGFloat,
+        palette: TreePalette,
+        backLayer: Bool
+    ) {
         guard !nodes.isEmpty else { return }
-        var rng = SeededGenerator(seed: 0x4C656166) // "Leaf"
+        var rng = KkSeededGenerator(seed: backLayer ? 0x4261636B : 0x4C656166)
         let density = profile.foliageDensity
-        let leavesPerNode = max(2, Int((2.0 + density * 4.2).rounded()))
-        let leafSizeBase = unit * (0.044 + 0.012 * (1 - CGFloat(profile.stage.rawValue - 2) / 5.0))
+        let perNodeBase = backLayer ? (2.3 + density * 3.5) : (3.0 + density * 4.5)
+        let leavesPerNode = max(2, Int(perNodeBase.rounded()))
+        let leafSizeBase = unit * (backLayer ? 0.056 : 0.044)
+        let sunExclusion = sun.coreRadius + leafSizeBase * 1.15
 
         for node in nodes {
             for idx in 0..<leavesPerNode {
                 let threshold = Double(idx) / Double(max(1, leavesPerNode))
-                if threshold > density + 0.22 { continue }
+                if threshold > density + 0.28 { continue }
 
-                let spread = (CGFloat(rng.nextUnit()) - 0.5) * 2.1
-                let radial = unit * (0.01 + CGFloat(rng.nextUnit()) * 0.055)
+                let spread = (CGFloat(rng.nextUnit()) - 0.5) * (node.isDrooping ? 1.50 : 2.50)
+                let radial = unit * (0.008 + CGFloat(rng.nextUnit()) * (node.isDrooping ? 0.050 : 0.078)) * node.weight
                 let pos = CGPoint(
                     x: node.point.x + cos(node.angle + spread) * radial,
                     y: node.point.y + sin(node.angle + spread) * radial)
-                let leafAngle = node.angle + spread * 0.75
-                let length = leafSizeBase * (0.75 + CGFloat(rng.nextUnit()) * 0.55)
-                let width = length * 0.48
+                // Drooping sprays angle their leaves gently downward like willow/banyan shoots.
+                let leafAngle = node.isDrooping
+                    ? (node.angle * 0.65 + (.pi * 0.5) * 0.35 + (CGFloat(rng.nextUnit()) - 0.5) * 0.65)
+                    : (node.angle + spread * 0.72)
+                let length = leafSizeBase * (0.76 + CGFloat(rng.nextUnit()) * 0.52)
+                let width = length * 0.52
+                let tip = CGPoint(x: pos.x + cos(leafAngle) * length, y: pos.y + sin(leafAngle) * length)
+                let mid = CGPoint(x: (pos.x + tip.x) * 0.5, y: (pos.y + tip.y) * 0.5)
+                if isInsideSunDisc(pos, sun: sun, padding: sun.coreRadius * 0.9)
+                    || hypot(tip.x - sun.center.x, tip.y - sun.center.y) < sunExclusion
+                    || hypot(mid.x - sun.center.x, mid.y - sun.center.y) < sunExclusion {
+                    continue
+                }
+
                 let colorRoll = rng.nextUnit()
-                let fill = colorRoll < 0.34 ? palette.leafDark : (colorRoll < 0.72 ? palette.leafMid : palette.leafLight)
+                let fill: Color
+                if backLayer {
+                    fill = colorRoll < 0.65 ? palette.leafDark : palette.leafMid
+                } else {
+                    fill = colorRoll < 0.24 ? palette.leafDark : (colorRoll < 0.68 ? palette.leafMid : palette.leafLight)
+                }
                 drawLeaf(in: &context, origin: pos, angle: leafAngle, length: length, width: width,
                          fill: fill, vein: nil)
             }
         }
     }
 
-    private func drawCanopyAccents(in context: inout GraphicsContext, nodes: [CanopyNode], unit: CGFloat, palette: TreePalette) {
-        let outerNodes = nodes.filter { $0.depth >= max(1, profile.stage.branchDepth - 1) }
+    private func drawCanopyAccents(
+        in context: inout GraphicsContext,
+        nodes: [KkTreeCanopyNode],
+        sun: KkSunPlacement,
+        unit: CGFloat,
+        palette: TreePalette
+    ) {
+        let accents = profile.accents
+        guard !accents.isEmpty else { return }
+
+        let outerNodes = nodes.filter { $0.depth >= max(1, profile.stage.branchDepth - 1) || $0.isDrooping }
         let pool = outerNodes.isEmpty ? nodes : outerNodes
         guard !pool.isEmpty else { return }
 
-        // Blossoms from annotations / highlights.
-        if profile.renderedBlossoms > 0 {
-            let blossomSlots = distributedIndices(count: profile.renderedBlossoms, poolSize: pool.count, seed: 0x426C6F73)
-            let blossomRadius = max(2.2, unit * 0.021)
-            for (i, slot) in blossomSlots.enumerated() {
-                let node = pool[slot]
-                let offset = CGFloat((i % 3) - 1) * unit * 0.025
-                let center = CGPoint(x: node.point.x + offset, y: node.point.y - unit * 0.018)
-                drawBlossom(in: &context, at: center, radius: blossomRadius, palette: palette)
+        // Separate blossom-bearing upper/sunlit nodes from fruit-hanging drooping/lower nodes,
+        // and sample evenly by horizontal/angular span so left and right boughs stay balanced.
+        let sortedY = pool.map(\.point.y).sorted()
+        let medianY = sortedY[sortedY.count / 2]
+        let blossomPool = pool.filter { !$0.isDrooping && $0.point.y <= medianY + unit * 0.05 }
+        let fruitPool = pool.filter { $0.isDrooping || $0.point.y >= medianY - unit * 0.03 }
+
+        let activeBlossomPool = balancedSpanOrder(blossomPool.isEmpty ? pool : blossomPool)
+        let activeFruitPool = balancedSpanOrder(fruitPool.isEmpty ? pool : fruitPool)
+
+        let blossomAccents = accents.filter { $0.kind.isBlossomLike }
+        let fruitAccents = accents.filter { $0.kind.isFruitLike }
+
+        var placedPoints: [CGPoint] = []
+        let minSpacing = max(4.6, unit * 0.052)
+
+        func nonOverlappingCenter(candidate: CGPoint) -> CGPoint {
+            var pt = candidate
+            if isInsideSunDisc(pt, sun: sun, padding: sun.coreRadius * 1.35) {
+                pt.x = sun.center.x - sun.clearanceRadius
+                pt.y = max(pt.y, sun.center.y + sun.coreRadius)
+            }
+            for step in 0..<5 {
+                let tooClose = placedPoints.contains { hypot($0.x - pt.x, $0.y - pt.y) < minSpacing }
+                if !tooClose { break }
+                let nudgeAngle = CGFloat(step) * 1.35 + 0.5
+                pt.x += cos(nudgeAngle) * minSpacing * 0.65
+                pt.y += sin(nudgeAngle) * minSpacing * 0.45
+            }
+            placedPoints.append(pt)
+            return pt
+        }
+
+        // 1. Buds and full blossoms perched evenly across upper outer twigs.
+        if !blossomAccents.isEmpty {
+            let slots = evenlySpacedIndices(count: blossomAccents.count, poolSize: activeBlossomPool.count, offset: 0)
+            let baseR = max(2.4, unit * 0.025)
+            for (i, accent) in blossomAccents.enumerated() {
+                let node = activeBlossomPool[slots[i]]
+                let offset = CGFloat((i % 3) - 1) * unit * 0.018
+                let rawCenter = CGPoint(x: node.point.x + offset, y: node.point.y - unit * 0.011)
+                let center = nonOverlappingCenter(candidate: rawCenter)
+                switch accent.kind {
+                case .bud:
+                    drawFlowerBud(
+                        in: &context,
+                        at: center,
+                        angle: node.angle,
+                        radius: baseR * 0.96,
+                        maturity: accent.maturity,
+                        palette: palette)
+                case .blossom:
+                    drawBlossom(
+                        in: &context,
+                        at: center,
+                        radius: baseR * CGFloat(0.96 + 0.16 * accent.maturity),
+                        rotation: CGFloat(i) * 0.55,
+                        palette: palette)
+                default:
+                    break
+                }
             }
         }
 
-        // Fruits from finished books.
-        if profile.renderedFruits > 0 {
-            let fruitSlots = distributedIndices(count: profile.renderedFruits, poolSize: pool.count, seed: 0x46727569)
-            let fruitRadius = max(2.6, unit * 0.027)
-            for (i, slot) in fruitSlots.enumerated() {
-                let node = pool[slot]
-                let xShift = CGFloat((i % 3) - 1) * unit * 0.022
-                let yShift = unit * (0.014 + CGFloat(i % 2) * 0.012)
-                let center = CGPoint(x: node.point.x + xShift, y: node.point.y + yShift)
-                drawFruit(in: &context, at: center, radius: fruitRadius, palette: palette)
+        // 2. Developing young fruits, ripening fruits, and ripe/heirloom fruits hanging across both sides.
+        if !fruitAccents.isEmpty {
+            let slots = evenlySpacedIndices(count: fruitAccents.count, poolSize: activeFruitPool.count, offset: 1)
+            let fruitBaseR = max(2.7, unit * 0.030)
+            for (i, accent) in fruitAccents.enumerated() {
+                let node = activeFruitPool[slots[i]]
+                let xShift = CGFloat((i % 3) - 1) * unit * 0.018
+                let yShift = unit * (0.016 + CGFloat(i % 2) * 0.010)
+                let rawCenter = CGPoint(x: node.point.x + xShift, y: node.point.y + yShift)
+                let center = nonOverlappingCenter(candidate: rawCenter)
+
+                switch accent.kind {
+                case .youngFruit:
+                    drawYoungFruit(
+                        in: &context,
+                        at: center,
+                        radius: fruitBaseR * CGFloat(0.72 + 0.14 * accent.maturity),
+                        hasDriftingPetal: accent.hasDriftingPetal,
+                        palette: palette)
+                case .ripeningFruit:
+                    drawRipeningFruit(
+                        in: &context,
+                        at: center,
+                        radius: fruitBaseR * CGFloat(0.86 + 0.12 * accent.maturity),
+                        maturity: accent.maturity,
+                        palette: palette)
+                case .ripeFruit:
+                    drawRipeFruit(
+                        in: &context,
+                        at: center,
+                        radius: fruitBaseR,
+                        heirloom: false,
+                        palette: palette)
+                case .heirloomFruit:
+                    drawRipeFruit(
+                        in: &context,
+                        at: center,
+                        radius: fruitBaseR * 1.08,
+                        heirloom: true,
+                        palette: palette)
+                default:
+                    break
+                }
             }
         }
     }
 
-    private func drawFloatingMotes(in context: inout GraphicsContext, size: CGSize, groundY: CGFloat, palette: TreePalette) {
-        let unit = min(size.width, size.height)
+    private func drawFloatingMotes(in context: inout GraphicsContext, rect: CGRect, groundY: CGFloat, unit: CGFloat, sun: KkSunPlacement, palette: TreePalette) {
         let points: [(CGFloat, CGFloat, CGFloat)] = [
-            (0.18, 0.34, -0.4),
-            (0.84, 0.42, 0.5),
-            (0.24, 0.62, 0.8),
-            (0.79, 0.66, -0.6)
+            (0.16, 0.34, -0.4),
+            (0.88, 0.48, 0.5),
+            (0.22, 0.64, 0.8),
+            (0.82, 0.70, -0.6)
         ]
         for (px, py, angle) in points {
-            let origin = CGPoint(x: size.width * px, y: groundY * py)
-            drawLeaf(in: &context, origin: origin, angle: angle, length: unit * 0.032, width: unit * 0.016,
+            let origin = CGPoint(x: rect.minX + rect.width * px, y: rect.minY + (groundY - rect.minY) * py)
+            if isInsideSunDisc(origin, sun: sun, padding: sun.coreRadius * 1.6) { continue }
+            drawLeaf(in: &context, origin: origin, angle: angle, length: unit * 0.030, width: unit * 0.015,
                      fill: palette.leafLight.opacity(0.75), vein: nil)
         }
     }
 
-    // MARK: - Primitives
+    // MARK: - Botanical Primitives
 
     private func drawLeaf(in context: inout GraphicsContext, origin: CGPoint, angle: CGFloat,
                           length: CGFloat, width: CGFloat, fill: Color, vein: Color?) {
@@ -477,71 +508,309 @@ struct KkReadingTreeCanvas: View {
         }
     }
 
-    private func drawFruit(in context: inout GraphicsContext, at center: CGPoint, radius: CGFloat, palette: TreePalette) {
+    /// Closed/half-opening pink bud cupped by green sepals at the tip of a twiglet.
+    private func drawFlowerBud(
+        in context: inout GraphicsContext,
+        at center: CGPoint,
+        angle: CGFloat,
+        radius: CGFloat,
+        maturity: Double,
+        palette: TreePalette
+    ) {
+        let dir = sin(angle) > 0.25 ? -.pi * 0.38 : angle
+        let ux = cos(dir)
+        let uy = sin(dir)
+        let px = -uy
+        let py = ux
+
+        // Tiny stem.
+        let base = CGPoint(x: center.x - ux * radius * 0.65, y: center.y - uy * radius * 0.65)
+        let stalkStart = CGPoint(x: base.x - ux * radius * 0.55, y: base.y - uy * radius * 0.55)
         var stem = Path()
-        stem.move(to: CGPoint(x: center.x, y: center.y - radius * 0.75))
-        stem.addLine(to: CGPoint(x: center.x + radius * 0.25, y: center.y - radius * 1.35))
+        stem.move(to: stalkStart)
+        stem.addLine(to: base)
+        context.stroke(stem, with: .color(palette.leafDark), style: StrokeStyle(lineWidth: 0.85, lineCap: .round))
+
+        // Swelling teardrop bud.
+        let spread = CGFloat(0.58 + maturity * 0.16)
+        let tip = CGPoint(x: base.x + ux * radius * 1.45, y: base.y + uy * radius * 1.45)
+        var bud = Path()
+        bud.move(to: base)
+        bud.addQuadCurve(
+            to: tip,
+            control: CGPoint(x: base.x + ux * radius * 0.65 + px * radius * spread,
+                             y: base.y + uy * radius * 0.65 + py * radius * spread))
+        bud.addQuadCurve(
+            to: base,
+            control: CGPoint(x: base.x + ux * radius * 0.65 - px * radius * spread,
+                             y: base.y + uy * radius * 0.65 - py * radius * spread))
+        bud.closeSubpath()
+        context.fill(bud, with: .color(palette.budTip))
+
+        // Cupping green sepal leaves around the base of the bud.
+        for side in [-1.0 as CGFloat, 1.0 as CGFloat] {
+            var sepal = Path()
+            sepal.move(to: base)
+            sepal.addQuadCurve(
+                to: CGPoint(x: base.x + ux * radius * 0.62 + px * side * radius * 0.46,
+                            y: base.y + uy * radius * 0.62 + py * side * radius * 0.46),
+                control: CGPoint(x: base.x + ux * radius * 0.25 + px * side * radius * 0.42,
+                                 y: base.y + uy * radius * 0.25 + py * side * radius * 0.42))
+            sepal.addLine(to: CGPoint(x: base.x + ux * radius * 0.35, y: base.y + uy * radius * 0.35))
+            sepal.closeSubpath()
+            context.fill(sepal, with: .color(palette.leafDark))
+        }
+    }
+
+    /// 5-petal blossom with sunlit tint and dotted golden stamens.
+    private func drawBlossom(
+        in context: inout GraphicsContext,
+        at center: CGPoint,
+        radius: CGFloat,
+        rotation: CGFloat,
+        palette: TreePalette
+    ) {
+        let petalCount = 5
+        for idx in 0..<petalCount {
+            let theta = rotation + CGFloat(idx) * ((.pi * 2) / CGFloat(petalCount))
+            let basePt = CGPoint(x: center.x + cos(theta) * (radius * 0.14), y: center.y + sin(theta) * (radius * 0.14))
+            let tipPt = CGPoint(x: center.x + cos(theta) * (radius * 1.15), y: center.y + sin(theta) * (radius * 1.15))
+            let midPt = CGPoint(x: (basePt.x + tipPt.x) * 0.55, y: (basePt.y + tipPt.y) * 0.55)
+            let perp = theta + .pi / 2
+            let petalHalfW = radius * 0.54
+
+            var petal = Path()
+            petal.move(to: basePt)
+            petal.addQuadCurve(
+                to: tipPt,
+                control: CGPoint(x: midPt.x + cos(perp) * petalHalfW, y: midPt.y + sin(perp) * petalHalfW))
+            petal.addQuadCurve(
+                to: basePt,
+                control: CGPoint(x: midPt.x - cos(perp) * petalHalfW, y: midPt.y - sin(perp) * petalHalfW))
+            petal.closeSubpath()
+            context.fill(petal, with: .color(palette.blossom))
+        }
+
+        let coreR = radius * 0.34
+        let coreRect = CGRect(x: center.x - coreR, y: center.y - coreR, width: coreR * 2, height: coreR * 2)
+        context.fill(Path(ellipseIn: coreRect), with: .color(palette.blossomCore))
+
+        // Delicate stamen dots encircling the golden heart.
+        let stamenR = max(0.45, radius * 0.10)
+        for idx in 0..<5 {
+            let theta = rotation + CGFloat(idx) * ((.pi * 2) / 5) + 0.3
+            let sx = center.x + cos(theta) * (radius * 0.44)
+            let sy = center.y + sin(theta) * (radius * 0.44)
+            context.fill(
+                Path(ellipseIn: CGRect(x: sx - stamenR, y: sy - stamenR, width: stamenR * 2, height: stamenR * 2)),
+                with: .color(palette.blossomStamen))
+        }
+    }
+
+    /// Small tender green young fruit right after petal fall, with persistent calyx and optional falling petal.
+    private func drawYoungFruit(
+        in context: inout GraphicsContext,
+        at center: CGPoint,
+        radius: CGFloat,
+        hasDriftingPetal: Bool,
+        palette: TreePalette
+    ) {
+        // Curved twiglet stem from branch above.
+        var stem = Path()
+        stem.move(to: CGPoint(x: center.x, y: center.y - radius * 0.72))
+        stem.addQuadCurve(
+            to: CGPoint(x: center.x + radius * 0.18, y: center.y - radius * 1.45),
+            control: CGPoint(x: center.x - radius * 0.10, y: center.y - radius * 1.10))
+        context.stroke(stem, with: .color(palette.trunk.opacity(0.75)),
+                       style: StrokeStyle(lineWidth: 0.8, lineCap: .round))
+
+        let bodyRect = CGRect(
+            x: center.x - radius * 0.94,
+            y: center.y - radius,
+            width: radius * 1.88,
+            height: radius * 2.02)
+        context.fill(
+            Path(ellipseIn: bodyRect),
+            with: .radialGradient(
+                Gradient(colors: [palette.youngFruitLight, palette.youngFruit]),
+                center: CGPoint(x: center.x + radius * 0.30, y: center.y - radius * 0.30),
+                startRadius: 0,
+                endRadius: radius * 1.25))
+        context.stroke(Path(ellipseIn: bodyRect), with: .color(palette.youngFruitBorder), lineWidth: 0.45)
+
+        // Persistent blossom calyx star at bottom of young fruit.
+        let calyxCenter = CGPoint(x: center.x, y: center.y + radius * 0.92)
+        for dx in [-0.36 as CGFloat, 0.0, 0.36] {
+            var tick = Path()
+            tick.move(to: calyxCenter)
+            tick.addLine(to: CGPoint(x: calyxCenter.x + radius * dx, y: calyxCenter.y + radius * 0.28))
+            context.stroke(tick, with: .color(palette.youngFruitBorder), style: StrokeStyle(lineWidth: 0.6, lineCap: .round))
+        }
+
+        // Tiny drifting pink petal beside newly set green fruit.
+        if hasDriftingPetal {
+            let petalPos = CGPoint(x: center.x + radius * 1.25, y: center.y + radius * 0.95)
+            drawLeaf(
+                in: &context,
+                origin: petalPos,
+                angle: 0.95,
+                length: radius * 0.85,
+                width: radius * 0.42,
+                fill: palette.blossom.opacity(0.88),
+                vein: nil)
+        }
+    }
+
+    /// Ripening fruit transitioning in a sunlit gradient from chartreuse/amber to coral blush.
+    private func drawRipeningFruit(
+        in context: inout GraphicsContext,
+        at center: CGPoint,
+        radius: CGFloat,
+        maturity: Double,
+        palette: TreePalette
+    ) {
+        var stem = Path()
+        let stemTop = CGPoint(x: center.x + radius * 0.20, y: center.y - radius * 1.42)
+        stem.move(to: CGPoint(x: center.x, y: center.y - radius * 0.76))
+        stem.addQuadCurve(
+            to: stemTop,
+            control: CGPoint(x: center.x - radius * 0.08, y: center.y - radius * 1.15))
         context.stroke(stem, with: .color(palette.trunk.opacity(0.75)),
                        style: StrokeStyle(lineWidth: 0.85, lineCap: .round))
 
-        let bodyRect = CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)
-        context.fill(Path(ellipseIn: bodyRect), with: .color(palette.fruit))
-        context.stroke(Path(ellipseIn: bodyRect), with: .color(palette.fruitBorder), lineWidth: 0.5)
+        let w = radius * 2.04
+        let h = radius * 1.94
+        let bodyRect = CGRect(x: center.x - w * 0.5, y: center.y - h * 0.5, width: w, height: h)
+        let warmColor = maturity > 0.5 ? palette.ripeningBlush : palette.ripeningAmber
 
-        let glintR = radius * 0.28
+        context.fill(
+            Path(ellipseIn: bodyRect),
+            with: .linearGradient(
+                Gradient(colors: [warmColor, palette.ripeningBase]),
+                startPoint: CGPoint(x: bodyRect.maxX, y: bodyRect.minY),
+                endPoint: CGPoint(x: bodyRect.minX, y: bodyRect.maxY)))
+        context.stroke(Path(ellipseIn: bodyRect), with: .color(palette.ripeningBorder), lineWidth: 0.5)
+
+        let glintR = radius * 0.25
         let glintRect = CGRect(
-            x: center.x - radius * 0.42,
-            y: center.y - radius * 0.45,
+            x: center.x + radius * 0.16,
+            y: center.y - radius * 0.50,
             width: glintR * 2,
             height: glintR * 2)
         context.fill(Path(ellipseIn: glintRect), with: .color(palette.fruitHighlight))
     }
 
-    private func drawBlossom(in context: inout GraphicsContext, at center: CGPoint, radius: CGFloat, palette: TreePalette) {
-        let petalR = radius * 0.62
-        for idx in 0..<4 {
-            let theta = CGFloat(idx) * (.pi / 2) + .pi / 4
-            let px = center.x + cos(theta) * (radius * 0.55)
-            let py = center.y + sin(theta) * (radius * 0.55)
-            let rect = CGRect(x: px - petalR, y: py - petalR, width: petalR * 2, height: petalR * 2)
-            context.fill(Path(ellipseIn: rect), with: .color(palette.blossom))
-        }
-        let coreR = radius * 0.34
-        let coreRect = CGRect(x: center.x - coreR, y: center.y - coreR, width: coreR * 2, height: coreR * 2)
-        context.fill(Path(ellipseIn: coreRect), with: .color(palette.blossomCore))
+    /// Full ripe (or prized heirloom) fruit with woody stem, tiny stem leaf, sunlit volume & bottom calyx.
+    private func drawRipeFruit(
+        in context: inout GraphicsContext,
+        at center: CGPoint,
+        radius: CGFloat,
+        heirloom: Bool,
+        palette: TreePalette
+    ) {
+        let stemTop = CGPoint(x: center.x + radius * 0.22, y: center.y - radius * 1.42)
+        var stem = Path()
+        stem.move(to: CGPoint(x: center.x, y: center.y - radius * 0.76))
+        stem.addQuadCurve(
+            to: stemTop,
+            control: CGPoint(x: center.x - radius * 0.06, y: center.y - radius * 1.15))
+        context.stroke(stem, with: .color(palette.trunk.opacity(0.80)),
+                       style: StrokeStyle(lineWidth: 0.9, lineCap: .round))
+
+        // Tiny crisp stem leaf sprouting beside the stalk.
+        drawLeaf(
+            in: &context,
+            origin: CGPoint(x: center.x + radius * 0.08, y: center.y - radius * 1.12),
+            angle: -0.52,
+            length: radius * 0.92,
+            width: radius * 0.36,
+            fill: palette.leafMid,
+            vein: nil)
+
+        // Subtle organic slightly wider-than-tall fruit silhouette.
+        let w = radius * 2.08
+        let h = radius * 1.94
+        let bodyRect = CGRect(x: center.x - w * 0.5, y: center.y - h * 0.5, width: w, height: h)
+        let sunColor = heirloom ? palette.heirloomSun : palette.fruitSun
+        let deepColor = heirloom ? palette.heirloomDeep : palette.fruit
+
+        context.fill(
+            Path(ellipseIn: bodyRect),
+            with: .radialGradient(
+                Gradient(colors: [sunColor, deepColor]),
+                center: CGPoint(x: center.x + radius * 0.28, y: center.y - radius * 0.28),
+                startRadius: 0,
+                endRadius: radius * 1.28))
+        context.stroke(
+            Path(ellipseIn: bodyRect),
+            with: .color(heirloom ? palette.heirloomBorder : palette.fruitBorder),
+            lineWidth: 0.5)
+
+        // Specular highlight toward upper-right sun + tiny calyx dimple at base.
+        let glintR = radius * 0.27
+        let glintRect = CGRect(
+            x: center.x + radius * 0.16,
+            y: center.y - radius * 0.52,
+            width: glintR * 2,
+            height: glintR * 2)
+        context.fill(Path(ellipseIn: glintRect), with: .color(palette.fruitHighlight))
+
+        let calyxR = max(0.55, radius * 0.13)
+        let calyxRect = CGRect(x: center.x - calyxR, y: center.y + radius * 0.80, width: calyxR * 2, height: calyxR)
+        context.fill(Path(ellipseIn: calyxRect), with: .color(palette.fruitBorder.opacity(0.75)))
     }
 
-    private func distributedIndices(count: Int, poolSize: Int, seed: UInt64) -> [Int] {
-        guard count > 0, poolSize > 0 else { return [] }
-        var indices = Array(0..<poolSize)
-        var rng = SeededGenerator(seed: seed)
-        // Fisher-Yates shuffle for balanced canopy distribution without clumping.
-        for i in stride(from: indices.count - 1, through: 1, by: -1) {
-            let j = Int(rng.next() % UInt64(i + 1))
-            indices.swapAt(i, j)
+    private func balancedSpanOrder(_ nodes: [KkTreeCanopyNode]) -> [KkTreeCanopyNode] {
+        nodes.sorted {
+            if abs($0.point.x - $1.point.x) > 0.5 { return $0.point.x < $1.point.x }
+            return $0.point.y < $1.point.y
         }
-        return (0..<count).map { indices[$0 % indices.count] }
+    }
+
+    private func evenlySpacedIndices(count: Int, poolSize: Int, offset: Int) -> [Int] {
+        guard count > 0, poolSize > 0 else { return [] }
+        if poolSize == 1 { return Array(repeating: 0, count: count) }
+        var indices: [Int] = []
+        indices.reserveCapacity(count)
+        let strideStep = Double(poolSize) / Double(count)
+        for i in 0..<count {
+            let raw = Int((Double(i) + 0.5) * strideStep + Double(offset)) % poolSize
+            indices.append(raw)
+        }
+        return indices
     }
 }
 
-// MARK: - Palette & Deterministic PRNG
+// MARK: - Palette
 
 private struct TreePalette {
     let trunk: Color
     let faintInk: Color
     let groundLine: Color
     let groundWash: Color
-    let canopyWash: Color
     let leafDark: Color
     let leafMid: Color
     let leafLight: Color
+    let budTip: Color
+    let blossom: Color
+    let blossomCore: Color
+    let blossomStamen: Color
+    let youngFruitLight: Color
+    let youngFruit: Color
+    let youngFruitBorder: Color
+    let ripeningBase: Color
+    let ripeningAmber: Color
+    let ripeningBlush: Color
+    let ripeningBorder: Color
+    let fruitSun: Color
     let fruit: Color
     let fruitBorder: Color
     let fruitHighlight: Color
-    let blossom: Color
-    let blossomCore: Color
-    let sunHalo: Color
-    let sunCore: Color
+    let heirloomSun: Color
+    let heirloomDeep: Color
+    let heirloomBorder: Color
+    let celestialHalo: Color
+    let celestialCore: Color
     let paperHighlight: Color
 
     init(scheme: ColorScheme, isFullColor: Bool) {
@@ -550,17 +819,29 @@ private struct TreePalette {
             faintInk = Color.primary.opacity(0.45)
             groundLine = Color.primary.opacity(0.55)
             groundWash = Color.primary.opacity(0.08)
-            canopyWash = Color.primary.opacity(0.08)
             leafDark = Color.primary.opacity(0.42)
             leafMid = Color.primary.opacity(0.30)
             leafLight = Color.primary.opacity(0.20)
-            fruit = Color.primary.opacity(0.85)
-            fruitBorder = Color.primary.opacity(0.95)
-            fruitHighlight = Color.primary.opacity(0.25)
+            budTip = Color.primary.opacity(0.62)
             blossom = Color.primary.opacity(0.55)
             blossomCore = Color.primary.opacity(0.90)
-            sunHalo = Color.primary.opacity(0.08)
-            sunCore = Color.primary.opacity(0.22)
+            blossomStamen = Color.primary.opacity(0.70)
+            youngFruitLight = Color.primary.opacity(0.36)
+            youngFruit = Color.primary.opacity(0.52)
+            youngFruitBorder = Color.primary.opacity(0.75)
+            ripeningBase = Color.primary.opacity(0.56)
+            ripeningAmber = Color.primary.opacity(0.68)
+            ripeningBlush = Color.primary.opacity(0.76)
+            ripeningBorder = Color.primary.opacity(0.84)
+            fruitSun = Color.primary.opacity(0.72)
+            fruit = Color.primary.opacity(0.88)
+            fruitBorder = Color.primary.opacity(0.95)
+            fruitHighlight = Color.primary.opacity(0.25)
+            heirloomSun = Color.primary.opacity(0.80)
+            heirloomDeep = Color.primary.opacity(0.95)
+            heirloomBorder = Color.primary.opacity(0.98)
+            celestialHalo = scheme == .dark ? Color.primary.opacity(0.14) : Color.primary.opacity(0.12)
+            celestialCore = scheme == .dark ? Color.primary.opacity(0.65) : Color.primary.opacity(0.30)
             paperHighlight = Color.primary.opacity(0.28)
             return
         }
@@ -570,55 +851,59 @@ private struct TreePalette {
             faintInk = KkTheme.faintInk(scheme)
             groundLine = Color.white.opacity(0.28)
             groundWash = Color.white.opacity(0.05)
-            canopyWash = Color(red: 0.36, green: 0.50, blue: 0.40).opacity(0.16)
-            leafDark = Color(red: 0.34, green: 0.50, blue: 0.39).opacity(0.85)
-            leafMid = Color(red: 0.46, green: 0.62, blue: 0.50).opacity(0.82)
-            leafLight = Color(red: 0.59, green: 0.73, blue: 0.61).opacity(0.80)
-            fruit = Color(red: 0.87, green: 0.45, blue: 0.31)
-            fruitBorder = Color(red: 0.64, green: 0.28, blue: 0.18).opacity(0.75)
-            fruitHighlight = Color(red: 0.98, green: 0.80, blue: 0.68).opacity(0.75)
-            blossom = Color(red: 0.92, green: 0.82, blue: 0.75).opacity(0.92)
-            blossomCore = Color(red: 0.82, green: 0.55, blue: 0.40)
-            sunHalo = Color(red: 0.86, green: 0.72, blue: 0.46).opacity(0.14)
-            sunCore = Color(red: 0.92, green: 0.77, blue: 0.50).opacity(0.42)
+            leafDark = Color(red: 0.34, green: 0.50, blue: 0.39).opacity(0.88)
+            leafMid = Color(red: 0.46, green: 0.62, blue: 0.50).opacity(0.86)
+            leafLight = Color(red: 0.59, green: 0.73, blue: 0.61).opacity(0.84)
+            budTip = Color(red: 0.96, green: 0.72, blue: 0.72).opacity(0.98)
+            blossom = Color(red: 0.98, green: 0.90, blue: 0.87).opacity(0.98)
+            blossomCore = Color(red: 0.90, green: 0.65, blue: 0.36)
+            blossomStamen = Color(red: 1.00, green: 0.87, blue: 0.54)
+            youngFruitLight = Color(red: 0.80, green: 0.90, blue: 0.44)
+            youngFruit = Color(red: 0.57, green: 0.75, blue: 0.32)
+            youngFruitBorder = Color(red: 0.32, green: 0.48, blue: 0.18).opacity(0.85)
+            ripeningBase = Color(red: 0.86, green: 0.80, blue: 0.34)
+            ripeningAmber = Color(red: 0.95, green: 0.70, blue: 0.32)
+            ripeningBlush = Color(red: 0.94, green: 0.52, blue: 0.32)
+            ripeningBorder = Color(red: 0.65, green: 0.41, blue: 0.22).opacity(0.75)
+            fruitSun = Color(red: 0.94, green: 0.52, blue: 0.36)
+            fruit = Color(red: 0.83, green: 0.37, blue: 0.25)
+            fruitBorder = Color(red: 0.62, green: 0.25, blue: 0.17).opacity(0.80)
+            fruitHighlight = Color(red: 0.99, green: 0.84, blue: 0.73).opacity(0.78)
+            heirloomSun = Color(red: 0.95, green: 0.71, blue: 0.34)
+            heirloomDeep = Color(red: 0.77, green: 0.36, blue: 0.24)
+            heirloomBorder = Color(red: 0.56, green: 0.26, blue: 0.16).opacity(0.85)
+            celestialHalo = Color(red: 0.84, green: 0.88, blue: 0.96).opacity(0.18)
+            celestialCore = Color(red: 0.96, green: 0.94, blue: 0.84).opacity(0.90)
             paperHighlight = Color(red: 0.12, green: 0.12, blue: 0.12).opacity(0.65)
         } else {
             trunk = Color(red: 0.18, green: 0.16, blue: 0.14)
             faintInk = KkTheme.faintInk(scheme)
             groundLine = Color.black.opacity(0.26)
             groundWash = Color.black.opacity(0.04)
-            canopyWash = Color(red: 0.43, green: 0.56, blue: 0.46).opacity(0.14)
-            leafDark = Color(red: 0.28, green: 0.43, blue: 0.33).opacity(0.86)
-            leafMid = Color(red: 0.40, green: 0.55, blue: 0.44).opacity(0.82)
-            leafLight = Color(red: 0.54, green: 0.67, blue: 0.56).opacity(0.80)
-            fruit = Color(red: 0.79, green: 0.34, blue: 0.22)
-            fruitBorder = Color(red: 0.55, green: 0.20, blue: 0.12).opacity(0.65)
-            fruitHighlight = Color(red: 0.97, green: 0.78, blue: 0.67).opacity(0.85)
-            blossom = Color(red: 0.93, green: 0.79, blue: 0.73).opacity(0.95)
-            blossomCore = Color(red: 0.74, green: 0.40, blue: 0.28)
-            sunHalo = Color(red: 0.85, green: 0.68, blue: 0.38).opacity(0.16)
-            sunCore = Color(red: 0.87, green: 0.66, blue: 0.34).opacity(0.46)
+            leafDark = Color(red: 0.28, green: 0.43, blue: 0.33).opacity(0.88)
+            leafMid = Color(red: 0.40, green: 0.55, blue: 0.44).opacity(0.86)
+            leafLight = Color(red: 0.54, green: 0.67, blue: 0.56).opacity(0.84)
+            budTip = Color(red: 0.92, green: 0.60, blue: 0.60).opacity(0.98)
+            blossom = Color(red: 0.98, green: 0.88, blue: 0.85).opacity(0.98)
+            blossomCore = Color(red: 0.86, green: 0.54, blue: 0.26)
+            blossomStamen = Color(red: 0.99, green: 0.80, blue: 0.38)
+            youngFruitLight = Color(red: 0.76, green: 0.88, blue: 0.38)
+            youngFruit = Color(red: 0.51, green: 0.70, blue: 0.26)
+            youngFruitBorder = Color(red: 0.28, green: 0.44, blue: 0.14).opacity(0.84)
+            ripeningBase = Color(red: 0.84, green: 0.78, blue: 0.30)
+            ripeningAmber = Color(red: 0.94, green: 0.66, blue: 0.26)
+            ripeningBlush = Color(red: 0.90, green: 0.45, blue: 0.26)
+            ripeningBorder = Color(red: 0.60, green: 0.34, blue: 0.17).opacity(0.70)
+            fruitSun = Color(red: 0.90, green: 0.43, blue: 0.27)
+            fruit = Color(red: 0.75, green: 0.27, blue: 0.18)
+            fruitBorder = Color(red: 0.52, green: 0.18, blue: 0.11).opacity(0.72)
+            fruitHighlight = Color(red: 0.99, green: 0.84, blue: 0.74).opacity(0.88)
+            heirloomSun = Color(red: 0.91, green: 0.64, blue: 0.25)
+            heirloomDeep = Color(red: 0.70, green: 0.27, blue: 0.17)
+            heirloomBorder = Color(red: 0.49, green: 0.19, blue: 0.11).opacity(0.78)
+            celestialHalo = Color(red: 0.88, green: 0.70, blue: 0.38).opacity(0.22)
+            celestialCore = Color(red: 0.90, green: 0.68, blue: 0.32).opacity(0.62)
             paperHighlight = Color.white.opacity(0.55)
         }
-    }
-}
-
-private struct SeededGenerator {
-    private var state: UInt64
-
-    init(seed: UInt64) {
-        self.state = seed == 0 ? 0x9E3779B97F4A7C15 : seed
-    }
-
-    mutating func next() -> UInt64 {
-        state &+= 0x9E3779B97F4A7C15
-        var z = state
-        z = (z ^ (z >> 30)) &* 0xBF58476D1CE4E5B9
-        z = (z ^ (z >> 27)) &* 0x94D049BB133111EB
-        return z ^ (z >> 31)
-    }
-
-    mutating func nextUnit() -> Double {
-        Double(next() >> 11) / Double(1 << 53)
     }
 }

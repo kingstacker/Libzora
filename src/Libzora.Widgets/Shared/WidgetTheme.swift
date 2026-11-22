@@ -11,6 +11,46 @@ import UIKit
 import AppKit
 #endif
 
+private struct KkUseSystemFontKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var kkUseSystemFont: Bool {
+        get { self[KkUseSystemFontKey.self] }
+        set { self[KkUseSystemFontKey.self] = newValue }
+    }
+}
+
+private struct KkFontModifier: ViewModifier {
+    @Environment(\.kkUseSystemFont) private var useSystemFont
+    let size: CGFloat
+    let style: Font.TextStyle
+    let weight: Font.Weight
+
+    func body(content: Content) -> some View {
+        content.font(KkTheme.font(size, relativeTo: style, weight: weight, useSystemFont: useSystemFont))
+    }
+}
+
+extension View {
+    func kkTitleFont(_ size: CGFloat, relativeTo style: Font.TextStyle = .headline) -> some View {
+        modifier(KkFontModifier(size: size, style: style, weight: .semibold))
+    }
+
+    func kkBodyFont(_ size: CGFloat, relativeTo style: Font.TextStyle = .caption) -> some View {
+        modifier(KkFontModifier(size: size, style: style, weight: .regular))
+    }
+
+    func kkLabelFont(_ size: CGFloat, weight: Font.Weight = .semibold) -> some View {
+        modifier(KkFontModifier(size: size, style: .caption, weight: weight))
+    }
+
+    func kkNumberFont(_ size: CGFloat, weight: Font.Weight = .semibold) -> some View {
+        modifier(KkFontModifier(size: size, style: .title, weight: weight))
+    }
+}
+
 /// Paper, ink and restrained greys keep the hierarchy consistent across widget
 /// sizes. Book covers supply the colour; the surrounding chrome stays neutral.
 enum KkTheme {
@@ -63,24 +103,27 @@ enum KkTheme {
             : Color(red: 0.79, green: 0.34, blue: 0.22)
     }
 
-    static func title(_ size: CGFloat, relativeTo style: Font.TextStyle = .headline) -> Font {
-        font(size, relativeTo: style, weight: .semibold)
+    static func title(_ size: CGFloat, relativeTo style: Font.TextStyle = .headline, useSystemFont: Bool = false) -> Font {
+        font(size, relativeTo: style, weight: .semibold, useSystemFont: useSystemFont)
     }
 
-    static func body(_ size: CGFloat, relativeTo style: Font.TextStyle = .caption) -> Font {
-        font(size, relativeTo: style)
+    static func body(_ size: CGFloat, relativeTo style: Font.TextStyle = .caption, useSystemFont: Bool = false) -> Font {
+        font(size, relativeTo: style, useSystemFont: useSystemFont)
     }
 
-    static func label(_ size: CGFloat, weight: Font.Weight = .semibold) -> Font {
-        font(size, relativeTo: .caption, weight: weight)
+    static func label(_ size: CGFloat, weight: Font.Weight = .semibold, useSystemFont: Bool = false) -> Font {
+        font(size, relativeTo: .caption, weight: weight, useSystemFont: useSystemFont)
     }
 
-    static func number(_ size: CGFloat, weight: Font.Weight = .semibold) -> Font {
-        font(size, relativeTo: .title, weight: weight)
+    static func number(_ size: CGFloat, weight: Font.Weight = .semibold, useSystemFont: Bool = false) -> Font {
+        font(size, relativeTo: .title, weight: weight, useSystemFont: useSystemFont)
     }
 
-    private static func font(_ size: CGFloat, relativeTo style: Font.TextStyle,
-                             weight: Font.Weight = .regular) -> Font {
+    static func font(_ size: CGFloat, relativeTo style: Font.TextStyle,
+                     weight: Font.Weight = .regular, useSystemFont: Bool = false) -> Font {
+        if useSystemFont {
+            return .system(size: size, weight: weight)
+        }
         if KkWidgetFonts.available {
             return .custom(KkWidgetFonts.bookFace, size: size, relativeTo: style)
         }
@@ -123,6 +166,7 @@ struct KkCover: View {
     let book: KkBook
     var width: CGFloat
     var height: CGFloat
+    var blankPlaceholder = false
     @Environment(\.colorScheme) private var scheme
     @Environment(\.widgetRenderingMode) private var renderingMode
 
@@ -130,8 +174,13 @@ struct KkCover: View {
     private var isFullColor: Bool { renderingMode == .fullColor }
 
     private var image: CGImage? {
-        guard let path = KkSnapshotStore.coverURL(book.cover)?.path else { return nil }
+        guard !blankPlaceholder, let path = KkSnapshotStore.coverURL(book.cover)?.path else { return nil }
         return KkCoverCache.shared.image(path: path, pixels: Int(max(width, height) * 3))
+    }
+
+    private var titleInitial: String {
+        let trimmed = book.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "" : String(trimmed.prefix(1))
     }
 
     var body: some View {
@@ -147,6 +196,14 @@ struct KkCover: View {
                         .resizable()
                         .scaledToFill()
                 }
+            } else if blankPlaceholder {
+                ZStack {
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .fill(isFullColor ? KkTheme.track(scheme) : Color.primary.opacity(0.12))
+                    Image(systemName: "book.closed")
+                        .font(.system(size: max(12, width * 0.28), weight: .ultraLight))
+                        .foregroundStyle(isFullColor ? KkTheme.faintInk(scheme) : Color.primary.opacity(0.45))
+                }
             } else {
                 ZStack {
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
@@ -154,10 +211,12 @@ struct KkCover: View {
                     VStack(spacing: height * 0.08) {
                         Image(systemName: "book.closed")
                             .font(.system(size: max(10, width * 0.18), weight: .light))
-                        Text(String(book.title.prefix(1)))
-                            .font(KkTheme.title(max(18, width * 0.35)))
-                            .multilineTextAlignment(.center)
-                            .lineLimit(1)
+                        if !titleInitial.isEmpty {
+                            Text(titleInitial)
+                                .kkTitleFont(max(18, width * 0.35))
+                                .multilineTextAlignment(.center)
+                                .lineLimit(1)
+                        }
                     }
                     .foregroundStyle(isFullColor ? KkTheme.secondaryInk(scheme) : Color.primary.opacity(0.8))
                     .padding(.horizontal, width * 0.12)
@@ -248,23 +307,34 @@ struct KkStat: View {
     let value: String
     let label: String
     var inline = false
+    var alignment: HorizontalAlignment = .leading
+    var valueSize: CGFloat? = nil
+    var expand = false
     @Environment(\.colorScheme) private var scheme
+
+    private var frameAlignment: Alignment {
+        switch alignment {
+        case .center: return .center
+        case .trailing: return .trailing
+        default: return .leading
+        }
+    }
 
     var body: some View {
         Group {
             if inline {
                 HStack(alignment: .firstTextBaseline, spacing: 5) {
-                    valueText.font(KkTheme.number(13))
+                    valueText.kkNumberFont(valueSize ?? 13)
                     labelText
                 }
             } else {
-                VStack(alignment: .leading, spacing: 5) {
-                    valueText.font(KkTheme.number(19))
+                VStack(alignment: alignment, spacing: 4) {
+                    valueText.kkNumberFont(valueSize ?? 19)
                     labelText
                 }
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: expand ? .infinity : nil, alignment: frameAlignment)
         .accessibilityElement(children: .combine)
     }
 
@@ -278,8 +348,9 @@ struct KkStat: View {
 
     private var labelText: some View {
         Text(label)
-            .font(KkTheme.label(10, weight: .regular))
+            .kkLabelFont(10, weight: .regular)
             .foregroundStyle(KkTheme.secondaryInk(scheme))
             .lineLimit(1)
+            .minimumScaleFactor(0.8)
     }
 }

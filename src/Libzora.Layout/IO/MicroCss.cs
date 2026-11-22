@@ -90,6 +90,13 @@ public sealed partial class MicroCss
         return css;
     }
 
+    internal MicroCss Clone()
+    {
+        var copy = new MicroCss();
+        copy._rules.AddRange(_rules);
+        return copy;
+    }
+
     public void Append(string? cssText)
     {
         if (string.IsNullOrWhiteSpace(cssText))

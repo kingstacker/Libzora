@@ -85,6 +85,36 @@ public partial class MainWindow
                 _readerChapterIndex = progress.ChapterIndex;
                 _readerScrollPosition = progress.ScrollPosition;
                 _readerCurrentFragment = DecodeReaderFragment(progress.Fragment);
+                var syncedMarker = await _readerData.GetSyncedPositionMarkerAsync(file.Id, sessionToken);
+                sessionToken.ThrowIfCancellationRequested();
+                if (syncedMarker is not null)
+                {
+                    var markerProgress = ValidateReaderProgress(
+                        document,
+                        new ReaderProgressRow(
+                            syncedMarker.BookId,
+                            syncedMarker.BookFileId,
+                            syncedMarker.ChapterPath,
+                            syncedMarker.Fragment,
+                            syncedMarker.ChapterIndex,
+                            syncedMarker.ScrollPosition,
+                            syncedMarker.ProgressPercent,
+                            syncedMarker.FlowMode,
+                            syncedMarker.SyncedAt)
+                        {
+                            ContentPosition = syncedMarker.ContentPosition
+                        });
+                    if (markerProgress is not null && markerProgress.ChapterIndex == progress.ChapterIndex)
+                    {
+                        _readerActiveSyncedMarker = syncedMarker with
+                        {
+                            ChapterIndex = markerProgress.ChapterIndex,
+                            ScrollPosition = markerProgress.ScrollPosition,
+                            Fragment = markerProgress.Fragment,
+                            ContentPosition = markerProgress.ContentPosition
+                        };
+                    }
+                }
             }
 
             // The interaction shell is initialized before the persisted
@@ -138,6 +168,11 @@ public partial class MainWindow
             FocusCurrentReaderHost();
             SetReaderTocSelectionForLocation(_readerChapterIndex, _readerCurrentFragment);
             await UpdateReaderScrollStateAsync(CurrentReaderHost!);
+            if (_readerActiveSyncedMarker is not null)
+            {
+                _readerSyncedMarkerScrollOrigin = _readerScrollPosition;
+                _readerSyncedMarkerScrollArmed = true;
+            }
             ScheduleReaderBookPageCountRefresh();
             UpdateReaderToolbar();
             PrimeReaderContinuousEdgeTracking();

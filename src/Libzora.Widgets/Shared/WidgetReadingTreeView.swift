@@ -7,8 +7,8 @@ struct KkReadingTreeWidgetView: View {
     @Environment(\.colorScheme) private var scheme
     @Environment(\.widgetRenderingMode) private var renderingMode
 
-    private var reading: KkReading { entry.snapshot?.reading ?? KkSnapshot.sample.reading }
-    private var profile: KkReadingTreeProfile { KkReadingTreeProfile(reading: reading) }
+    private var snapshot: KkSnapshot { entry.snapshot ?? KkSnapshot.sample(isChinese: isChinese) }
+    private var profile: KkReadingTreeProfile { KkReadingTreeProfile(snapshot: snapshot) }
     private var isFullColor: Bool { renderingMode == .fullColor }
     private var isChinese: Bool { KkFormat.isChinese }
 
@@ -32,7 +32,7 @@ struct KkReadingTreeWidgetView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .center, spacing: 4) {
                 Text(isChinese ? "阅读之树" : "Reading Tree")
-                    .font(KkTheme.label(11, weight: .medium))
+                    .kkLabelFont(11, weight: .medium)
                     .foregroundStyle(KkTheme.secondaryInk(scheme))
                     .lineLimit(1)
                 Spacer(minLength: 4)
@@ -42,10 +42,12 @@ struct KkReadingTreeWidgetView: View {
                             .fill(isFullColor ? KkTheme.treeLeafAccent(scheme) : Color.primary.opacity(0.7))
                             .frame(width: 5, height: 5)
                         Text(isChinese ? "\(profile.streakDays)天" : "\(profile.streakDays)d")
-                            .font(KkTheme.label(9.5, weight: .medium))
+                            .kkLabelFont(9.5, weight: .medium)
                             .foregroundStyle(KkTheme.secondaryInk(scheme))
                             .monospacedDigit()
+                            .lineLimit(1)
                     }
+                    .fixedSize(horizontal: true, vertical: false)
                 } else if profile.hasReadToday {
                     Circle()
                         .fill(isFullColor ? KkTheme.treeLeafAccent(scheme) : Color.primary.opacity(0.7))
@@ -55,12 +57,12 @@ struct KkReadingTreeWidgetView: View {
 
             KkReadingTreeCanvas(profile: profile)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding(.vertical, 2)
+                .padding(.vertical, -3)
 
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Text(profile.stageTitle(isChinese: isChinese))
-                        .font(KkTheme.title(13.5))
+                        .kkTitleFont(13.5)
                         .foregroundStyle(KkTheme.ink(scheme))
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
@@ -71,86 +73,100 @@ struct KkReadingTreeWidgetView: View {
                                 .fill(isFullColor ? KkTheme.treeFruitAccent(scheme) : Color.primary.opacity(0.8))
                                 .frame(width: 5, height: 5)
                             Text("\(profile.booksFinished)")
-                                .font(KkTheme.label(9.5, weight: .semibold))
+                                .kkLabelFont(9.5, weight: .semibold)
                                 .foregroundStyle(KkTheme.secondaryInk(scheme))
                                 .monospacedDigit()
+                                .lineLimit(1)
                         }
+                        .fixedSize(horizontal: true, vertical: false)
                     } else {
-                        Text(KkFormat.compactHours(profile.totalSeconds))
-                            .font(KkTheme.label(9.5, weight: .regular))
+                        Text(KkFormat.compactHours(profile.totalSeconds, isChinese: isChinese))
+                            .kkLabelFont(9.5, weight: .regular)
                             .foregroundStyle(KkTheme.secondaryInk(scheme))
                             .monospacedDigit()
                             .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
                     }
                 }
                 KkProgressBar(progress: profile.stageProgress * 100, height: 2.5)
             }
         }
-        .padding(14)
+        .padding(.horizontal, 13)
+        .padding(.vertical, 12)
         .accessibilityElement(children: .combine)
     }
 
     private var medium: some View {
-        HStack(alignment: .center, spacing: 14) {
+        HStack(alignment: .center, spacing: 10) {
             KkReadingTreeCanvas(profile: profile)
-                .frame(width: 122)
+                .frame(width: 134)
                 .frame(maxHeight: .infinity)
 
             VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .center, spacing: 6) {
                     Text(isChinese ? "阅读之树" : "Reading Tree")
-                        .font(KkTheme.label(11, weight: .medium))
+                        .kkLabelFont(11, weight: .medium)
                         .foregroundStyle(KkTheme.secondaryInk(scheme))
                         .lineLimit(1)
                     Spacer(minLength: 4)
                     vitalityBadge
                 }
 
-                Spacer(minLength: 6)
+                Spacer(minLength: 4)
 
                 Text(profile.stageTitle(isChinese: isChinese))
-                    .font(KkTheme.title(20))
+                    .kkTitleFont(19)
                     .foregroundStyle(KkTheme.ink(scheme))
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
 
                 Text(profile.nextHint(isChinese: isChinese))
-                    .font(KkTheme.body(10))
+                    .kkBodyFont(10)
                     .foregroundStyle(KkTheme.secondaryInk(scheme))
                     .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                    .padding(.top, 3)
+                    .minimumScaleFactor(0.75)
+                    .padding(.top, 2)
 
                 KkProgressBar(progress: profile.stageProgress * 100, height: 3)
-                    .padding(.top, 7)
+                    .padding(.top, 6)
 
-                Spacer(minLength: 8)
+                Spacer(minLength: 6)
 
                 Rectangle()
                     .fill(KkTheme.hairline(scheme))
                     .frame(height: 0.5)
                     .accessibilityHidden(true)
 
-                HStack(spacing: 10) {
+                HStack(spacing: 0) {
                     KkStat(
-                        value: KkFormat.compactHours(profile.totalSeconds),
+                        value: KkFormat.compactHours(profile.totalSeconds, isChinese: isChinese),
                         label: isChinese ? "累计" : "Total",
-                        inline: true)
+                        inline: false,
+                        alignment: .leading,
+                        valueSize: 13.5)
+                    .layoutPriority(1)
+                    Spacer(minLength: 6)
                     KkStat(
                         value: "\(profile.booksFinished)",
                         label: isChinese ? "读完" : "Books",
-                        inline: true)
+                        inline: false,
+                        alignment: .center,
+                        valueSize: 13.5)
+                    Spacer(minLength: 6)
                     KkStat(
                         value: "\(profile.annotationCount)",
                         label: isChinese ? "批注" : "Notes",
-                        inline: true)
+                        inline: false,
+                        alignment: .center,
+                        valueSize: 13.5)
                 }
-                .padding(.top, 8)
+                .padding(.top, 7)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
+        .padding(.leading, 10)
+        .padding(.trailing, 14)
+        .padding(.vertical, 13)
     }
 
     @ViewBuilder
@@ -169,10 +185,11 @@ struct KkReadingTreeWidgetView: View {
                     .fill(isFullColor ? KkTheme.treeLeafAccent(scheme) : Color.primary.opacity(0.75))
                     .frame(width: 5, height: 5)
                 Text(labelText)
-                    .font(KkTheme.label(9.5, weight: .medium))
+                    .kkLabelFont(9.5, weight: .medium)
                     .foregroundStyle(KkTheme.secondaryInk(scheme))
                     .lineLimit(1)
             }
+            .fixedSize(horizontal: true, vertical: false)
             .padding(.horizontal, 7)
             .padding(.vertical, 3)
             .background(KkTheme.track(scheme), in: Capsule())

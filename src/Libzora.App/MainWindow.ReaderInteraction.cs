@@ -64,6 +64,31 @@ public partial class MainWindow
     private int _readerPendingKeyboardNavigation;
     private IReadOnlyList<EpubReaderNavigationItem> _readerTocItems = [];
     private ReaderProgressRow? _readerRestoredProgress;
+    private ReaderSyncedPositionMarker? _readerActiveSyncedMarker;
+    private double _readerSyncedMarkerScrollOrigin;
+    private bool _readerSyncedMarkerScrollArmed;
+
+    private static ReaderResumeMarker? ToResumeMarker(ReaderSyncedPositionMarker? marker) =>
+        marker is null
+            ? null
+            : new ReaderResumeMarker(
+                marker.ChapterIndex,
+                marker.ScrollPosition,
+                marker.Fragment,
+                ReaderContentPosition.Validate(marker.ContentPosition));
+
+    private void ClearActiveReaderSyncedMarker(bool clearPersisted = true)
+    {
+        var hadMarker = _readerActiveSyncedMarker is not null;
+        _readerActiveSyncedMarker = null;
+        _readerSyncedMarkerScrollArmed = false;
+        (CurrentReaderHost as IReaderResumeMarkerHost)?.SetResumeMarker(null);
+        (HiddenReaderHost as IReaderResumeMarkerHost)?.SetResumeMarker(null);
+        if (hadMarker && clearPersisted && _readerBookFile is { } file)
+        {
+            _ = ObserveReaderTaskAsync(_readerData.ClearSyncedPositionMarkerAsync(file.Id, CancellationToken.None));
+        }
+    }
     private int _readerSearchSequence;
     private int _readerSearchCount;
     private int _readerSearchIndex = -1;
@@ -78,11 +103,15 @@ public partial class MainWindow
     private Point? _readerFootnotePlacementPoint;
     private PixelPoint? _readerFootnoteAnchorScreenPoint;
     private DispatcherTimer? _readerFootnoteHoverTimer;
-    private DispatcherTimer? _readerSelectionHighlightPointerTimer;
+    private DispatcherTimer? _readerSelectionHighlightLongPressTimer;
     private const int ReaderSelectionToolTipDurationMs = 800;
-    private long? _readerSelectionHighlightToolTipHoverTick;
-    private long _readerSelectionHighlightOpenedTick;
-    private int _readerSelectionHighlightOutsideTicks;
+    private const int ReaderSelectionHighlightLongPressMs = 320;
+    private const double ReaderSelectionHighlightLongPressMaxDistance = 18;
+    private Point _readerSelectionHighlightPressPoint;
+    private bool _readerSelectionHighlightPressActive;
+    private bool _readerSelectionHighlightLongPressTriggered;
+    private bool _readerSelectionHighlightSuppressClick;
+    private IDisposable? _readerSelectionHighlightMarkerBinding;
     private bool _readerLinuxTextFallbackUpdating;
     private bool _readerLinuxTextFallbackPointerPressed;
     private bool _readerLinuxTextFallbackSelectionAtPointerPress;

@@ -3132,6 +3132,13 @@
                          MenuItem:pressed /template/ ContentPresenter#PART_HeaderPresenter">
             <Setter Property="Foreground" Value="{DynamicResource PaperBrush}" />
         </Style>
+        <Style Selector="MenuItem.readerSelectionStyle.active">
+            <Setter Property="Background" Value="{DynamicResource ReaderSelectedBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource ReaderInkBrush}" />
+        </Style>
+        <Style Selector="MenuItem.readerSelectionStyle.active /template/ ContentPresenter#PART_HeaderPresenter">
+            <Setter Property="Foreground" Value="{DynamicResource ReaderInkBrush}" />
+        </Style>
         <Style Selector="MenuItem.readerSelectionStyle:pointerover">
             <Setter Property="Background" Value="{DynamicResource ReaderHoverBrush}" />
             <Setter Property="Foreground" Value="{DynamicResource ReaderInkBrush}" />

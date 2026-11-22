@@ -24,7 +24,7 @@ namespace Libzora;
 /// so the surrounding reader pipeline keeps working unchanged.
 /// </summary>
 
-public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPageSnapshotProvider, IReaderAppearanceHost, IReaderConfiguredHost, IReaderLocationHost, IReaderLayoutNavigationHost, IReaderPaginationHost, IReaderAnnotationHost, IReaderSpeechHost, IReaderSelectionHost, IReaderAnnotationBoundsHost, IReaderFootnoteVisualHost, IReaderPageCountHost, IReaderVisualTransitionHost
+public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPageSnapshotProvider, IReaderAppearanceHost, IReaderConfiguredHost, IReaderLocationHost, IReaderLayoutNavigationHost, IReaderPaginationHost, IReaderAnnotationHost, IReaderSpeechHost, IReaderSelectionHost, IReaderAnnotationBoundsHost, IReaderFootnoteVisualHost, IReaderPageCountHost, IReaderVisualTransitionHost, IReaderResumeMarkerHost
 {
     public const string BundledFontFileName = "KingHwaOldSong-v3.0.ttf";
 
@@ -56,6 +56,8 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
     private ChapterContent? _content;
     private readonly List<TableTextRange> _tableTextRanges = new();
     private ChapterLayout? _layout;
+    private string? _spreadCompanionChapterPath;
+    private ChapterLayout? _spreadCompanionLayout;
     private TypesetLayoutOptions? _options;
     private ReaderLayoutSettings _settings = new();
     private ReaderAppearanceSettings _appearance = new();
@@ -110,6 +112,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
 
     private readonly Dictionary<string, int> _fragmentPagesByRequest = new(StringComparer.Ordinal);
     private string[] _navigationFragments = [];
+    private bool _navigationFragmentsConfigured;
     private (ChapterLayout Layout, int Page, double ScrollOffset, string Fragment)? _navigationTarget;
     private int? _pendingRestoreOffset;
     private int? _pendingRestorePage;
@@ -146,6 +149,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
     private List<(int Start, int Length)>? _searchHits;
     private int? _focusSearchHit;
     private (int Start, int Length)? _speechHighlight;
+    private ReaderResumeMarker? _resumeMarker;
     private ReaderTtsTextSnapshot? _speechTextSnapshot;
     private ChapterContent? _speechTextSnapshotContent;
     private ChapterLayout? _speechTextSnapshotLayout;

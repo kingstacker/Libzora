@@ -99,6 +99,19 @@ internal sealed class ComposerContext
 
     public float LetterSpacing => Options.LetterSpacingEm * Options.BaseFontSize;
     public float RubyGap => Math.Max(1f, Options.BaseFontSize * 0.06f);
+
+    public static bool IsHeadingNavigationTarget(ContentBlock block, IReadOnlySet<string>? navigationFragments)
+    {
+        if (navigationFragments is not null)
+        {
+            return (!string.IsNullOrWhiteSpace(block.ElementId) && navigationFragments.Contains(block.ElementId))
+                || block.FragmentIds.Any(id =>
+                    !block.FootnoteReferenceFragmentIds.Contains(id) && navigationFragments.Contains(id));
+        }
+
+        return !string.IsNullOrWhiteSpace(block.ElementId)
+            || block.FragmentIds.Any(id => !block.FootnoteReferenceFragmentIds.Contains(id));
+    }
 }
 
 /// <summary>
@@ -180,6 +193,14 @@ internal sealed class PageBuilder
             _used = false;
         }
 
+        // Trailing empty spacer paragraphs (<p><br/></p>) at the end of a chapter can
+        // spill onto an extra page with no visible glyphs or artwork; drop trailing
+        // blank pages when earlier pages already carry content.
+        while (_pages.Count > 1 && IsVisuallyBlank(_pages[^1]))
+        {
+            _pages.RemoveAt(_pages.Count - 1);
+        }
+
         if (_pages.Count > 0)
         {
             var last = _pages[^1];
@@ -231,6 +252,12 @@ internal sealed class PageBuilder
         _current.Decorations.Add(rect);
         _used = true;
     }
+
+    private static bool IsVisuallyBlank(LayoutPage page) =>
+        page.Images.Count == 0
+        && page.Tables.Count == 0
+        && page.Decorations.Count == 0
+        && !page.Runs.Any(run => run.Glyphs.Length > 0);
 
     public void AddDebugBox(TypesetDebugBox box) => _current.DebugBoxes.Add(box);
 

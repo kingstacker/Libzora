@@ -281,6 +281,13 @@ public sealed class TypesetLayoutOptions
     /// never enabled the overlay.
     /// </summary>
     public bool CollectDebugBoxes { get; init; }
+    /// <summary>
+    /// Optional set of TOC navigation fragment ids for the current spine
+    /// document. When supplied, only headings targeting one of these anchors
+    /// (or carrying an explicit CSS page-break) force a new page; internal ids
+    /// such as Kindle <c>aid-...</c> attributes stay inline as subheadings.
+    /// </summary>
+    public IReadOnlySet<string>? NavigationFragments { get; init; }
 
     public float BodyLineHeight => BaseFontSize * LineHeight;
     public float EffectiveInsetBottom => InsetBottom ?? InsetVertical;

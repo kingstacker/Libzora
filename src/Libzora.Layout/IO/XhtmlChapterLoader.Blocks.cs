@@ -103,6 +103,10 @@ public sealed partial class XhtmlChapterLoader
             {
                 _blocks[i] = CloneWithBreakFlags(_blocks[i], keepWithNext: true);
             }
+            else if (_blocks[i].IsCaption && _blocks[i + 1].Kind is BlockKind.Image or BlockKind.Table)
+            {
+                _blocks[i] = CloneWithBreakFlags(_blocks[i], keepWithNext: true);
+            }
         }
     }
 

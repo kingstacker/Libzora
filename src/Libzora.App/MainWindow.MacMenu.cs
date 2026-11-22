@@ -99,6 +99,26 @@ public partial class MainWindow
             T("导入书籍…"),
             ImportBooksFromMacMenu,
             new KeyGesture(Key.I, KeyModifiers.Meta)));
+        items.Items.Add(MacMenuItem(
+            T("导入文件夹…"),
+            ImportFolderFromMacMenu,
+            new KeyGesture(Key.I, KeyModifiers.Shift | KeyModifiers.Meta)));
+        var newCollection = MacMenuItem(
+            T("新建收藏夹…"),
+            CreateCollectionFromMacMenu,
+            new KeyGesture(Key.N, KeyModifiers.Shift | KeyModifiers.Meta));
+        items.Items.Add(newCollection);
+        items.Items.Add(new NativeMenuItemSeparator());
+        var openDirectory = MacMenuItem(
+            T("打开书籍所在目录"),
+            OpenSelectedBookDirectoryFromMacMenu,
+            new KeyGesture(Key.R, KeyModifiers.Shift | KeyModifiers.Meta));
+        var deleteBooks = MacMenuItem(
+            T("删除所选书籍…"),
+            DeleteSelectedBooksFromMacMenu,
+            new KeyGesture(Key.Back, KeyModifiers.Meta));
+        items.Items.Add(openDirectory);
+        items.Items.Add(deleteBooks);
         items.Items.Add(new NativeMenuItemSeparator());
         // Close goes through the normal window closing path, which hides the
         // window instead of quitting when the app keeps running in the menu bar.
@@ -106,26 +126,199 @@ public partial class MainWindow
             T("关闭窗口"),
             Close,
             new KeyGesture(Key.W, KeyModifiers.Meta)));
+        items.NeedsUpdate += (_, _) =>
+        {
+            var inLibrary = LibraryRoot.IsVisible && LibraryWorkspace.IsVisible && !HasBlockingOverlayVisible();
+            newCollection.IsEnabled = inLibrary;
+            openDirectory.IsEnabled = inLibrary && (GetSingleSelectedLibraryBook() ?? _selectedCard) is not null;
+            deleteBooks.IsEnabled = inLibrary && _selectedBookIds.Count > 0 && !IsTextInputFocused();
+        };
         return new NativeMenuItem(T("文件")) { Menu = items };
     }
 
     private NativeMenuItem BuildMacViewMenu()
     {
         var items = new NativeMenu();
+        var search = MacMenuItem(
+            T("搜索…"),
+            SearchFromMacMenu,
+            new KeyGesture(Key.F, KeyModifiers.Meta));
+        var wholeBookSearch = new NativeMenuItem(T("全书搜索…"))
+        {
+            Gesture = new KeyGesture(Key.F, KeyModifiers.Shift | KeyModifiers.Meta),
+            ToggleType = MenuItemToggleType.CheckBox
+        };
+        wholeBookSearch.Click += (_, _) => ToggleReaderWholeBookSearch();
+        items.Items.Add(search);
+        items.Items.Add(wholeBookSearch);
+        items.Items.Add(new NativeMenuItemSeparator());
+
+        var gridView = new NativeMenuItem(T("网格视图"))
+        {
+            Gesture = new KeyGesture(Key.D1, KeyModifiers.Meta),
+            ToggleType = MenuItemToggleType.Radio
+        };
+        gridView.Click += (_, _) => SwitchLibraryViewModeFromShortcut(LibraryViewMode.Grid);
+        var listView = new NativeMenuItem(T("列表视图"))
+        {
+            Gesture = new KeyGesture(Key.D2, KeyModifiers.Meta),
+            ToggleType = MenuItemToggleType.Radio
+        };
+        listView.Click += (_, _) => SwitchLibraryViewModeFromShortcut(LibraryViewMode.List);
+        var collectionsView = new NativeMenuItem(T("收藏夹视图"))
+        {
+            Gesture = new KeyGesture(Key.D3, KeyModifiers.Meta),
+            ToggleType = MenuItemToggleType.Radio
+        };
+        collectionsView.Click += (_, _) => SwitchLibraryViewModeFromShortcut(LibraryViewMode.Collections);
+        var filterPanel = new NativeMenuItem(T("筛选面板"))
+        {
+            Gesture = new KeyGesture(Key.F, KeyModifiers.Alt | KeyModifiers.Meta),
+            ToggleType = MenuItemToggleType.CheckBox
+        };
+        filterPanel.Click += (_, _) =>
+        {
+            if (LibraryRoot.IsVisible && LibraryWorkspace.IsVisible)
+                FilterButton_Click(this, new RoutedEventArgs());
+        };
+        var bookDetails = new NativeMenuItem(T("书籍详情"))
+        {
+            Gesture = new KeyGesture(Key.I, KeyModifiers.Alt | KeyModifiers.Meta),
+            ToggleType = MenuItemToggleType.CheckBox
+        };
+        bookDetails.Click += (_, _) => ToggleLibraryDetailInspector();
+        var refresh = MacMenuItem(
+            T("刷新"),
+            () => { _ = RefreshCurrentPageFromShortcutAsync(); },
+            new KeyGesture(Key.R, KeyModifiers.Meta));
+        items.Items.Add(gridView);
+        items.Items.Add(listView);
+        items.Items.Add(collectionsView);
+        items.Items.Add(filterPanel);
+        items.Items.Add(bookDetails);
+        items.Items.Add(refresh);
+        items.Items.Add(new NativeMenuItemSeparator());
+
+        var toc = new NativeMenuItem(T("目录"))
+        {
+            Gesture = new KeyGesture(Key.T, KeyModifiers.Shift | KeyModifiers.Meta),
+            ToggleType = MenuItemToggleType.CheckBox
+        };
+        toc.Click += (_, _) =>
+        {
+            if (ReaderRoot.IsVisible)
+                ReaderTocButton_Click(this, new RoutedEventArgs());
+        };
+        var bookmarks = new NativeMenuItem(T("书签栏"))
+        {
+            Gesture = new KeyGesture(Key.B, KeyModifiers.Alt | KeyModifiers.Meta),
+            ToggleType = MenuItemToggleType.CheckBox
+        };
+        bookmarks.Click += (_, _) =>
+        {
+            if (ReaderRoot.IsVisible)
+                ToggleReaderBookmarkPanel();
+        };
+        var toggleBookmark = MacMenuItem(
+            T("添加/取消书签"),
+            () =>
+            {
+                if (ReaderRoot.IsVisible)
+                    _ = ObserveReaderTaskAsync(ToggleReaderBookmarkAsync());
+            },
+            new KeyGesture(Key.D, KeyModifiers.Meta));
+        var assistant = new NativeMenuItem(T("AI 与笔记侧栏"))
+        {
+            Gesture = new KeyGesture(Key.A, KeyModifiers.Shift | KeyModifiers.Meta),
+            ToggleType = MenuItemToggleType.CheckBox
+        };
+        assistant.Click += (_, _) =>
+        {
+            if (ReaderRoot.IsVisible && !_readerZenMode)
+                ReaderAssistantToggleButton_Click(this, new RoutedEventArgs());
+        };
+        items.Items.Add(toc);
+        items.Items.Add(bookmarks);
+        items.Items.Add(toggleBookmark);
+        items.Items.Add(assistant);
+        items.Items.Add(new NativeMenuItemSeparator());
+
+        var zoomIn = MacMenuItem(
+            T("增大字号 / 放大"),
+            () =>
+            {
+                if (ReaderRoot.IsVisible)
+                    _ = ObserveReaderTaskAsync(ChangeReaderFontAsync(0.1));
+            },
+            new KeyGesture(Key.OemPlus, KeyModifiers.Meta));
+        var zoomOut = MacMenuItem(
+            T("减小字号 / 缩小"),
+            () =>
+            {
+                if (ReaderRoot.IsVisible)
+                    _ = ObserveReaderTaskAsync(ChangeReaderFontAsync(-0.1));
+            },
+            new KeyGesture(Key.OemMinus, KeyModifiers.Meta));
+        var zoomReset = MacMenuItem(
+            T("实际大小 / 默认字号"),
+            () =>
+            {
+                if (ReaderRoot.IsVisible)
+                    _ = ObserveReaderTaskAsync(ResetReaderZoomOrFontAsync());
+            },
+            new KeyGesture(Key.D0, KeyModifiers.Meta));
+        items.Items.Add(zoomIn);
+        items.Items.Add(zoomOut);
+        items.Items.Add(zoomReset);
+        items.Items.Add(new NativeMenuItemSeparator());
+
         var fullscreen = MacMenuItem(
             T("全屏"),
             () => WindowState = WindowState == WindowState.FullScreen
                 ? WindowState.Normal
                 : WindowState.FullScreen,
             new KeyGesture(Key.F, KeyModifiers.Control | KeyModifiers.Meta));
-        var zen = new NativeMenuItem(T("禅模式")) { ToggleType = MenuItemToggleType.CheckBox };
+        var zen = new NativeMenuItem(T("禅模式"))
+        {
+            Gesture = new KeyGesture(Key.Z, KeyModifiers.Control | KeyModifiers.Meta),
+            ToggleType = MenuItemToggleType.CheckBox
+        };
         zen.Click += (_, _) => ToggleReaderZenMode();
         items.Items.Add(fullscreen);
         items.Items.Add(zen);
         items.NeedsUpdate += (_, _) =>
         {
+            var inReader = ReaderRoot.IsVisible;
+            var inLibraryShell = LibraryRoot.IsVisible && !HasBlockingOverlayVisible();
+            var inLibraryWorkspace = inLibraryShell && LibraryWorkspace.IsVisible;
+            search.IsEnabled = inReader || inLibraryShell;
+            wholeBookSearch.IsEnabled = inReader;
+            wholeBookSearch.IsChecked = inReader && _readerSearchVisible;
+            gridView.IsEnabled = inLibraryShell && !_isTransferring;
+            gridView.IsChecked = _libraryViewMode == LibraryViewMode.Grid;
+            listView.IsEnabled = inLibraryShell && !_isTransferring;
+            listView.IsChecked = _libraryViewMode == LibraryViewMode.List;
+            collectionsView.IsEnabled = inLibraryShell && !_isTransferring;
+            collectionsView.IsChecked = _libraryViewMode == LibraryViewMode.Collections;
+            filterPanel.IsEnabled = inLibraryWorkspace;
+            filterPanel.IsChecked = inLibraryWorkspace && FilterPanel.IsVisible;
+            bookDetails.IsEnabled = inLibraryWorkspace
+                && (LibraryDetailPane.IsVisible || (GetSingleSelectedLibraryBook() ?? _selectedCard) is not null);
+            bookDetails.IsChecked = inLibraryWorkspace && LibraryDetailPane.IsVisible;
+            refresh.IsEnabled = inLibraryShell
+                && (LibraryWorkspace.IsVisible || ReadingDashboardPage.IsVisible || DevicePage.IsVisible || ReadingMaterialsPage.IsVisible);
+            toc.IsEnabled = inReader;
+            toc.IsChecked = inReader && _readerTocExpanded && ReaderTocView.IsVisible && !_readerSearchVisible;
+            bookmarks.IsEnabled = inReader;
+            bookmarks.IsChecked = inReader && _readerTocExpanded && ReaderBookmarkPane.IsVisible && !_readerSearchVisible;
+            toggleBookmark.IsEnabled = inReader;
+            assistant.IsEnabled = inReader && !_readerZenMode;
+            assistant.IsChecked = inReader && ReaderAssistantPanel.IsVisible;
+            zoomIn.IsEnabled = inReader;
+            zoomOut.IsEnabled = inReader;
+            zoomReset.IsEnabled = inReader;
             fullscreen.Header = T(WindowState == WindowState.FullScreen ? "退出全屏" : "全屏");
-            zen.IsEnabled = ReaderRoot.IsVisible;
+            zen.IsEnabled = inReader;
             zen.IsChecked = _readerZenMode;
         };
         // Reader navigation appends the context-sensitive "back" item here.
@@ -154,7 +347,7 @@ public partial class MainWindow
         items.Items.Add(MacMenuItem(
             T("键盘快捷键"),
             () => { _ = ShowKeyboardShortcutsAsync(); },
-            new KeyGesture(Key.F1)));
+            new KeyGesture(Key.OemQuestion, KeyModifiers.Meta)));
         return new NativeMenuItem(T("帮助")) { Menu = items };
     }
 
@@ -184,5 +377,56 @@ public partial class MainWindow
     {
         RestoreFromTray();
         ImportFilesButton_Click(this, new RoutedEventArgs());
+    }
+
+    private void ImportFolderFromMacMenu()
+    {
+        RestoreFromTray();
+        ImportFolderButton_Click(this, new RoutedEventArgs());
+    }
+
+    private void CreateCollectionFromMacMenu()
+    {
+        RestoreFromTray();
+        if (LibraryRoot.IsVisible && LibraryWorkspace.IsVisible && !HasBlockingOverlayVisible())
+            _ = CreateCollectionAsync();
+    }
+
+    private void OpenSelectedBookDirectoryFromMacMenu()
+    {
+        RestoreFromTray();
+        if (LibraryRoot.IsVisible
+            && LibraryWorkspace.IsVisible
+            && !HasBlockingOverlayVisible()
+            && (GetSingleSelectedLibraryBook() ?? _selectedCard) is { } card)
+        {
+            _ = OpenBookDirectoryFromContextAsync(card);
+        }
+    }
+
+    private void DeleteSelectedBooksFromMacMenu()
+    {
+        RestoreFromTray();
+        if (LibraryRoot.IsVisible
+            && LibraryWorkspace.IsVisible
+            && !HasBlockingOverlayVisible()
+            && _selectedBookIds.Count > 0)
+        {
+            DeleteSelectedBooksButton_Click(this, new RoutedEventArgs());
+        }
+    }
+
+    private void SearchFromMacMenu()
+    {
+        RestoreFromTray();
+        if (ReaderRoot.IsVisible)
+        {
+            OpenReaderSearchShortcut();
+            return;
+        }
+        if (!LibraryRoot.IsVisible || HasBlockingOverlayVisible()) return;
+        ShowLibraryPage();
+        SearchBox.Focus();
+        SearchBox.SelectAll();
     }
 }

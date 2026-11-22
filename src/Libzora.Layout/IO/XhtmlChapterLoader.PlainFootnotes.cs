@@ -109,6 +109,8 @@ public sealed partial class XhtmlChapterLoader
                 previousDefinitionEndOffset,
                 definitionEndOffset);
         }
+
+        PrepareExternalPlainFootnotes(body);
     }
 
     private static IEnumerable<XElement> EnumeratePlainFootnoteBlocksAfter(
@@ -163,9 +165,12 @@ public sealed partial class XhtmlChapterLoader
             && text[^1] == '】';
     }
 
-    private static bool IsPlainFootnoteHeading(XElement element)
+    private static bool IsPlainFootnoteHeading(XElement element) =>
+        IsPlainFootnoteHeadingText(NormalizePlainFootnoteText(element.Value));
+
+    private static bool IsPlainFootnoteHeadingText(string normalizedText)
     {
-        var text = NormalizePlainFootnoteText(element.Value).Replace(" ", string.Empty);
+        var text = normalizedText.Replace(" ", string.Empty).Replace("\u3000", string.Empty);
         return text is "注释" or "【注释】" or "[注释]" or "脚注" or "【脚注】"
             or "[脚注]" or "尾注" or "【尾注】" or "[尾注]"
             || text.StartsWith("注释：", StringComparison.Ordinal)
@@ -348,7 +353,8 @@ public sealed partial class XhtmlChapterLoader
                         FootnoteHref = item.LinkHref ?? CreatePlainFootnoteHref(
                             match.SectionIndex,
                             match.Key,
-                            match.DefinitionOffset),
+                            match.DefinitionOffset,
+                            _plainFootnoteSections[match.SectionIndex].TargetChapterPath),
                         FootnoteText = match.Text,
                     });
                     cursor = match.Index + match.Length;
@@ -476,9 +482,11 @@ public sealed partial class XhtmlChapterLoader
             }
 
             var start = item.TextStart + match.Index;
-            var sectionIndex = FindPlainFootnoteMarkerSectionIndex(start);
+            var sectionIndex = FindPlainFootnoteMarkerSectionIndex(start, key);
             if (sectionIndex >= 0
-                && _plainFootnoteSections[sectionIndex].Notes.TryGetValue(key, out var text))
+                && _plainFootnoteSections[sectionIndex] is var section
+                && (!section.IsExternal || item.Style.Superscript || IsSquareOrTortoiseBracket(match.Groups["open"].Value))
+                && section.Notes.TryGetValue(key, out var text))
             {
                 matches.Add((match.Index, match.Length, key, text, sectionIndex,
                     PlainFootnoteDefinitionOffset(sectionIndex, key)));
@@ -497,7 +505,7 @@ public sealed partial class XhtmlChapterLoader
                 var start = item.TextStart + match.Index;
                 var sectionIndex = key is null
                     ? -1
-                    : FindPlainFootnoteMarkerSectionIndex(start);
+                    : FindPlainFootnoteMarkerSectionIndex(start, key);
                 if (key is not null
                     && sectionIndex >= 0
                     && _plainFootnoteSections[sectionIndex].Notes.TryGetValue(key, out var text))
@@ -516,13 +524,14 @@ public sealed partial class XhtmlChapterLoader
             ? offset
             : -1;
 
-    private int FindPlainFootnoteMarkerSectionIndex(int offset)
+    private int FindPlainFootnoteMarkerSectionIndex(int offset, string key)
     {
         for (var index = 0; index < _plainFootnoteSections.Count; index++)
         {
             var section = _plainFootnoteSections[index];
             if (offset >= section.MarkerStartOffset
-                && offset < section.MarkerEndOffset)
+                && offset < section.MarkerEndOffset
+                && section.Notes.ContainsKey(key))
             {
                 return index;
             }
@@ -546,14 +555,19 @@ public sealed partial class XhtmlChapterLoader
         return -1;
     }
 
-    private string CreatePlainFootnoteHref(int sectionIndex, string key, int definitionOffset)
+    private string CreatePlainFootnoteHref(
+        int sectionIndex,
+        string key,
+        int definitionOffset,
+        string? targetChapterPath = null)
     {
         // The definition offset lets the reader jump to the note inside its own
-        // chapter; older fragments without it keep the card but cannot jump.
+        // chapter or a companion endnote chapter; older fragments without it
+        // keep the card but cannot jump.
         var fragment = definitionOffset >= 0
             ? $"__libzora-plain-footnote-{sectionIndex}-{key}-{definitionOffset}"
             : $"__libzora-plain-footnote-{sectionIndex}-{key}";
-        return new UriBuilder(new Uri(_chapterPath, UriKind.Absolute))
+        return new UriBuilder(new Uri(targetChapterPath ?? _chapterPath, UriKind.Absolute))
         {
             Fragment = fragment,
         }.Uri.AbsoluteUri;

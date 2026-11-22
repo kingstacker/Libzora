@@ -1,8 +1,9 @@
 ﻿using MdxParser.Models;
 using NeoSmart.Hashing.XXHash;
+using System.Globalization;
 using System.Text;
 using System.Text.Json.Serialization;
-using System.Xml.Serialization;
+using System.Xml.Linq;
 
 namespace MdxParser
 {
@@ -49,8 +50,12 @@ namespace MdxParser
                 {
                     if (Version >= 3.0)
                         m_Encoding = Encoding.UTF8;
-                    else if ("GBK".Equals(Header?.Encoding) || "GB2312".Equals(Header?.Encoding))
+                    else if ("GBK".Equals(Header?.Encoding, StringComparison.OrdinalIgnoreCase)
+                             || "GB2312".Equals(Header?.Encoding, StringComparison.OrdinalIgnoreCase))
                         m_Encoding = Encoding.GetEncoding("GB18030");
+                    else if ("UTF-16LE".Equals(Header?.Encoding, StringComparison.OrdinalIgnoreCase)
+                             || "UTF16".Equals(Header?.Encoding, StringComparison.OrdinalIgnoreCase))
+                        m_Encoding = Encoding.GetEncoding("utf-16");
                     else if (!string.IsNullOrEmpty(Header?.Encoding))
                         m_Encoding = Encoding.GetEncoding(Header.Encoding);
                     else
@@ -76,6 +81,7 @@ namespace MdxParser
         #endregion
 
         #region Ctr
+        static MdxDocument() => Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
         public MdxDocument(string path) : this(path, null) { }
         public MdxDocument(string path, Encoding? encoding) : this(File.OpenRead(path), encoding)
         {
@@ -166,11 +172,11 @@ namespace MdxParser
             var headBuf = new byte[headSize];
             readBytes(Stream, headBuf);
 
-            byte[] utf8headBuf = headBuf[(headBuf.Length - 2)..].SequenceEqual(new byte[] { 0, 0 }) ?
+            byte[] utf8headBuf = headBuf.Length >= 2 && headBuf[(headBuf.Length - 2)..].SequenceEqual(new byte[] { 0, 0 }) ?
                 Encoding.Convert(Encoding.GetEncoding("utf-16"), Encoding.UTF8, headBuf) :
                 headBuf;
 
-            var headStr = Encoding.UTF8.GetString(utf8headBuf, 0, utf8headBuf.Length - 1);  // head以字节为x00结尾，此处去除；
+            var headStr = Encoding.UTF8.GetString(utf8headBuf).TrimEnd('\0');  // head以字节为x00结尾，此处去除；
             var adler32 = (uint)readInt32B(Stream);
             var headHash = adler32Compute(headBuf);
             if (headHash != adler32)
@@ -201,31 +207,44 @@ namespace MdxParser
             if (header.StyleSheet != null)
             {
                 var lines = header.StyleSheet.Split('\n');
-                if (lines.Length > 2)
+                for (int i = 0; i + 2 < lines.Length; i += 3)
                 {
-                    for (int i = 0; i < lines.Length; i = i + 3)
-                    {
-                        m_StyleSheet.Add(lines[i], (lines[i + 1], lines[i + 2]));
-                    }
+                    m_StyleSheet[lines[i]] = (lines[i + 1], lines[i + 2]);
                 }
             }
             return header;
         }
         private MdxHeader parseHeader(string headStr)
         {
-            if (headStr.StartsWith("<Dictionary"))
-                headStr = "<ZDB" + headStr.Substring(11);
-            else if (headStr.StartsWith("<Library_Data"))
-            {
-                headStr = "<ZDB" + headStr.Substring(13);
+            headStr = headStr.TrimEnd('\0').Trim();
+            if (headStr.StartsWith("<Library_Data", StringComparison.Ordinal))
                 m_Encoding = Encoding.GetEncoding("utf-16");
-            }
-            // <Dictionary GeneratedByEngineVersion="1.2" RequiredEngineVersion="1.2"
-            // <ZDB GeneratedByEngineVersion = "3.0" RequiredEngineVersion = "3.0"
-            XmlSerializer xmlSerializer = new XmlSerializer(typeof(MdxHeader));
-            TextReader reader = new StringReader(headStr);
 
-            return (MdxHeader)xmlSerializer.Deserialize(reader);
+            // Parse directly with XElement instead of XmlSerializer so iOS AOT
+            // and trimmed builds do not rely on runtime code generation.
+            var element = XElement.Parse(headStr);
+            string? Attr(string name) =>
+                element.Attribute(name)?.Value
+                ?? element.Attributes().FirstOrDefault(a => string.Equals(a.Name.LocalName, name, StringComparison.OrdinalIgnoreCase))?.Value;
+            float FloatAttr(string name) =>
+                float.TryParse(Attr(name), NumberStyles.Float, CultureInfo.InvariantCulture, out var value) ? value : 0f;
+
+            return new MdxHeader
+            {
+                UUID = Attr("UUID"),
+                GeneratedByEngineVersion = FloatAttr("GeneratedByEngineVersion"),
+                RequiredEngineVersion = FloatAttr("RequiredEngineVersion"),
+                Encrypted = Attr("Encrypted"),
+                Encoding = Attr("Encoding"),
+                Format = Attr("Format"),
+                Compact = Attr("Compact"),
+                Compat = Attr("Compat"),
+                KeyCaseSensitive = Attr("KeyCaseSensitive"),
+                Description = Attr("Description"),
+                Title = Attr("Title"),
+                DataSourceFormat = Attr("DataSourceFormat"),
+                StyleSheet = Attr("StyleSheet")
+            };
         }
         #endregion
         private List<KeyData> m_KeyList;
@@ -251,7 +270,7 @@ namespace MdxParser
             int startIndex = 0, endIndex = 0, width;
             byte[] delimiter;
             // key text ends with '\x00'
-            if (Encoding == Encoding.GetEncoding("utf-16"))
+            if (Encoding.CodePage is 1200 or 1201)
             {
                 delimiter = new byte[] { 0, 0 };
                 width = 2;
@@ -261,12 +280,13 @@ namespace MdxParser
                 delimiter = new byte[] { 0 };
                 width = 1;
             }
-            while (startIndex < keyData.Length)
+            while (startIndex + NumberWidth <= keyData.Length)
             {
                 // the corresponding record's offset in record block
                 var keyId = readNumber(keyData[startIndex..(startIndex + NumberWidth)]);
                 int i = startIndex + NumberWidth;
-                while (i < keyData.Length)
+                endIndex = keyData.Length;
+                while (i + width <= keyData.Length)
                 {
 
                     if (keyData[i..(i + width)].SequenceEqual(delimiter))
@@ -276,8 +296,6 @@ namespace MdxParser
                     }
                     i += width;
                 }
-                if (endIndex < startIndex + NumberWidth)
-                    endIndex = keyData.Length;
                 var keyText = Encoding.GetString(keyData[(startIndex + NumberWidth)..endIndex]);
                 var key = KeyData.of(keyId, keyText);
                 key.StartIndex = startIndex;

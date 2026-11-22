@@ -1218,6 +1218,102 @@ public sealed class EpubReaderTests
         finally { TestHelpers.TryDelete(root); }
     }
 
+    [Fact]
+    public async Task SanitizesCleanFastPathAndDirtyFallbackChaptersConsistently()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var epub = Path.Combine(root, "mixed-sanitize.epub");
+            using (var archive = ZipFile.Open(epub, ZipArchiveMode.Create))
+            {
+                TestHelpers.AddZipEntry(archive, "META-INF/container.xml", """
+                    <container xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+                      <rootfiles><rootfile full-path="OEBPS/content.opf" /></rootfiles>
+                    </container>
+                    """);
+                TestHelpers.AddZipEntry(archive, "OEBPS/content.opf", """
+                    <package xmlns="http://www.idpf.org/2007/opf">
+                      <manifest>
+                        <item id="css" href="style.css" media-type="text/css" />
+                        <item id="clean" href="clean.xhtml" media-type="application/xhtml+xml" />
+                        <item id="bom" href="bom.xhtml" media-type="application/xhtml+xml" />
+                        <item id="dirty" href="dirty.xhtml" media-type="application/xhtml+xml" />
+                        <item id="soup" href="soup.xhtml" media-type="application/xhtml+xml" />
+                      </manifest>
+                      <spine>
+                        <itemref idref="clean" />
+                        <itemref idref="bom" />
+                        <itemref idref="dirty" />
+                        <itemref idref="soup" />
+                      </spine>
+                    </package>
+                    """);
+                TestHelpers.AddZipEntry(archive, "OEBPS/style.css", """
+                    @import url("https://evil.example/a.css");
+                    p { text-indent: 2em; background: url("https://evil.example/bg.png"); }
+                    """);
+                TestHelpers.AddZipEntry(archive, "OEBPS/clean.xhtml", """
+                    <?xml version="1.0" encoding="utf-8"?>
+                    <html xmlns="http://www.w3.org/1999/xhtml"><head><title>干净章节</title><link rel="stylesheet" href="style.css" /></head><body><h1>第1章</h1><p>正文段落&amp;转义保留。<a href="bom.xhtml#top">下一章</a></p></body></html>
+                    """);
+                TestHelpers.AddZipEntry(archive, "OEBPS/bom.xhtml", "\uFEFF" + """
+                    <html xmlns="http://www.w3.org/1999/xhtml"><head><title>BOM章节</title></head><body><h1 id="top">第2章</h1><p>带BOM测试。</p></body></html>
+                    """);
+                TestHelpers.AddZipEntry(archive, "OEBPS/dirty.xhtml", """
+                    <html xmlns="http://www.w3.org/1999/xhtml"><head><title>需净化</title><meta http-equiv="refresh" content="0;url=https://evil.example" /></head><body><script>alert(1)</script><p onclick="evil()" style="color:red;background:url(https://evil.example/x.png)"><a href="https://evil.example">外链</a><a href="clean.xhtml">内链</a>保留文本</p></body></html>
+                    """);
+                TestHelpers.AddZipEntry(archive, "OEBPS/soup.xhtml", """
+                    <html xmlns="http://www.w3.org/1999/xhtml"><body><div class="box"><p>未闭合标签&nbsp;正文</body></html>
+                    """);
+            }
+
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            paths.EnsureDirectories();
+            var service = new EpubReaderPreparationService(paths);
+            var hash = new string('f', 64);
+
+            var first = await service.PrepareAsync(epub, hash);
+            var second = await service.PrepareAsync(epub, hash);
+
+            Assert.Equal(4, first.Chapters.Count);
+            Assert.Equal(first.Chapters, second.Chapters);
+            Assert.Equal(first.ChapterTitles, second.ChapterTitles);
+
+            var cleanHtml = await File.ReadAllTextAsync(first.Chapters[0]);
+            var bomHtml = await File.ReadAllTextAsync(first.Chapters[1]);
+            var dirtyHtml = await File.ReadAllTextAsync(first.Chapters[2]);
+            var soupHtml = await File.ReadAllTextAsync(first.Chapters[3]);
+            var sanitizedCss = await File.ReadAllTextAsync(Path.Combine(first.RootPath, "OEBPS", "style.css"));
+
+            Assert.Contains("data-libzora-vertical-inline-prepared=\"71\"", cleanHtml, StringComparison.Ordinal);
+            Assert.Contains("正文段落&amp;转义保留。", cleanHtml, StringComparison.Ordinal);
+            Assert.Contains("href=\"bom.xhtml#top\"", cleanHtml, StringComparison.Ordinal);
+
+            Assert.Contains("data-libzora-vertical-inline-prepared=\"71\"", bomHtml, StringComparison.Ordinal);
+            Assert.False(bomHtml.StartsWith('\uFEFF'));
+
+            Assert.DoesNotContain("script", dirtyHtml, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("onclick", dirtyHtml, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("refresh", dirtyHtml, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("https://evil.example", dirtyHtml, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("href=\"clean.xhtml\"", dirtyHtml, StringComparison.Ordinal);
+            Assert.Contains("保留文本", dirtyHtml, StringComparison.Ordinal);
+            Assert.Contains("data-libzora-vertical-inline-prepared=\"71\"", dirtyHtml, StringComparison.Ordinal);
+
+            Assert.Contains("<head", soupHtml, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("未闭合标签", soupHtml, StringComparison.Ordinal);
+            Assert.Contains("data-libzora-vertical-inline-prepared=\"71\"", soupHtml, StringComparison.Ordinal);
+
+            Assert.DoesNotContain("@import", sanitizedCss, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("evil.example", sanitizedCss, StringComparison.OrdinalIgnoreCase);
+
+            var manga = EpubMangaDetector.Detect(first);
+            Assert.False(manga.IsManga);
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
     private static int FindEndOfCentralDirectory(byte[] bytes)
     {
         for (var index = bytes.Length - 22; index >= 0; index--)

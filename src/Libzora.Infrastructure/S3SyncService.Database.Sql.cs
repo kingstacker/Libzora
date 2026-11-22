@@ -354,6 +354,8 @@ public sealed partial class S3SyncService
                 case "progress":
                     changed |= await DeleteRowAsync(
                         "ReaderProgress", "BookFileId", localId, commandCache, cancellationToken);
+                    await DeleteRowAsync(
+                        "ReaderSyncedPositionMarkers", "BookFileId", localId, commandCache, cancellationToken);
                     break;
                 case "bookmark":
                     changed |= await DeleteRowAsync(
@@ -403,6 +405,7 @@ public sealed partial class S3SyncService
         {
             "DELETE FROM ReaderBookReflections WHERE BookId = $bookId;",
             "DELETE FROM ReaderProgress WHERE BookId = $bookId;",
+            "DELETE FROM ReaderSyncedPositionMarkers WHERE BookId = $bookId;",
             "DELETE FROM ReaderBookmarks WHERE BookId = $bookId;",
             "DELETE FROM ReaderLayoutSettings WHERE BookId = $bookId;",
             "DELETE FROM BookContentChunks WHERE BookId = $bookId;",
@@ -438,6 +441,7 @@ public sealed partial class S3SyncService
         foreach (var statement in new[]
         {
             "DELETE FROM ReaderProgress WHERE BookFileId = $fileId;",
+            "DELETE FROM ReaderSyncedPositionMarkers WHERE BookFileId = $fileId;",
             "DELETE FROM ReaderBookmarks WHERE BookFileId = $fileId;",
             "DELETE FROM ReaderLayoutSettings WHERE BookFileId = $fileId;",
             "DELETE FROM BookContentChunks WHERE BookFileId = $fileId;",

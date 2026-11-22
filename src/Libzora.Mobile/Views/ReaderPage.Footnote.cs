@@ -223,8 +223,16 @@ public partial class ReaderPage
         _footnoteNavigationInFlight = true;
         try
         {
-            var navigated = plainFootnoteOffset is { } definitionOffset && chapter == _chapterIndex
-                ? await RevealPlainFootnoteAsync(host, definitionOffset)
+            var navigated = plainFootnoteOffset is { } definitionOffset
+                ? (chapter == _chapterIndex
+                    ? await RevealPlainFootnoteAsync(host, definitionOffset)
+                    : await NavigateToChapterAsync(
+                          host,
+                          chapter,
+                          new Uri(document.Chapters[chapter]),
+                          composeTextOffset: definitionOffset,
+                          allowPartialCompose: false)
+                      && await RevealPlainFootnoteAsync(host, definitionOffset))
                 : chapter == _chapterIndex
                     ? await RevealFootnoteInChapterAsync(host, fragment)
                     : await NavigateToChapterAsync(host, chapter, new Uri(target.AbsoluteUri));
@@ -316,9 +324,20 @@ public partial class ReaderPage
         _footnoteNavigationInFlight = true;
         try
         {
-            if (point.ChapterIndex != _chapterIndex
-                && !await NavigateToChapterAsync(host, point.ChapterIndex, new Uri(document.Chapters[point.ChapterIndex])))
-                throw new InvalidOperationException(UiText.Get("无法定位注释"));
+            if (point.ChapterIndex != _chapterIndex || host.HasLoadedFootnoteFragment)
+            {
+                if (!await NavigateToChapterAsync(
+                        host,
+                        point.ChapterIndex,
+                        new Uri(document.Chapters[point.ChapterIndex]),
+                        composeTextOffset: point.ContentPosition?.TextOffset,
+                        allowPartialCompose: false))
+                    throw new InvalidOperationException(UiText.Get("无法定位注释"));
+            }
+            else if (!host.IsLayoutComplete)
+            {
+                await host.EnsureCompleteLayoutAsync();
+            }
             var restored = point.ContentPosition is { } contentPosition
                 && host.RestoreContentPosition(contentPosition);
             if (!restored) host.SeekToPixelScroll(point.ScrollPosition);
@@ -328,6 +347,7 @@ public partial class ReaderPage
             {
                 _footnoteProgressSuppressed = false;
                 _footnoteBodyProgress = null;
+                _footnoteReturnHasBaseline = false;
             }
             MarkFootnoteReturnSettled();
             NotifyNativeState();
@@ -432,10 +452,52 @@ public partial class ReaderPage
     private static Uri? TryFootnoteTarget(string href) =>
         Uri.TryCreate(href, UriKind.Absolute, out var target) && target.IsFile ? target : null;
 
-    private static string NormalizeFootnoteHref(string href) =>
-        Uri.TryCreate(href, UriKind.Absolute, out var target)
-            ? EpubFootnoteResolver.NormalizeTargetKey(target.AbsoluteUri)
-            : href;
+    private string NormalizeFootnoteHref(string href)
+    {
+        if (TryResolveChapterHref(href, out var target))
+            return EpubFootnoteResolver.NormalizeTargetKey(target.AbsoluteUri);
+        return href;
+    }
+
+    private bool TryResolveChapterHref(string? href, out Uri target)
+    {
+        target = null!;
+        if (string.IsNullOrWhiteSpace(href)) return false;
+        if (Uri.TryCreate(href, UriKind.Absolute, out var absolute))
+        {
+            target = absolute;
+            return true;
+        }
+        if (_epubDocument is { } document && _chapterIndex >= 0 && _chapterIndex < document.Chapters.Count
+            && Uri.TryCreate(new Uri(document.Chapters[_chapterIndex]), href, out var resolved))
+        {
+            target = resolved;
+            return true;
+        }
+        return false;
+    }
+
+    private bool IsExactFootnoteBacklink(string? href) =>
+        _footnoteReturn.Count > 0
+        && _footnoteJumpBacklink is { } backlink
+        && !string.IsNullOrWhiteSpace(href)
+        && string.Equals(NormalizeFootnoteHref(href), backlink, StringComparison.Ordinal);
+
+    private bool IsReturnLinkToFootnoteOrigin(string? href)
+    {
+        if (IsExactFootnoteBacklink(href)) return true;
+        if (_footnoteReturn.Count == 0 || _epubDocument is not { } document) return false;
+        var point = _footnoteReturn[^1];
+        if (point.ChapterIndex < 0 || point.ChapterIndex >= document.Chapters.Count)
+            return false;
+        if (!TryResolveChapterHref(href, out var target)
+            || !target.IsFile
+            || string.IsNullOrEmpty(target.Fragment))
+            return false;
+        var targetPath = Path.GetFullPath(target.LocalPath);
+        var returnPath = Path.GetFullPath(document.Chapters[point.ChapterIndex]);
+        return string.Equals(targetPath, returnPath, StringComparison.OrdinalIgnoreCase);
+    }
 
     private static string FootnoteTitle(string? marker)
     {

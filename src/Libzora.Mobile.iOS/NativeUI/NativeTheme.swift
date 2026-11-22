@@ -1,15 +1,59 @@
 import SwiftUI
 import UIKit
 
+private struct NativeUiFontEnvironmentKey: EnvironmentKey {
+    static let defaultValue: Int = 0
+}
+
+extension EnvironmentValues {
+    /// Propagates the active interface font choice (`0` = KingHwaOldSong, `1` = system)
+    /// so stateless SwiftUI views re-evaluate `NativeTheme.font(...)` immediately.
+    var nativeUiFont: Int {
+        get { self[NativeUiFontEnvironmentKey.self] }
+        set { self[NativeUiFontEnvironmentKey.self] = newValue }
+    }
+}
+
 /// The same type scale, ink and spacing as MobileTheme.axaml. Native controls
 /// own their interaction; their default visual style isn't the app's design.
 enum NativeTheme {
+    private(set) static var useSystemFont = false
+
     static func font(_ size: CGFloat = 15, relativeTo style: Font.TextStyle = .body) -> Font {
-        .custom("KingHwaOldSong", size: size, relativeTo: style)
+        font(size, relativeTo: style, useSystem: useSystemFont)
+    }
+
+    static func font(_ size: CGFloat = 15, relativeTo style: Font.TextStyle = .body, useSystem: Bool) -> Font {
+        if useSystem {
+            let scaled = UIFontMetrics(forTextStyle: uiTextStyle(style)).scaledValue(for: size)
+            return .system(size: scaled)
+        }
+        return .custom("KingHwaOldSong", size: size, relativeTo: style)
+    }
+
+    private static func uiTextStyle(_ style: Font.TextStyle) -> UIFont.TextStyle {
+        switch style {
+        case .largeTitle: return .largeTitle
+        case .title: return .title1
+        case .title2: return .title2
+        case .title3: return .title3
+        case .headline: return .headline
+        case .subheadline: return .subheadline
+        case .callout: return .callout
+        case .footnote: return .footnote
+        case .caption: return .caption1
+        case .caption2: return .caption2
+        default: return .body
+        }
+    }
+
+    static func uiKitFont(_ size: CGFloat, useSystem: Bool = useSystemFont) -> UIFont {
+        if useSystem { return .systemFont(ofSize: size) }
+        return UIFont(name: "KingHwaOldSong", size: size) ?? .systemFont(ofSize: size)
     }
 
     /// The top-level tab pages use one title size so their headers align.
-    static let pageTitleFont = font(26, relativeTo: .largeTitle)
+    static var pageTitleFont: Font { font(26, relativeTo: .largeTitle) }
 
     /// The window's real top inset. SwiftUI geometry inside a page can report
     /// zero here, while the status-bar glass needs the device value.
@@ -73,47 +117,111 @@ enum NativeTheme {
         plan == "trial" ? planTrial : plan == "lifetime" ? planLifetime : planFree
     }
 
+    @MainActor static func setUseSystemFont(_ useSystem: Bool) {
+        useSystemFont = useSystem
+        configureControls()
+        refreshMountedControls()
+    }
+
     @MainActor static func configureControls() {
         if #unavailable(iOS 16.0) {
             // iOS 15 lists use UITableView and cannot hide their scroll background in SwiftUI.
             UITableView.appearance().backgroundColor = .clear
         }
-        func uiFont(_ size: CGFloat) -> UIFont { UIFont(name: "KingHwaOldSong", size: size) ?? .systemFont(ofSize: size) }
+        let navigation = makeNavigationBarAppearance()
+        UINavigationBar.appearance().standardAppearance = navigation
+        UINavigationBar.appearance().scrollEdgeAppearance = navigation
+        UINavigationBar.appearance().compactAppearance = navigation
+        UIBarButtonItem.appearance().setTitleTextAttributes([.font: uiKitFont(15)], for: .normal)
+        UIBarButtonItem.appearance().setTitleTextAttributes([.font: uiKitFont(15)], for: .disabled)
+        // SwiftUI's segmented Picker is a UISegmentedControl; only the title
+        // font is replaced so the system track, selection and glass stay intact.
+        for state: UIControl.State in [.normal, .selected, .highlighted, .disabled] {
+            UISegmentedControl.appearance().setTitleTextAttributes([.font: uiKitFont(13)], for: state)
+        }
+        UITabBarItem.appearance().setTitleTextAttributes([.font: uiKitFont(10)], for: .normal)
+        UITabBarItem.appearance().setTitleTextAttributes([.font: uiKitFont(10)], for: .selected)
+        UITabBar.appearance().tintColor = .label
+        UITabBar.appearance().unselectedItemTintColor = .secondaryLabel
+    }
+
+    @MainActor private static func makeNavigationBarAppearance() -> UINavigationBarAppearance {
         let navigation = UINavigationBarAppearance()
         navigation.configureWithTransparentBackground()
-        navigation.titleTextAttributes = [.font: uiFont(17), .foregroundColor: UIColor.label]
-        navigation.largeTitleTextAttributes = [.font: uiFont(26), .foregroundColor: UIColor.label]
+        navigation.titleTextAttributes = [.font: uiKitFont(17), .foregroundColor: UIColor.label]
+        navigation.largeTitleTextAttributes = [.font: uiKitFont(26), .foregroundColor: UIColor.label]
         // Back and toolbar titles are drawn by UINavigationBar, not by the
         // SwiftUI font environment, so give both button appearances the font.
         for appearance in [navigation.buttonAppearance, navigation.backButtonAppearance,
                            navigation.doneButtonAppearance] {
-            appearance.normal.titleTextAttributes = [.font: uiFont(15)]
-            appearance.highlighted.titleTextAttributes = [.font: uiFont(15)]
-            appearance.disabled.titleTextAttributes = [.font: uiFont(15)]
+            appearance.normal.titleTextAttributes = [.font: uiKitFont(15)]
+            appearance.highlighted.titleTextAttributes = [.font: uiKitFont(15)]
+            appearance.disabled.titleTextAttributes = [.font: uiKitFont(15)]
         }
-        UINavigationBar.appearance().standardAppearance = navigation
-        UINavigationBar.appearance().scrollEdgeAppearance = navigation
-        UINavigationBar.appearance().compactAppearance = navigation
-        UIBarButtonItem.appearance().setTitleTextAttributes([.font: uiFont(15)], for: .normal)
-        UIBarButtonItem.appearance().setTitleTextAttributes([.font: uiFont(15)], for: .disabled)
-        // SwiftUI's segmented Picker is a UISegmentedControl; only the title
-        // font is replaced so the system track, selection and glass stay intact.
-        for state: UIControl.State in [.normal, .selected, .highlighted, .disabled] {
-            UISegmentedControl.appearance().setTitleTextAttributes([.font: uiFont(13)], for: state)
+        return navigation
+    }
+
+    /// UIAppearance proxies only apply to newly created views; walk the live
+    /// windows so mounted navigation bars, tab bars and segmented controls
+    /// reflect the new interface font immediately without restarting.
+    @MainActor private static func refreshMountedControls() {
+        let navigationAppearance = makeNavigationBarAppearance()
+        let tabFontAttrs: [NSAttributedString.Key: Any] = [.font: uiKitFont(10)]
+        let segmentFontAttrs: [NSAttributedString.Key: Any] = [.font: uiKitFont(13)]
+        let barButtonFontAttrs: [NSAttributedString.Key: Any] = [.font: uiKitFont(15)]
+
+        func updateController(_ controller: UIViewController) {
+            if let nav = controller as? UINavigationController {
+                nav.navigationBar.standardAppearance = navigationAppearance
+                nav.navigationBar.scrollEdgeAppearance = navigationAppearance
+                nav.navigationBar.compactAppearance = navigationAppearance
+                for item in nav.navigationBar.items ?? [] {
+                    for barButton in (item.leftBarButtonItems ?? []) + (item.rightBarButtonItems ?? []) {
+                        barButton.setTitleTextAttributes(barButtonFontAttrs, for: .normal)
+                        barButton.setTitleTextAttributes(barButtonFontAttrs, for: .disabled)
+                    }
+                }
+                nav.navigationBar.setNeedsLayout()
+            }
+            if let tabs = controller as? UITabBarController {
+                for item in tabs.tabBar.items ?? [] {
+                    item.setTitleTextAttributes(tabFontAttrs, for: .normal)
+                    item.setTitleTextAttributes(tabFontAttrs, for: .selected)
+                }
+                tabs.tabBar.setNeedsLayout()
+            }
+            for child in controller.children { updateController(child) }
+            if let presented = controller.presentedViewController { updateController(presented) }
         }
-        UITabBarItem.appearance().setTitleTextAttributes([.font: uiFont(10)], for: .normal)
-        UITabBarItem.appearance().setTitleTextAttributes([.font: uiFont(10)], for: .selected)
-        UITabBar.appearance().tintColor = .label
-        UITabBar.appearance().unselectedItemTintColor = .secondaryLabel
+
+        func updateView(_ view: UIView) {
+            if let segmented = view as? UISegmentedControl {
+                for state: UIControl.State in [.normal, .selected, .highlighted, .disabled] {
+                    segmented.setTitleTextAttributes(segmentFontAttrs, for: state)
+                }
+                segmented.setNeedsLayout()
+            }
+            for subview in view.subviews { updateView(subview) }
+        }
+
+        let windows = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+        for window in windows {
+            if let root = window.rootViewController { updateController(root) }
+            updateView(window)
+        }
     }
 }
 
 /// Shared title geometry for every top-level page, including the shelf.
 struct NativePageTitle: View {
+    @Environment(\.nativeUiFont) private var uiFont
     let title: String
     let identifier: String
 
     var body: some View {
+        let _ = uiFont
         Text(title).font(NativeTheme.pageTitleFont)
             .lineLimit(1).frame(minHeight: NativeAdaptiveLayout.mastheadHeight)
             .accessibilityIdentifier(identifier)
@@ -151,8 +259,10 @@ struct NativeStatusBarGlass: View {
 
 struct NativePrimaryButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var enabled
+    @Environment(\.nativeUiFont) private var uiFont
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
+        let _ = uiFont
+        return configuration.label
             .font(NativeTheme.font()).foregroundStyle(enabled ? NativeTheme.ink : NativeTheme.muted)
             .frame(maxWidth: .infinity).padding(.horizontal, 16).padding(.vertical, 14)
             .background(configuration.isPressed ? NativeTheme.strong : NativeTheme.sunk,
@@ -167,7 +277,9 @@ struct NativePrimaryButtonStyle: ButtonStyle {
 struct NativeLiquidGlassButtonStyle: ButtonStyle {
     var compact = false
     @Environment(\.isEnabled) private var enabled
+    @Environment(\.nativeUiFont) private var uiFont
     @ViewBuilder func makeBody(configuration: Configuration) -> some View {
+        let _ = uiFont
         let label = configuration.label
             .font(NativeTheme.font(compact ? 13 : 15, relativeTo: compact ? .footnote : .body))
             .foregroundStyle(enabled ? NativeTheme.ink : NativeTheme.muted)
@@ -183,12 +295,14 @@ struct NativeLiquidGlassButtonStyle: ButtonStyle {
 }
 
 struct NativeSettingsRow: View {
+    @Environment(\.nativeUiFont) private var uiFont
     let title: String
     var value = ""
     var chevron = true
     var detailColor = NativeTheme.muted
     var verticalPadding: CGFloat = 13
     var body: some View {
+        let _ = uiFont
         HStack(spacing: 8) {
             Text(title).font(NativeTheme.font())
             Spacer(minLength: 12)
@@ -199,12 +313,14 @@ struct NativeSettingsRow: View {
 }
 
 struct NativeSearchField: View {
+    @Environment(\.nativeUiFont) private var uiFont
     @Binding var text: String
     let prompt: String
     let focused: FocusState<Bool>.Binding
     let identifier: String
     let submit: () -> Void
     var body: some View {
+        let _ = uiFont
         TextField(prompt, text: $text).font(NativeTheme.font(15)).focused(focused)
             .textInputAutocapitalization(.never).disableAutocorrection(true).submitLabel(.search)
             .frame(minHeight: 44).accessibilityIdentifier(identifier).onSubmit(submit)
@@ -212,11 +328,13 @@ struct NativeSearchField: View {
 }
 
 struct NativeTextField: View {
+    @Environment(\.nativeUiFont) private var uiFont
     let title: String
     @Binding var text: String
     var secure = false
     var identifier = ""
     var body: some View {
+        let _ = uiFont
         VStack(alignment: .leading, spacing: 6) {
             Text(title).font(NativeTheme.font(13, relativeTo: .caption)).foregroundStyle(NativeTheme.muted)
             Group {
@@ -233,11 +351,13 @@ struct NativeTextField: View {
 /// Borderless labeled field for `.insetGrouped` settings cards so inputs sit
 /// directly on the card surface without a nested gray box.
 struct NativeInlineTextField: View {
+    @Environment(\.nativeUiFont) private var uiFont
     let title: String
     @Binding var text: String
     var secure = false
     var identifier = ""
     var body: some View {
+        let _ = uiFont
         VStack(alignment: .leading, spacing: 3) {
             Text(title)
                 .font(NativeTheme.font(12, relativeTo: .caption))
@@ -256,10 +376,12 @@ struct NativeInlineTextField: View {
 }
 
 struct NativeToggle: View {
+    @Environment(\.nativeUiFont) private var uiFont
     let title: String
     @Binding var isOn: Bool
     var identifier = ""
     var body: some View {
+        let _ = uiFont
         HStack(spacing: 12) {
             Text(title).font(NativeTheme.font(13)).foregroundStyle(NativeTheme.secondary)
                 .frame(width: 58, alignment: .leading).accessibilityHidden(true)
@@ -403,6 +525,32 @@ struct NativeFloatingSurface: ViewModifier {
                 .shadow(color: .black.opacity((scheme == .dark ? 0.25 : 0.10) * shadowStrength), radius: 10, y: 4)
                 .padding(.vertical, verticalInset)
                 .allowsHitTesting(false)
+        }
+    }
+}
+
+/// Uses iOS 26 Liquid Glass for floating bars, falling back to regular material on older iOS.
+struct NativeLiquidGlassSurface<S: Shape>: ViewModifier {
+    let shape: S
+    var interactive = true
+
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            if interactive {
+                content
+                    .clipShape(shape)
+                    .glassEffect(.regular.interactive(), in: shape)
+            } else {
+                content
+                    .clipShape(shape)
+                    .glassEffect(.regular, in: shape)
+            }
+        } else {
+            content
+                .clipShape(shape)
+                .background(.regularMaterial, in: shape)
+                .overlay(shape.stroke(NativeTheme.divider.opacity(0.6), lineWidth: 0.5))
+                .shadow(color: .black.opacity(0.12), radius: 12, y: 5)
         }
     }
 }

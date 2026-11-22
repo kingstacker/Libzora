@@ -82,7 +82,7 @@ public partial class AppDelegate : AvaloniaAppDelegate<MobileApp>
     /// </remarks>
     [Export("application:openURL:options:")]
     public bool HandleOpenUrl(UIApplication application, NSUrl url, NSDictionary options) =>
-        IOSNativeFrontend.HandleUrl(url.AbsoluteString);
+        IOSNativeFrontend.HandleIncomingUrl(url);
 
     private static void ConfigureRestoredNativeSession()
     {

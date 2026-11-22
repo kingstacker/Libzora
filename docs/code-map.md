@@ -100,7 +100,7 @@ pattern: `MainWindow.<Area><Aspect>.cs`.
 | `MainWindow.BookMutations.cs`, `MainWindow.BookMutations.Series.cs` | Favourite, reading status, collections, conversion and series batch mutations. |
 | `MainWindow.LibraryDialogs.cs` | Confirmation, message and collection overlays. |
 | `MainWindow.LibraryFiltering.cs` | Search, filters, view mode, pagination. |
-| `MainWindow.LibrarySeries.cs` | Series stack expansion and front-volume promotion on the computer and device shelves. |
+| `MainWindow.LibrarySeries.cs`, `MainWindow.LibrarySeries.Scroll.cs` | Series stack expansion, horizontal drag/overscroll bounce, and front-volume promotion on the computer and device shelves. |
 | `MainWindow.BookInteractions*.cs` | Card/grid pointer handling, rubber band, collection drag, detail actions. |
 | `MainWindow.WindowChrome.cs` | Title bar, window-state animation, accessibility tooltips. |
 | `MainWindow.Settings*.cs`, `MainWindow.Plugins.cs` | Settings page shell (expanders, search, persistence, Kindle email) and plugin UI. |
@@ -142,7 +142,7 @@ Large services are split by responsibility so one change opens one file:
 | `LibzoraMcpTools.*.cs` + `McpResults.cs` | library, collections, content, devices, validation, projection, result records |
 | `NativePdfReaderHost.*.cs` + `PdfReaderLayout.cs` | interaction, annotation callouts, search, rendering, pointer, layout, view, auto-crop, dark coloring |
 | `NativeReaderHost.*.cs` | navigation, configuration, scrolling, annotations, search, content, page counts, layout, rendering, images, pointer, selection, capture |
-| `XhtmlChapterLoader.*.cs` | flow, inline, blocks, footnotes, plain footnotes, targets, links |
+| `XhtmlChapterLoader.*.cs` | flow, inline, blocks, footnotes, plain footnotes, external plain footnotes, targets, links |
 | `S3SyncService.*.cs` | settings, sync entry, versions, state, snapshots, cleanup, download, encryption |
 | `WpdKindleAccess.*.cs` | devices, resources, annotations, books, shell items |
 | `KindleDeviceService.*.cs` | detection, books, transfer, resources, annotations, files, native |
@@ -163,9 +163,12 @@ Large services are split by responsibility so one change opens one file:
 ## iOS native frontend
 
 - `src/Libzora.Mobile.iOS/NativeUI/*.swift` — SwiftUI screens: bookshelf,
-  library, reader (`NativeReader.swift`, `NativeBookOpenTransition.swift`,
-  `NativeReaderHighlightPalette.swift`, `NativeReaderAdvancedTypography.swift`,
-  `NativeReaderLatinFontPicker.swift`), settings, account, membership, theme, widgets.
+  library, reader (`NativeReader.swift`, `NativeReaderAssistant.swift`,
+  `NativeMarkdownParser.swift`, `NativeMarkdown.swift`,
+  `NativeBookOpenTransition.swift`,
+  `NativeBookOpenTransitionPolicy.swift`, `NativeReaderHighlightPalette.swift`,
+  `NativeReaderAdvancedTypography.swift`, `NativeReaderLatinFontPicker.swift`),
+  settings, account, membership, theme, widgets.
 - `src/Libzora.Mobile.iOS/IOSNativeFrontend.*.cs` — C# side of the bridge,
   split by area (`Library`, `Reader`, `Settings`, `Fonts`).
 - `src/Libzora.Mobile.iOS/IOSMobileHost.cs` — host wiring.

@@ -99,7 +99,6 @@ struct NativeAccountPage: View {
             .navigationTitle(L("用户账号")).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
             .nativeBackButton()
             .modifier(NativeKeyboardDone())
-            .modifier(NativeHideTabBar())
             .task { await load() }
             .onChange(of: register) { _ in resetMode = false; clearPasswords(); status = "" }
             .onDisappear { actionTask?.cancel(); clearPasswords() }

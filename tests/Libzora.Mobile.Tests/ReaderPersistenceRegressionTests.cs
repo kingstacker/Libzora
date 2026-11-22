@@ -103,6 +103,59 @@ public sealed class ReaderPersistenceRegressionTests(MobileUiSession session)
     }, CancellationToken.None);
 
     [Fact]
+    public Task CrossChapterPlainFootnoteJumpNavigatesToEndnoteChapterAndReturnsToBody() => session.Session.Dispatch(async () =>
+    {
+        using var state = await ReaderState.CreateAsync();
+        var reader = state.Reader;
+        var notesPath = Path.Combine(state.Root, "notes.xhtml");
+        File.WriteAllText(
+            notesPath,
+            """
+            <?xml version="1.0" encoding="utf-8"?>
+            <html xmlns="http://www.w3.org/1999/xhtml">
+              <body>
+                <p>注　释</p>
+                <p>［1］跨章节尾注内容。</p>
+              </body>
+            </html>
+            """);
+        var bodyPath = Path.Combine(state.Root, "body.xhtml");
+        File.WriteAllText(
+            bodyPath,
+            """
+            <?xml version="1.0" encoding="utf-8"?>
+            <html xmlns="http://www.w3.org/1999/xhtml">
+              <body>
+                <p>正文内容<sup>［1］</sup>。</p>
+              </body>
+            </html>
+            """);
+
+        Set(reader, "_epubPosition", 120d);
+        Set(reader, "_overallProgress", .25d);
+        Set(reader, "_activeFootnote", new NativeReaderFootnote(
+            1,
+            true,
+            "［1］",
+            new Uri(notesPath).AbsoluteUri + "#__libzora-plain-footnote-0-1-4",
+            "跨章节尾注内容。",
+            false,
+            true,
+            NativeReaderFootnoteAnchor.Empty,
+            null));
+
+        await reader.NativeJumpFootnoteAsync();
+
+        Assert.True(reader.GetNativeState().FootnoteReturnVisible);
+        Assert.Equal(1, (int)Field("_chapterIndex").GetValue(reader)!);
+
+        await reader.NativeReturnFromFootnoteAsync();
+
+        Assert.False(reader.GetNativeState().FootnoteReturnVisible);
+        Assert.Equal(0, (int)Field("_chapterIndex").GetValue(reader)!);
+    }, CancellationToken.None);
+
+    [Fact]
     public Task NoteJumpFlushesTheThrottledBodyPointAndPauseKeepsItsProgressWhileSavingTime() => session.Session.Dispatch(async () =>
     {
         using var state = await ReaderState.CreateAsync();
@@ -134,6 +187,34 @@ public sealed class ReaderPersistenceRegressionTests(MobileUiSession session)
         Assert.Equal(43, stats.ProgressPercent);
         Assert.Equal(0, stats.CompletedChapters);
         Assert.Equal(0L, Field("_unsavedSeconds").GetValue(reader));
+
+        await reader.NativeReturnFromFootnoteAsync();
+        Assert.False(reader.GetNativeState().FootnoteReturnVisible);
+        Assert.False((bool)Field("_footnoteProgressSuppressed").GetValue(reader)!);
+        Assert.Equal(0, (int)Field("_chapterIndex").GetValue(reader)!);
+    }, CancellationToken.None);
+
+    [Fact]
+    public Task BacklinkInFootnoteReturnsToBodyEvenWhenHrefIsRelativeAndUnmarked() => session.Session.Dispatch(async () =>
+    {
+        using var state = await ReaderState.CreateAsync();
+        var reader = state.Reader;
+        Set(reader, "_epubPosition", 345d);
+        Set(reader, "_overallProgress", .43d);
+        Set(reader, "_activeFootnote", state.Note);
+        Set(reader, "_activeFootnoteBacklink", null);
+
+        await reader.NativeJumpFootnoteAsync();
+        Assert.True(reader.GetNativeState().FootnoteReturnVisible);
+        Assert.Equal(1, (int)Field("_chapterIndex").GetValue(reader)!);
+
+        var handleLink = typeof(ReaderPage).GetMethod(
+            "HandleLinkAsync",
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+        await (Task)handleLink.Invoke(reader, ["body.xhtml#ref-1", null])!;
+
+        Assert.False(reader.GetNativeState().FootnoteReturnVisible);
+        Assert.Equal(0, (int)Field("_chapterIndex").GetValue(reader)!);
     }, CancellationToken.None);
 
     [Fact]

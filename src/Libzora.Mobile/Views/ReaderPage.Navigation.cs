@@ -25,7 +25,7 @@ public partial class ReaderPage
         LoadingDetailText.Text = UiText.Get("正在整理章节与图片…");
 
         _epubPath = sourcePath;
-        if (format is "azw3" or "mobi")
+        if (format is "azw3" or "mobi" or "txt")
         {
             var sourceHash = string.IsNullOrWhiteSpace(_bookFile!.Sha256)
                 ? await Hashing.Sha256Async(sourcePath, cancellationToken)
@@ -63,10 +63,40 @@ public partial class ReaderPage
             _shell.Preferences.Update(_ => syncedPrefs);
         }
         _mangaSettingsInitialized = true;
-        _layout = BuildLayout(_shell.Preferences.Current);
+        _layout = BuildLayoutForViewport(_shell.Preferences.Current, ResolveViewportLandscape());
 
         var savedProgress = _jump ?? await _modules.Reader.Data.GetProgressAsync(_bookFile.Id, cancellationToken);
         var restore = ResolvePosition(savedProgress);
+        if (_jump is null && restore is not null)
+        {
+            var syncedMarker = await _modules.Reader.Data.GetSyncedPositionMarkerAsync(_bookFile.Id, cancellationToken);
+            if (syncedMarker is not null)
+            {
+                var markerProgress = ResolvePosition(new ReaderProgressRow(
+                    syncedMarker.BookId,
+                    syncedMarker.BookFileId,
+                    syncedMarker.ChapterPath,
+                    syncedMarker.Fragment,
+                    syncedMarker.ChapterIndex,
+                    syncedMarker.ScrollPosition,
+                    syncedMarker.ProgressPercent,
+                    syncedMarker.FlowMode,
+                    syncedMarker.SyncedAt)
+                {
+                    ContentPosition = syncedMarker.ContentPosition
+                });
+                if (markerProgress is not null && markerProgress.ChapterIndex == restore.ChapterIndex)
+                {
+                    _activeSyncedMarker = syncedMarker with
+                    {
+                        ChapterIndex = markerProgress.ChapterIndex,
+                        ScrollPosition = markerProgress.ScrollPosition,
+                        Fragment = markerProgress.Fragment,
+                        ContentPosition = markerProgress.ContentPosition
+                    };
+                }
+            }
+        }
         _chapterIndex = Math.Clamp(restore?.ChapterIndex ?? 0, 0, _epubDocument.Chapters.Count - 1);
         _epubPosition = restore?.ScrollPosition ?? 0;
 
@@ -113,6 +143,8 @@ public partial class ReaderPage
 
         _annotations.AddRange(await _modules.Reader.Data.GetAnnotationsAsync(_bookFile.Id, cancellationToken));
         host.SetAnnotations(_annotations.ToList());
+        host.SetResumeMarker(ToResumeMarker(_activeSyncedMarker));
+        _syncedMarkerScrollOrigin = _epubPosition;
         UpdateEpubLabels();
         host.CompleteLayoutInBackground();
         LoadingPanel.IsVisible = false;
@@ -182,11 +214,20 @@ public partial class ReaderPage
             await host.SetAutoCropMarginsAsync(true);
         }
         initialPage = Math.Clamp(initialPage, 1, _pdfPageCount);
+        if (_jump is null && savedProgress is not null)
+        {
+            var syncedMarker = await _modules.Reader.Data.GetSyncedPositionMarkerAsync(_bookFile!.Id, cancellationToken);
+            if (syncedMarker is not null && Math.Clamp(syncedMarker.ChapterIndex + 1, 1, _pdfPageCount) == initialPage)
+            {
+                _activeSyncedMarker = syncedMarker with { ChapterIndex = initialPage - 1 };
+            }
+        }
         var target = new Uri(new Uri(path).AbsoluteUri + $"#page={initialPage}");
         if (!await host.NavigateAsync(target, cancellationToken))
             throw new InvalidOperationException(host.LastError ?? "阅读器无法加载 PDF。");
 
         await ApplyPdfZoomAsync(host);
+        host.SetResumeMarker(ToResumeMarker(_activeSyncedMarker));
         _pdfPage = host.PageNumber;
         BuildPdfToc(host.CachedDocumentInfo);
         UpdatePdfLabels();
@@ -200,14 +241,24 @@ public partial class ReaderPage
     /// new chapter arrive while it loads; a failed load puts it back so labels
     /// and saved progress keep describing the chapter still on screen.
     /// </summary>
-    private async Task<bool> NavigateToChapterAsync(NativeReaderHost host, int chapter, Uri target)
+    private async Task<bool> NavigateToChapterAsync(
+        NativeReaderHost host,
+        int chapter,
+        Uri target,
+        int? composeTextOffset = null,
+        bool allowPartialCompose = true)
     {
         var previous = _chapterIndex;
         _chapterIndex = chapter;
         var navigated = false;
         try
         {
-            navigated = await NavigateEpubAsync(host, target, _lifetime.Token);
+            navigated = await NavigateEpubAsync(
+                host,
+                target,
+                _lifetime.Token,
+                composeTextOffset: composeTextOffset,
+                allowPartialCompose: allowPartialCompose);
             return navigated;
         }
         finally
@@ -267,23 +318,25 @@ public partial class ReaderPage
             {
                 var top = root.TryGetProperty("top", out var topElement) ? topElement.GetDouble() : 0;
                 var left = root.TryGetProperty("left", out var leftElement) ? leftElement.GetDouble() : 0;
-                _lastScrollTop = top;
-                _lastScrollLeft = left;
-                _epubPosition = _layout.FlowMode == 0 ? Math.Max(0, top) : Math.Max(0, left);
-                DismissFootnoteReturnIfReaderMoved(top, left);
-                UpdateEpubLabels();
-                _ = SaveProgressSoonAsync(force: false);
+                if (_suppressScrollUpdatesDuringDrag)
+                {
+                    _pendingDragScroll = (top, left);
+                    return;
+                }
+                ApplyScrollUpdate(top, left);
             }
             else if (type.GetString() == "link")
             {
                 _tapConsumed = true;
+                var linkHref = root.TryGetProperty("href", out var href) ? href.GetString() : null;
                 if (_usesNativeFrontend
                     && root.TryGetProperty("footnote", out var footnote)
-                    && footnote.ValueKind == JsonValueKind.True)
+                    && footnote.ValueKind == JsonValueKind.True
+                    && !IsExactFootnoteBacklink(linkHref))
                     _ = ShowFootnoteAsync(root);
                 else
                     _ = HandleLinkAsync(
-                        root.TryGetProperty("href", out var href) ? href.GetString() : null,
+                        linkHref,
                         root.TryGetProperty("footnoteText", out var note) && note.ValueKind == JsonValueKind.String
                             ? note.GetString()
                             : null);
@@ -321,9 +374,10 @@ public partial class ReaderPage
             else if (type.GetString() == "continuousEdge")
             {
                 var direction = root.TryGetProperty("direction", out var dirElement) ? dirElement.GetInt32() : 0;
-                if (direction != 0 && !_turning && !_disposed && IsMangaVerticalScroll
+                if (direction != 0 && !_turning && !_disposed && IsContinuousVerticalScroll
                     && _readerHost is NativeReaderHost host)
                 {
+                    StopScrollInertia();
                     _ = AdvanceContinuousChapterAsync(host, Math.Sign(direction));
                 }
             }
@@ -345,9 +399,14 @@ public partial class ReaderPage
             }
             else if (type.GetString() == "pdfPage")
             {
-                _pdfPage = root.TryGetProperty("page", out var pageElement)
+                var nextPdfPage = root.TryGetProperty("page", out var pageElement)
                     ? pageElement.GetInt32()
                     : _pdfPage;
+                if (nextPdfPage != _pdfPage)
+                {
+                    ClearActiveSyncedMarker();
+                }
+                _pdfPage = nextPdfPage;
                 UpdatePdfLabels();
                 _ = SaveProgressSoonAsync(force: false);
             }

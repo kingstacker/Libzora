@@ -56,6 +56,28 @@ public partial class ReaderPage : UserControl
     private readonly ReadingActivityClock _activityClock = new(DateTimeOffset.UtcNow);
     private long _unsavedSeconds;
     private ReaderProgressRow? _lastSavedProgress;
+    private ReaderSyncedPositionMarker? _activeSyncedMarker;
+    private double _syncedMarkerScrollOrigin;
+
+    private static ReaderResumeMarker? ToResumeMarker(ReaderSyncedPositionMarker? marker) =>
+        marker is null
+            ? null
+            : new ReaderResumeMarker(
+                marker.ChapterIndex,
+                marker.ScrollPosition,
+                marker.Fragment,
+                ReaderContentPosition.Validate(marker.ContentPosition));
+
+    private void ClearActiveSyncedMarker(bool clearPersisted = true)
+    {
+        var hadMarker = _activeSyncedMarker is not null;
+        _activeSyncedMarker = null;
+        (_readerHost as IReaderResumeMarkerHost)?.SetResumeMarker(null);
+        if (hadMarker && clearPersisted && _bookFile is { } file)
+        {
+            _ = _modules.Reader.Data.ClearSyncedPositionMarkerAsync(file.Id, CancellationToken.None);
+        }
+    }
     private Point? _pressPoint;
     private Point _lastPanPoint;
     private bool _pressMoved;
@@ -120,6 +142,7 @@ public partial class ReaderPage : UserControl
             _sliderActive = false;
             if (!canceled) _ = SeekAsync(ProgressSlider.Value);
         };
+        ReaderHostSlot.SizeChanged += OnReaderSurfaceSizeChanged;
         Loaded += OnLoaded;
     }
 
@@ -127,19 +150,46 @@ public partial class ReaderPage : UserControl
 
     public string? PositionText => FooterPosition.Text;
 
-    private static ReaderLayoutSettings BuildLayout(MobilePreferences preferences)
+    private bool ResolveViewportLandscape()
+    {
+        var slot = ReaderHostSlot.Bounds;
+        if (slot.Width > 0 && slot.Height > 0) return slot.Width > slot.Height;
+        var page = Bounds;
+        if (page.Width > 0 && page.Height > 0) return page.Width > page.Height;
+        return false;
+    }
+
+    private void OnReaderSurfaceSizeChanged(object? sender, SizeChangedEventArgs e)
+    {
+        if (_disposed || !_started || !_ready || _isPdf) return;
+        var desired = BuildLayoutForViewport(_shell.Preferences.Current, ResolveViewportLandscape());
+        if (desired.FlowMode != _layout.FlowMode || desired.TwoPageMode != _layout.TwoPageMode)
+        {
+            _ = ApplyReaderSettingsAsync();
+        }
+    }
+
+    private static ReaderLayoutSettings BuildLayout(MobilePreferences preferences) =>
+        BuildLayoutForViewport(preferences, isLandscape: false);
+
+    private static ReaderLayoutSettings BuildLayoutForViewport(MobilePreferences preferences, bool isLandscape)
     {
         var mangaMode = preferences.MangaMode;
         var verticalScrollManga = mangaMode && preferences.MangaDirection == (int)MobileMangaDirection.VerticalScroll;
+        var verticalWriting = !mangaMode && preferences.ReaderVerticalWriting;
+        var twoPageMode = !mangaMode && !verticalWriting && isLandscape && preferences.ReaderTwoPageInLandscape;
+        var flowMode = mangaMode
+            ? (verticalScrollManga ? 0 : 1)
+            : (twoPageMode ? 1 : (preferences.ReaderFlowMode == 0 ? 0 : 1));
         var normalized = ReaderLayoutDefaults.Normalize(new ReaderLayoutSettings(
             FontScale: preferences.ReaderFontScale,
             LineHeight: preferences.ReaderLineHeight,
             MaxWidth: 900,
             BodyPadding: ReaderLayoutDefaults.DefaultBodyPadding,
             FontFamily: preferences.ReaderFontFamily,
-            FlowMode: verticalScrollManga ? 0 : 1,
-            VerticalWriting: !mangaMode && preferences.ReaderVerticalWriting,
-            TwoPageMode: false)
+            FlowMode: flowMode,
+            VerticalWriting: verticalWriting,
+            TwoPageMode: twoPageMode)
         {
             ParagraphSpacing = preferences.ReaderParagraphSpacing,
             MangaMode = mangaMode,
@@ -225,7 +275,7 @@ public partial class ReaderPage : UserControl
                 return;
             }
 
-            if (format is "epub" or "azw3" or "mobi")
+            if (format is "epub" or "azw3" or "mobi" or "txt")
             {
                 await OpenEpubAsync(path, format, _lifetime.Token);
                 return;

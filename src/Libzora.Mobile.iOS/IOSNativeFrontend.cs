@@ -27,6 +27,7 @@ internal sealed partial class IOSNativeFrontend
     private static readonly NativeRequest Callback = OnRequest;
     private static IOSNativeFrontend? _current;
     private static Uri? _pendingUrl;
+    private static readonly List<string> PendingIncomingFiles = [];
     private readonly MobileShell _shell;
     private readonly WidgetSnapshotCoordinator _widgetSnapshots;
     private readonly AvaloniaView _readerSurface;
@@ -41,6 +42,7 @@ internal sealed partial class IOSNativeFrontend
     private ReaderPage? _reader;
     private string? _readerSessionId;
     private CancellationTokenSource? _readerCancellation;
+    private Thickness _nativeSurfaceInsets;
 
     internal static bool IsAttached => _current is not null;
 
@@ -113,7 +115,8 @@ internal sealed partial class IOSNativeFrontend
             _shell.Preferences.Current.ColorfulMode,
             (int)_shell.Preferences.Current.ThemeMode,
             IOSWidgetPaths.Resolve(_shell.Modules.Paths),
-            cancellationToken);
+            cancellationToken,
+            uiFont: (int)_shell.Preferences.Current.UiFont);
 
     private static void ReloadWidgets()
     {
@@ -130,6 +133,23 @@ internal sealed partial class IOSNativeFrontend
 
     [DllImport("__Internal")]
     private static extern void lz_ios_reload_widgets();
+
+    /// <summary>Routes a libzora:// deep link or an external book file URL delivered by iOS.</summary>
+    internal static bool HandleIncomingUrl(NSUrl? url)
+    {
+        if (url is null) return false;
+        if (url.IsFileUrl)
+        {
+            var copied = IOSFileImportSource.CopyExternalUrlToCache(url);
+            if (copied is null) return false;
+            if (_current is { } frontend)
+                Dispatcher.UIThread.Post(() => _ = frontend.ImportExternalFilesAsync([copied]));
+            else
+                lock (PendingIncomingFiles) { PendingIncomingFiles.Add(copied); }
+            return true;
+        }
+        return HandleUrl(url.AbsoluteString);
+    }
 
     /// <summary>Routes a libzora:// link delivered by a widget or another app.</summary>
     internal static bool HandleUrl(string? value)
@@ -192,8 +212,9 @@ internal sealed partial class IOSNativeFrontend
         NativeLibrary.SetDllImportResolver(typeof(IOSNativeFrontend).Assembly, (library, _, _) =>
             library == "__Internal" ? NativeLibrary.GetMainProgramHandle() : IntPtr.Zero);
         _current = frontend;
-        // Set the effective locale before SwiftUI constructs its first frame.
+        // Set the effective locale and interface font before SwiftUI constructs its first frame.
         SetUiLanguage(UiText.CurrentLanguage);
+        SetUiFont((int)shell.Preferences.Current.UiFont);
         var pointer = CreateShell(Marshal.GetFunctionPointerForDelegate(Callback), readerController.Handle);
         if (pointer == IntPtr.Zero)
             throw new InvalidOperationException(UiText.Get("无法创建 SwiftUI 界面。"));
@@ -216,6 +237,17 @@ internal sealed partial class IOSNativeFrontend
             _pendingUrl = null;
             frontend.OpenUrl(pendingUrl);
         }
+        string[]? pendingFiles = null;
+        lock (PendingIncomingFiles)
+        {
+            if (PendingIncomingFiles.Count > 0)
+            {
+                pendingFiles = PendingIncomingFiles.ToArray();
+                PendingIncomingFiles.Clear();
+            }
+        }
+        if (pendingFiles is not null)
+            Dispatcher.UIThread.Post(() => _ = frontend.ImportExternalFilesAsync(pendingFiles));
         shell.StartDeviceChecks();
         lifetime.MainView = null;
         if (MobileDataCoordinator.IsRestartRequired) Publish(Data(("type", "restart")));
@@ -307,10 +339,10 @@ internal sealed partial class IOSNativeFrontend
                     _shell.UiLanguage?.Refresh();
                     _shell.ApplyThemeMode();
                     _widgetSnapshots.Schedule();
-                    // Language-only changes refresh chrome through the event;
+                    // Language and interface-font changes refresh chrome through the event;
                     // they must not reflow or reopen the current book.
                     if (_reader is { } currentReader
-                        && (previous with { UiLanguage = _shell.Preferences.Current.UiLanguage }) != _shell.Preferences.Current)
+                        && (previous with { UiLanguage = _shell.Preferences.Current.UiLanguage, UiFont = _shell.Preferences.Current.UiFont }) != _shell.Preferences.Current)
                         await currentReader.NativeApplySettingsAsync();
                 }
                 finally { _readerGate.Release(); }
@@ -335,6 +367,7 @@ internal sealed partial class IOSNativeFrontend
                     _reader.NativeFootnoteRequested += footnote => Publish(Data(("type", "readerFootnote"), ("sessionId", sessionId), ("footnote", footnote)));
                     _reader.NativeSearchBatchChanged += search => Publish(Data(("type", "readerSearch"), ("sessionId", sessionId), ("search", search)));
                     _reader.UseNativeFrontend();
+                    _reader.NativeSetSurfaceInsets(_nativeSurfaceInsets);
                     var darkAppearance = _shell.Preferences.Current.ThemeMode switch
                     {
                         MobileThemeMode.Light => false,
@@ -361,6 +394,19 @@ internal sealed partial class IOSNativeFrontend
                 {
                     if (_reader is { } current && string.Equals(_readerSessionId, Text(args, "sessionId"), StringComparison.Ordinal))
                         current.NativeSetAppAppearance(Flag(args, "dark"), Number(args, "revision"));
+                }
+                finally { _readerGate.Release(); }
+                return Data();
+            case "reader.insets":
+                await _readerGate.WaitAsync(token);
+                try
+                {
+                    _nativeSurfaceInsets = new Thickness(
+                        ReadDouble(args, "left"),
+                        ReadDouble(args, "top"),
+                        ReadDouble(args, "right"),
+                        ReadDouble(args, "bottom"));
+                    _reader?.NativeSetSurfaceInsets(_nativeSurfaceInsets);
                 }
                 finally { _readerGate.Release(); }
                 return Data();
@@ -475,33 +521,71 @@ internal sealed partial class IOSNativeFrontend
         var files = await _shell.Services.ImportSource.PickFilesAsync(token);
         try
         {
-            if (files.Count == 0) return;
-            var supported = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                { ".epub", ".pdf", ".mobi", ".azw3", ".txt" };
-            if (files.Any(path => !supported.Contains(Path.GetExtension(path))))
-                throw new InvalidOperationException(UiText.Get("请选择 EPUB、PDF、MOBI、AZW3 或 TXT 文件。"));
-            var rules = new Dictionary<string, TxtImportRules>(StringComparer.OrdinalIgnoreCase);
-            foreach (var file in files.Where(path => Path.GetExtension(path).Equals(".txt", StringComparison.OrdinalIgnoreCase)))
-            {
-                var selected = await ChooseTxtRulesAsync(file, token);
-                if (selected is null) return;
-                rules.Add(file, selected);
-            }
-            using var operation = BeginOperation();
-            await _shell.Modules.Library.Books.InitializeAsync(token);
-            var result = await Task.Run(() => _shell.Modules.Library.Books.ImportAsync(files,
-                cancellationToken: token, txtImportRules: rules,
-                conflictResolver: conflict => ChooseImportConflictAsync(conflict, token)), token);
-            _shell.ShowToast(result.FailureCount > 0
-                ? UiText.Get("已导入 {0} 本，{1} 个文件失败", result.AddedCount, result.FailureCount)
-                : result.AddedCount == 0 ? UiText.Get("所选书籍已在书库中") : UiText.Get("已导入 {0} 本", result.AddedCount));
-            // Successful items are already committed. A partial failure must
-            // not abort the native button's subsequent library refresh.
-            if (IOSNativeBookLibraryPolicy.ImportFailedCompletely(result)
-                && result.Items.FirstOrDefault(item => !item.Succeeded) is { } failed)
-                throw new InvalidOperationException(failed.Message);
+            await ImportFileBatchAsync(files, fromExternalOpen: false, token);
         }
         finally { _shell.Services.ImportSource.ReleaseFiles(files); }
+    }
+
+    private async Task ImportExternalFilesAsync(IReadOnlyList<string> files)
+    {
+        try
+        {
+            await ImportFileBatchAsync(files, fromExternalOpen: true, CancellationToken.None);
+        }
+        catch (Exception exception)
+        {
+            _shell.ShowToast(UiText.Localize(exception.Message));
+        }
+        finally { IOSFileImportSource.DeleteFiles(files); }
+    }
+
+    private async Task ImportFileBatchAsync(IReadOnlyList<string> files, bool fromExternalOpen, CancellationToken token)
+    {
+        if (files.Count == 0) return;
+        if (fromExternalOpen && files.All(path => Path.GetExtension(path).Equals(".mdx", StringComparison.OrdinalIgnoreCase)))
+        {
+            await DictionaryGate.WaitAsync(token);
+            try
+            {
+                var imported = await ImportDictionaryFilesAsync(_shell.Modules.Library.Dictionary, files, token);
+                if (imported.Count == 1)
+                    _shell.ShowToast(UiText.Get("已导入词典：{0}", imported[0]));
+                else if (imported.Count > 1)
+                    _shell.ShowToast(UiText.Get("已导入 {0} 本词典", imported.Count));
+            }
+            finally { DictionaryGate.Release(); }
+            return;
+        }
+        var supported = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            { ".epub", ".pdf", ".mobi", ".azw3", ".txt" };
+        if (files.Any(path => !supported.Contains(Path.GetExtension(path))))
+            throw new InvalidOperationException(UiText.Get("请选择 EPUB、PDF、MOBI、AZW3 或 TXT 文件。"));
+        // TXT files are imported directly with automatic encoding, heading and
+        // volume detection so TOC chapters are ready to read without an extra confirmation gate.
+        var rules = files
+            .Where(path => Path.GetExtension(path).Equals(".txt", StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(path => path, _ => TxtImportRules.Default, StringComparer.OrdinalIgnoreCase);
+        using var operation = BeginOperation();
+        await _shell.Modules.Library.Books.InitializeAsync(token);
+        var result = await Task.Run(() => _shell.Modules.Library.Books.ImportAsync(files,
+            cancellationToken: token, txtImportRules: rules,
+            conflictResolver: conflict => ChooseImportConflictAsync(conflict, token)), token);
+        _shell.ShowToast(result.FailureCount > 0
+            ? UiText.Get("已导入 {0} 本，{1} 个文件失败", result.AddedCount, result.FailureCount)
+            : result.AddedCount == 0 ? UiText.Get("所选书籍已在书库中") : UiText.Get("已导入 {0} 本", result.AddedCount));
+        if (fromExternalOpen)
+        {
+            Publish(Data(("type", "libraryChanged")));
+            if (result.Items.FirstOrDefault(item => item.Succeeded && item.BookId is not null)?.BookId is { } bookId
+                && files.Count == 1)
+                Publish(Data(("type", "openBook"), ("bookId", bookId.ToString())));
+        }
+        // Successful items are already committed. A partial failure must
+        // not abort the native button's subsequent library refresh.
+        if (IOSNativeBookLibraryPolicy.ImportFailedCompletely(result)
+            && result.Items.FirstOrDefault(item => !item.Succeeded) is { } failed)
+            throw new InvalidOperationException(failed.Message);
     }
 
     private async Task<ImportConflictResolution> ChooseImportConflictAsync(ImportBookConflict conflict, CancellationToken token)
@@ -575,13 +659,17 @@ internal sealed partial class IOSNativeFrontend
         args.TryGetProperty(name, out var value) && value.ValueKind is JsonValueKind.True or JsonValueKind.False ? value.GetBoolean() : fallback;
     private static int Number(JsonElement args, string name, int fallback = 0) =>
         args.TryGetProperty(name, out var value) && value.TryGetInt32(out var number) ? number : fallback;
+    private static double ReadDouble(JsonElement args, string name, double fallback = 0) =>
+        args.TryGetProperty(name, out var value) && value.TryGetDouble(out var number) && double.IsFinite(number) ? number : fallback;
     private static MobilePreferences NormalizePreferences(MobilePreferences value) => value with
     {
         UiLanguage = MobileUiLanguageService.NormalizePreference(value.UiLanguage),
+        UiFont = Enum.IsDefined(value.UiFont) ? value.UiFont : AppUiFont.KingHwaOldSong,
         ThemeMode = Enum.IsDefined(value.ThemeMode) ? value.ThemeMode : MobileThemeMode.System,
         Sort = Enum.IsDefined(value.Sort) ? value.Sort : MobileBookSort.Recent,
         ReaderTheme = Enum.IsDefined(value.ReaderTheme) ? value.ReaderTheme : ReaderTheme.Classic,
-        ReaderPageAnimation = Enum.IsDefined(value.ReaderPageAnimation) ? value.ReaderPageAnimation : MobilePageAnimation.Fade,
+        ReaderFlowMode = MobilePreferences.NormalizeFlowMode(value.ReaderFlowMode),
+        ReaderPageAnimation = MobilePreferences.NormalizePageAnimation(value.ReaderPageAnimation),
         ReaderProgressDisplay = MobilePreferences.NormalizeProgressDisplay(value.ReaderProgressDisplay),
         ReaderPowerSavingMode = Enum.IsDefined(value.ReaderPowerSavingMode) ? value.ReaderPowerSavingMode : MobileReaderPowerSavingMode.System,
         PdfZoom = double.IsFinite(value.PdfZoom) ? Math.Clamp(value.PdfZoom, 1, 4) : 1,
@@ -661,6 +749,8 @@ internal sealed partial class IOSNativeFrontend
 
     [DllImport("__Internal", EntryPoint = "lz_ios_set_ui_language")]
     private static extern void SetUiLanguage([MarshalAs(UnmanagedType.LPUTF8Str)] string language);
+    [DllImport("__Internal", EntryPoint = "lz_ios_set_ui_font")]
+    private static extern void SetUiFont(int font);
     [DllImport("__Internal", EntryPoint = "lz_ios_create_shell")]
     private static extern IntPtr CreateShell(IntPtr handler, IntPtr readerController);
     [DllImport("__Internal", EntryPoint = "lz_ios_release_shell")]

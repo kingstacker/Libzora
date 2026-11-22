@@ -22,8 +22,7 @@ public partial class ReaderPage
     private async Task HandleLinkAsync(string? href, string? footnoteText)
     {
         if (string.IsNullOrWhiteSpace(href)) return;
-        if (_footnoteJumpBacklink is { } backlink
-            && string.Equals(NormalizeFootnoteHref(href), backlink, StringComparison.Ordinal))
+        if (IsReturnLinkToFootnoteOrigin(href))
         {
             _footnoteJumpBacklink = null;
             await NativeReturnFromFootnoteAsync();

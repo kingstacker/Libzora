@@ -32,6 +32,8 @@ public partial class ReaderPage
         return line.Length > QuoteLength ? line[..QuoteLength] + "…" : line;
     }
 
+    internal static readonly string[] ReadableFormats = ["epub", "pdf", "azw3", "mobi", "txt"];
+
     private static BookFile? ChooseReadableFile(Book book, Guid? preferredFileId = null)
     {
         if (preferredFileId is { } id)
@@ -39,10 +41,10 @@ public partial class ReaderPage
             // A bookmark's position belongs to its exact file, not whichever
             // format currently wins the ordinary open preference.
             return book.Files.FirstOrDefault(candidate => candidate.Id == id && candidate.BookId == book.Id
-                && new[] { "epub", "pdf", "azw3", "mobi" }.Contains(
+                && ReadableFormats.Contains(
                     candidate.Format.Trim().TrimStart('.'), StringComparer.OrdinalIgnoreCase));
         }
-        foreach (var format in new[] { "epub", "pdf", "azw3", "mobi" })
+        foreach (var format in ReadableFormats)
         {
             var file = book.Files.FirstOrDefault(candidate =>
                 candidate.Format.Trim().TrimStart('.').Equals(format, StringComparison.OrdinalIgnoreCase));
@@ -58,6 +60,8 @@ public partial class ReaderPage
             _disposed = true;
             _shell.ActualThemeVariantChanged -= OnAppThemeVariantChanged;
             _longPress.Stop();
+            CancelInteractiveDragImmediate();
+            CancelActiveTransition();
             CancelSpeechPreparation();
             _tts?.Dispose();
             _shell.Services.SystemBars?.SetEdgeGesturesCaptured(false);

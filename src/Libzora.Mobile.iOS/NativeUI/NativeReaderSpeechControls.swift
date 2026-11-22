@@ -84,6 +84,7 @@ struct NativeReaderSpeechControls: View {
             } label: {
                 Text(L("设置")).font(NativeTheme.font(12, relativeTo: .caption))
                     .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .accessibilityLabel(L("朗读设置"))
             .accessibilityIdentifier("reader.speech.settings")
@@ -93,6 +94,7 @@ struct NativeReaderSpeechControls: View {
             } label: {
                 Image(systemName: state == 3 ? "play.fill" : "pause.fill")
                     .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .accessibilityLabel(state == 3 ? L("继续朗读") : L("暂停朗读"))
             .accessibilityIdentifier("reader.speech.pause")
@@ -101,6 +103,7 @@ struct NativeReaderSpeechControls: View {
                 stop()
             } label: {
                 Image(systemName: "xmark").frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .accessibilityLabel(L("停止朗读"))
             .accessibilityIdentifier("reader.speech.stop")
@@ -110,6 +113,12 @@ struct NativeReaderSpeechControls: View {
         .padding(.leading, 12)
         .padding(.trailing, 4)
         .frame(height: 48)
+        .background {
+            Color.clear
+                .contentShape(RoundedRectangle(cornerRadius: 16))
+                .onTapGesture { interaction += 1 }
+                .accessibilityHidden(true)
+        }
         .modifier(NativeFloatingSurface())
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("reader.speech.bar")

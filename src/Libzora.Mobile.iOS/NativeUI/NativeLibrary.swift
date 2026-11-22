@@ -53,7 +53,6 @@ struct NativeBookDetailPage: View {
     @State private var rename = false
     @State private var busy = false
     @State private var expanded = false
-    @State private var bookAmbientColors: [NativeAmbientColor]?
     private var book: LibraryBook? { store.library.first { $0.id == bookId } }
 
     var body: some View {
@@ -101,8 +100,9 @@ struct NativeBookDetailPage: View {
                 }
                 if let book {
                     Button {
-                        let frame = NativeBookCoverFrames.get("detail:\(book.id)")
-                        store.perform { try await store.openReader(book, sourceFrame: frame) }
+                        let key = "detail:\(book.id)"
+                        let frame = NativeBookCoverFrames.get(key)
+                        store.perform { try await store.openReader(book, sourceFrame: frame, sourceKey: key) }
                     } label: {
                         Text(book.progress > 0 ? L("继续阅读 · {0}%", String(format: "%.0f", locale: NativeLocalization.locale, book.progress)) : L("开始阅读"))
                     }.buttonStyle(NativeLiquidGlassButtonStyle()).disabled(store.openingReader).accessibilityIdentifier("book.read")
@@ -111,14 +111,7 @@ struct NativeBookDetailPage: View {
                         .frame(maxWidth: .infinity)
                 }
             }
-        }.background(NativeAmbientBackground(colorsOverride: bookAmbientColors)).navigationBarHidden(true).modifier(NativeHideTabBar())
-            .task(id: book?.coverPath ?? "") {
-                guard store.preferences.colorfulMode else { bookAmbientColors = nil; return }
-                guard let path = book?.coverPath else { bookAmbientColors = []; return }
-                let colors = await Task.detached(priority: .utility) { NativeAmbientPalette.extract(paths: [path]) }.value
-                guard !Task.isCancelled else { return }
-                bookAmbientColors = colors
-            }
+        }.background(NativeAmbientBackground()).navigationBarHidden(true).modifier(NativeHideTabBar())
             .sheet(isPresented: $editor) { if let book { NativeBookEditor(store: store, book: book) } }
             .sheet(isPresented: $folders) { NativeBookCollections(store: store, bookId: bookId) }
             .sheet(isPresented: $rename) {
@@ -129,9 +122,11 @@ struct NativeBookDetailPage: View {
     }
 
     private func bookHeader(_ book: LibraryBook, coverWidth: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
+        let key = "detail:\(book.id)"
+        return VStack(alignment: .leading, spacing: 0) {
             BookCover(book: book, width: coverWidth, height: coverWidth * 214 / 148)
-                .trackBookOpenFrame(key: "detail:\(book.id)")
+                .trackBookOpenFrame(key: key)
+                .opacity(store.isBookCoverHidden(forKey: key) ? 0 : 1)
                 .frame(maxWidth: .infinity)
             Text(book.title).font(NativeTheme.font(21, relativeTo: .title2)).lineLimit(3).lineSpacing(5)
                 .multilineTextAlignment(.center).frame(maxWidth: .infinity).padding(.top, 28)
@@ -354,7 +349,6 @@ struct NativeCollectionPage: View {
     @State private var rename = false
     @State private var addBooks = false
     @State private var busy = false
-    @State private var collectionAmbientColors: [NativeAmbientColor]?
     private var folder: LibraryFolder? { store.folders.first { $0.id == folderId } }
     private var books: [LibraryBook] {
         NativeBookOrder.sorted(store.library.filter { $0.collectionIds.contains(folderId) }, sort: store.preferences.sort)
@@ -420,16 +414,8 @@ struct NativeCollectionPage: View {
                     catch { if !Task.isCancelled { store.failure = error.localizedDescription } }
                 }
             }
-        }.background(NativeAmbientBackground(colorsOverride: collectionAmbientColors)).disabled(busy).navigationBarHidden(true)
+        }.background(NativeAmbientBackground()).disabled(busy).navigationBarHidden(true)
             .modifier(NativeHideTabBar())
-            .task(id: books.map { "\($0.id)|\($0.coverPath ?? "")" }.joined(separator: ",")) {
-                guard store.preferences.colorfulMode else { collectionAmbientColors = nil; return }
-                let paths = Array(books.compactMap(\.coverPath).prefix(12))
-                guard !paths.isEmpty else { collectionAmbientColors = []; return }
-                let colors = await Task.detached(priority: .utility) { NativeAmbientPalette.extract(paths: paths, maxColors: 6) }.value
-                guard !Task.isCancelled else { return }
-                collectionAmbientColors = colors
-            }
             .sheet(isPresented: $rename) {
                 NativeNameSheet(store: store, title: L("重命名收藏夹"), initial: folder?.name ?? "", button: L("保存")) { name in
                     try await store.command("collection.rename", ["collectionId": folderId, "name": name]); try await store.refreshLibrary()

@@ -151,6 +151,7 @@ public partial class ReaderPage
 
     private async Task JumpToAsync(TocEntry item)
     {
+        ClearActiveSyncedMarker();
         _tts?.NotifyManualNavigation();
         _shell.HideSheet();
         SetChromeVisible(false);
@@ -187,6 +188,10 @@ public partial class ReaderPage
     private async Task GoToPdfPageAsync(int page, double? top = null)
     {
         if (_readerHost is not NativePdfReaderHost pdf) return;
+        if (Math.Clamp(page, 1, Math.Max(1, _pdfPageCount)) != _pdfPage)
+        {
+            ClearActiveSyncedMarker();
+        }
         // A whole-page view shows each page from its start, never a pan carried over.
         if (!IsPdfZoomed && pdf.Zoom > 1.01) await pdf.SetFitModeAsync(DesiredPdfFitMode);
         page = Math.Clamp(page, 1, _pdfPageCount);

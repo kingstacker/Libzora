@@ -72,6 +72,8 @@ struct NativeProfilePage: View {
             profileCard {
                 themeRow
                 cardDivider()
+                uiFontRow
+                cardDivider()
                 languageRow
                 cardDivider()
                 NavigationLink { NativeLibrarySettings(store: store) } label: {
@@ -186,6 +188,27 @@ struct NativeProfilePage: View {
         .accessibilityLabel(L("外观"))
         .accessibilityValue(current)
         .accessibilityIdentifier("profile.theme")
+    }
+
+    private var uiFontRow: some View {
+        let current = store.preferences.uiFont == 1 ? L("系统默认") : L("京华老宋体")
+        return NavigationLink {
+            NativePreferenceOptionPage(
+                store: store,
+                title: { L("界面字体") },
+                identifierPrefix: "profile.uiFont",
+                current: { $0.uiFont },
+                options: { _ in [(0, L("京华老宋体（默认）")), (1, L("系统默认"))] },
+                optionFont: { id in NativeTheme.font(useSystem: id == 1) },
+                footer: { L("书库、导航栏与设置的显示字体；阅读正文可在阅读器排版设置中单独调整。") },
+                apply: { $0.uiFont = $1 }
+            )
+        } label: {
+            profileRow(title: L("界面字体"), value: current)
+        }
+        .accessibilityLabel(L("界面字体"))
+        .accessibilityValue(current)
+        .accessibilityIdentifier("profile.uiFont")
     }
 
     private var languageRow: some View {
@@ -308,6 +331,8 @@ private struct NativePreferenceOptionPage<Selection: Hashable>: View {
     let identifierPrefix: String
     let current: (MobilePreferences) -> Selection
     let options: (NativeStore) -> [(id: Selection, title: String)]
+    var optionFont: ((Selection) -> Font)? = nil
+    var footer: (() -> String)? = nil
     let apply: (inout MobilePreferences, Selection) -> Void
 
     var body: some View {
@@ -325,7 +350,7 @@ private struct NativePreferenceOptionPage<Selection: Hashable>: View {
                     } label: {
                         HStack(spacing: 12) {
                             Text(option.title)
-                                .font(NativeTheme.font())
+                                .font(optionFont?(option.id) ?? NativeTheme.font())
                                 .foregroundStyle(NativeTheme.ink)
                             Spacer(minLength: 12)
                             if isSelected {
@@ -341,13 +366,18 @@ private struct NativePreferenceOptionPage<Selection: Hashable>: View {
                     .accessibilityAddTraits(isSelected ? .isSelected : [])
                     .accessibilityIdentifier("\(identifierPrefix).option.\(option.id)")
                 }
+            } footer: {
+                if let footerText = footer?(), !footerText.isEmpty {
+                    Text(footerText)
+                        .font(NativeTheme.font(12, relativeTo: .caption))
+                        .foregroundStyle(NativeTheme.muted)
+                }
             }
         }
         .navigationTitle(title())
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarHidden(false)
         .nativeBackButton()
-        .modifier(NativeHideTabBar())
     }
 }
 
@@ -390,7 +420,6 @@ struct NativeBackupPage: View {
         }
         .navigationTitle(L("备份与恢复")).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
         .nativeBackButton()
-        .modifier(NativeHideTabBar())
     }
 
     private func run(_ restore: Bool) {
@@ -424,7 +453,6 @@ struct NativeAboutPage: View {
         }
         .navigationTitle(L("关于")).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
         .nativeBackButton()
-        .modifier(NativeHideTabBar())
         .sheet(isPresented: $developer) {
             NativeNameSheet(store: store, title: L("开发者模式"), initial: "", button: L("进入"), isSecure: true) { password in
                 try await store.command("settings.developer.toggle", ["password": password])
@@ -480,7 +508,6 @@ struct NativeLibrarySettings: View {
         }
         .navigationTitle(L("书库设置")).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
         .nativeBackButton()
-        .modifier(NativeHideTabBar())
     }
 
     private func settingToggle(_ title: String, identifier: String, isOn: Binding<Bool>) -> some View {
@@ -557,7 +584,6 @@ struct NativeSyncSettings: View {
             .navigationTitle(L("同步")).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
             .nativeBackButton()
             .modifier(NativeKeyboardDone())
-            .modifier(NativeHideTabBar())
             .task { await load() }
             .onChange(of: store.syncStatus) { status = $0 }
             .onDisappear { actionTask?.cancel() }
@@ -794,7 +820,7 @@ struct NativeAiSettings: View {
                 }
             }
         }.disabled(loading || busy)
-            .navigationTitle(L("AI 接口")).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false).modifier(NativeKeyboardDone()).modifier(NativeHideTabBar())
+            .navigationTitle(L("AI 接口")).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false).modifier(NativeKeyboardDone())
             .nativeBackButton()
             .toolbar { Button(L("保存")) { run(test: false) }.disabled(busy || loading) }
             .task {
@@ -950,7 +976,7 @@ struct NativeEmailSettings: View {
                 }
             }
         }.textInputAutocapitalization(.never).disableAutocorrection(true).disabled(loading || busy)
-            .navigationTitle(L("发送到 Kindle")).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false).modifier(NativeKeyboardDone()).modifier(NativeHideTabBar())
+            .navigationTitle(L("发送到 Kindle")).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false).modifier(NativeKeyboardDone())
             .nativeBackButton()
             .toolbar { Button(L("保存")) {
                 busy = true

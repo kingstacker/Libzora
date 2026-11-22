@@ -194,9 +194,7 @@ struct NativeSelectionHighlightBar: View {
         }
         .padding(.horizontal, 10)
         .frame(height: NativeSelectionToolbarLayout.paletteHeight)
-        .background(.regularMaterial, in: Capsule())
-        .overlay(Capsule().stroke(NativeTheme.divider.opacity(0.6), lineWidth: 0.5))
-        .shadow(color: .black.opacity(0.12), radius: 10, y: 4)
+        .modifier(NativeLiquidGlassSurface(shape: Capsule()))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("reader.highlight.palette")
     }

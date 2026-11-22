@@ -123,6 +123,7 @@ public partial class ReaderPage
     private async Task<bool> JumpToSearchHitAsync(SearchHit hit, CancellationToken token = default)
     {
         token.ThrowIfCancellationRequested();
+        ClearActiveSyncedMarker();
         _tts?.NotifyManualNavigation();
         _shell.HideSheet();
         if (!_usesNativeFrontend) SetChromeVisible(false);
@@ -507,7 +508,7 @@ public partial class ReaderPage
         // The first finger down starts a fresh gesture; a release the system
         // swallowed (edge swipe, app switch) must not leave a phantom finger.
         if (e.Pointer.IsPrimary) ResetTouches();
-        _touches[e.Pointer.Id] = e.GetPosition(ReaderHostSlot);
+        _touches[e.Pointer.Id] = e.GetPosition(ReaderPaper);
         if (_touches.Count == 2)
         {
             if (_readerHost is NativePdfReaderHost pdf)
@@ -529,7 +530,7 @@ public partial class ReaderPage
     private bool TrackTouchMoved(PointerEventArgs e)
     {
         if (!_touches.ContainsKey(e.Pointer.Id)) return false;
-        _touches[e.Pointer.Id] = e.GetPosition(ReaderHostSlot);
+        _touches[e.Pointer.Id] = e.GetPosition(ReaderPaper);
         if (!_pinching || _touches.Count < 2) return _pinching;
 
         var zoom = Math.Clamp(_pinchStartZoom * TouchDistance() / _pinchStartDistance, 1, MaxPdfZoom);
@@ -538,7 +539,7 @@ public partial class ReaderPage
             if (Math.Abs(zoom - _pinchRequestedZoom) >= ZoomStep)
             {
                 _pinchRequestedZoom = zoom;
-                _ = pdf.SetZoomAsync(zoom, TouchCenter());
+                _ = pdf.SetZoomAsync(zoom, TranslateToHost(TouchCenter()));
             }
             return true;
         }
@@ -546,7 +547,7 @@ public partial class ReaderPage
         if (IsMangaMode && _readerHost is NativeReaderHost manga)
         {
             _pinchRequestedZoom = zoom;
-            manga.SetMangaZoom(zoom, TouchCenter());
+            manga.SetMangaZoom(zoom, TranslateToHost(TouchCenter()));
             return true;
         }
         return _pinching;
@@ -578,6 +579,7 @@ public partial class ReaderPage
     {
         _touches.Remove(e.Pointer.Id);
         if (_touches.Count == 0) _pinching = false;
+        CancelInteractiveDragImmediate();
     }
 
     private void ResetTouches()

@@ -83,6 +83,9 @@ public sealed class IOSFileImportSource : IFileImportSource
         var directory = Path.Combine(Path.GetTempPath(), "imports");
         Directory.CreateDirectory(directory);
 
+        var batchDirectory = Path.Combine(directory, Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(batchDirectory);
+
         var files = new List<string>(urls.Count);
         try
         {
@@ -94,9 +97,14 @@ public sealed class IOSFileImportSource : IFileImportSource
                 var access = url.StartAccessingSecurityScopedResource();
                 try
                 {
-                    var fileDirectory = Path.Combine(directory, Guid.NewGuid().ToString("N"));
-                    Directory.CreateDirectory(fileDirectory);
-                    var target = Path.Combine(fileDirectory, SafeFileName(url.LastPathComponent));
+                    var name = SafeFileName(url.LastPathComponent);
+                    var target = Path.Combine(batchDirectory, name);
+                    if (File.Exists(target))
+                    {
+                        var collisionDirectory = Path.Combine(directory, Guid.NewGuid().ToString("N"));
+                        Directory.CreateDirectory(collisionDirectory);
+                        target = Path.Combine(collisionDirectory, name);
+                    }
                     files.Add(target);
                     await using var input = File.OpenRead(source);
                     await using var output = File.Create(target);
@@ -118,7 +126,49 @@ public sealed class IOSFileImportSource : IFileImportSource
 
     public void ReleaseFiles(IReadOnlyList<string> files) => DeleteFiles(files);
 
-    private static void DeleteFiles(IEnumerable<string> files)
+    /// <summary>
+    /// Copies a security-scoped external file URL (for example from Files or Share/Open In)
+    /// into the temporary import directory before the system revokes access.
+    /// </summary>
+    internal static string? CopyExternalUrlToCache(NSUrl url)
+    {
+        if (!url.IsFileUrl || url.Path is not { } source || !File.Exists(source)) return null;
+        var directory = Path.Combine(Path.GetTempPath(), "imports");
+        Directory.CreateDirectory(directory);
+        var fileDirectory = Path.Combine(directory, Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(fileDirectory);
+        var target = Path.Combine(fileDirectory, SafeFileName(url.LastPathComponent));
+        var access = url.StartAccessingSecurityScopedResource();
+        try
+        {
+            File.Copy(source, target, overwrite: true);
+        }
+        catch
+        {
+            DeleteFiles([target]);
+            throw;
+        }
+        finally
+        {
+            if (access) url.StopAccessingSecurityScopedResource();
+        }
+        CleanupInboxCopyIfNeeded(source);
+        return target;
+    }
+
+    private static void CleanupInboxCopyIfNeeded(string sourcePath)
+    {
+        var documents = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+        if (string.IsNullOrWhiteSpace(documents)) return;
+        var inbox = Path.GetFullPath(Path.Combine(documents, "Inbox")) + Path.DirectorySeparatorChar;
+        var fullSource = Path.GetFullPath(sourcePath);
+        if (!fullSource.StartsWith(inbox, StringComparison.Ordinal)) return;
+        try { File.Delete(fullSource); }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+    }
+
+    internal static void DeleteFiles(IEnumerable<string> files)
     {
         var root = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "imports")) + Path.DirectorySeparatorChar;
         foreach (var file in files)

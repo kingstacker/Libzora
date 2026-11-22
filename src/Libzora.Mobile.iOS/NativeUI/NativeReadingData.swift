@@ -6,7 +6,7 @@ struct NativeMaterials: View {
     @State private var filter = "all"
     @State private var loading = true
     @State private var exporting = false
-    @State private var expanded: Set<String> = []
+    @State private var lastOpenedBookId: String?
     private var mutedText: Color { store.preferences.colorfulMode ? NativeTheme.mutedOnColorful : NativeTheme.muted }
     private struct BookGroup: Identifiable {
         let id: String
@@ -29,67 +29,247 @@ struct NativeMaterials: View {
         let groups = self.groups
         let count = groups.reduce(0) { $0 + $1.records.count }
         let books = Dictionary(store.library.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        return ScrollView {
-            VStack(spacing: 0) {
-                HStack(spacing: 0) {
-                    NativePageTitle(title: L("阅读资料"), identifier: "page.materials")
-                    Spacer(minLength: 0)
-                    Text(count == 1 ? L("1 条") : L("{0} 条", count))
-                        .font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(mutedText)
-                        .lineLimit(1).padding(.trailing, 10)
-                    Menu {
-                        Button(L("导出 Markdown")) { export(true) }; Button(L("导出纯文本")) { export(false) }
-                    } label: { Text(L("导出")).font(NativeTheme.font(14)).frame(width: 44, height: 44) }
-                        .disabled(exporting || count == 0).accessibilityLabel(L("导出阅读资料"))
-                }.modifier(NativePageMasthead())
-                Picker(L("资料筛选"), selection: $filter) { Text(L("全部")).tag("all"); Text(L("划线")).tag("highlight"); Text(L("笔记")).tag("note"); Text(L("书签")).tag("bookmark") }
-                    .pickerStyle(.segmented).frame(minHeight: NativeAdaptiveLayout.mastheadHeight)
-                    .padding(.horizontal, 12).padding(.top, 8).padding(.bottom, 8)
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    if loading { ProgressView(L("正在读取阅读资料…")).frame(maxWidth: .infinity).padding(.top, 96) }
-                    if !loading && count == 0 {
-                        VStack(spacing: 6) {
-                            Image(systemName: "note.text").font(.system(size: 34, weight: .ultraLight)).foregroundStyle(mutedText)
-                            Text(L("还没有阅读资料")).font(NativeTheme.font(17)).padding(.top, 8)
-                            Text(L("书签、划线和笔记会汇集在这里")).font(NativeTheme.font(13)).foregroundStyle(mutedText)
-                        }.frame(maxWidth: .infinity).padding(.top, 96)
-                    }
-                    ForEach(groups) { group in
-                        let id = group.id
-                        let records = group.records
-                        Button {
-                            if expanded.contains(id) { expanded.remove(id) } else { expanded.insert(id) }
-                        } label: {
-                            HStack(spacing: 14) {
-                                if let book = books[id] { BookCover(book: book, width: 48, height: 68) }
-                                else { Image(systemName: "book").font(.system(size: 28, weight: .ultraLight)).frame(width: 48, height: 68).foregroundStyle(mutedText) }
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text(records.first?.bookTitle ?? L("未知书名")).font(NativeTheme.font(15)).lineLimit(2)
-                                    Text(records.count == 1 ? L("1 条资料") : L("{0} 条资料", records.count))
-                                        .font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(mutedText)
-                                }.frame(maxWidth: .infinity, alignment: .leading)
-                                Image(systemName: expanded.contains(id) ? "chevron.down" : "chevron.right")
-                                    .font(.system(size: 14, weight: .regular)).foregroundStyle(mutedText)
-                            }.padding(.vertical, 14).contentShape(Rectangle())
-                        }.buttonStyle(.plain).accessibilityIdentifier("materials.book.\(id)")
-                        if expanded.contains(id) {
-                            ForEach(records) { item in materialEntry(item).padding(.bottom, 6) }
-                            Color.clear.frame(height: 6)
+        return ScrollViewReader { scrollProxy in
+            ScrollView {
+                VStack(spacing: 0) {
+                    HStack(spacing: 0) {
+                        NativePageTitle(title: L("阅读资料"), identifier: "page.materials")
+                        Spacer(minLength: 0)
+                        Text(count == 1 ? L("1 条") : L("{0} 条", count))
+                            .font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(mutedText)
+                            .lineLimit(1).padding(.trailing, 10)
+                        Menu {
+                            Button(L("导出 Markdown")) { export(true) }; Button(L("导出纯文本")) { export(false) }
+                        } label: { Text(L("导出")).font(NativeTheme.font(14)).frame(width: 44, height: 44) }
+                            .disabled(exporting || count == 0).accessibilityLabel(L("导出阅读资料"))
+                    }.modifier(NativePageMasthead())
+                    Picker(L("资料筛选"), selection: $filter) { Text(L("全部")).tag("all"); Text(L("划线")).tag("highlight"); Text(L("笔记")).tag("note"); Text(L("书签")).tag("bookmark") }
+                        .pickerStyle(.segmented).frame(minHeight: NativeAdaptiveLayout.mastheadHeight)
+                        .padding(.horizontal, 12).padding(.top, 8).padding(.bottom, 8)
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        if loading { ProgressView(L("正在读取阅读资料…")).frame(maxWidth: .infinity).padding(.top, 96) }
+                        if !loading && count == 0 {
+                            VStack(spacing: 6) {
+                                Image(systemName: "note.text").font(.system(size: 34, weight: .ultraLight)).foregroundStyle(mutedText)
+                                Text(L("还没有阅读资料")).font(NativeTheme.font(17)).padding(.top, 8)
+                                Text(L("书签、划线和笔记会汇集在这里")).font(NativeTheme.font(13)).foregroundStyle(mutedText)
+                            }.frame(maxWidth: .infinity).padding(.top, 96)
+                        }
+                        ForEach(groups) { group in
+                            let id = group.id
+                            let records = group.records
+                            let bookTitle = records.first?.bookTitle ?? L("未知书名")
+                            NavigationLink {
+                                NativeBookMaterialsDetail(
+                                    store: store,
+                                    bookId: id,
+                                    fallbackTitle: bookTitle,
+                                    initialFilter: filter,
+                                    entries: $entries,
+                                    exporting: $exporting,
+                                    onOpenBook: { lastOpenedBookId = $0 }
+                                )
+                            } label: {
+                                HStack(spacing: 14) {
+                                    if let book = books[id] {
+                                        let coverKey = "materials:\(book.id)"
+                                        BookCover(book: book, width: 48, height: 68)
+                                            .trackBookOpenFrame(key: coverKey)
+                                            .opacity(store.isBookCoverHidden(forKey: coverKey) ? 0 : 1)
+                                    }
+                                    else { Image(systemName: "book").font(.system(size: 28, weight: .ultraLight)).frame(width: 48, height: 68).foregroundStyle(mutedText) }
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        Text(bookTitle).font(NativeTheme.font(15)).lineLimit(2)
+                                        Text(records.count == 1 ? L("1 条资料") : L("{0} 条资料", records.count))
+                                            .font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(mutedText)
+                                    }.frame(maxWidth: .infinity, alignment: .leading)
+                                    Image(systemName: "chevron.right")
+                                        .font(.system(size: 14, weight: .regular)).foregroundStyle(mutedText)
+                                }.padding(.vertical, 14).contentShape(Rectangle())
+                            }.id(id).buttonStyle(.plain).accessibilityIdentifier("materials.book.\(id)")
+                        }
+                    }.padding(.horizontal, NativeAdaptiveLayout.pageInset).padding(.top, 4).padding(.bottom, 28)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityElement(children: .contain).accessibilityIdentifier("materials.content")
+            }.refreshable { _ = await load() }
+                .background(NativeAmbientBackground()).navigationBarHidden(true)
+                .overlay(alignment: .top) { NativeStatusBarGlass() }
+                .task(id: store.uiLanguage) { _ = await load() }
+                .onChange(of: store.readerBook == nil) { closed in
+                    guard closed, store.activeTab == 1 else { return }
+                    Task {
+                        try? await Task.sleep(nanoseconds: UInt64((NativeBookOpenTransitionPolicy.closeToCoverCleanupDelay + 0.08) * 1_000_000_000))
+                        guard store.readerBook == nil else { return }
+                        let changed = await load()
+                        if changed, let anchorId = lastOpenedBookId,
+                           self.groups.contains(where: { $0.id == anchorId }) {
+                            DispatchQueue.main.async {
+                                scrollProxy.scrollTo(anchorId, anchor: .center)
+                            }
                         }
                     }
-                }.padding(.horizontal, NativeAdaptiveLayout.pageInset).padding(.top, 4).padding(.bottom, 28)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityElement(children: .contain).accessibilityIdentifier("materials.content")
-        }.refreshable { await load() }
-            .background(NativeAmbientBackground()).navigationBarHidden(true)
-            .overlay(alignment: .top) { NativeStatusBarGlass() }
-            .task(id: store.uiLanguage) { await load() }
+                }
+        }
     }
+
+    @discardableResult
+    private func load() async -> Bool {
+        defer { loading = false }
+        do {
+            let loaded: [MaterialRecord] = try await store.request("materials.get")
+            guard loaded != entries else { return false }
+            entries = loaded
+            return true
+        }
+        catch {
+            if !Task.isCancelled { store.failure = error.localizedDescription }
+            return false
+        }
+    }
+    private func export(_ markdown: Bool) {
+        exporting = true; let ids = entries.filter(matches).map(\.id)
+        store.perform { defer { exporting = false }; try await store.command("materials.export", ["ids": ids, "markdown": markdown]) }
+    }
+}
+
+private struct NativeBookMaterialsDetail: View {
+    @ObservedObject var store: NativeStore
+    let bookId: String
+    let fallbackTitle: String
+    @Binding var entries: [MaterialRecord]
+    @Binding var exporting: Bool
+    let onOpenBook: (String) -> Void
+    @State private var filter: String
+    @State private var lastOpenedEntryId: String?
+    private var mutedText: Color { store.preferences.colorfulMode ? NativeTheme.mutedOnColorful : NativeTheme.muted }
+    private var book: LibraryBook? { store.library.first { $0.id == bookId } }
+    private var bookEntries: [MaterialRecord] { entries.filter { $0.bookId == bookId } }
+    private var bookTitle: String { book?.title ?? bookEntries.first?.bookTitle ?? fallbackTitle }
+    private var filteredRecords: [MaterialRecord] {
+        bookEntries.filter { filter == "all" || $0.kind == filter }
+    }
+
+    init(
+        store: NativeStore,
+        bookId: String,
+        fallbackTitle: String,
+        initialFilter: String,
+        entries: Binding<[MaterialRecord]>,
+        exporting: Binding<Bool>,
+        onOpenBook: @escaping (String) -> Void
+    ) {
+        self.store = store
+        self.bookId = bookId
+        self.fallbackTitle = fallbackTitle
+        self._entries = entries
+        self._exporting = exporting
+        self.onOpenBook = onOpenBook
+        self._filter = State(initialValue: initialFilter)
+    }
+
+    var body: some View {
+        let records = filteredRecords
+        return ScrollViewReader { scrollProxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(spacing: 14) {
+                        if let book {
+                            let coverKey = "materialsDetail:\(book.id)"
+                            BookCover(book: book, width: 48, height: 68)
+                                .trackBookOpenFrame(key: coverKey)
+                                .opacity(store.isBookCoverHidden(forKey: coverKey) ? 0 : 1)
+                        } else {
+                            Image(systemName: "book")
+                                .font(.system(size: 28, weight: .ultraLight))
+                                .frame(width: 48, height: 68)
+                                .foregroundStyle(mutedText)
+                        }
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(bookTitle).font(NativeTheme.font(16, relativeTo: .headline)).lineLimit(2)
+                            Text(records.count == 1 ? L("1 条") : L("{0} 条", records.count))
+                                .font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(mutedText)
+                        }.frame(maxWidth: .infinity, alignment: .leading)
+                    }.padding(.top, 12).padding(.bottom, 10)
+
+                    Picker(L("资料筛选"), selection: $filter) {
+                        Text(L("全部")).tag("all")
+                        Text(L("划线")).tag("highlight")
+                        Text(L("笔记")).tag("note")
+                        Text(L("书签")).tag("bookmark")
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.bottom, 12)
+
+                    LazyVStack(alignment: .leading, spacing: 6) {
+                        if records.isEmpty {
+                            VStack(spacing: 6) {
+                                Image(systemName: "note.text").font(.system(size: 30, weight: .ultraLight)).foregroundStyle(mutedText)
+                                Text(L("还没有阅读资料")).font(NativeTheme.font(16)).padding(.top, 6)
+                                Text(L("书签、划线和笔记会汇集在这里")).font(NativeTheme.font(13)).foregroundStyle(mutedText)
+                            }.frame(maxWidth: .infinity).padding(.top, 72)
+                        } else {
+                            ForEach(records) { item in
+                                materialEntry(item).id(item.id)
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, NativeAdaptiveLayout.pageInset)
+                .padding(.bottom, 28)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .refreshable {
+                do {
+                    let loaded: [MaterialRecord] = try await store.request("materials.get")
+                    if loaded != entries { entries = loaded }
+                } catch {
+                    if !Task.isCancelled { store.failure = error.localizedDescription }
+                }
+            }
+            .background(NativeAmbientBackground())
+            .navigationTitle(bookTitle)
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarHidden(false)
+            .nativeBackButton()
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Menu {
+                        Button(L("导出 Markdown")) { exportBook(true, records: records) }
+                        Button(L("导出纯文本")) { exportBook(false, records: records) }
+                    } label: {
+                        Text(L("导出")).font(NativeTheme.font(14))
+                    }
+                    .disabled(exporting || records.isEmpty)
+                    .accessibilityLabel(L("导出阅读资料"))
+                }
+            }
+            .onAppear { onOpenBook(bookId) }
+            .onChange(of: entries) { _ in
+                guard store.readerBook == nil,
+                      let anchorId = lastOpenedEntryId,
+                      filteredRecords.contains(where: { $0.id == anchorId }) else { return }
+                DispatchQueue.main.async {
+                    scrollProxy.scrollTo(anchorId, anchor: .center)
+                }
+            }
+        }
+    }
+
     private func materialEntry(_ item: MaterialRecord) -> some View {
         Button {
-            if let book = store.library.first(where: { $0.id == item.bookId }) {
-                store.perform { try await store.openReader(book, location: item.location.foundationValue as? [String: Any]) }
+            if let book {
+                lastOpenedEntryId = item.id
+                let key = "materialsDetail:\(book.id)"
+                let frame = NativeBookCoverFrames.get(key)
+                store.perform {
+                    try await store.openReader(
+                        book,
+                        location: item.location.foundationValue as? [String: Any],
+                        sourceFrame: frame,
+                        sourceKey: key
+                    )
+                }
             } else { store.showToast(L("这本书已不在书库中")) }
         } label: {
             HStack(alignment: .top, spacing: 10) {
@@ -111,14 +291,14 @@ struct NativeMaterials: View {
             .padding(.horizontal, 12).padding(.vertical, 11).background(NativeTheme.sunk, in: RoundedRectangle(cornerRadius: 10))
         }.buttonStyle(.plain).disabled(store.openingReader).accessibilityIdentifier("materials.entry.\(item.id)")
     }
-    private func load() async {
-        defer { loading = false }
-        do { entries = try await store.request("materials.get") }
-        catch { if !Task.isCancelled { store.failure = error.localizedDescription } }
-    }
-    private func export(_ markdown: Bool) {
-        exporting = true; let ids = entries.filter(matches).map(\.id)
-        store.perform { defer { exporting = false }; try await store.command("materials.export", ["ids": ids, "markdown": markdown]) }
+
+    private func exportBook(_ markdown: Bool, records: [MaterialRecord]) {
+        exporting = true
+        let ids = records.map(\.id)
+        store.perform {
+            defer { exporting = false }
+            try await store.command("materials.export", ["ids": ids, "markdown": markdown])
+        }
     }
 }
 
@@ -165,16 +345,25 @@ struct NativeReadingDashboard: View {
                         HStack(alignment: .top, spacing: 14) {
                             ForEach(value.dashboard.recentBooks.prefix(10)) { item in
                                 if let book = store.library.first(where: { $0.id == item.bookId }) {
-                                    NavigationLink { NativeBookDetailPage(store: store, bookId: book.id) } label: {
+                                    let coverKey = "dashboardRecent:\(book.id)"
+                                    Button {
+                                        let frame = NativeBookCoverFrames.get(coverKey)
+                                        store.perform {
+                                            try await store.openReader(book, sourceFrame: frame, sourceKey: coverKey)
+                                        }
+                                    } label: {
                                         VStack(alignment: .leading, spacing: 6) {
                                             BookCover(book: book, width: 96, height: 138)
+                                                .trackBookOpenFrame(key: coverKey)
+                                                .opacity(store.isBookCoverHidden(forKey: coverKey) ? 0 : 1)
                                             Text(book.title).font(NativeTheme.font(13)).lineLimit(1)
                                             HStack(spacing: 6) {
                                                 NativeThinProgress(value: item.progressPercent)
                                                 Text("\(item.progressPercent, specifier: "%.0f")%").font(NativeTheme.font(11, relativeTo: .caption2)).foregroundStyle(mutedText)
                                             }
-                                        }.frame(width: 96)
-                                    }.buttonStyle(.plain)
+                                        }.frame(width: 96).contentShape(Rectangle())
+                                    }.buttonStyle(.plain).disabled(store.openingReader)
+                                        .accessibilityIdentifier("dashboard.recent.\(book.id)")
                                 }
                             }
                         }.padding(.vertical, 4)
@@ -207,6 +396,14 @@ struct NativeReadingDashboard: View {
                 .background(NativeAmbientBackground()).navigationBarHidden(true)
                 .overlay(alignment: .top) { NativeStatusBarGlass() }
                 .task(id: "\(period):\(store.uiLanguage)") { await load() }
+                .onChange(of: store.readerBook == nil) { closed in
+                    guard closed, store.activeTab == 2 else { return }
+                    Task {
+                        try? await Task.sleep(nanoseconds: UInt64((NativeBookOpenTransitionPolicy.closeToCoverCleanupDelay + 0.08) * 1_000_000_000))
+                        guard store.readerBook == nil else { return }
+                        await load()
+                    }
+                }
         }
     }
     private func durationValue(_ seconds: Int64) -> String {
@@ -255,9 +452,17 @@ struct NativeReadingDashboard: View {
     }
     @ViewBuilder private func dashboardBook(_ item: DashboardBook, detail: String) -> some View {
         if let book = store.library.first(where: { $0.id == item.bookId }) {
-            NavigationLink { NativeBookDetailPage(store: store, bookId: book.id) } label: {
+            let coverKey = "dashboardMostRead:\(book.id)"
+            Button {
+                let frame = NativeBookCoverFrames.get(coverKey)
+                store.perform {
+                    try await store.openReader(book, sourceFrame: frame, sourceKey: coverKey)
+                }
+            } label: {
                 HStack(spacing: 14) {
                     BookCover(book: book, width: 38, height: 54)
+                        .trackBookOpenFrame(key: coverKey)
+                        .opacity(store.isBookCoverHidden(forKey: coverKey) ? 0 : 1)
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
                             Text(book.title).font(NativeTheme.font(14)).lineLimit(1); Spacer()
@@ -265,8 +470,9 @@ struct NativeReadingDashboard: View {
                         }
                         NativeThinProgress(value: Double(item.cumulativeSeconds), total: Double(dashboard?.mostReadBooks.map(\.cumulativeSeconds).max() ?? 1), height: 4)
                     }
-                }
-            }.buttonStyle(.plain)
+                }.contentShape(Rectangle())
+            }.buttonStyle(.plain).disabled(store.openingReader)
+                .accessibilityIdentifier("dashboard.mostRead.\(book.id)")
         } else { VStack(alignment: .leading, spacing: 8) { Text(item.title + L("（已移出书库）")); Text(detail).font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(secondaryText) } }
     }
     private func progressDistribution(_ books: [DashboardBook]) -> some View {

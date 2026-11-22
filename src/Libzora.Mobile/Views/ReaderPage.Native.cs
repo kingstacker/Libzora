@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Avalonia;
 using Libzora.Core;
 using Libzora.ApplicationServices.Tts;
 
@@ -62,6 +63,14 @@ public sealed record NativeReaderDialog(
 
 /// <summary>A figure or table the native frontend should show full screen.</summary>
 public sealed record NativeReaderMedia(Guid Id, string Kind, string Title, string Path);
+
+public sealed record NativeReaderAiContextSnapshot(
+    bool IsPdf,
+    int PdfPage,
+    int ChapterIndex,
+    string ChapterTitle,
+    string PageText,
+    int PageOffset);
 
 /// <summary>
 /// Data/actions for a native frontend around the existing rendering surface.
@@ -172,20 +181,45 @@ public partial class ReaderPage
         NotifyNativeState();
     }
 
-    public NativeReaderState GetNativeState() => new(
-        _ready, _nativeChromeVisible, _isPdf, _book.Title,
-        FooterChapter.Text ?? string.Empty, FooterPosition.Text ?? string.Empty,
-        _overallProgress * 100, FindCurrentBookmark() is not null, _nativeError,
-        _tts?.State ?? TtsPlaybackState.Stopped, SpeechStatusText.Text ?? string.Empty,
-        _selection?.Text, _footnoteReturn.Count > 0)
+    public void NativeSetSurfaceInsets(Thickness insets)
     {
-        NavigationRevision = _nativeNavigationRevision,
-        IsManga = IsMangaMode,
-        IsMangaVerticalScroll = IsMangaVerticalScroll,
-        SelectionBounds = _selection is { X: { } x, Y: { } y } selected
-            ? new(x, y, selected.Bottom ?? y, ReaderPaper.Bounds.Width, ReaderPaper.Bounds.Height)
-            : null
-    };
+        var clamped = new Thickness(
+            double.IsFinite(insets.Left) ? Math.Max(0, insets.Left) : 0,
+            double.IsFinite(insets.Top) ? Math.Max(0, insets.Top) : 0,
+            double.IsFinite(insets.Right) ? Math.Max(0, insets.Right) : 0,
+            double.IsFinite(insets.Bottom) ? Math.Max(0, insets.Bottom) : 0);
+        var current = ReaderHostSlot.Padding;
+        if (Math.Abs(current.Left - clamped.Left) < 0.25
+            && Math.Abs(current.Top - clamped.Top) < 0.25
+            && Math.Abs(current.Right - clamped.Right) < 0.25
+            && Math.Abs(current.Bottom - clamped.Bottom) < 0.25)
+        {
+            return;
+        }
+
+        ReaderHostSlot.Padding = clamped;
+    }
+
+    public NativeReaderState GetNativeState()
+    {
+        var hostVisual = _readerHost?.View as Avalonia.Visual;
+        var hostWidth = hostVisual is { Bounds.Width: > 0 } ? hostVisual.Bounds.Width : ReaderPaper.Bounds.Width;
+        var hostHeight = hostVisual is { Bounds.Height: > 0 } ? hostVisual.Bounds.Height : ReaderPaper.Bounds.Height;
+        return new(
+            _ready, _nativeChromeVisible, _isPdf, _book.Title,
+            FooterChapter.Text ?? string.Empty, FooterPosition.Text ?? string.Empty,
+            _overallProgress * 100, FindCurrentBookmark() is not null, _nativeError,
+            _tts?.State ?? TtsPlaybackState.Stopped, SpeechStatusText.Text ?? string.Empty,
+            _selection?.Text, _footnoteReturn.Count > 0)
+        {
+            NavigationRevision = _nativeNavigationRevision,
+            IsManga = IsMangaMode,
+            IsMangaVerticalScroll = IsMangaVerticalScroll,
+            SelectionBounds = _selection is { X: { } x, Y: { } y } selected
+                ? new(x, y, selected.Bottom ?? y, hostWidth, hostHeight)
+                : null
+        };
+    }
 
     /// <summary>
     /// Refreshes UI labels after a language change without navigating, reflowing
@@ -321,6 +355,42 @@ public partial class ReaderPage
         if (_tts is { } speech) await speech.StopAsync();
     }
     public string NativePageText() => CurrentPageText();
+
+    public NativeReaderAiContextSnapshot NativeGetAiContextSnapshot() =>
+        new(_isPdf, _pdfPage, _chapterIndex, FooterChapter.Text ?? string.Empty, CurrentPageText(),
+            (_readerHost as NativeReaderHost)?.GetVisiblePageTextRange()?.Start ?? 0);
+
+    public async Task<bool> NativeJumpToAiSourceAsync(
+        bool isPdf,
+        int chapterIndex,
+        int offset,
+        int pdfPage,
+        CancellationToken token = default)
+    {
+        token.ThrowIfCancellationRequested();
+        ClearActiveSyncedMarker();
+        _tts?.NotifyManualNavigation();
+        if (isPdf)
+        {
+            if (!_isPdf || _pdfPageCount <= 0) return false;
+            var targetPage = Math.Clamp(pdfPage, 1, _pdfPageCount);
+            await GoToPdfPageAsync(targetPage);
+            return !token.IsCancellationRequested;
+        }
+        if (_readerHost is not NativeReaderHost host || _epubDocument is not { Chapters.Count: > 0 } document)
+            return false;
+        var chapter = Math.Clamp(chapterIndex, 0, document.Chapters.Count - 1);
+        if (chapter != _chapterIndex
+            && !await NavigateToChapterAsync(host, chapter, new Uri(document.Chapters[chapter])))
+            return false;
+        await EnsureLayoutCompleteAsync(token);
+        token.ThrowIfCancellationRequested();
+        host.ScrollToOffset(Math.Max(0, offset));
+        UpdateEpubLabels();
+        _ = SaveProgressSoonAsync(force: true);
+        return true;
+    }
+
     public void NativeClearSelection() => ClearSelection();
 
     public async Task NativeRotatePdfAsync()

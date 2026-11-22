@@ -46,6 +46,7 @@ public partial class ReaderPage
 
     private async Task SeekAsync(double percent)
     {
+        ClearActiveSyncedMarker();
         _tts?.NotifyManualNavigation();
         try
         {
@@ -123,13 +124,15 @@ public partial class ReaderPage
 
     private bool IsMangaMode => !_isPdf && _shell.Preferences.Current.MangaMode;
     private bool IsMangaVerticalScroll => IsMangaMode && _shell.Preferences.Current.MangaDirection == (int)MobileMangaDirection.VerticalScroll;
+    private bool IsEpubScrollMode => !_isPdf && !IsMangaMode && _layout.FlowMode == 0;
+    private bool IsContinuousVerticalScroll => IsMangaVerticalScroll || IsEpubScrollMode;
     private bool IsMangaZoomed => IsMangaMode && _readerHost is NativeReaderHost manga && manga.MangaZoom > 1.01;
     private bool IsMangaPannable => IsMangaZoomed || IsMangaVerticalScroll;
     private bool IsRightToLeftPaging => (!_isPdf && _shell.Preferences.Current.MangaMode && _shell.Preferences.Current.MangaDirection == (int)MobileMangaDirection.RightToLeft)
         || (_layout.VerticalWriting && !_isPdf);
     private bool IsMangaBlackCanvas => IsMangaMode && _shell.Preferences.Current.MangaBlackBackground;
 
-    private ReaderTheme CurrentTheme => IsMangaBlackCanvas
+    private ReaderTheme CurrentTheme => (IsMangaBlackCanvas || IsPowerSavingActive)
         ? ReaderTheme.Ink
         : _shell.Preferences.Current.ResolveReaderTheme(
             _nativeAppAppearanceDark ?? (_shell.ActualThemeVariant == ThemeVariant.Dark));
@@ -234,7 +237,7 @@ public partial class ReaderPage
     private void ApplyTheme()
     {
         var dark = CurrentTheme == ReaderTheme.Ink;
-        var paper = IsMangaBlackCanvas
+        var paper = (IsMangaBlackCanvas || IsPowerSavingActive)
             ? Colors.Black
             : ReaderPalette.For(CurrentTheme, IsPowerSavingActive).Page;
         ThemeScope.RequestedThemeVariant = dark ? ThemeVariant.Dark : ThemeVariant.Light;
@@ -290,7 +293,7 @@ public partial class ReaderPage
             await ApplyPdfZoomAsync(pdf);
         }
 
-        var layout = BuildLayout(_shell.Preferences.Current);
+        var layout = BuildLayoutForViewport(_shell.Preferences.Current, ResolveViewportLandscape());
         if (layout == _layout)
         {
             RefreshPositionLabels();
@@ -360,7 +363,7 @@ public partial class ReaderPage
                 ChapterPath = _isPdf ? $"{PdfPageChapterPrefix}{_pdfPage}" : ChapterPathAt(_chapterIndex),
                 ChapterIndex = _isPdf ? _pdfPage - 1 : _chapterIndex,
                 ScrollPosition = _isPdf ? 0 : (int)Math.Clamp(_epubPosition, 0, int.MaxValue),
-                FlowMode = 1,
+                FlowMode = _isPdf ? 1 : _layout.FlowMode,
                 Title = title,
                 Quote = CurrentPageQuote() ?? UiText.Get("进度 {0:0}%", _overallProgress * 100)
             };

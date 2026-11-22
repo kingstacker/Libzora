@@ -130,7 +130,7 @@
     <BundleResource Include="Localization/zh-Hans.lproj/InfoPlist.strings" LogicalName="zh-Hans.lproj/InfoPlist.strings" />
     <NativeReference Include="$(NativeSwiftOutput)/libLibzoraNativeUI.a"
                      Kind="Static" ForceLoad="true" SmartLink="false"
-                     Frameworks="SwiftUI UIKit Foundation WidgetKit"
+                     Frameworks="SwiftUI UIKit Foundation WidgetKit WebKit"
                      LinkWithSwiftSystemLibraries="true" />
   </ItemGroup>
 

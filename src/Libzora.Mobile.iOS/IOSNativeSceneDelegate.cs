@@ -31,9 +31,9 @@ public sealed class IOSNativeSceneDelegate : UIResponder, IUIWindowSceneDelegate
     public void OpenUrlContexts(UIScene scene, NSSet<UIOpenUrlContext> contexts)
     {
         // Do not route through AvaloniaAppDelegate.OpenUrl: that method is not
-        // virtual, so it would bypass Libzora's widget deep-link handling.
+        // virtual, so it would bypass Libzora's widget deep-link and file-import handling.
         foreach (var context in contexts)
-            IOSNativeFrontend.HandleUrl(context.Url.AbsoluteString);
+            IOSNativeFrontend.HandleIncomingUrl(context.Url);
     }
 
     [Export("scene:continueUserActivity:")]

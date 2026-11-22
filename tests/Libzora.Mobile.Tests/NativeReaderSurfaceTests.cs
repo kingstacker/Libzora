@@ -286,6 +286,60 @@ public sealed class NativeReaderSurfaceTests(MobileUiSession session)
         }
     }, CancellationToken.None);
 
+    [Fact]
+    public Task DirectTxtBookFileOpensWithAutomaticChapters() => session.Session.Dispatch(async () =>
+    {
+        var root = Path.Combine(Path.GetTempPath(), "libzora-direct-txt-tests", Guid.NewGuid().ToString("N"));
+        var paths = new AppPaths(root);
+        var services = new MobileServices(paths, new TestProtector(), new BookMetadataService(),
+            new UnavailableBookFormatConverter(), new NoFileImportSource());
+        using var modules = MobileComposition.Create(services);
+        var shell = new MobileShell(modules, services, new MobilePreferencesStore(paths));
+        await modules.Library.Books.InitializeAsync();
+        await modules.Reader.Data.InitializeAsync();
+
+        var txtRelative = Path.Combine("library", "direct-novel.txt");
+        var txtPath = Path.Combine(paths.Data, txtRelative);
+        Directory.CreateDirectory(Path.GetDirectoryName(txtPath)!);
+        await File.WriteAllTextAsync(txtPath, "第一章 开端\n直接打开阅读。\n第二章 后续\n目录也自动生成。");
+        var book = new Book { Id = Guid.NewGuid(), Title = "直接阅读 TXT" };
+        var file = new BookFile
+        {
+            Id = Guid.NewGuid(),
+            BookId = book.Id,
+            Format = "txt",
+            RelativePath = txtRelative,
+            Size = new FileInfo(txtPath).Length,
+            Sha256 = await Hashing.Sha256Async(txtPath)
+        };
+        book.Files.Add(file);
+
+        var reader = new ReaderPage(book, modules, shell);
+        var states = new List<NativeReaderState>();
+        reader.NativeStateChanged += states.Add;
+        reader.UseNativeFrontend();
+        var window = new Window { Width = 390, Height = 844, Content = reader };
+        try
+        {
+            window.Show();
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            while (!states.Any(state => state.Ready || state.Error is not null))
+                await Task.Delay(15, timeout.Token);
+
+            var readyState = reader.GetNativeState();
+            Assert.Null(readyState.Error);
+            Assert.True(readyState.Ready);
+            var toc = reader.GetNativeToc();
+            Assert.Equal(["第一章 开端", "第二章 后续"], toc.Select(item => item.Title).ToArray());
+        }
+        finally
+        {
+            window.Close();
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }, CancellationToken.None);
+
     private sealed class TestProtector : ISecretProtector
     {
         public byte[] Protect(byte[] value) => value.ToArray();

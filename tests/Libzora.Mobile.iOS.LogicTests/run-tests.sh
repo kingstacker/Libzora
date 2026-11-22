@@ -17,6 +17,7 @@ xcrun --sdk macosx swiftc -swift-version 5 -parse-as-library \
 xcrun --sdk macosx swiftc -swift-version 5 -parse-as-library \
   "$root/src/Libzora.Mobile.iOS/NativeUI/NativePreferenceEdits.swift" \
   "$root/src/Libzora.Mobile.iOS/NativeUI/NativeReaderSearchCursor.swift" \
+  "$root/src/Libzora.Mobile.iOS/NativeUI/NativeBookOpenTransitionPolicy.swift" \
   "$root/tests/Libzora.Mobile.iOS.LogicTests/NativeStateLogicTests.swift" \
   -o "$output/native-state-tests"
 "$output/native-state-tests"
@@ -27,3 +28,9 @@ xcrun --sdk macosx swiftc -swift-version 5 -parse-as-library \
   "$root/tests/Libzora.Mobile.iOS.LogicTests/WidgetReadingTreeLogicTests.swift" \
   -o "$output/widget-tree-tests"
 "$output/widget-tree-tests"
+
+xcrun --sdk macosx swiftc -swift-version 5 -parse-as-library \
+  "$root/src/Libzora.Mobile.iOS/NativeUI/NativeMarkdownParser.swift" \
+  "$root/tests/Libzora.Mobile.iOS.LogicTests/NativeMarkdownLogicTests.swift" \
+  -o "$output/native-markdown-tests"
+"$output/native-markdown-tests"

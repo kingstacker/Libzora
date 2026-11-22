@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using Avalonia;
 using Avalonia.Controls;
@@ -51,7 +52,7 @@ public partial class ReaderPage
                 _isPdf ? Math.Max(0, _pdfPage - 1) : _chapterIndex,
                 _isPdf ? 0 : (int)Math.Clamp(_epubPosition, 0, int.MaxValue),
                 Math.Clamp(_overallProgress * 100, 0, 100),
-                1,
+                _isPdf ? 1 : _layout.FlowMode,
                 now)
             { ContentPosition = (_readerHost as IReaderPositionHost)?.CaptureContentPosition() };
             if (progress is null) return false;
@@ -116,6 +117,162 @@ public partial class ReaderPage
         SpeechDock.Margin = new Thickness(0, 0, 0, speechBottom);
     }
 
+    private CancellationTokenSource? _transitionCts;
+    private Task? _activeTransitionTask;
+    private long _activeTurnId;
+    private ReaderTransitionPlayer.InteractiveTransitionSession? _interactiveDrag;
+    private int _interactiveDragDirection;
+    private int _interactiveDragVisualDirection;
+    private bool _dragAttempted;
+    private double _lastDragX;
+    private double _lastDragY;
+    private long _lastDragTicks;
+    private double _dragVelocityX;
+    private double _dragVelocityY;
+    private DispatcherTimer? _scrollInertiaTimer;
+    private double _scrollInertiaVelocityY;
+    private bool _suppressScrollUpdatesDuringDrag;
+    private (double Top, double Left)? _pendingDragScroll;
+
+    private ReaderTransitionSurface CreateTransitionSurface() => new(
+        ReaderHostSlot,
+        TransitionSnapshot,
+        TransitionTrail,
+        TransitionFront,
+        TransitionEdge,
+        ReaderPaper,
+        ReaderHostSlot);
+
+    private static int ResolveTransitionAnimation(MobilePageAnimation animation) => animation switch
+    {
+        MobilePageAnimation.None => ReaderTransitionPlayer.AnimationNone,
+        MobilePageAnimation.Fade => ReaderTransitionPlayer.AnimationFade,
+        _ => ReaderTransitionPlayer.AnimationPush
+    };
+
+    private void StopScrollInertia()
+    {
+        _scrollInertiaTimer?.Stop();
+        _scrollInertiaVelocityY = 0;
+    }
+
+    private void StartScrollInertia(NativeReaderHost host)
+    {
+        var initialVelocity = Math.Clamp(-_dragVelocityY, -3600d, 3600d);
+        if (Math.Abs(initialVelocity) < 120) return;
+        _scrollInertiaVelocityY = initialVelocity;
+        _scrollInertiaTimer ??= new DispatcherTimer(TimeSpan.FromMilliseconds(16), DispatcherPriority.Render, (_, _) =>
+        {
+            if (_disposed || _turning || !IsContinuousVerticalScroll || IsMangaZoomed
+                || _readerHost is not NativeReaderHost scrollHost)
+            {
+                StopScrollInertia();
+                return;
+            }
+            var step = _scrollInertiaVelocityY * 0.016;
+            _scrollInertiaVelocityY *= 0.92;
+            if (Math.Abs(_scrollInertiaVelocityY) < 25)
+            {
+                StopScrollInertia();
+                return;
+            }
+            scrollHost.ScrollByPixel(step);
+        });
+        _scrollInertiaTimer.Stop();
+        _scrollInertiaTimer.Start();
+    }
+
+    private Point TranslateToHost(Point pointInPaper)
+    {
+        if (_readerHost?.View is Visual hostVisual
+            && ReaderPaper.TranslatePoint(pointInPaper, hostVisual) is { } translated)
+        {
+            return translated;
+        }
+        return pointInPaper;
+    }
+
+    private void ApplyScrollUpdate(double top, double left)
+    {
+        _lastScrollTop = top;
+        _lastScrollLeft = left;
+        _epubPosition = _layout.FlowMode == 0 ? Math.Max(0, top) : Math.Max(0, left);
+        if (_ready
+            && _activeSyncedMarker is not null
+            && _layout.FlowMode == 0
+            && Math.Abs(_epubPosition - _syncedMarkerScrollOrigin) >= Math.Max(120, ReaderHostSlot.Bounds.Height * 0.45))
+        {
+            ClearActiveSyncedMarker();
+        }
+        DismissFootnoteReturnIfReaderMoved(top, left);
+        UpdateEpubLabels();
+        _ = SaveProgressSoonAsync(force: false);
+    }
+
+    private void CommitPendingDragScroll()
+    {
+        _suppressScrollUpdatesDuringDrag = false;
+        ClearActiveSyncedMarker();
+        if (_pendingDragScroll is { } pending)
+        {
+            _pendingDragScroll = null;
+            ApplyScrollUpdate(pending.Top, pending.Left);
+        }
+    }
+
+    private void RevertPendingDragScroll()
+    {
+        if (_readerHost is NativeReaderHost host && _interactiveDragDirection != 0)
+        {
+            _suppressScrollUpdatesDuringDrag = true;
+            try
+            {
+                host.TurnPage(-_interactiveDragDirection);
+                host.SetResumeMarker(ToResumeMarker(_activeSyncedMarker));
+            }
+            finally
+            {
+                _pendingDragScroll = null;
+                _suppressScrollUpdatesDuringDrag = false;
+            }
+        }
+        else
+        {
+            _pendingDragScroll = null;
+            _suppressScrollUpdatesDuringDrag = false;
+        }
+        _interactiveDragDirection = 0;
+    }
+
+    private void CancelActiveTransition()
+    {
+        if (_transitionCts is { } cts)
+        {
+            _transitionCts = null;
+            try { cts.Cancel(); }
+            catch (ObjectDisposedException) { }
+            cts.Dispose();
+        }
+    }
+
+    private async Task CancelAndAwaitActiveTransitionAsync()
+    {
+        CancelActiveTransition();
+        if (_activeTransitionTask is { } active)
+        {
+            try { await active; }
+            catch (OperationCanceledException) { }
+            catch { }
+        }
+    }
+
+    private void CancelInteractiveDragImmediate()
+    {
+        if (_interactiveDrag is not { } drag) return;
+        _interactiveDrag = null;
+        drag.Cancel(RevertPendingDragScroll);
+    }
+
     private void OnSurfacePressed(object? sender, PointerPressedEventArgs e)
     {
         TrackTouchPressed(e);
@@ -133,12 +290,25 @@ public partial class ReaderPage
         if (_touches.Count > 1)
         {
             // A second finger starts a pinch, never a tap or selection.
+            CancelInteractiveDragImmediate();
             CancelPress();
             e.Handled = true;
             return;
         }
-        _pressPoint = e.GetPosition(ReaderHostSlot);
+        CancelInteractiveDragImmediate();
+        if (_activeTransitionTask is { IsCompleted: false })
+        {
+            CancelActiveTransition();
+        }
+        StopScrollInertia();
+        _pressPoint = e.GetPosition(ReaderPaper);
         _lastPanPoint = _pressPoint.Value;
+        _lastDragX = _pressPoint.Value.X;
+        _lastDragY = _pressPoint.Value.Y;
+        _lastDragTicks = Stopwatch.GetTimestamp();
+        _dragVelocityX = 0;
+        _dragVelocityY = 0;
+        _dragAttempted = false;
         _pressMoved = false;
         _panning = false;
         _selectionArmed = false;
@@ -174,8 +344,9 @@ public partial class ReaderPage
 
         // The host reports the new selection synchronously from inside
         // SelectWordAt, so arm the bridge event before calling it.
+        var hostPoint = TranslateToHost(point);
         _expectSelection = true;
-        if (!host.SelectWordAt(point.X, point.Y)) _expectSelection = false;
+        if (!host.SelectWordAt(hostPoint.X, hostPoint.Y)) _expectSelection = false;
     }
 
     /// <summary>Stops the host from treating a finger drag as a text selection.</summary>
@@ -187,28 +358,93 @@ public partial class ReaderPage
             return;
         }
         if (_pressPoint is not { } start || _selectionArmed) return;
-        var current = e.GetPosition(ReaderHostSlot);
+        var current = e.GetPosition(ReaderPaper);
         var delta = current - _lastPanPoint;
         _lastPanPoint = current;
+
+        var nowTicks = Stopwatch.GetTimestamp();
+        var dt = (nowTicks - _lastDragTicks) / (double)Stopwatch.Frequency;
+        if (dt > 0.002)
+        {
+            var instantVelocityX = (current.X - _lastDragX) / dt;
+            _dragVelocityX = _dragVelocityX * 0.4 + instantVelocityX * 0.6;
+            _lastDragX = current.X;
+            var instantVelocityY = (current.Y - _lastDragY) / dt;
+            _dragVelocityY = _dragVelocityY * 0.4 + instantVelocityY * 0.6;
+            _lastDragY = current.Y;
+            _lastDragTicks = nowTicks;
+        }
+
         if (Math.Abs(current.X - start.X) > TapSlop || Math.Abs(current.Y - start.Y) > TapSlop)
         {
             _pressMoved = true;
             _longPress.Stop();
         }
         if (IsPdfPannable) return;
-        if (IsMangaPannable && _pressMoved && _readerHost is NativeReaderHost mangaHost)
+        if ((IsMangaPannable || IsEpubScrollMode) && _pressMoved && _readerHost is NativeReaderHost mangaHost)
         {
             _panning = true;
             if (IsMangaZoomed)
             {
                 mangaHost.PanMangaBy(new Vector(-delta.X, -delta.Y));
             }
-            else if (IsMangaVerticalScroll)
+            else if (IsContinuousVerticalScroll)
             {
                 mangaHost.ScrollByPixel(-delta.Y);
             }
+            e.Handled = true;
+            return;
+        }
+
+        var dx = current.X - start.X;
+        var dy = current.Y - start.Y;
+        if (_interactiveDrag is null && !_dragAttempted && _pressMoved
+            && Math.Abs(dx) >= Math.Abs(dy) * SwipeDominance
+            && Math.Abs(dx) > TapSlop)
+        {
+            _dragAttempted = true;
+            TryBeginInteractiveDrag(dx);
+        }
+
+        if (_interactiveDrag is { } drag)
+        {
+            var width = Math.Max(1, ReaderPaper.Bounds.Width);
+            var progress = (_interactiveDragVisualDirection >= 0 ? -dx : dx) / width;
+            drag.Update(progress);
         }
         e.Handled = true;
+    }
+
+    private void TryBeginInteractiveDrag(double dx)
+    {
+        if (!_ready || IsChromeVisible || _isPdf || _turning) return;
+        if (_activeTransitionTask is { IsCompleted: false }) return;
+        if (_readerHost is not NativeReaderHost host || !host.IsLayoutComplete) return;
+
+        var animation = IsPowerSavingActive
+            ? ReaderTransitionPlayer.AnimationNone
+            : ResolveTransitionAnimation(_shell.Preferences.Current.ReaderPageAnimation);
+        if (IsEpubScrollMode || animation != ReaderTransitionPlayer.AnimationPush)
+            return;
+
+        var direction = MobileReaderPagingPolicy.SwipeDirection(dx, _layout.VerticalWriting, _isPdf, IsRightToLeftPaging);
+        if (direction == 0 || !host.CanTurn(direction)) return;
+
+        var visualDirection = MobileReaderPagingPolicy.VisualDirection(direction, _layout.VerticalWriting, _isPdf, IsRightToLeftPaging);
+        _suppressScrollUpdatesDuringDrag = true;
+        _pendingDragScroll = null;
+        var session = ReaderTransitionPlayer.BeginInteractive(CreateTransitionSurface(), animation, visualDirection);
+        if (session is null)
+        {
+            _suppressScrollUpdatesDuringDrag = false;
+            return;
+        }
+
+        host.SetResumeMarker(null);
+        host.TurnPage(direction);
+        _interactiveDrag = session;
+        _interactiveDragDirection = direction;
+        _interactiveDragVisualDirection = visualDirection;
     }
 
     private DateTimeOffset _lastPdfTapAt = DateTimeOffset.MinValue;
@@ -227,6 +463,7 @@ public partial class ReaderPage
     {
         if (TrackTouchReleased(e))
         {
+            CancelInteractiveDragImmediate();
             CancelPress();
             ConsumeSurfaceRelease(e);
             return;
@@ -234,6 +471,7 @@ public partial class ReaderPage
         _longPress.Stop();
         if (_pressPoint is not { } start)
         {
+            CancelInteractiveDragImmediate();
             ConsumeSurfaceRelease(e);
             return;
         }
@@ -245,13 +483,32 @@ public partial class ReaderPage
             return;
         }
 
-        var end = e.GetPosition(ReaderHostSlot);
+        if (_interactiveDrag is { } drag)
+        {
+            _interactiveDrag = null;
+            ConsumeSurfaceRelease(e);
+            var forwardFlick = _interactiveDragVisualDirection >= 0
+                ? _dragVelocityX < -260
+                : _dragVelocityX > 260;
+            var backwardFlick = _interactiveDragVisualDirection >= 0
+                ? _dragVelocityX > 260
+                : _dragVelocityX < -260;
+            var commit = !backwardFlick && (drag.Progress >= 0.25 || forwardFlick);
+            _ = FinishInteractiveDragAsync(drag, commit);
+            return;
+        }
+
+        var end = e.GetPosition(ReaderPaper);
         var dx = end.X - start.X;
         var dy = end.Y - start.Y;
         var dominant = Math.Abs(dx) >= Math.Abs(dy) * SwipeDominance;
-        if (IsMangaPannable && (_panning || _pressMoved))
+        if ((IsMangaPannable || IsEpubScrollMode) && (_panning || _pressMoved))
         {
             ConsumeSurfaceRelease(e);
+            if (IsContinuousVerticalScroll && !IsMangaZoomed && _readerHost is NativeReaderHost scrollHost)
+            {
+                StartScrollInertia(scrollHost);
+            }
             return;
         }
         if (Math.Abs(dx) >= SwipeDistance && dominant)
@@ -279,14 +536,15 @@ public partial class ReaderPage
                 CancelPendingDelayedTap();
                 _lastPdfTapAt = DateTimeOffset.MinValue;
                 _tapConsumed = true;
-                if (_isPdf) _ = TogglePdfDoubleTapZoomAsync(end);
-                else ToggleMangaDoubleTapZoom(end);
+                var hostPoint = TranslateToHost(end);
+                if (_isPdf) _ = TogglePdfDoubleTapZoomAsync(hostPoint);
+                else ToggleMangaDoubleTapZoom(hostPoint);
                 return;
             }
 
             // The host reports link, annotation and figure hits after this
             // tunnel handler, but only a gesture that stayed a tap reaches it.
-            var ratio = end.X / Math.Max(1, ReaderHostSlot.Bounds.Width);
+            var ratio = end.X / Math.Max(1, ReaderPaper.Bounds.Width);
             if ((_isPdf || IsMangaMode) && !IsChromeVisible)
             {
                 _lastPdfTapAt = now;
@@ -304,6 +562,51 @@ public partial class ReaderPage
         else if (!IsPdfPannable)
         {
             ConsumeSurfaceRelease(e);
+        }
+    }
+
+    private async Task FinishInteractiveDragAsync(
+        ReaderTransitionPlayer.InteractiveTransitionSession drag,
+        bool commit)
+    {
+        if (commit)
+        {
+            MarkNativeNavigation();
+            _tts?.NotifyManualNavigation();
+        }
+
+        await CancelAndAwaitActiveTransitionAsync();
+        using var transitionCts = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+        _transitionCts = transitionCts;
+        var target = commit ? 1d : 0d;
+        var remaining = Math.Abs(target - drag.Progress);
+        var durationMs = Math.Clamp(remaining * 380d, 115d, 380d);
+        var task = drag.FinishAsync(
+            target,
+            durationMs,
+            transitionCts.Token,
+            onBeforeReset: commit ? CommitPendingDragScroll : RevertPendingDragScroll);
+        _activeTransitionTask = task;
+        try
+        {
+            await task;
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception exception)
+        {
+            _shell.ShowToast(UiText.Localize(exception.Message));
+        }
+        finally
+        {
+            if (ReferenceEquals(_activeTransitionTask, task))
+                _activeTransitionTask = null;
+            if (ReferenceEquals(_transitionCts, transitionCts))
+            {
+                _transitionCts = null;
+                transitionCts.Dispose();
+            }
         }
     }
 
@@ -364,7 +667,7 @@ public partial class ReaderPage
         if (IsChromeVisible) SetChromeVisible(false);
         else
         {
-            if (IsMangaVerticalScroll && _readerHost is NativeReaderHost scrollHost)
+            if (IsContinuousVerticalScroll && _readerHost is NativeReaderHost scrollHost)
             {
                 if (ratio is >= 1d / 3 and <= 2d / 3)
                 {
@@ -389,11 +692,16 @@ public partial class ReaderPage
     {
         HideSelectionBar();
         if (_turning) return;
-        MarkNativeNavigation();
-        _tts?.NotifyManualNavigation();
+        var turnId = ++_activeTurnId;
         _turning = true;
+        CancellationTokenSource? transitionCts = null;
+        Task? transitionTask = null;
         try
         {
+            CancelInteractiveDragImmediate();
+            await CancelAndAwaitActiveTransitionAsync();
+            MarkNativeNavigation();
+            _tts?.NotifyManualNavigation();
             await EnsureLayoutCompleteAsync();
             if (_isPdf && (_pdfPage + direction < 1 || _pdfPage + direction > _pdfPageCount))
             {
@@ -409,25 +717,43 @@ public partial class ReaderPage
                 return;
             }
 
-            var surface = new ReaderTransitionSurface(
-                ReaderHostSlot, TransitionSnapshot, TransitionTrail, TransitionFront, TransitionEdge, ReaderPaper);
-            var animation = IsPowerSavingActive ? 0 : (int)_shell.Preferences.Current.ReaderPageAnimation;
-            await ReaderTransitionPlayer.RunAsync(surface, animation,
-                MobileReaderPagingPolicy.VisualDirection(direction, _layout.VerticalWriting, _isPdf, IsRightToLeftPaging), async () =>
+            var surface = CreateTransitionSurface();
+            var animation = IsPowerSavingActive
+                ? ReaderTransitionPlayer.AnimationNone
+                : ResolveTransitionAnimation(_shell.Preferences.Current.ReaderPageAnimation);
+            var visualDirection = MobileReaderPagingPolicy.VisualDirection(
+                direction, _layout.VerticalWriting, _isPdf, IsRightToLeftPaging);
+            transitionCts = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+            _transitionCts = transitionCts;
+            var contentSwitched = false;
+            transitionTask = ReaderTransitionPlayer.RunAsync(surface, animation, visualDirection, async () =>
             {
+                ClearActiveSyncedMarker();
                 if (_isPdf)
                 {
                     await GoToPdfPageAsync(_pdfPage + direction);
+                    contentSwitched = true;
                     return true;
                 }
 
                 if (_readerHost is not NativeReaderHost host) return false;
                 if (!host.TurnPage(direction))
                     await GoToChapterAsync(host, _chapterIndex + direction, fromEnd: direction < 0, direction);
+                contentSwitched = true;
                 return true;
-            }, _lifetime.Token);
+            }, transitionCts.Token);
+            _activeTransitionTask = transitionTask;
+            // Unlock rapid consecutive page turns once the page flip has switched
+            // content and entered its visual animation phase; the next turn will
+            // cleanly settle the previous animation first.
+            while (!transitionTask.IsCompleted && !contentSwitched)
+            {
+                await Task.WhenAny(transitionTask, Task.Delay(8, transitionCts.Token));
+            }
+            if (contentSwitched && turnId == _activeTurnId) _turning = false;
+            await transitionTask;
         }
-        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
+        catch (OperationCanceledException)
         {
         }
         catch (Exception exception)
@@ -436,12 +762,22 @@ public partial class ReaderPage
         }
         finally
         {
-            _turning = false;
+            if (transitionTask is not null && ReferenceEquals(_activeTransitionTask, transitionTask))
+                _activeTransitionTask = null;
+            if (transitionCts is not null)
+            {
+                if (ReferenceEquals(_transitionCts, transitionCts))
+                    _transitionCts = null;
+                transitionCts.Dispose();
+            }
+            if (turnId == _activeTurnId)
+                _turning = false;
         }
     }
 
     private async Task GoToChapterAsync(NativeReaderHost host, int chapter, bool fromEnd, int direction)
     {
+        ClearActiveSyncedMarker();
         HideSelectionBar();
         if (_epubDocument is null) return;
         if (chapter < 0 || chapter >= _epubDocument.Chapters.Count)

@@ -27,6 +27,5 @@ struct NativeFeedbackPage: View {
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarHidden(false)
         .nativeBackButton()
-        .modifier(NativeHideTabBar())
     }
 }

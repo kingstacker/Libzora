@@ -40,8 +40,7 @@ public partial class ReaderSettingsSheet : UserControl
         PaperInk.Classes.Set("on", !current.ReaderThemeFollowsAppearance && current.ReaderTheme == ReaderTheme.Ink);
         AnimationNone.Classes.Set("on", current.ReaderPageAnimation == MobilePageAnimation.None);
         AnimationFade.Classes.Set("on", current.ReaderPageAnimation == MobilePageAnimation.Fade);
-        AnimationSlide.Classes.Set("on", current.ReaderPageAnimation == MobilePageAnimation.Slide);
-        AnimationWave.Classes.Set("on", current.ReaderPageAnimation == MobilePageAnimation.Wave);
+        AnimationPush.Classes.Set("on", current.ReaderPageAnimation == MobilePageAnimation.Push);
         ProgressPages.Classes.Set("on", current.ReaderProgressDisplay == MobileReaderProgressDisplay.Pages);
         ProgressChapters.Classes.Set("on", current.ReaderProgressDisplay == MobileReaderProgressDisplay.Chapters);
         ProgressBookTime.Classes.Set("on", current.ReaderProgressDisplay == MobileReaderProgressDisplay.BookTimeRemaining);
@@ -119,9 +118,8 @@ public partial class ReaderSettingsSheet : UserControl
         var animation = sender switch
         {
             Button { Name: nameof(AnimationNone) } => MobilePageAnimation.None,
-            Button { Name: nameof(AnimationSlide) } => MobilePageAnimation.Slide,
-            Button { Name: nameof(AnimationWave) } => MobilePageAnimation.Wave,
-            _ => MobilePageAnimation.Fade
+            Button { Name: nameof(AnimationFade) } => MobilePageAnimation.Fade,
+            _ => MobilePageAnimation.Push
         };
         Change(value => value with { ReaderPageAnimation = animation });
     }

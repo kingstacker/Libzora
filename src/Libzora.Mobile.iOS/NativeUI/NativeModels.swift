@@ -1,6 +1,6 @@
 import Foundation
 
-enum JSONValue: Codable {
+enum JSONValue: Codable, Equatable {
     case null, bool(Bool), number(Double), string(String), array([JSONValue]), object([String: JSONValue])
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
@@ -42,6 +42,27 @@ struct CreatedFolder: Decodable { let id: String; let name: String }
 struct CoverResult: Decodable { let cover: String? }
 struct MessageResult: Decodable { let message: String; let warning: String? }
 struct TextResult: Decodable { let text: String }
+struct AiSource: Decodable, Identifiable, Equatable {
+    let id: String
+    let label: String
+    let content: String
+    let isPdf: Bool
+    let chapterIndex: Int
+    let offset: Int
+    let pdfPage: Int
+}
+struct AiResult: Decodable {
+    let text: String
+    let reasoning: String
+    let status: String
+    let sources: [AiSource]
+}
+struct AiInfo: Decodable, Equatable {
+    let configured: Bool
+    let provider: String
+    let model: String
+}
+struct AiJumpResult: Decodable { let jumped: Bool }
 struct ReaderFontOption: Decodable, Identifiable, Equatable {
     let key: String
     let name: String
@@ -195,7 +216,7 @@ struct EmailForm: Codable {
     var enableSsl = true
 }
 
-struct MaterialRecord: Decodable, Identifiable {
+struct MaterialRecord: Decodable, Identifiable, Equatable {
     let id: String
     let bookId: String
     let bookTitle: String
@@ -260,8 +281,9 @@ struct ReaderMedia: Decodable, Identifiable, Equatable { let id: String; let kin
 struct SpeechVoice: Decodable, Identifiable { let id: String; let name: String; let culture: String? }
 struct SpeechForm: Decodable { var voice: String; var speed: Double; var autoAdvance: Bool }
 struct SpeechSnapshot: Decodable { let settings: SpeechForm; let voices: [SpeechVoice] }
-struct DictionaryRecord: Decodable, Identifiable { let id: String; let name: String; let entryCount: Int; let enabled: Bool }
+struct DictionaryRecord: Decodable, Identifiable { let id: String; let name: String; let entryCount: Int; let enabled: Bool; let sourceFormat: String? }
 struct DictionaryEntry: Decodable { let term: String; let definition: String; let dictionaryName: String }
+struct DictionaryLookupPayload: Decodable { let entries: [DictionaryEntry]; let renderedHtml: String?; let entryCount: Int? }
 struct WikipediaArticle: Decodable { let title: String; let extract: String; let url: URL; let language: String }
 struct TxtReview: Decodable, Identifiable { let id: Int64; let name: String }
 struct TxtRules: Codable, Equatable { var encoding = 0; var headingPreset = 0; var customHeadingPattern = ""; var recognizeVolumes = true }

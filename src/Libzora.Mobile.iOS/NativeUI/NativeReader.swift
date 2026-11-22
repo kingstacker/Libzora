@@ -14,6 +14,13 @@ private enum ReaderPanel: String, Identifiable {
     }
 }
 
+private struct ReaderSurfaceInsets: Equatable {
+    let left: CGFloat
+    let top: CGFloat
+    let right: CGFloat
+    let bottom: CGFloat
+}
+
 /// A note being written or edited in the reader's floating card.
 private struct ReaderNoteRequest: Identifiable, Equatable {
     let id = UUID()
@@ -31,6 +38,7 @@ struct NativeReaderPage: View {
     let appColorScheme: ColorScheme
     let appearanceSessionId: String
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var panel: ReaderPanel?
     @State private var dialog: ReaderDialog?
     @State private var noteRequest: ReaderNoteRequest?
@@ -40,6 +48,8 @@ struct NativeReaderPage: View {
     @State private var seekProgress = 0.0
     @State private var dragging = false
     @State private var closing = false
+    @State private var returningFromFootnote = false
+    @State private var loadingChromeVisible = false
     @State private var searching = false
     @FocusState private var searchFocused: Bool
     @State private var searchQuery = ""
@@ -57,6 +67,12 @@ struct NativeReaderPage: View {
     /// PostScript name of the body font, so the reading footer matches the page.
     @State private var bodyFontName = "KingHwaOldSong"
     @State private var systemLowPowerMode = ProcessInfo.processInfo.isLowPowerModeEnabled
+    @State private var openTransitionProgress: Double = 0
+    @State private var openTransitionStartedId: UUID?
+    private var activeOpenTransition: NativeBookOpenTransition? {
+        guard let transition = store.openingBookTransition, transition.book.id == book.id else { return nil }
+        return transition
+    }
     private var powerSavingActive: Bool {
         store.preferences.isPowerSaving(systemLowPower: systemLowPowerMode)
     }
@@ -87,7 +103,7 @@ struct NativeReaderPage: View {
     /// reader presentation dark, and that forced scheme can outlive the paper
     /// choice, which would keep "follow" on the dark paper.
     private var effectiveReaderTheme: Int {
-        if reader.isManga && store.preferences.mangaBlackBackground { return 5 }
+        if (reader.isManga && store.preferences.mangaBlackBackground) || powerSavingActive { return 5 }
         return store.preferences.readerThemeFollowsAppearance
             ? (appColorScheme == .dark ? 5 : 0)
             : store.preferences.readerTheme
@@ -96,75 +112,158 @@ struct NativeReaderPage: View {
     /// nil can let the presentation retain its previous dark override after the
     /// ink paper, so switching back to "follow" could stay dark.
     private var readerColorScheme: ColorScheme {
-        if reader.isManga && store.preferences.mangaBlackBackground { return .dark }
+        if (reader.isManga && store.preferences.mangaBlackBackground) || powerSavingActive { return .dark }
         return store.preferences.readerThemeFollowsAppearance
             ? appColorScheme
             : (store.preferences.readerTheme == 5 ? .dark : .light)
     }
     private var paper: Color {
-        if reader.isManga && store.preferences.mangaBlackBackground { return .black }
+        if (reader.isManga && store.preferences.mangaBlackBackground) || powerSavingActive { return .black }
         return store.preferences.paper(for: effectiveReaderTheme, pureBlackOled: powerSavingActive)
     }
-    // Assistant conversations take the full screen; the other reader tools
-    // remain page sheets so the reading context stays visible.
-    private var sheetPanel: Binding<ReaderPanel?> {
-        Binding(get: { panel == .assistant ? nil : panel }, set: { panel = $0 })
+    // Compact screens present the assistant in a resizable sheet; regular wide
+    // windows dock it as a side rail beside the reading surface.
+    @State private var viewportWidth: CGFloat = 0
+    private var docksAssistantSidebar: Bool {
+        horizontalSizeClass == .regular && viewportWidth >= 760
     }
-    private var assistantPanel: Binding<ReaderPanel?> {
-        Binding(get: { panel == .assistant ? panel : nil }, set: { panel = $0 })
+    private var sheetPanel: Binding<ReaderPanel?> {
+        Binding(
+            get: { (panel == .assistant && docksAssistantSidebar) ? nil : panel },
+            set: { panel = $0 })
+    }
+
+    private func isSidebarOpen(contentWidth: CGFloat) -> Bool {
+        panel == .assistant && horizontalSizeClass == .regular && contentWidth >= 760
+    }
+
+    private func assistantSidebarWidth(contentWidth: CGFloat) -> CGFloat {
+        isSidebarOpen(contentWidth: contentWidth) ? min(420, max(320, contentWidth * 0.36)) : 0
     }
 
     var body: some View {
-        GeometryReader { geometry in
-            ZStack(alignment: .top) {
-                paper.ignoresSafeArea()
-                readerContent(viewportWidth: geometry.size.width)
-                    .frame(width: NativeAdaptiveLayout.readerWidth(viewportWidth: geometry.size.width, isPdf: reader.isPdf || reader.isManga))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .allowsHitTesting(!showingSearchResults && !jumpingToSearch).accessibilityHidden(showingSearchResults)
-                if showingSearchResults {
-                    Button(action: dismissSearchResults) { Color.black.opacity(0.08).ignoresSafeArea() }
-                        .buttonStyle(.plain).accessibilityLabel(L("收起搜索结果"))
-                        .accessibilityIdentifier("reader.search.dismiss")
-                }
-                VStack(spacing: 8) {
-                    if reader.chromeVisible || !reader.ready || searching { topBar }
-                    if let id = searchCursor.hitId, !searching, let index = searchResults.hits.firstIndex(where: { $0.id == id }) {
-                        searchNavigationBar(index: index)
-                            .padding(.top, reader.chromeVisible ? 0 : 8)
-                            .transition(.opacity)
+        GeometryReader { safeGeometry in
+            let safeInsets = safeGeometry.safeAreaInsets
+            let contentWidth = max(1, safeGeometry.size.width)
+            let sidebarOpen = isSidebarOpen(contentWidth: contentWidth)
+            let sidebarWidth = assistantSidebarWidth(contentWidth: contentWidth)
+            let readingViewportWidth = max(1, contentWidth - sidebarWidth)
+            let openTransition = activeOpenTransition
+            let effectiveProgress = openTransition != nil ? openTransitionProgress : 1.0
+
+            GeometryReader { fullGeometry in
+                let containerFrame = fullGeometry.frame(in: .global)
+                let readingWidth = NativeAdaptiveLayout.readerWidth(viewportWidth: readingViewportWidth, isPdf: reader.isPdf || reader.isManga)
+                let sideColumnInset = max(0, (readingViewportWidth - readingWidth) / 2)
+                let surfaceInsets = ReaderSurfaceInsets(
+                    left: safeInsets.leading + sideColumnInset,
+                    top: safeInsets.top,
+                    right: safeInsets.trailing + sideColumnInset + sidebarWidth,
+                    bottom: safeInsets.bottom + readerBottomInset
+                )
+                ZStack {
+                    if openTransition != nil {
+                        NativeBookOpenDimmingLayer(progress: effectiveProgress)
                     }
-                    if reader.footnoteReturnVisible {
-                        Button(action: returnFromFootnote) {
-                            HStack(spacing: 6) {
-                                Image(systemName: "arrow.uturn.backward")
-                                    .font(.system(size: 12, weight: .semibold))
-                                Text(L("返回原文")).font(NativeTheme.font(13))
-                            }
-                            .padding(.horizontal, 14)
-                            .frame(height: 34)
+
+                    ZStack(alignment: .topLeading) {
+                        paper
+                        ReaderSurface(controller: store.readerController)
+                            .frame(width: fullGeometry.size.width, height: fullGeometry.size.height)
+                            .overlay { ambientOverlay(size: fullGeometry.size) }
+                            .allowsHitTesting(openTransition == nil && !showingSearchResults && !jumpingToSearch)
+                        readerContent()
+                            .frame(width: readingWidth)
+                            .frame(width: readingViewportWidth)
+                            .frame(maxHeight: .infinity)
+                            .padding(.top, safeInsets.top)
+                            .padding(.bottom, safeInsets.bottom)
+                            .padding(.leading, safeInsets.leading)
+                            .allowsHitTesting(openTransition == nil && !showingSearchResults && !jumpingToSearch)
+                            .accessibilityHidden(showingSearchResults)
+                        if showingSearchResults {
+                            Button(action: dismissSearchResults) { Color.black.opacity(0.08) }
+                                .buttonStyle(.plain).accessibilityLabel(L("收起搜索结果"))
+                                .accessibilityIdentifier("reader.search.dismiss")
                         }
-                        .buttonStyle(.plain)
-                        .modifier(NativeFloatingSurface())
-                        .accessibilityIdentifier("reader.footnote.return")
-                        .transition(.opacity)
+                        topChromeOverlay(
+                            safeInsets: safeInsets,
+                            readingViewportWidth: readingViewportWidth,
+                            openTransition: openTransition)
+                            .zIndex(10)
+
+                        if sidebarOpen {
+                            assistantSidebarOverlay(
+                                sidebarWidth: sidebarWidth,
+                                safeInsets: safeInsets,
+                                fullSize: fullGeometry.size)
+                                .zIndex(20)
+                        }
                     }
-                    if showingSearchResults {
-                        NativeReaderSearchResults(hits: searchResults.hits, query: searchResults.query, busy: searchResults.busy,
-                                                  loadingMore: searchResults.loadingMore, hasMore: searchResults.hasMore,
-                                                  isPdf: reader.isPdf, scanned: searchResults.scanned, total: searchResults.total,
-                                                  error: searchResults.error, jumping: jumpingToSearch,
-                                                  pick: jumpToSearch, loadMore: continueSearch, close: dismissSearchResults)
-                            .frame(height: searchResults.hits.isEmpty ? 58 : min(340, CGFloat(searchResults.hits.count) * 96 + (searchResults.hasMore ? 96 : 38)))
-                            .modifier(NativeFloatingSurface()).padding(.horizontal, 12)
+                    .frame(width: fullGeometry.size.width, height: fullGeometry.size.height)
+                    .onAppear { viewportWidth = contentWidth }
+                    .onChange(of: contentWidth) { viewportWidth = $0 }
+                    .task(id: surfaceInsets) {
+                        try? await store.command("reader.insets", [
+                            "left": Double(surfaceInsets.left),
+                            "top": Double(surfaceInsets.top),
+                            "right": Double(surfaceInsets.right),
+                            "bottom": Double(surfaceInsets.bottom)
+                        ])
                     }
-                    Spacer(minLength: 0)
+                    .modifier(
+                        NativeBookOpenPageTransform(
+                            active: openTransition != nil,
+                            sourceFrame: openTransition?.sourceFrame ?? containerFrame,
+                            containerFrame: containerFrame,
+                            isCentered: openTransition?.isCentered ?? false,
+                            colorScheme: readerColorScheme,
+                            progress: effectiveProgress
+                        )
+                    )
+
+                    if let openTransition {
+                        NativeBookOpenLiveCoverLayer(
+                            transition: openTransition,
+                            containerFrame: containerFrame,
+                            progress: effectiveProgress
+                        )
+                    }
                 }
-                .frame(maxWidth: NativeAdaptiveLayout.readerToolsMaxWidth)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .frame(width: fullGeometry.size.width, height: fullGeometry.size.height)
             }
+            .ignoresSafeArea()
         }
         .ignoresSafeArea(.keyboard)
+        .task(id: activeOpenTransition?.id) {
+            guard let transition = activeOpenTransition else {
+                openTransitionProgress = 1
+                openTransitionStartedId = nil
+                return
+            }
+            guard openTransitionStartedId != transition.id else { return }
+            openTransitionStartedId = transition.id
+            openTransitionProgress = 0
+            // Wait one frame so UIKit finishes the non-animated presentation
+            // and re-enables animations before kicking off the open morph.
+            try? await Task.sleep(nanoseconds: 12_000_000)
+            guard !Task.isCancelled, store.openingBookTransition?.id == transition.id else { return }
+            let duration = transition.isCentered
+                ? NativeBookOpenTransitionPolicy.openFromCenterDuration
+                : NativeBookOpenTransitionPolicy.openFromCoverDuration
+            let cleanupDelay = transition.isCentered
+                ? NativeBookOpenTransitionPolicy.openFromCenterCleanupDelay
+                : NativeBookOpenTransitionPolicy.openFromCoverCleanupDelay
+            withAnimation(.timingCurve(0.22, 1.0, 0.36, 1.0, duration: duration)) {
+                openTransitionProgress = 1
+            }
+            try? await Task.sleep(nanoseconds: UInt64(cleanupDelay * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            if store.openingBookTransition?.id == transition.id {
+                store.openingBookTransition = nil
+            }
+            store.restoringReader = false
+        }
         .font(NativeTheme.font()).foregroundStyle(NativeTheme.ink).tint(NativeTheme.ink)
         .environment(\.symbolVariants, .none)
         .preferredColorScheme(readerColorScheme)
@@ -183,25 +282,35 @@ struct NativeReaderPage: View {
                             enabled: panel == .toc, paper: paper,
                             usesAmbient: store.preferences.readerThemeFollowsAppearance && store.preferences.colorfulMode,
                             ambientOpacity: appColorScheme == .dark ? 0.14 : 0.10))
+                        .modifier(NativeAssistantSheetDetents(enabled: panel == .assistant))
                 }
             }
             .font(NativeTheme.font()).foregroundStyle(NativeTheme.ink).tint(NativeTheme.ink)
             .preferredColorScheme(readerColorScheme)
         }
-        .fullScreenCover(item: assistantPanel) { panel in
-            // The assistant is a conversation, so it owns the whole screen
-            // instead of leaving a strip of the reader's toolbar visible.
-            NavigationView {
-                panelContent(panel)
-                    .navigationTitle(panel.title).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
-                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button(L("完成")) { self.panel = nil } } }
-            }
-            .navigationViewStyle(.stack)
-            .background(NativeTheme.page.ignoresSafeArea())
-            .font(NativeTheme.font()).foregroundStyle(NativeTheme.ink).tint(NativeTheme.ink)
-            .preferredColorScheme(readerColorScheme)
+        .onAppear {
+            seekProgress = reader.progress
+            syncAppAppearance(appColorScheme)
+            syncSystemLowPowerMode()
         }
-        .onAppear { seekProgress = reader.progress; syncAppAppearance(appColorScheme) }
+        .task(id: "\(book.id)|\(reader.ready)|\(reader.error != nil)|\(activeOpenTransition != nil)") {
+            if reader.ready {
+                loadingChromeVisible = false
+                return
+            }
+            if reader.error != nil {
+                loadingChromeVisible = true
+                return
+            }
+            if activeOpenTransition != nil {
+                loadingChromeVisible = false
+                return
+            }
+            loadingChromeVisible = false
+            try? await Task.sleep(nanoseconds: UInt64(NativeBookOpenTransitionPolicy.readerLoadingChromeGraceSeconds * 1_000_000_000))
+            guard !Task.isCancelled, !reader.ready, activeOpenTransition == nil else { return }
+            withAnimation(.easeOut(duration: 0.2)) { loadingChromeVisible = true }
+        }
         .task(id: store.preferences.readerFontFamily) { await loadBodyFont() }
         // Forward the new value: a transition can invoke the callback on the
         // previous view, whose captured appColorScheme is one change behind.
@@ -322,30 +431,18 @@ struct NativeReaderPage: View {
         let name = list.fonts.first(where: { $0.key == store.preferences.readerFontFamily })?.previewName ?? ""
         bodyFontName = name.isEmpty ? "KingHwaOldSong" : name
     }
-    private func readerContent(viewportWidth: CGFloat) -> some View {
+    private func readerContent() -> some View {
         ZStack {
-            paper.ignoresSafeArea()
-            ReaderSurface(controller: store.readerController).padding(.bottom, readerBottomInset)
-                .overlay {
-                    if !powerSavingActive && store.preferences.readerThemeFollowsAppearance && store.preferences.colorfulMode {
-                        // The wash spans the entire window, including the side
-                        // paper around an iPad's narrower text column. An overlay
-                        // does not enlarge the reader's pagination/touch viewport.
-                        NativeAmbientWash().opacity(appColorScheme == .dark ? 0.14 : 0.10)
-                            .frame(width: viewportWidth)
-                            .ignoresSafeArea().allowsHitTesting(false).accessibilityHidden(true)
-                    }
-                }
-                .onReceive(NotificationCenter.default.publisher(for: .NSProcessInfoPowerStateDidChange)) { _ in
-                    syncSystemLowPowerMode()
-                }
             if !reader.ready {
                 VStack(spacing: 16) {
-                    Text(book.title).font(NativeTheme.font(21, relativeTo: .title2)).multilineTextAlignment(.center)
-                    if let error = reader.error { Text(error).foregroundStyle(NativeTheme.secondary).multilineTextAlignment(.center) }
-                    else { ProgressView(L("正在打开书籍…")) }
-                }.padding(32).frame(maxWidth: .infinity, maxHeight: .infinity).background(paper)
+                    if (loadingChromeVisible && activeOpenTransition == nil) || reader.error != nil {
+                        Text(book.title).font(NativeTheme.font(21, relativeTo: .title2)).multilineTextAlignment(.center)
+                        if let error = reader.error { Text(error).foregroundStyle(NativeTheme.secondary).multilineTextAlignment(.center) }
+                        else { ProgressView(L("正在打开书籍…")) }
+                    }
+                }.padding(32).frame(maxWidth: .infinity, maxHeight: .infinity).background(paper.ignoresSafeArea())
                     .accessibilityElement(children: .contain).accessibilityIdentifier("reader.loading")
+                    .transition(.opacity)
             }
             VStack(spacing: 0) {
                 Spacer(minLength: 0)
@@ -374,6 +471,11 @@ struct NativeReaderPage: View {
                 }
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .NSProcessInfoPowerStateDidChange)
+            .receive(on: DispatchQueue.main)) { _ in
+            syncSystemLowPowerMode()
+        }
+        .animation(.easeOut(duration: 0.16), value: reader.ready)
         .accessibilityElement(children: .contain).accessibilityIdentifier("reader.page")
         .overlay {
             GeometryReader { geometry in
@@ -496,7 +598,12 @@ struct NativeReaderPage: View {
         store.perform { try await store.command("reader.footnoteJump") }
     }
     private func returnFromFootnote() {
-        store.perform { try await store.command("reader.footnoteReturn") }
+        guard !returningFromFootnote else { return }
+        returningFromFootnote = true
+        store.perform {
+            defer { returningFromFootnote = false }
+            try await store.command("reader.footnoteReturn")
+        }
     }
     private func cancelSearchRequest() {
         let requestId = searchResults.searchId
@@ -657,7 +764,7 @@ struct NativeReaderPage: View {
             Button { run("bookmark") } label: { Image(systemName: reader.bookmark ? "bookmark.fill" : "bookmark").frame(width: 44, height: 44) }
                 .disabled(!reader.ready).accessibilityLabel(L("书签")).accessibilityIdentifier("reader.bookmark")
         }.font(.system(size: 19, weight: .regular)).buttonStyle(.plain).padding(4)
-            .modifier(NativeFloatingSurface())
+            .modifier(NativeLiquidGlassSurface(shape: Capsule()))
             .accessibilityElement(children: .contain).accessibilityIdentifier("reader.topToolbar")
             .padding(.horizontal, chromeSideInset).padding(.top, 8)
     }
@@ -680,8 +787,8 @@ struct NativeReaderPage: View {
                 tool("AI", "sparkles", identifier: "reader.AI") { selectedText = ""; panel = .assistant }
                 tool(reader.isPdf ? L("显示") : L("排版"), "Aa", identifier: reader.isPdf ? "reader.显示" : "reader.排版") { panel = .typography }
             }
-        }.padding(.horizontal, 18).padding(.top, 14).padding(.bottom, 6)
-            .modifier(NativeFloatingSurface())
+        }.padding(.horizontal, 18).padding(.top, 14).padding(.bottom, 8)
+            .modifier(NativeLiquidGlassSurface(shape: RoundedRectangle(cornerRadius: 26, style: .continuous)))
             .accessibilityElement(children: .contain).accessibilityIdentifier("reader.toolbar")
             .padding(.horizontal, chromeSideInset)
             .frame(maxWidth: NativeAdaptiveLayout.readerToolsMaxWidth)
@@ -705,45 +812,51 @@ struct NativeReaderPage: View {
                     showingHighlightPalette = true
                 }
             )
-            selectionAction(L("笔记"), "square.and.pencil", identifier: "reader.笔记") { beginNote(text) }
-            selectionAction(L("搜索"), "magnifyingglass", identifier: "reader.搜索") {
+            selectionAction(L("笔记"), "square.and.pencil", identifier: "reader.笔记", xOffset: 0.2, yOffset: -1.5) { beginNote(text) }
+            selectionAction(L("搜索"), "magnifyingglass", identifier: "reader.搜索", xOffset: 0.17) {
                 store.perform {
                     try await store.command("reader.clearSelection")
                     try await store.command("reader.showChrome")
                     searching = true; searchQuery = text; submitSearch()
                 }
             }
-            selectionAction(L("词典"), "book.closed", identifier: "reader.词典") {
+            selectionAction(L("词典"), "book", identifier: "reader.词典", xOffset: 0.33) {
                 selectedText = text
                 dictionaryTerm = text
             }
-            selectionAction("AI", "sparkles", identifier: "reader.AI") { selectedText = text; panel = .assistant }
-            selectionAction(L("翻译"), "character.bubble", identifier: "reader.翻译") { selectedText = text; panel = .translation }
-            selectionAction(L("朗读"), "speaker.wave.2", identifier: "reader.朗读") { run("selectionSpeech") }
+            selectionAction("AI", "sparkles", identifier: "reader.AI", xOffset: 0.33) { selectedText = text; panel = .assistant }
+            selectionAction(L("翻译"), "character.bubble", identifier: "reader.翻译", xOffset: 0.25) { selectedText = text; panel = .translation }
+            selectionAction(L("朗读"), "speaker.wave.2", identifier: "reader.朗读", xOffset: 0.17) { run("selectionSpeech") }
         }
         return Group {
             if width >= 336 {
                 actions
-                    .padding(.horizontal, 8)
+                    .padding(.horizontal, 10)
                     .frame(width: width, height: NativeSelectionToolbarLayout.height, alignment: .center)
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
                     actions
-                        .padding(.horizontal, 8)
-                        .frame(minWidth: width, minHeight: NativeSelectionToolbarLayout.height, alignment: .center)
+                        .padding(.horizontal, 10)
+                        .frame(minWidth: max(width, 336), minHeight: NativeSelectionToolbarLayout.height, alignment: .center)
                 }
             }
         }
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
-        .overlay(RoundedRectangle(cornerRadius: 18).stroke(NativeTheme.divider.opacity(0.6), lineWidth: 0.5))
-        .shadow(color: .black.opacity(0.12), radius: 12, y: 5)
+        .modifier(NativeLiquidGlassSurface(shape: Capsule()))
         .accessibilityElement(children: .contain).accessibilityIdentifier("reader.selection.toolbar")
     }
-    private func selectionAction(_ title: String, _ symbol: String, identifier: String, action: @escaping () -> Void) -> some View {
+    private func selectionAction(
+        _ title: String,
+        _ symbol: String,
+        identifier: String,
+        xOffset: CGFloat = 0,
+        yOffset: CGFloat = 0,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: 18, weight: .regular))
-                .frame(width: 20, height: 20, alignment: .center)
+                .offset(x: xOffset, y: yOffset)
+                .frame(width: 22, height: 22, alignment: .center)
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .center)
                 .contentShape(Rectangle())
         }.buttonStyle(.plain).accessibilityLabel(title).accessibilityIdentifier(identifier)
@@ -764,18 +877,20 @@ struct NativeReaderPage: View {
             action()
         } label: {
             ZStack {
-                NativeSelectionUnderlineGlyph()
-                    .stroke(style: StrokeStyle(lineWidth: 1.65, lineCap: .round, lineJoin: .round))
-                    .frame(width: 15, height: 16)
+                NativeSelectionUnderlineGlyph(includeBaseline: accent == nil)
+                    .stroke(style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
                 if let accent {
-                    Circle()
+                    // Keep active highlight feedback centered directly in the underline bar
+                    // instead of a corner dot that pulls the glyph off-center.
+                    Capsule()
                         .fill(accent)
-                        .frame(width: 5, height: 5)
-                        .overlay(Circle().stroke(Color.black.opacity(0.2), lineWidth: 0.4))
-                        .offset(x: 9, y: -7)
+                        .frame(width: 18, height: 3.0)
+                        .overlay(Capsule().stroke(NativeTheme.ink.opacity(0.22), lineWidth: 0.45))
+                        .offset(y: 8.0)
                 }
             }
-            .frame(width: 20, height: 20, alignment: .center)
+            .frame(width: 18, height: 18, alignment: .center)
+            .frame(width: 22, height: 22, alignment: .center)
             .frame(maxWidth: .infinity, minHeight: 44, alignment: .center)
             .contentShape(Rectangle())
         }
@@ -808,7 +923,14 @@ struct NativeReaderPage: View {
                                       close: { self.panel = nil })
         case .typography: NativeTypography(store: store, isPdf: reader.isPdf)
         case .speech: NativeSpeechSettings(store: store, close: { self.panel = nil })
-        case .assistant: NativeAssistant(store: store, session: session, book: book, selection: selectedText)
+        case .assistant: NativeAssistant(
+            store: store,
+            chat: session.aiChat(for: book.id),
+            book: book,
+            initialSelection: selectedText,
+            isSidebar: false,
+            onJumpToSource: jumpToAiSource,
+            onClose: { self.panel = nil })
         case .translation: NativeTranslation(store: store, text: selectedText)
         case .info: ScrollView { Text(dialog?.text ?? "").textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).padding(24) }
         }
@@ -849,21 +971,138 @@ struct NativeReaderPage: View {
         dictionaryTerm = nil
     }
 
+    @ViewBuilder
+    private func ambientOverlay(size: CGSize) -> some View {
+        if !powerSavingActive && store.preferences.readerThemeFollowsAppearance && store.preferences.colorfulMode {
+            // The wash spans the entire window, including safe areas and
+            // iPad margins, without shrinking the transition surface.
+            NativeAmbientWash()
+                .opacity(appColorScheme == .dark ? 0.14 : 0.10)
+                .frame(width: size.width, height: size.height)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+    }
+
+    @ViewBuilder
+    private func topChromeOverlay(
+        safeInsets: EdgeInsets,
+        readingViewportWidth: CGFloat,
+        openTransition: NativeBookOpenTransition?
+    ) -> some View {
+        VStack(spacing: 8) {
+            if openTransition == nil && NativeBookOpenTransitionPolicy.shouldShowReaderTopBar(
+                chromeVisible: reader.chromeVisible,
+                ready: reader.ready,
+                searching: searching,
+                hasError: reader.error != nil,
+                loadingChromeVisible: loadingChromeVisible
+            ) { topBar }
+            if let id = searchCursor.hitId, !searching, let index = searchResults.hits.firstIndex(where: { $0.id == id }) {
+                searchNavigationBar(index: index)
+                    .padding(.top, reader.chromeVisible ? 0 : 8)
+                    .transition(.opacity)
+            }
+            if reader.footnoteReturnVisible {
+                Button(action: returnFromFootnote) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.uturn.backward")
+                            .font(.system(size: 12, weight: .semibold))
+                        Text(L("返回原文")).font(NativeTheme.font(13))
+                    }
+                    .padding(.horizontal, 16)
+                    .frame(minHeight: 40)
+                    .contentShape(RoundedRectangle(cornerRadius: 16))
+                }
+                .buttonStyle(.plain)
+                .disabled(returningFromFootnote)
+                .modifier(NativeFloatingSurface())
+                .contentShape(RoundedRectangle(cornerRadius: 16))
+                .padding(.top, reader.chromeVisible ? 0 : 8)
+                .accessibilityIdentifier("reader.footnote.return")
+                .transition(.opacity)
+            }
+            if showingSearchResults {
+                NativeReaderSearchResults(hits: searchResults.hits, query: searchResults.query, busy: searchResults.busy,
+                                          loadingMore: searchResults.loadingMore, hasMore: searchResults.hasMore,
+                                          isPdf: reader.isPdf, scanned: searchResults.scanned, total: searchResults.total,
+                                          error: searchResults.error, jumping: jumpingToSearch,
+                                          pick: jumpToSearch, loadMore: continueSearch, close: dismissSearchResults)
+                    .frame(height: searchResults.hits.isEmpty ? 58 : min(340, CGFloat(searchResults.hits.count) * 96 + (searchResults.hasMore ? 96 : 38)))
+                    .modifier(NativeFloatingSurface()).padding(.horizontal, 12)
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: NativeAdaptiveLayout.readerToolsMaxWidth)
+        .frame(width: readingViewportWidth)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .padding(.top, safeInsets.top)
+        .padding(.bottom, safeInsets.bottom)
+        .padding(.leading, safeInsets.leading)
+    }
+
+    private func assistantSidebarOverlay(
+        sidebarWidth: CGFloat,
+        safeInsets: EdgeInsets,
+        fullSize: CGSize
+    ) -> some View {
+        HStack(spacing: 0) {
+            Spacer(minLength: 0)
+            HStack(spacing: 0) {
+                Rectangle()
+                    .fill(NativeTheme.divider)
+                    .frame(width: 0.5)
+                NativeAssistant(
+                    store: store,
+                    chat: session.aiChat(for: book.id),
+                    book: book,
+                    initialSelection: selectedText,
+                    isSidebar: true,
+                    onJumpToSource: jumpToAiSource,
+                    onClose: { panel = nil })
+            }
+            .frame(width: sidebarWidth)
+            .padding(.top, safeInsets.top)
+            .padding(.bottom, safeInsets.bottom)
+            .padding(.trailing, safeInsets.trailing)
+            .background(NativeTheme.page)
+            .font(NativeTheme.font()).foregroundStyle(NativeTheme.ink).tint(NativeTheme.ink)
+            .preferredColorScheme(readerColorScheme)
+        }
+        .frame(width: fullSize.width, height: fullSize.height)
+    }
+
+    private func jumpToAiSource(_ source: AiSource) {
+        if !docksAssistantSidebar {
+            panel = nil
+        }
+        store.perform {
+            let _: AiJumpResult = try await store.request("reader.aiJump", [
+                "isPdf": source.isPdf,
+                "chapterIndex": source.chapterIndex,
+                "offset": source.offset,
+                "pdfPage": source.pdfPage
+            ])
+        }
+    }
+
     private func run(_ command: String, _ args: [String: Any] = [:]) { store.perform { try await store.command("reader.\(command)", args) } }
 }
 
-/// Balanced U + underline glyph matching the desktop selection bar proportions so
-/// the icon centers visually alongside square/circular SF Symbols.
+/// Strictly symmetric U + underline glyph matching the desktop selection bar proportions so
+/// the icon centers cleanly alongside the other selection actions.
 private struct NativeSelectionUnderlineGlyph: Shape {
+    var includeBaseline = true
+
     func path(in rect: CGRect) -> Path {
         let w = rect.width
         let h = rect.height
         var path = Path()
-        let left = rect.minX + w * 0.16
-        let right = rect.maxX - w * 0.16
+        let left = rect.minX + w * 0.17
+        let right = rect.maxX - w * 0.17
         let radius = (right - left) / 2
-        let uTop = rect.minY + h * 0.04
-        let arcCenterY = rect.minY + h * 0.72 - radius
+        let uTop = rect.minY + h * 0.03
+        let arcCenterY = rect.minY + h * 0.73 - radius
         path.move(to: CGPoint(x: left, y: uTop))
         path.addLine(to: CGPoint(x: left, y: arcCenterY))
         path.addArc(center: CGPoint(x: rect.midX, y: arcCenterY),
@@ -872,9 +1111,11 @@ private struct NativeSelectionUnderlineGlyph: Shape {
                     endAngle: .degrees(0),
                     clockwise: true)
         path.addLine(to: CGPoint(x: right, y: uTop))
-        let lineY = rect.maxY - h * 0.04
-        path.move(to: CGPoint(x: rect.minX, y: lineY))
-        path.addLine(to: CGPoint(x: rect.maxX, y: lineY))
+        if includeBaseline {
+            let lineY = rect.maxY - h * 0.03
+            path.move(to: CGPoint(x: rect.minX, y: lineY))
+            path.addLine(to: CGPoint(x: rect.maxX, y: lineY))
+        }
         return path
     }
 }
@@ -882,6 +1123,7 @@ private struct NativeSelectionUnderlineGlyph: Shape {
 struct NativeTypography: View {
     @ObservedObject var store: NativeStore
     let isPdf: Bool
+    var onOpenFontPicker: (() -> Void)? = nil
     @State private var fontPicker = false
     @State private var advancedTypography = false
     @State private var fontOptions: [ReaderFontOption] = []
@@ -891,6 +1133,14 @@ struct NativeTypography: View {
         if key.hasPrefix("system:") { return String(key.dropFirst("system:".count)) }
         if key.hasPrefix("catalog:") { return L("已下载字体") }
         return "京华老宋体"
+    }
+    private var currentFontPreview: Font {
+        let key = store.preferences.readerFontFamily
+        if let option = fontOptions.first(where: { $0.key == key }), option.installed, !option.previewName.isEmpty {
+            return .custom(option.previewName, size: 14)
+        }
+        if key == "京华老宋体" { return .custom("KingHwaOldSong", size: 14) }
+        return NativeTheme.font(14)
     }
     private var advancedSummary: String {
         let key = store.preferences.readerLatinFontFamily
@@ -929,7 +1179,7 @@ struct NativeTypography: View {
                     }.pickerStyle(.segmented).accessibilityIdentifier("typography.paper")
                 }
                 row(L("翻页动画")) {
-                    Picker(L("翻页动画"), selection: preference(\.readerPageAnimation)) { Text(L("无")).tag(0); Text(L("淡入")).tag(1); Text(L("滑动")).tag(2); Text(L("墨水")).tag(3) }.pickerStyle(.segmented)
+                    Picker(L("翻页动画"), selection: preference(\.readerPageAnimation)) { Text(L("无")).tag(0); Text(L("淡入")).tag(1); Text(L("平移")).tag(3) }.pickerStyle(.segmented)
                 }
                 row(L("底部进度")) {
                     Picker(L("底部进度"), selection: preference(\.readerProgressDisplay)) {
@@ -1027,16 +1277,24 @@ struct NativeTypography: View {
                         }.pickerStyle(.segmented).accessibilityIdentifier("typography.mangaMode")
                     }
                     row(L("正文字体")) {
-                        Button { fontPicker = true } label: {
-                            HStack(spacing: 8) {
-                                Text(currentFontName).lineLimit(1)
-                                Spacer(minLength: 8)
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 12, weight: .regular))
-                                    .foregroundStyle(NativeTheme.muted)
+                        Button {
+                            if let onOpenFontPicker { onOpenFontPicker() }
+                            else { fontPicker = true }
+                        } label: {
+                            HStack(spacing: 6) {
+                                Text(currentFontName)
+                                    .font(currentFontPreview)
+                                    .foregroundStyle(NativeTheme.ink)
+                                    .lineLimit(1)
+                                Spacer(minLength: 4)
+                                Image(systemName: "chevron.up.chevron.down")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(NativeTheme.secondary)
                             }
-                            .frame(minHeight: 44)
-                            .contentShape(Rectangle())
+                            .padding(.horizontal, 14)
+                            .frame(maxWidth: .infinity, minHeight: 38)
+                            .background(NativeTheme.sunk, in: Capsule())
+                            .contentShape(Capsule())
                         }
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("typography.fontFamily")
@@ -1067,23 +1325,38 @@ struct NativeTypography: View {
                             Text(L("关")).tag(false); Text(L("开")).tag(true)
                         }.pickerStyle(.segmented).accessibilityIdentifier("typography.indent")
                     }
+                    row(L("阅读模式")) {
+                        Picker(L("阅读模式"), selection: preference(\.readerFlowMode)) { Text(L("翻页")).tag(1); Text(L("滚动")).tag(0) }
+                            .pickerStyle(.segmented).disabled(store.preferences.readerVerticalWriting)
+                            .accessibilityIdentifier("typography.flowMode")
+                    }
+                    if UIDevice.current.userInterfaceIdiom == .pad {
+                        row(L("横屏双栏")) {
+                            Picker(L("横屏双栏"), selection: preference(\.readerTwoPageInLandscape)) { Text(L("关")).tag(false); Text(L("开")).tag(true) }
+                                .pickerStyle(.segmented).disabled(store.preferences.readerVerticalWriting)
+                                .accessibilityIdentifier("typography.twoColumn")
+                        }
+                    }
                     row(L("排版方向")) {
                         Picker(L("排版方向"), selection: preference(\.readerVerticalWriting)) { Text(L("横排")).tag(false); Text(L("竖排")).tag(true) }
                             .pickerStyle(.segmented).accessibilityIdentifier("typography.direction")
                     }
                     row(L("高级排版")) {
                         Button { advancedTypography = true } label: {
-                            HStack(spacing: 8) {
+                            HStack(spacing: 6) {
                                 Text(advancedSummary)
+                                    .font(NativeTheme.font(13))
                                     .foregroundStyle(NativeTheme.secondary)
                                     .lineLimit(1)
-                                Spacer(minLength: 8)
+                                Spacer(minLength: 4)
                                 Image(systemName: "chevron.right")
-                                    .font(.system(size: 12, weight: .regular))
-                                    .foregroundStyle(NativeTheme.muted)
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(NativeTheme.secondary)
                             }
-                            .frame(minHeight: 44)
-                            .contentShape(Rectangle())
+                            .padding(.horizontal, 14)
+                            .frame(maxWidth: .infinity, minHeight: 38)
+                            .background(NativeTheme.sunk, in: Capsule())
+                            .contentShape(Capsule())
                         }
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("typography.advanced")
@@ -1092,8 +1365,20 @@ struct NativeTypography: View {
             }.padding(.horizontal, 24).padding(.top, 2).padding(.bottom, 16)
         }.accessibilityIdentifier("typography.scroll")
             .task { await loadFonts() }
+            .onChange(of: store.preferences.readerFontFamily) { _ in Task { await loadFonts() } }
             .sheet(isPresented: $fontPicker, onDismiss: { Task { await loadFonts() } }) {
-                NativeReaderFontPicker(store: store, close: { fontPicker = false })
+                NavigationView {
+                    NativeReaderFontPicker(store: store, close: { fontPicker = false })
+                        .navigationTitle(L("正文字体"))
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button(L("完成")) { fontPicker = false }.accessibilityIdentifier("fontPicker.done")
+                            }
+                        }
+                }
+                .navigationViewStyle(.stack)
+                .font(NativeTheme.font()).foregroundStyle(NativeTheme.ink).tint(NativeTheme.ink)
             }
             .sheet(isPresented: $advancedTypography, onDismiss: { Task { await loadFonts() } }) {
                 NativeReaderAdvancedTypography(store: store, fontOptions: fontOptions, close: { advancedTypography = false })
@@ -1129,45 +1414,34 @@ private struct NativeReaderFontPicker: View {
     private var downloadOptions: [ReaderFontOption] { options.filter { $0.kind == "download" } }
 
     var body: some View {
-        NavigationView {
-            List {
-                if loading {
-                    HStack(spacing: 10) {
-                        ProgressView()
-                        Text(L("正在读取字体…")).font(NativeTheme.font(13)).foregroundStyle(NativeTheme.muted)
-                    }
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-                } else {
-                    if !builtinOptions.isEmpty { section(L("内置字体"), builtinOptions) }
-                    if !systemOptions.isEmpty { section(L("系统字体"), systemOptions) }
-                    if !downloadOptions.isEmpty { section(L("可下载字体"), downloadOptions) }
-                    Section {
-                        Text(L("可下载字体均以 SIL OFL 1.1 授权，可免费商用。字体只保存在本机，许可文本随应用附带。"))
-                            .font(NativeTheme.font(11, relativeTo: .caption2))
-                            .foregroundStyle(NativeTheme.muted)
-                            .listRowBackground(Color.clear)
-                    }
+        List {
+            if loading {
+                HStack(spacing: 10) {
+                    ProgressView()
+                    Text(L("正在读取字体…")).font(NativeTheme.font(13)).foregroundStyle(NativeTheme.muted)
                 }
-                if let error {
-                    Text(error)
-                        .font(NativeTheme.font(12))
-                        .foregroundStyle(NativeTheme.warning)
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+            } else {
+                if !builtinOptions.isEmpty { section(L("内置字体"), builtinOptions) }
+                if !systemOptions.isEmpty { section(L("系统字体"), systemOptions) }
+                if !downloadOptions.isEmpty { section(L("可下载字体"), downloadOptions) }
+                Section {
+                    Text(L("可下载字体均以 SIL OFL 1.1 授权，可免费商用。字体只保存在本机，许可文本随应用附带。"))
+                        .font(NativeTheme.font(11, relativeTo: .caption2))
+                        .foregroundStyle(NativeTheme.muted)
                         .listRowBackground(Color.clear)
                 }
             }
-            .listStyle(.plain)
-            .accessibilityIdentifier("fontPicker.list")
-            .navigationTitle(L("正文字体"))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(L("完成"), action: close).accessibilityIdentifier("fontPicker.done")
-                }
+            if let error {
+                Text(error)
+                    .font(NativeTheme.font(12))
+                    .foregroundStyle(NativeTheme.warning)
+                    .listRowBackground(Color.clear)
             }
         }
-        .navigationViewStyle(.stack)
-        .font(NativeTheme.font()).foregroundStyle(NativeTheme.ink).tint(NativeTheme.ink)
+        .listStyle(.plain)
+        .accessibilityIdentifier("fontPicker.list")
         .task(id: store.uiLanguage) { await load() }
     }
 
@@ -1273,15 +1547,44 @@ private struct NativeTypographyPanel: View {
     @ObservedObject var store: NativeStore
     let isPdf: Bool
     let close: () -> Void
+    @State private var showingFontPicker = false
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text(isPdf ? L("显示设置") : L("阅读设置")).font(NativeTheme.font(17, relativeTo: .headline))
-                Spacer()
-                Button(L("完成"), action: close).font(NativeTheme.font(14)).frame(minWidth: 44, minHeight: 44)
-                    .accessibilityIdentifier("typography.done")
-            }.buttonStyle(.plain).padding(.horizontal, 24).padding(.top, 8)
-            NativeTypography(store: store, isPdf: isPdf)
+            if showingFontPicker {
+                ZStack {
+                    Text(L("正文字体")).font(NativeTheme.font(17, relativeTo: .headline))
+                    HStack {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) { showingFontPicker = false }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "chevron.left").font(.system(size: 13, weight: .semibold))
+                                Text(L("返回"))
+                            }
+                            .font(NativeTheme.font(14))
+                            .frame(minHeight: 44)
+                        }
+                        .accessibilityIdentifier("fontPicker.done")
+                        Spacer()
+                        Button(L("完成"), action: close).font(NativeTheme.font(14)).frame(minWidth: 44, minHeight: 44)
+                            .accessibilityIdentifier("fontPicker.close")
+                    }
+                }.buttonStyle(.plain).padding(.horizontal, 24).padding(.top, 8)
+                NativeReaderFontPicker(store: store) {
+                    withAnimation(.easeInOut(duration: 0.2)) { showingFontPicker = false }
+                }
+                .transition(.move(edge: .trailing))
+            } else {
+                HStack {
+                    Text(isPdf ? L("显示设置") : L("阅读设置")).font(NativeTheme.font(17, relativeTo: .headline))
+                    Spacer()
+                    Button(L("完成"), action: close).font(NativeTheme.font(14)).frame(minWidth: 44, minHeight: 44)
+                        .accessibilityIdentifier("typography.done")
+                }.buttonStyle(.plain).padding(.horizontal, 24).padding(.top, 8)
+                NativeTypography(store: store, isPdf: isPdf) {
+                    withAnimation(.easeInOut(duration: 0.2)) { showingFontPicker = true }
+                }
+            }
         }.background(NativeTheme.page).accessibilityElement(children: .contain)
             .accessibilityIdentifier("typography.panel").modifier(NativeTypographyPresentation(isPdf: isPdf))
     }
@@ -1802,5 +2105,34 @@ struct NativeTranslation: View {
                 if let translated { Text(translated).textSelection(.enabled) } else { ProgressView(L("正在翻译…")) }
             }.frame(maxWidth: .infinity, alignment: .leading).padding(24)
         }.task { do { let value: TextResult = try await store.request("reader.translate", ["text": text]); translated = value.text } catch { if !Task.isCancelled { translated = error.localizedDescription } } }
+    }
+}
+
+private struct NativeAssistantSheetDetents: ViewModifier {
+    let enabled: Bool
+    @State private var detent: Any?
+
+    func body(content: Content) -> some View {
+        if enabled {
+            if #available(iOS 16.0, *) {
+                content
+                    .modifier(NativeAssistantDetentsIos16())
+            } else {
+                content
+            }
+        } else {
+            content
+        }
+    }
+}
+
+@available(iOS 16.0, *)
+private struct NativeAssistantDetentsIos16: ViewModifier {
+    @State private var selection: PresentationDetent = .large
+
+    func body(content: Content) -> some View {
+        content
+            .presentationDetents([.medium, .large], selection: $selection)
+            .presentationDragIndicator(.visible)
     }
 }

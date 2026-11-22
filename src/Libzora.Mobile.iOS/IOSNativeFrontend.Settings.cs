@@ -237,6 +237,18 @@ internal sealed partial class IOSNativeFrontend
         {
             case "dictionary.get": return (await dictionary.ListAsync(token)).ToArray();
             case "dictionary.lookup": return (await dictionary.LookupAsync(Text(args, "term").Trim(), token)).ToArray();
+            case "dictionary.lookupRendered":
+                var lookupEntries = (await dictionary.LookupAsync(Text(args, "term").Trim(), token)).ToArray();
+                DictionaryHtmlPalette? palette = null;
+                if (args.TryGetProperty("palette", out var paletteElement) && paletteElement.ValueKind == JsonValueKind.Object)
+                    palette = paletteElement.Deserialize(IOSNativeJsonContext.Default.DictionaryHtmlPalette);
+                var renderedHtml = lookupEntries.Any(entry => entry.Html is not null)
+                    ? DictionaryHtmlRenderer.Render(lookupEntries, palette)
+                    : null;
+                return Data(
+                    ("entries", renderedHtml is null ? lookupEntries : Array.Empty<DictionaryEntry>()),
+                    ("renderedHtml", renderedHtml),
+                    ("entryCount", lookupEntries.Length));
             case "dictionary.wikipedia":
                 var wikipediaArticle = await WikipediaLookup.LookupAsync(
                     Text(args, "term").Trim(),
@@ -253,13 +265,60 @@ internal sealed partial class IOSNativeFrontend
                 var files = await _shell.Services.ImportSource.PickFilesAsync(token);
                 try
                 {
-                    foreach (var file in files) await Task.Run(() => dictionary.ImportAsync(file, cancellationToken: token), token);
+                    var imported = await ImportDictionaryFilesAsync(dictionary, files, token);
+                    return Data(("importedCount", imported.Count), ("names", imported.ToArray()));
                 }
                 finally { _shell.Services.ImportSource.ReleaseFiles(files); }
-                break;
             default: throw new InvalidOperationException(UiText.Get("未知词典操作：{0}", command));
         }
         return Data();
+    }
+
+    internal static async Task<List<string>> ImportDictionaryFilesAsync(
+        DictionaryService dictionary,
+        IReadOnlyList<string> files,
+        CancellationToken token)
+    {
+        if (files.Count == 0) return [];
+        var cssFiles = files
+            .Where(path => Path.GetExtension(path).Equals(".css", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        var dictionaryFiles = files
+            .Where(path => !Path.GetExtension(path).Equals(".css", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        if (dictionaryFiles.Length == 0)
+            throw new InvalidOperationException(UiText.Get("请选择 MDX、MOBI、AZW、PRC、TXT、TSV 或 CSV 词典文件。"));
+
+        foreach (var cssFile in cssFiles)
+        {
+            foreach (var mdxDirectory in dictionaryFiles
+                .Where(path => Path.GetExtension(path).Equals(".mdx", StringComparison.OrdinalIgnoreCase))
+                .Select(Path.GetDirectoryName)
+                .Where(dir => !string.IsNullOrWhiteSpace(dir))
+                .Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                var targetCss = Path.Combine(mdxDirectory!, Path.GetFileName(cssFile));
+                if (!string.Equals(Path.GetFullPath(cssFile), Path.GetFullPath(targetCss), StringComparison.OrdinalIgnoreCase)
+                    && !File.Exists(targetCss))
+                    File.Copy(cssFile, targetCss);
+            }
+        }
+
+        var imported = new List<string>(dictionaryFiles.Length);
+        foreach (var file in dictionaryFiles)
+        {
+            try
+            {
+                var definition = await Task.Run(() => dictionary.ImportAsync(file, cancellationToken: token), token);
+                imported.Add(definition.Name);
+            }
+            catch (InvalidOperationException exception)
+                when (exception.Message.Contains("Calibre", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(UiText.Get("此 Kindle 词典需要 Calibre 转换，手机版无法导入。"), exception);
+            }
+        }
+        return imported;
     }
 }
 #endif

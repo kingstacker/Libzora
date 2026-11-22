@@ -28,7 +28,7 @@
       <Grid RowDefinitions="*,Auto">
         <Grid Grid.Row="0" Name="ReaderPaper" ClipToBounds="True"
               Background="{Binding #Surface.Background}">
-          <ContentControl Name="ReaderHostSlot" />
+          <ContentControl Name="ReaderHostSlot" Background="Transparent" />
           <Image Name="TransitionSnapshot" IsVisible="False" IsHitTestVisible="False" />
           <Rectangle Name="TransitionTrail" IsVisible="False" IsHitTestVisible="False" />
           <Rectangle Name="TransitionFront" IsVisible="False" IsHitTestVisible="False" />

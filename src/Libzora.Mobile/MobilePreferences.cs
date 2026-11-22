@@ -24,8 +24,8 @@ public enum MobilePageAnimation
 {
     None = 0,
     Fade = 1,
-    Slide = 2,
-    Wave = 3
+    // Value 2 (Cover) was retired; NormalizePageAnimation maps it to Push.
+    Push = 3
 }
 
 public enum MobileReaderProgressDisplay
@@ -68,6 +68,8 @@ public sealed record MobilePreferences
 {
     /// <summary>auto follows OS preferences; manual choices are zh-CN or en-US.</summary>
     public string UiLanguage { get; init; } = MobileUiLanguageService.System;
+    /// <summary>Interface font for the library, navigation and settings; reader body fonts are set separately.</summary>
+    public AppUiFont UiFont { get; init; } = AppUiFont.KingHwaOldSong;
     public MobileThemeMode ThemeMode { get; init; }
     public bool ListView { get; init; }
     /// <summary>Grid gallery: show covers only, hiding title, author and progress.</summary>
@@ -129,7 +131,9 @@ public sealed record MobilePreferences
     public bool ReaderAvoidWidowsAndOrphans { get; init; } = true;
     /// <summary>Vertical right-to-left typesetting, the traditional CJK layout.</summary>
     public bool ReaderVerticalWriting { get; init; }
-    public MobilePageAnimation ReaderPageAnimation { get; init; } = MobilePageAnimation.Fade;
+    public int ReaderFlowMode { get; init; } = 1;
+    public bool ReaderTwoPageInLandscape { get; init; } = true;
+    public MobilePageAnimation ReaderPageAnimation { get; init; } = MobilePageAnimation.Push;
     public MobileReaderProgressDisplay ReaderProgressDisplay { get; init; } = MobileReaderProgressDisplay.Pages;
     /// <summary>Power-saving mode during reading: Off, follow OS Low Power Mode (default), or always On.</summary>
     public MobileReaderPowerSavingMode ReaderPowerSavingMode { get; init; } = MobileReaderPowerSavingMode.System;
@@ -169,6 +173,19 @@ public sealed record MobilePreferences
         MobileReaderPowerSavingMode.System => systemLowPowerMode,
         _ => false
     };
+
+    /// <summary>
+    /// Stored values can outlive a retired option. Value 2 used to mean Cover;
+    /// normalize it to Push so upgrades never get stuck on a removed mode.
+    /// </summary>
+    public static MobilePageAnimation NormalizePageAnimation(MobilePageAnimation value) => value switch
+    {
+        (MobilePageAnimation)2 => MobilePageAnimation.Push,
+        _ when Enum.IsDefined(value) => value,
+        _ => MobilePageAnimation.Push
+    };
+
+    public static int NormalizeFlowMode(int value) => value == 0 ? 0 : 1;
 
     /// <summary>
     /// Stored values can outlive a retired option. Value 2 used to mean the
@@ -301,6 +318,9 @@ public sealed class MobilePreferencesStore(AppPaths paths)
                 Current = current with
                 {
                     UiLanguage = MobileUiLanguageService.NormalizePreference(current.UiLanguage),
+                    UiFont = Enum.IsDefined(current.UiFont) ? current.UiFont : AppUiFont.KingHwaOldSong,
+                    ReaderFlowMode = MobilePreferences.NormalizeFlowMode(current.ReaderFlowMode),
+                    ReaderPageAnimation = MobilePreferences.NormalizePageAnimation(current.ReaderPageAnimation),
                     ReaderProgressDisplay = MobilePreferences.NormalizeProgressDisplay(
                         current.ReaderProgressDisplay),
                     ReaderHighlightStyle = MobilePreferences.NormalizeReaderHighlightStyle(current.ReaderHighlightStyle),
@@ -327,7 +347,13 @@ public sealed class MobilePreferencesStore(AppPaths paths)
     private void Apply(Func<MobilePreferences, MobilePreferences> change, bool requirePersistence)
     {
         var changed = change(Current);
-        var next = changed with { UiLanguage = MobileUiLanguageService.NormalizePreference(changed.UiLanguage) };
+        var next = changed with
+        {
+            UiLanguage = MobileUiLanguageService.NormalizePreference(changed.UiLanguage),
+            UiFont = Enum.IsDefined(changed.UiFont) ? changed.UiFont : AppUiFont.KingHwaOldSong,
+            ReaderFlowMode = MobilePreferences.NormalizeFlowMode(changed.ReaderFlowMode),
+            ReaderPageAnimation = MobilePreferences.NormalizePageAnimation(changed.ReaderPageAnimation)
+        };
         try
         {
             var temporary = _path + ".tmp";

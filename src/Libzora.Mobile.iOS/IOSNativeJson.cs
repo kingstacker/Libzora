@@ -31,6 +31,26 @@ internal sealed record ReaderFontList(string Current, ReaderFontOption[] Fonts);
 
 internal sealed record ReaderFontInstall(string Key, string Path, string PreviewName);
 
+internal sealed record NativeAiSource(
+    string Id,
+    string Label,
+    string Content,
+    bool IsPdf,
+    int ChapterIndex,
+    int Offset,
+    int PdfPage);
+
+internal sealed record NativeAiResult(
+    string Text,
+    string Reasoning,
+    string Status,
+    NativeAiSource[] Sources);
+
+internal sealed record NativeAiInfo(
+    bool Configured,
+    string Provider,
+    string Model);
+
 /// <summary>
 /// The native bridge uses an explicit metadata registry. Device AOT builds do
 /// not need reflection to discover anonymous response types or settings fields.
@@ -71,11 +91,16 @@ internal sealed record ReaderFontInstall(string Key, string Path, string Preview
 [JsonSerializable(typeof(S3SyncSettings))]
 [JsonSerializable(typeof(AiConnectionSettings))]
 [JsonSerializable(typeof(List<AiConversationTurn>))]
+[JsonSerializable(typeof(NativeAiSource))]
+[JsonSerializable(typeof(NativeAiSource[]))]
+[JsonSerializable(typeof(NativeAiResult))]
+[JsonSerializable(typeof(NativeAiInfo))]
 [JsonSerializable(typeof(KindleEmailSettings))]
 [JsonSerializable(typeof(TtsSettings))]
 [JsonSerializable(typeof(TtsVoiceInfo[]))]
 [JsonSerializable(typeof(DictionaryDefinition[]))]
 [JsonSerializable(typeof(DictionaryEntry[]))]
+[JsonSerializable(typeof(DictionaryHtmlPalette))]
 [JsonSerializable(typeof(WikipediaArticle))]
 [JsonSerializable(typeof(WikipediaArticle[]))]
 [JsonSerializable(typeof(TxtImportRules))]

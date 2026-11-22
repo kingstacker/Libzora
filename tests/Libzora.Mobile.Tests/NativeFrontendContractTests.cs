@@ -40,6 +40,8 @@ public sealed class NativeFrontendContractTests
         Assert.Equal("京华老宋体", preferences.RootElement.GetProperty("readerFontFamily").GetString());
         Assert.Equal(0, preferences.RootElement.GetProperty("readerParagraphSpacing").GetDouble());
         Assert.Equal(0, preferences.RootElement.GetProperty("readerProgressDisplay").GetInt32());
+        Assert.Equal(1, preferences.RootElement.GetProperty("readerFlowMode").GetInt32());
+        Assert.True(preferences.RootElement.GetProperty("readerTwoPageInLandscape").GetBoolean());
         Assert.True(preferences.RootElement.GetProperty("galleryMode").GetBoolean());
         Assert.True(preferences.RootElement.GetProperty("colorfulMode").GetBoolean());
         Assert.True(preferences.RootElement.GetProperty("showBookSyncStatus").GetBoolean());
@@ -261,6 +263,7 @@ public sealed class NativeFrontendContractTests
             Data(("settings", new TtsSettings()), ("voices", new TtsVoiceInfo[] { new("voice", "中文", "zh-CN") })),
             new DictionaryDefinition[] { new("dictionary", "测试词典", "dict.json", 1, now) },
             new DictionaryEntry[] { new("word", "释义", "测试词典") },
+            new DictionaryHtmlPalette("#ffffff", "#1c1c1c", "#767676", "#f5f5f5", "#efefef"),
             new WikipediaArticle[] { new("量子纠缠", "量子力学中的一种现象。",
                 new Uri("https://zh.wikipedia.org/wiki/%E9%87%8F%E5%AD%90%E7%BA%A0%E7%BC%A0"), "zh") },
             Array.Empty<WikipediaArticle>(),
@@ -391,5 +394,75 @@ public sealed class NativeFrontendContractTests
         Assert.True(new MobilePreferences().StackBookSeries);
         Assert.Equal("marker", preferences.ReaderHighlightStyle);
         Assert.Equal("#64B5F6", preferences.ReaderHighlightColor);
+    }
+
+    [Fact]
+    public void UiFontPreferenceRoundTripsAndNormalizesInvalidValues()
+    {
+        Assert.Equal(AppUiFont.KingHwaOldSong, new MobilePreferences().UiFont);
+
+        var serialized = Serialize(new MobilePreferences { UiFont = AppUiFont.SystemDefault });
+        using var document = JsonDocument.Parse(serialized);
+        Assert.Equal((int)AppUiFont.SystemDefault, document.RootElement.GetProperty("uiFont").GetInt32());
+
+        var restored = Read(
+            document.RootElement,
+            new MobilePreferences(),
+            IOSNativeJsonContext.Default.MobilePreferences);
+        Assert.Equal(AppUiFont.SystemDefault, restored.UiFont);
+
+        var root = Path.Combine(Path.GetTempPath(), "libzora-mobile-uifont-test", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var paths = new AppPaths(root);
+            var store = new MobilePreferencesStore(paths);
+            store.UpdateAndSave(p => p with { UiFont = AppUiFont.SystemDefault });
+
+            var reloaded = new MobilePreferencesStore(paths);
+            reloaded.Load();
+            Assert.Equal(AppUiFont.SystemDefault, reloaded.Current.UiFont);
+
+            File.WriteAllText(Path.Combine(root, "mobile-preferences.json"), """{"UiFont":999,"ReaderPageAnimation":2,"ReaderFlowMode":9}""");
+            var normalized = new MobilePreferencesStore(paths);
+            normalized.Load();
+            Assert.Equal(AppUiFont.KingHwaOldSong, normalized.Current.UiFont);
+            Assert.Equal(MobilePageAnimation.Push, normalized.Current.ReaderPageAnimation);
+            Assert.Equal(1, normalized.Current.ReaderFlowMode);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void AiContractsSerializeWithSourceGeneratedContext()
+    {
+        var sources = new[]
+        {
+            new Libzora.iOSHead.NativeAiSource("S1", "第一章", "原文内容", false, 2, 120, 0)
+        };
+        var resultJson = Serialize(new Libzora.iOSHead.NativeAiResult("回答 [S1]", "思考过程", "全书关键词检索 · 1 个原文片段", sources));
+        using var resultDoc = JsonDocument.Parse(resultJson);
+        Assert.Equal("回答 [S1]", resultDoc.RootElement.GetProperty("text").GetString());
+        Assert.Equal("思考过程", resultDoc.RootElement.GetProperty("reasoning").GetString());
+        Assert.Equal("S1", resultDoc.RootElement.GetProperty("sources")[0].GetProperty("id").GetString());
+
+        var eventJson = Serialize(Data(
+            ("type", "aiText"),
+            ("sessionId", "s1"),
+            ("text", "partial"),
+            ("reasoning", "step"),
+            ("status", "retrieving"),
+            ("sources", sources)));
+        using var eventDoc = JsonDocument.Parse(eventJson);
+        Assert.Equal("aiText", eventDoc.RootElement.GetProperty("type").GetString());
+        Assert.Equal(2, eventDoc.RootElement.GetProperty("sources")[0].GetProperty("chapterIndex").GetInt32());
+
+        var infoJson = Serialize(new Libzora.iOSHead.NativeAiInfo(true, "deepseek", "deepseek-chat"));
+        using var infoDoc = JsonDocument.Parse(infoJson);
+        Assert.True(infoDoc.RootElement.GetProperty("configured").GetBoolean());
+        Assert.Equal("deepseek", infoDoc.RootElement.GetProperty("provider").GetString());
     }
 }

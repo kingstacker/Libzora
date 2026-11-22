@@ -103,7 +103,7 @@ def main() -> None:
             "ThemeMode": 1, "ListView": False, "CollectionsView": False, "PdfZoom": 1,
             "Sort": 0, "ReaderTheme": 1, "ReaderFontScale": 1.25, "ReaderLineHeight": 1.75,
             "ReaderBodyPadding": 24, "ReaderParagraphIndent": True,
-            "ReaderVerticalWriting": False, "ReaderPageAnimation": 2,
+            "ReaderVerticalWriting": False, "ReaderPageAnimation": 3,
         }))
     run("xcrun", "simctl", "terminate", args.simulator, preview_id, check=False)
     run("xcrun", "simctl", "install", args.simulator, str(preview_app))

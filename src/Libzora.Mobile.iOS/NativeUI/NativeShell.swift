@@ -8,6 +8,7 @@ struct NativeShell: View {
     @ObservedObject private var previewCenter = NativeBookPreviewCenter.shared
     @ObservedObject private var seriesCenter = NativeBookSeriesCenter.shared
     @State private var selectedTab = 0
+    @State private var systemLowPowerMode = ProcessInfo.processInfo.isLowPowerModeEnabled
     @Environment(\.colorScheme) private var systemColorScheme
     private var appColorScheme: ColorScheme {
         switch store.preferences.themeMode {
@@ -17,10 +18,11 @@ struct NativeShell: View {
         }
     }
     private var readerPaper: Color {
+        let powerSaving = store.preferences.isPowerSaving(systemLowPower: systemLowPowerMode)
+        if powerSaving { return .black }
         let theme = store.preferences.readerThemeFollowsAppearance
             ? (appColorScheme == .dark ? 5 : 0)
             : store.preferences.readerTheme
-        let powerSaving = store.preferences.isPowerSaving(systemLowPower: ProcessInfo.processInfo.isLowPowerModeEnabled)
         return store.preferences.paper(for: theme, pureBlackOled: powerSaving)
     }
     private var ambientBooks: [LibraryBook] {
@@ -51,8 +53,12 @@ struct NativeShell: View {
             .opacity(showingLaunch ? 0 : 1)
             .allowsHitTesting(!showingLaunch)
             .accessibilityHidden(showingLaunch || (activeSeries != nil && seriesCenter.isVisible))
+            .onAppear {
+                store.activeTab = selectedTab
+            }
             .task { await store.prepareLaunch(viewport: geometry.size) }
-            .onChange(of: selectedTab) { _ in
+            .onChange(of: selectedTab) { tab in
+                store.activeTab = tab
                 previewCenter.dismiss()
                 seriesCenter.dismiss()
             }
@@ -63,30 +69,48 @@ struct NativeShell: View {
                 seriesCenter.dismiss()
             }
         }
+        .background {
+            GeometryReader { fullWindow in
+                let bounds = fullWindow.frame(in: .global)
+                Color.clear
+                    .onAppear { store.updateViewport(bounds) }
+                    .onChange(of: bounds) { updated in store.updateViewport(updated) }
+            }
+            .ignoresSafeArea()
+        }
         .font(NativeTheme.font()).foregroundStyle(NativeTheme.ink).tint(NativeTheme.ink)
         .environment(\.symbolVariants, .none)
         .background(NativeAmbientBackground()).preferredColorScheme(store.preferences.colorScheme)
         .fullScreenCover(item: $store.readerBook) { book in
             NativeReaderPage(store: store, session: store.session, book: book,
                              appColorScheme: appColorScheme, appearanceSessionId: store.session.appearanceSessionId)
+                .modifier(NativeClearFullScreenBackground())
         }
         .sheet(item: $store.txtReview) { review in NativeTxtReview(store: store, review: review) }
         .modifier(NativeFeedback(store: store, active: store.readerBook == nil))
         .disabled(store.restartRequired || store.dataBusy)
         .task(id: ambientKey) {
             guard store.preferences.colorfulMode else {
-                store.visibleAmbientColors = []; store.fallbackAmbientColors = []; store.ambientFallbackSuppressed = false; return
+                store.ambient.visibleColors = []; store.ambient.fallbackColors = []; return
             }
-            if store.library.isEmpty { store.visibleAmbientColors = [] }
+            if store.library.isEmpty { store.ambient.visibleColors = [] }
             let paths = ambientBooks.compactMap(\.coverPath)
             let colors = await Task.detached(priority: .utility) { NativeAmbientPalette.extract(paths: paths) }.value
             guard !Task.isCancelled else { return }
-            store.fallbackAmbientColors = colors
+            store.ambient.fallbackColors = colors
         }
         .onReceive(store.$requestedTab) { tab in
             guard let tab else { return }
             selectedTab = tab
             store.requestedTab = nil
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .NSProcessInfoPowerStateDidChange)
+            .receive(on: DispatchQueue.main)) { _ in
+            systemLowPowerMode = ProcessInfo.processInfo.isLowPowerModeEnabled
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)
+            .receive(on: DispatchQueue.main)) { _ in
+            systemLowPowerMode = ProcessInfo.processInfo.isLowPowerModeEnabled
         }
         .environmentObject(store)
         .overlay {
@@ -117,7 +141,7 @@ struct NativeShell: View {
             if let (request, series) = activeSeries {
                 NativeBookSeriesOverlay(series: series, sourceFrame: request.sourceFrame,
                                         store: store, center: seriesCenter,
-                                        close: seriesCenter.dismiss,
+                                        close: { seriesCenter.dismiss() },
                                         preview: request.preview)
             }
         }
@@ -127,40 +151,42 @@ struct NativeShell: View {
             }
         }
         .overlay {
-            if let transition = store.openingBookTransition {
-                NativeBookOpenOverlay(
-                    transition: transition,
-                    paper: readerPaper,
-                    onReachedFullScreen: {
-                        store.completeBookOpenPresentation()
-                    },
-                    onFinished: {
-                        if store.openingBookTransition?.id == transition.id {
-                            store.openingBookTransition = nil
-                        }
-                    }
-                )
-            } else if let transition = store.closingBookTransition {
+            if let transition = store.closingBookTransition {
                 NativeBookCloseOverlay(transition: transition, paper: readerPaper) {
                     if store.closingBookTransition?.id == transition.id {
                         store.closingBookTransition = nil
                     }
                 }
+            } else if store.closingBookBackdrop {
+                ZStack {
+                    readerPaper
+                    if let snapshot = store.closingBookSnapshot {
+                        Image(uiImage: snapshot)
+                            .resizable()
+                            .scaledToFill()
+                    }
+                }
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
             }
         }
         // Include presented readers, sheets and standalone overlays without
         // changing view identity or resetting their navigation/session state.
         .environment(\.locale, Locale(identifier: store.uiLanguage))
+        .environment(\.nativeUiFont, store.uiFont)
     }
 }
 
 private struct NativeLaunchPage: View {
     @Environment(\.locale) private var uiLocale
+    @Environment(\.nativeUiFont) private var uiFont
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var revealed = false
 
     var body: some View {
         let _ = uiLocale
+        let _ = uiFont
 
         VStack(spacing: 0) {
             Spacer()
@@ -204,8 +230,10 @@ struct NativeTabLabel: View {
 }
 
 struct NativeToast: View {
+    @Environment(\.nativeUiFont) private var uiFont
     let text: String
     var body: some View {
+        let _ = uiFont
         Text(text).font(NativeTheme.font(14, relativeTo: .subheadline)).padding(.horizontal, 18).padding(.vertical, 12)
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
             .padding(.horizontal, 20).allowsHitTesting(false)
@@ -236,9 +264,23 @@ enum NativeCoverCache {
         return cache
     }()
     private static var pending: [Request: Task<UIImage?, Never>] = [:]
+    private static var cachedPixelSizes: [String: Set<Int>] = [:]
 
     static func cachedImage(path: String, version: String, pixels: Int) -> UIImage? {
         images.object(forKey: Request(path: path, version: version, pixels: pixels).key)
+    }
+
+    /// Returns the highest-resolution already-decoded cover in cache for this
+    /// asset so open/close transitions never flash a placeholder on frame 0.
+    static func bestCachedImage(path: String, version: String) -> UIImage? {
+        let assetKey = "\(path):\(version)"
+        guard let sizes = cachedPixelSizes[assetKey] else { return nil }
+        for pixels in sizes.sorted(by: >) {
+            if let image = images.object(forKey: Request(path: path, version: version, pixels: pixels).key) {
+                return image
+            }
+        }
+        return nil
     }
 
     static func image(path: String, version: String, pixels: Int) async -> UIImage? {
@@ -262,7 +304,10 @@ enum NativeCoverCache {
         }
         let image = await task.value
         pending.removeValue(forKey: request)
-        if let image { images.setObject(image, forKey: request.key, cost: Int(image.size.width * image.size.height) * 4) }
+        if let image {
+            images.setObject(image, forKey: request.key, cost: Int(image.size.width * image.size.height) * 4)
+            cachedPixelSizes["\(path):\(version)", default: []].insert(pixels)
+        }
         return image
     }
 
@@ -332,6 +377,7 @@ struct BookCover: View {
         if let image { return image }
         guard let path = book.coverPath else { return nil }
         return NativeCoverCache.cachedImage(path: path, version: book.updatedAt, pixels: Int(width * 3))
+            ?? NativeCoverCache.bestCachedImage(path: path, version: book.updatedAt)
     }
     var body: some View {
         Group {
@@ -354,4 +400,14 @@ struct ReaderSurface: UIViewControllerRepresentable {
     let controller: UIViewController
     func makeUIViewController(context: Context) -> UIViewController { controller }
     func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}
+}
+
+private struct NativeClearFullScreenBackground: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 16.4, *) {
+            content.presentationBackground(.clear)
+        } else {
+            content
+        }
+    }
 }

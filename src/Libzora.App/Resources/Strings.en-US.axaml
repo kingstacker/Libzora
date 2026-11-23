@@ -292,6 +292,8 @@
     <x:String x:Key="Ui.About.ExportLogs">Export software logs</x:String>
     <x:String x:Key="Ui.About.ExportLogsHint">Package the sanitized software log and diagnostics into a ZIP file</x:String>
     <x:String x:Key="Ui.Feedback.Entry">Feedback</x:String>
+    <x:String x:Key="Ui.About.UserAgreement">Terms of Service</x:String>
+    <x:String x:Key="Ui.About.PrivacyPolicy">Privacy Policy</x:String>
     <x:String x:Key="Ui.Feedback.Title">Feedback</x:String>
     <x:String x:Key="Ui.Feedback.Subtitle">Choose a channel below to report an issue or join the community.</x:String>
     <x:String x:Key="Ui.Feedback.OpenIssues">Open GitHub Issues</x:String>

@@ -110,6 +110,20 @@
                       VerticalAlignment="Center" Foreground="{DynamicResource TextMutedBrush}" />
         </Grid>
       </Button>
+      <Button Classes="row" Click="OnUserAgreementClick">
+        <Grid ColumnDefinitions="*,Auto">
+          <TextBlock Text="用户协议" VerticalAlignment="Center" />
+          <c:LineIcon Grid.Column="1" Data="{StaticResource IconChevronRight}" Size="16" StrokeThickness="1.4"
+                      VerticalAlignment="Center" Foreground="{DynamicResource TextMutedBrush}" />
+        </Grid>
+      </Button>
+      <Button Classes="row" Click="OnPrivacyPolicyClick">
+        <Grid ColumnDefinitions="*,Auto">
+          <TextBlock Text="隐私政策" VerticalAlignment="Center" />
+          <c:LineIcon Grid.Column="1" Data="{StaticResource IconChevronRight}" Size="16" StrokeThickness="1.4"
+                      VerticalAlignment="Center" Foreground="{DynamicResource TextMutedBrush}" />
+        </Grid>
+      </Button>
       <Button Classes="row" Click="OnVersionClick">
         <Grid ColumnDefinitions="*,Auto">
           <TextBlock Text="版本" VerticalAlignment="Center" />

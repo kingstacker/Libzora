@@ -307,6 +307,24 @@ public partial class MainWindow
         }
     }
 
+    private void UserAgreementButton_Click(object? sender, RoutedEventArgs e) =>
+        OpenLegalDocument(LegalDocumentLinks.UserAgreement);
+
+    private void PrivacyPolicyButton_Click(object? sender, RoutedEventArgs e) =>
+        OpenLegalDocument(LegalDocumentLinks.PrivacyPolicy);
+
+    private void OpenLegalDocument(string url)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+        }
+        catch (Exception exception)
+        {
+            ShowSettingsCapsule(T("无法打开链接：{0}", UiText.Localize(exception.Message)), 4000);
+        }
+    }
+
     private void AboutDeveloperButton_Click(object? sender, RoutedEventArgs e)
     {
         try

@@ -450,6 +450,14 @@ struct NativeAboutPage: View {
                 }.buttonStyle(.plain).accessibilityIdentifier("profile.about.version")
                 NativeSettingsRow(title: L("开发者"), value: "kingstacker", chevron: false, verticalPadding: 2)
             }
+            Section {
+                Link(destination: legalURL("terms")) {
+                    NativeSettingsRow(title: L("用户协议"), chevron: true, verticalPadding: 2)
+                }.accessibilityIdentifier("profile.about.terms")
+                Link(destination: legalURL("privacy")) {
+                    NativeSettingsRow(title: L("隐私政策"), chevron: true, verticalPadding: 2)
+                }.accessibilityIdentifier("profile.about.privacy")
+            }
         }
         .navigationTitle(L("关于")).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
         .nativeBackButton()
@@ -458,6 +466,12 @@ struct NativeAboutPage: View {
                 try await store.command("settings.developer.toggle", ["password": password])
             }
         }
+    }
+
+    /// Follows the app language (not the system one) so the page matches the UI.
+    private func legalURL(_ page: String) -> URL {
+        let language = NativeLocalization.language == "en-US" ? "en" : "zh"
+        return URL(string: "https://libzora.stacker.beauty/\(page).html?lang=\(language)")!
     }
 
     private func tapVersion() {

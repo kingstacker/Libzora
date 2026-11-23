@@ -1513,3 +1513,92 @@ a.hero-platform:focus-visible .hero-platform-arrow {
     animation-duration: 0.01ms !important;
   }
 }
+
+/* 12 · Legal pages (privacy.html / terms.html) ============================ */
+
+/* Both languages ship in the markup; legal.js picks one. Without JavaScript
+   the Chinese text stays visible and the English one follows it. */
+html[data-legal-lang="zh"] [data-legal="en"],
+html[data-legal-lang="en"] [data-legal="zh"] {
+  display: none;
+}
+
+.legal {
+  padding-block: clamp(48px, 7vw, 88px) clamp(64px, 8vw, 104px);
+}
+
+.legal article {
+  max-width: 760px;
+}
+
+.legal article + article {
+  margin-top: 72px;
+}
+
+.legal h1 {
+  font-family: var(--serif);
+  font-size: var(--fs-h2);
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.legal-meta {
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: var(--fs-meta);
+}
+
+.legal-summary {
+  margin-top: 28px;
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: var(--fs-body);
+  line-height: 1.75;
+}
+
+.legal h2 {
+  margin-top: 44px;
+  font-family: var(--serif);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.legal p,
+.legal li {
+  color: var(--ink-2);
+  font-size: var(--fs-body);
+  line-height: 1.8;
+}
+
+.legal p,
+.legal ul {
+  margin-top: 14px;
+}
+
+.legal ul {
+  padding-left: 1.3em;
+  list-style: disc;
+}
+
+.legal li + li {
+  margin-top: 6px;
+}
+
+.legal strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.legal a {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* The legal pages have no main nav, so push the language switch to the edge. */
+.site-header .brand + .header-actions {
+  margin-left: auto;
+}

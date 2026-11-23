@@ -82,7 +82,7 @@ pattern: `MainWindow.<Area><Aspect>.cs`.
 | `MainWindow.Stage3ReaderAiSettings.cs` | Reader AI settings. |
 | `MainWindow.Stage3SettingsS3*.cs` | S3 settings, connection profiles, local change tracking, sync runs. |
 | `MainWindow.Stage3SettingsApp.cs` | Language, Calibre detection, autosave. |
-| `MainWindow.Stage3SettingsResources.cs` | Local font/dictionary management. |
+| `MainWindow.Stage3SettingsResources.cs` | Local font/dictionary management; About links to the user agreement and privacy policy. |
 | `MainWindow.Stage3SettingsPersist.cs` | Settings read/save and data-root migration. |
 | `MainWindow.Stage3Backup.cs` | Encrypted backup export/import. |
 | `Stage3*ViewModels.cs`, `KindleBookCardViewModel.cs` | Device-side view models. |

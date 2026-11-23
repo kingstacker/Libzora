@@ -292,6 +292,8 @@
     <x:String x:Key="Ui.About.ExportLogs">导出软件日志</x:String>
     <x:String x:Key="Ui.About.ExportLogsHint">将已脱敏的软件日志和诊断信息打包为 ZIP 文件</x:String>
     <x:String x:Key="Ui.Feedback.Entry">问题反馈</x:String>
+    <x:String x:Key="Ui.About.UserAgreement">用户协议</x:String>
+    <x:String x:Key="Ui.About.PrivacyPolicy">隐私政策</x:String>
     <x:String x:Key="Ui.Feedback.Title">问题反馈</x:String>
     <x:String x:Key="Ui.Feedback.Subtitle">选择以下任一渠道提交问题或加入交流群</x:String>
     <x:String x:Key="Ui.Feedback.OpenIssues">打开 GitHub Issues</x:String>

@@ -534,29 +534,37 @@ struct KkReadingTreeCanvas: View {
         // Swelling teardrop bud.
         let spread = CGFloat(0.58 + maturity * 0.16)
         let tip = CGPoint(x: base.x + ux * radius * 1.45, y: base.y + uy * radius * 1.45)
+        let midX = base.x + ux * radius * 0.65
+        let midY = base.y + uy * radius * 0.65
+        let spreadPx = px * radius * spread
+        let spreadPy = py * radius * spread
+        let budCtrl1 = CGPoint(x: midX + spreadPx, y: midY + spreadPy)
+        let budCtrl2 = CGPoint(x: midX - spreadPx, y: midY - spreadPy)
         var bud = Path()
         bud.move(to: base)
-        bud.addQuadCurve(
-            to: tip,
-            control: CGPoint(x: base.x + ux * radius * 0.65 + px * radius * spread,
-                             y: base.y + uy * radius * 0.65 + py * radius * spread))
-        bud.addQuadCurve(
-            to: base,
-            control: CGPoint(x: base.x + ux * radius * 0.65 - px * radius * spread,
-                             y: base.y + uy * radius * 0.65 - py * radius * spread))
+        bud.addQuadCurve(to: tip, control: budCtrl1)
+        bud.addQuadCurve(to: base, control: budCtrl2)
         bud.closeSubpath()
         context.fill(bud, with: .color(palette.budTip))
 
         // Cupping green sepal leaves around the base of the bud.
+        let sepalTipForwardX = base.x + ux * radius * 0.62
+        let sepalTipForwardY = base.y + uy * radius * 0.62
+        let sepalCtrlForwardX = base.x + ux * radius * 0.25
+        let sepalCtrlForwardY = base.y + uy * radius * 0.25
+        let sepalMid = CGPoint(x: base.x + ux * radius * 0.35, y: base.y + uy * radius * 0.35)
         for side in [-1.0 as CGFloat, 1.0 as CGFloat] {
+            let sideRadius = side * radius
+            let sepalTip = CGPoint(
+                x: sepalTipForwardX + px * sideRadius * 0.46,
+                y: sepalTipForwardY + py * sideRadius * 0.46)
+            let sepalCtrl = CGPoint(
+                x: sepalCtrlForwardX + px * sideRadius * 0.42,
+                y: sepalCtrlForwardY + py * sideRadius * 0.42)
             var sepal = Path()
             sepal.move(to: base)
-            sepal.addQuadCurve(
-                to: CGPoint(x: base.x + ux * radius * 0.62 + px * side * radius * 0.46,
-                            y: base.y + uy * radius * 0.62 + py * side * radius * 0.46),
-                control: CGPoint(x: base.x + ux * radius * 0.25 + px * side * radius * 0.42,
-                                 y: base.y + uy * radius * 0.25 + py * side * radius * 0.42))
-            sepal.addLine(to: CGPoint(x: base.x + ux * radius * 0.35, y: base.y + uy * radius * 0.35))
+            sepal.addQuadCurve(to: sepalTip, control: sepalCtrl)
+            sepal.addLine(to: sepalMid)
             sepal.closeSubpath()
             context.fill(sepal, with: .color(palette.leafDark))
         }

@@ -185,9 +185,13 @@ public partial class ReaderPage
         }
     }
 
-    private async Task GoToPdfPageAsync(int page, double? top = null)
+    private async Task GoToPdfPageAsync(int page, double? top = null, CancellationToken cancellationToken = default)
     {
         if (_readerHost is not NativePdfReaderHost pdf) return;
+        using var linked = cancellationToken.CanBeCanceled
+            ? CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token, cancellationToken)
+            : null;
+        var token = linked?.Token ?? _lifetime.Token;
         if (Math.Clamp(page, 1, Math.Max(1, _pdfPageCount)) != _pdfPage)
         {
             ClearActiveSyncedMarker();
@@ -199,7 +203,7 @@ public partial class ReaderPage
         var fragment = top is { } t && double.IsFinite(t)
             ? $"#page={page}&top={Math.Clamp(t, 0, 1).ToString(System.Globalization.CultureInfo.InvariantCulture)}"
             : $"#page={page}";
-        if (!await pdf.NavigateAsync(new Uri(new Uri(path).AbsoluteUri + fragment), _lifetime.Token))
+        if (!await pdf.NavigateAsync(new Uri(new Uri(path).AbsoluteUri + fragment), token))
             return;
         // NavigateAsync clears hand-tool mode; restore panning when zoomed or scrolling.
         pdf.SetHandToolMode(IsPdfPannable);

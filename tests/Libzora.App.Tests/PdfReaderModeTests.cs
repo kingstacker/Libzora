@@ -732,6 +732,46 @@ public sealed class PdfReaderModeTests(SettingsUiSession session)
         Assert.Equal("ii", pdf.GetPageLabel(2));
     });
 
+    [Fact]
+    public Task SinglePageHandDragStaysClampedHorizontallyAndZoomedPanClampsToEdges() => Run(async () =>
+    {
+        await using var scope = await ReaderTestWindow.Create();
+        using var card = await Open(scope, PdfFixture.Write(scope.Paths.ReaderCache));
+        var pdf = scope.Field<NativePdfReaderHost>("_readerActiveHost");
+        await scope.Call<Task>("SetReaderPdfDisplayModeAsync", PdfReaderDisplayMode.SinglePage);
+        await pdf.SetFitModeAsync(PdfReaderFitMode.Width);
+        pdf.SetHandToolMode(true);
+        await ReaderTests.Render();
+
+        var center = pdf.TranslatePoint(new Point(pdf.Bounds.Width / 2, pdf.Bounds.Height / 2), scope.Window)!.Value;
+        scope.Window.MouseDown(center, MouseButton.Left);
+        scope.Window.MouseMove(center + new Vector(180, 0));
+        scope.Window.MouseUp(center + new Vector(180, 0), MouseButton.Left);
+        Assert.Equal(0, pdf.GetType().GetField("_pan", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(pdf) is Vector panRight ? panRight.X : -1, 1);
+
+        scope.Window.MouseDown(center, MouseButton.Left);
+        scope.Window.MouseMove(center - new Vector(180, 0));
+        scope.Window.MouseUp(center - new Vector(180, 0), MouseButton.Left);
+        Assert.Equal(0, pdf.GetType().GetField("_pan", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(pdf) is Vector panLeft ? panLeft.X : -1, 1);
+
+        await pdf.SetZoomAsync(2.0);
+        var maxHorizontal = pdf.GetVisualChildren().OfType<ScrollBar>()
+            .Single(bar => bar.Orientation == Avalonia.Layout.Orientation.Horizontal).Maximum;
+        Assert.True(maxHorizontal > 10);
+
+        scope.Window.MouseDown(center, MouseButton.Left);
+        scope.Window.MouseMove(center + new Vector(maxHorizontal + 400, 0));
+        scope.Window.MouseUp(center + new Vector(maxHorizontal + 400, 0), MouseButton.Left);
+        var clampedMin = (Vector)pdf.GetType().GetField("_pan", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(pdf)!;
+        Assert.Equal(0, clampedMin.X, 1);
+
+        scope.Window.MouseDown(center, MouseButton.Left);
+        scope.Window.MouseMove(center - new Vector(maxHorizontal + 400, 0));
+        scope.Window.MouseUp(center - new Vector(maxHorizontal + 400, 0), MouseButton.Left);
+        var clampedMax = (Vector)pdf.GetType().GetField("_pan", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(pdf)!;
+        Assert.InRange(clampedMax.X, maxHorizontal - 1, maxHorizontal + 1);
+    });
+
     private static void DragText(ReaderTestWindow scope, NativePdfReaderHost pdf, Rect range, int rotation)
     {
         var (first, last) = rotation switch

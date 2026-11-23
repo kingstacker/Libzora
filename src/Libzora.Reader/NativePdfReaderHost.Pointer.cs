@@ -121,7 +121,7 @@ public sealed partial class NativePdfReaderHost
         {
             var delta = point - _handDragStart;
             var pan = _handDragOrigin - new Vector(delta.X, delta.Y);
-            SetPan(pan, allowZoomOverpan: HasZoomOverpan(pan));
+            SetPan(pan, allowZoomOverpan: false);
             return;
         }
         if (_pointerStart is { } start && _anchorOffset >= 0)
@@ -176,6 +176,7 @@ public sealed partial class NativePdfReaderHost
             _pointerStart = null;
             e.Pointer.Capture(null);
             Cursor = new Cursor(_handToolMode ? StandardCursorType.Hand : StandardCursorType.Arrow);
+            FlushPendingPageEmit();
             e.Handled = true;
             return;
         }

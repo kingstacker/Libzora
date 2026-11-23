@@ -102,12 +102,12 @@ public sealed partial class NativePdfReaderHost : Control, IReaderHost, IReaderP
         _vertical.ValueChanged += (_, _) =>
         {
             if (!_syncingBars)
-                SetPan(new(_pan.X, _vertical.Value), allowZoomOverpan: HasZoomOverpan(new(_pan.X, _vertical.Value)));
+                SetPan(new(_pan.X, _vertical.Value), allowZoomOverpan: false);
         };
         _horizontal.ValueChanged += (_, _) =>
         {
             if (!_syncingBars)
-                SetPan(new(_horizontal.Value, _pan.Y), allowZoomOverpan: HasZoomOverpan(new(_horizontal.Value, _pan.Y)));
+                SetPan(new(_horizontal.Value, _pan.Y), allowZoomOverpan: false);
         };
         // Marching ants for the picked highlight/underline: the outline dashes
         // walk while an annotation stays selected.
@@ -126,7 +126,8 @@ public sealed partial class NativePdfReaderHost : Control, IReaderHost, IReaderP
         _resizeTimer.Tick += async (_, _) =>
         {
             _resizeTimer.Stop();
-            RebuildLayout(preservePosition: true);
+            if (_layout is null || Math.Abs(DeviceScaling - _layoutDpi) > 0.001)
+                RebuildLayout(preservePosition: true);
             await RefreshViewportAsync();
         };
         PropertyChanged += (_, args) =>

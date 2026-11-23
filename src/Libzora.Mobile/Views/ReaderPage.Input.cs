@@ -251,7 +251,6 @@ public partial class ReaderPage
             _transitionCts = null;
             try { cts.Cancel(); }
             catch (ObjectDisposedException) { }
-            cts.Dispose();
         }
     }
 
@@ -296,7 +295,7 @@ public partial class ReaderPage
             return;
         }
         CancelInteractiveDragImmediate();
-        if (_activeTransitionTask is { IsCompleted: false })
+        if (!_turning && _activeTransitionTask is { IsCompleted: false })
         {
             CancelActiveTransition();
         }
@@ -380,7 +379,22 @@ public partial class ReaderPage
             _pressMoved = true;
             _longPress.Stop();
         }
-        if (IsPdfPannable) return;
+        if (IsPdfPannable)
+        {
+            var moveDx = current.X - start.X;
+            var moveDy = current.Y - start.Y;
+            if (!IsPdfContinuous
+                && _pressMoved
+                && Math.Abs(moveDx) >= Math.Abs(moveDy) * SwipeDominance
+                && _readerHost is NativePdfReaderHost pdfHost
+                && pdfHost.IsAtHorizontalEdge(-1)
+                && pdfHost.IsAtHorizontalEdge(1))
+            {
+                pdfHost.CancelPointerInteraction();
+                e.Handled = true;
+            }
+            return;
+        }
         if ((IsMangaPannable || IsEpubScrollMode) && _pressMoved && _readerHost is NativeReaderHost mangaHost)
         {
             _panning = true;
@@ -515,13 +529,17 @@ public partial class ReaderPage
         {
             if (!IsPdfPannable)
             {
+                if (_readerHost is NativePdfReaderHost nonPanPdf)
+                    nonPanPdf.CancelPointerInteraction();
                 ConsumeSurfaceRelease(e);
                 HandleSwipe(dx);
             }
-            else if (_isPdf && !IsPdfContinuous && Math.Abs(dx) >= 72
+            else if (_isPdf && !IsPdfContinuous
                 && _readerHost is NativePdfReaderHost pdf
-                && pdf.IsAtHorizontalEdge(dx < 0 ? 1 : -1))
+                && ((pdf.IsAtHorizontalEdge(-1) && pdf.IsAtHorizontalEdge(1))
+                    || (Math.Abs(dx) >= 72 && pdf.IsAtHorizontalEdge(dx < 0 ? 1 : -1))))
             {
+                pdf.CancelPointerInteraction();
                 ConsumeSurfaceRelease(e);
                 HandleSwipe(dx);
             }
@@ -724,6 +742,7 @@ public partial class ReaderPage
             var visualDirection = MobileReaderPagingPolicy.VisualDirection(
                 direction, _layout.VerticalWriting, _isPdf, IsRightToLeftPaging);
             transitionCts = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+            var transitionToken = transitionCts.Token;
             _transitionCts = transitionCts;
             var contentSwitched = false;
             transitionTask = ReaderTransitionPlayer.RunAsync(surface, animation, visualDirection, async () =>
@@ -731,7 +750,7 @@ public partial class ReaderPage
                 ClearActiveSyncedMarker();
                 if (_isPdf)
                 {
-                    await GoToPdfPageAsync(_pdfPage + direction);
+                    await GoToPdfPageAsync(_pdfPage + direction, cancellationToken: transitionToken);
                     contentSwitched = true;
                     return true;
                 }
@@ -741,14 +760,14 @@ public partial class ReaderPage
                     await GoToChapterAsync(host, _chapterIndex + direction, fromEnd: direction < 0, direction);
                 contentSwitched = true;
                 return true;
-            }, transitionCts.Token);
+            }, transitionToken);
             _activeTransitionTask = transitionTask;
             // Unlock rapid consecutive page turns once the page flip has switched
             // content and entered its visual animation phase; the next turn will
             // cleanly settle the previous animation first.
             while (!transitionTask.IsCompleted && !contentSwitched)
             {
-                await Task.WhenAny(transitionTask, Task.Delay(8, transitionCts.Token));
+                await Task.WhenAny(transitionTask, Task.Delay(8, transitionToken));
             }
             if (contentSwitched && turnId == _activeTurnId) _turning = false;
             await transitionTask;
@@ -764,12 +783,9 @@ public partial class ReaderPage
         {
             if (transitionTask is not null && ReferenceEquals(_activeTransitionTask, transitionTask))
                 _activeTransitionTask = null;
-            if (transitionCts is not null)
-            {
-                if (ReferenceEquals(_transitionCts, transitionCts))
-                    _transitionCts = null;
-                transitionCts.Dispose();
-            }
+            if (ReferenceEquals(_transitionCts, transitionCts))
+                _transitionCts = null;
+            transitionCts?.Dispose();
             if (turnId == _activeTurnId)
                 _turning = false;
         }

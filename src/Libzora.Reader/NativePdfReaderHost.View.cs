@@ -105,37 +105,14 @@ public sealed partial class NativePdfReaderHost
                 visible = VisiblePageNumbers;
             }
 
+            var viewport = new Rect(Viewport);
             var requests = new List<(int Page, int Width, int Height, int X, int Y, int W, int H)>();
             foreach (var page in visible)
             {
                 if (!_pages.TryGetValue(page, out var cached)) continue;
-                var bounds = GetPageBounds(page);
-                var frame = GetVisiblePageFrame(page);
-                var fullSize = _sizes[page - 1];
-                if (Rotation % 180 != 0) fullSize = new(fullSize.Height, fullSize.Width);
-                var scale = Math.Max(
-                    bounds.Width / Math.Max(1, fullSize.Width),
-                    bounds.Height / Math.Max(1, fullSize.Height));
-                var width = Math.Max(1, (int)Math.Round(fullSize.Width * scale * _layoutDpi));
-                var height = Math.Max(1, (int)Math.Round(fullSize.Height * scale * _layoutDpi));
-                var intersection = frame.Intersect(new Rect(Viewport));
-                if (intersection.Width <= 0 || intersection.Height <= 0) continue;
-                var left = Math.Clamp(
-                    (int)Math.Floor((intersection.X - bounds.X) * _layoutDpi),
-                    0,
-                    width - 1);
-                var top = Math.Clamp(
-                    (int)Math.Floor((intersection.Y - bounds.Y) * _layoutDpi),
-                    0,
-                    height - 1);
-                var right = Math.Clamp(
-                    (int)Math.Ceiling((intersection.Right - bounds.X) * _layoutDpi),
-                    left + 1,
-                    width);
-                var bottom = Math.Clamp(
-                    (int)Math.Ceiling((intersection.Bottom - bounds.Y) * _layoutDpi),
-                    top + 1,
-                    height);
+                if (!TryGetVisiblePagePixelRegion(page, _layoutDpi, viewport,
+                        out var width, out var height, out var left, out var top, out var right, out var bottom))
+                    continue;
                 if (cached.Raster is { } raster && raster.Rotation == rotation && cached.Palette == palette
                     && raster.PagePixelWidth == width && raster.PagePixelHeight == height
                     && raster.Left <= left && raster.Top <= top && raster.Left + raster.Width >= right && raster.Top + raster.Height >= bottom) continue;
@@ -312,20 +289,141 @@ public sealed partial class NativePdfReaderHost
         finally { _syncingBars = false; }
     }
 
+    private DateTime _lastPageEmitUtc;
+    private Avalonia.Threading.DispatcherTimer? _pageEmitTimer;
+    private bool _pageEmitPending;
+
     private void SetPan(Vector pan, bool trackPage = true, bool render = true, bool allowZoomOverpan = false)
     {
         CloseFootnotePreview();
+        var previousPan = _pan;
+        var previousOverpan = _allowZoomOverpan;
         _pan = pan;
         _allowZoomOverpan = allowZoomOverpan;
         SyncScrollBars();
+        if (!allowZoomOverpan && !previousOverpan
+            && Math.Abs(_pan.X - previousPan.X) < 0.01
+            && Math.Abs(_pan.Y - previousPan.Y) < 0.01)
+        {
+            return;
+        }
+
         UpdateAnnotationCallout();
         if (trackPage && DisplayMode == PdfReaderDisplayMode.Continuous && _layout is not null)
             ActivatePage(_layout.PageAt(_pan.Y + PdfReaderLayout.Margin + 1));
-        InvalidateArrange();
         if (_annotationCallout is null) ClearHover();
         InvalidateVisual();
+        if (_isPanning)
+            SchedulePageEmit();
+        else
+            EmitPage();
+        if (render && HasUncoveredViewportRegion()) ScheduleRender();
+    }
+
+    /// <summary>
+    /// Stops any active pointer drag or selection state when a parent swipe
+    /// recognizer claims the gesture, preventing stuck panning across touches.
+    /// </summary>
+    public void CancelPointerInteraction()
+    {
+        var wasPanning = _isPanning;
+        _isPanning = false;
+        _dragging = false;
+        _pointerStart = null;
+        _pointerAnnotationHit = null;
+        _pointerLink = null;
+        _pointerFootnote = null;
+        if (wasPanning)
+            FlushPendingPageEmit();
+    }
+
+    private void SchedulePageEmit()
+    {
+        if (_disposed) return;
+        var now = DateTime.UtcNow;
+        if ((now - _lastPageEmitUtc).TotalMilliseconds >= 50)
+        {
+            _pageEmitPending = false;
+            _lastPageEmitUtc = now;
+            EmitPage();
+            return;
+        }
+
+        _pageEmitPending = true;
+        if (_pageEmitTimer is null)
+        {
+            _pageEmitTimer = new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(55) };
+            _pageEmitTimer.Tick += (_, _) =>
+            {
+                _pageEmitTimer?.Stop();
+                if (_disposed || !_pageEmitPending) return;
+                _pageEmitPending = false;
+                _lastPageEmitUtc = DateTime.UtcNow;
+                EmitPage();
+            };
+        }
+        if (!_pageEmitTimer.IsEnabled)
+            _pageEmitTimer.Start();
+    }
+
+    private void FlushPendingPageEmit()
+    {
+        _pageEmitTimer?.Stop();
+        if (_disposed || !_pageEmitPending) return;
+        _pageEmitPending = false;
+        _lastPageEmitUtc = DateTime.UtcNow;
         EmitPage();
-        if (render) ScheduleRender();
+    }
+
+    private bool HasUncoveredViewportRegion()
+    {
+        if (_layout is null) return false;
+        var dpi = DeviceScaling;
+        var viewport = new Rect(Viewport);
+        foreach (var page in VisiblePageNumbers)
+        {
+            if (!_pages.TryGetValue(page, out var cached)) return true;
+            if (cached.Raster is not { } raster || raster.Rotation != Rotation || cached.Palette != _palette)
+                return true;
+            if (!TryGetVisiblePagePixelRegion(page, dpi, viewport,
+                    out var width, out var height, out var left, out var top, out var right, out var bottom))
+                continue;
+            if (raster.PagePixelWidth != width || raster.PagePixelHeight != height) return true;
+            if (raster.Left > left || raster.Top > top || raster.Left + raster.Width < right || raster.Top + raster.Height < bottom)
+                return true;
+        }
+        return false;
+    }
+
+    private bool TryGetVisiblePagePixelRegion(
+        int page,
+        double dpi,
+        Rect viewport,
+        out int width,
+        out int height,
+        out int left,
+        out int top,
+        out int right,
+        out int bottom)
+    {
+        var bounds = GetPageBounds(page);
+        var frame = GetVisiblePageFrame(page);
+        var fullSize = _sizes[page - 1];
+        if (Rotation % 180 != 0) fullSize = new(fullSize.Height, fullSize.Width);
+        var scale = Math.Max(bounds.Width / Math.Max(1, fullSize.Width), bounds.Height / Math.Max(1, fullSize.Height));
+        width = Math.Max(1, (int)Math.Round(fullSize.Width * scale * dpi));
+        height = Math.Max(1, (int)Math.Round(fullSize.Height * scale * dpi));
+        var intersection = frame.Intersect(viewport);
+        if (intersection.Width <= 0 || intersection.Height <= 0)
+        {
+            left = top = right = bottom = 0;
+            return false;
+        }
+        left = Math.Clamp((int)Math.Floor((intersection.X - bounds.X) * dpi), 0, width - 1);
+        top = Math.Clamp((int)Math.Floor((intersection.Y - bounds.Y) * dpi), 0, height - 1);
+        right = Math.Clamp((int)Math.Ceiling((intersection.Right - bounds.X) * dpi), left + 1, width);
+        bottom = Math.Clamp((int)Math.Ceiling((intersection.Bottom - bounds.Y) * dpi), top + 1, height);
+        return true;
     }
 
     private void ActivatePage(int page, bool emitPage = true)
@@ -353,7 +451,7 @@ public sealed partial class NativePdfReaderHost
         var pan = new Vector(
             ApplyScrollDelta(_pan.X, delta.X, maxX),
             ApplyScrollDelta(_pan.Y, delta.Y, maxY));
-        SetPan(pan, allowZoomOverpan: HasZoomOverpan(pan));
+        SetPan(pan, allowZoomOverpan: false);
     }
 
     private bool HasZoomOverpan(Vector pan) =>
@@ -439,6 +537,8 @@ public sealed partial class NativePdfReaderHost
         _documentCancellation?.Cancel();
         ++_version; ++_rasterVersion;
         _resizeTimer.Stop();
+        _pageEmitTimer?.Stop();
+        _pageEmitPending = false;
     }
 
     public void Dispose()

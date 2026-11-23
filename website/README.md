@@ -41,7 +41,7 @@ python3 -I scripts/test_optimize_website_assets.py
 
 - `index.html` — 首页（展示 Windows、macOS、Linux、Android 和 iOS 的下载状态）
 - `assets/` — 截图与优化后的图片变体
-- `privacy.html` / `terms.html` — 隐私政策与用户协议（中英双语同页，`legal.js` 切换语言；应用内“关于”页链接到这两个地址）
+- `privacy.html` / `terms.html` — 隐私政策与用户协议（中英双语同页，`legal.js` 切换语言；应用打包时从这两个文件读取正文，供“关于”页离线展示）
 - `dev/` — 本地检查用页面（`noindex`，构建产物中排除）
 - `styles.css` / `app.js` — 样式与交互
 

@@ -37,7 +37,10 @@ struct KkContinueWidgetView: View {
         return book.map { [$0] } ?? []
     }
     private var url: URL? {
-        guard !entry.isPlaceholder, let id = book?.id else { return nil }
+        guard !entry.isPlaceholder else { return nil }
+        if family == .systemMedium && books.count > 1 { return nil }
+        let displayedBook = family == .systemSmall || family == .systemMedium ? books.first : book
+        guard let id = displayedBook?.id else { return nil }
         return URL(string: "libzora://read/\(id)")
     }
 
@@ -128,7 +131,8 @@ struct KkContinueWidgetView: View {
                     Spacer(minLength: 6)
                     HStack(alignment: .top, spacing: spacing) {
                         ForEach(items) { item in
-                            bookColumn(item, slotWidth: slotWidth, coverWidth: coverWidth, coverHeight: coverHeight)
+                            bookColumn(item, slotWidth: slotWidth, coverWidth: coverWidth,
+                                       coverHeight: coverHeight, slotHeight: maxCoverHeight + 40)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -161,10 +165,13 @@ struct KkContinueWidgetView: View {
     }
 
     @ViewBuilder
-    private func bookColumn(_ book: KkBook, slotWidth: CGFloat, coverWidth: CGFloat, coverHeight: CGFloat) -> some View {
+    private func bookColumn(_ book: KkBook, slotWidth: CGFloat, coverWidth: CGFloat,
+                            coverHeight: CGFloat, slotHeight: CGFloat) -> some View {
         if !entry.isPlaceholder, let destination = URL(string: "libzora://read/\(book.id)") {
             Link(destination: destination) {
                 bookColumnContent(book, slotWidth: slotWidth, coverWidth: coverWidth, coverHeight: coverHeight)
+                    .frame(minHeight: slotHeight, alignment: .top)
+                    .contentShape(Rectangle())
             }
         } else {
             bookColumnContent(book, slotWidth: slotWidth, coverWidth: coverWidth, coverHeight: coverHeight)

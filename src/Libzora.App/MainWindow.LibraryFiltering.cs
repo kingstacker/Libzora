@@ -132,6 +132,7 @@ public partial class MainWindow
         => await CreateCollectionAsync();
 
     private bool HasBlockingOverlayVisible() =>
+        LegalOverlay.IsVisible ||
         OnboardingOverlay.IsVisible || MessageOverlay.IsVisible
         || ConfirmationOverlay.IsVisible || CollectionNameOverlay.IsVisible
         || DevicePromptOverlay.IsVisible || DeviceModelInputOverlay.IsVisible

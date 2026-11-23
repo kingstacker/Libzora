@@ -122,6 +122,8 @@ public sealed class InlineItem
     public string? FootnoteHref { get; init; }
     /// <summary>Inline note text for publishers that encode a footnote in an image alt attribute.</summary>
     public string? FootnoteText { get; init; }
+    /// <summary>Original alt/title description carried by a standalone image block.</summary>
+    public string? AltText { get; init; }
     /// <summary>The small pronunciation text rendered above or beside a ruby base.</summary>
     public string? RubyText { get; init; }
     /// <summary>Ghost text is part of the offset stream but never rendered.</summary>

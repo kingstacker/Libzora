@@ -156,6 +156,16 @@ public sealed partial class XhtmlChapterLoader
     /// </summary>
     private void AddTableBlock(XElement table, FlowContext ctx)
     {
+        var tableStart = _blocks.Count;
+        var tableFragmentIds = TakePendingFragmentIds();
+        foreach (var caption in table.Elements()
+                     .Where(child => child.Name.LocalName.Equals("caption", StringComparison.OrdinalIgnoreCase)
+                                     && !IsDisplayNone(child)))
+        {
+            TrackId(caption);
+            WalkBlockParagraph(caption, BlockKind.Paragraph, ctx.AsCaption());
+        }
+
         var rows = new List<ContentTableRow>();
         var defaultBorder = ParseTableBorderAttribute(table);
         var wasBuildingCells = _buildingTableCells;
@@ -263,8 +273,12 @@ public sealed partial class XhtmlChapterLoader
             SpaceAfterLines = 0.5f,
             Table = new ContentTable { Rows = rows },
             Items = fallback,
-            FragmentIds = TakePendingFragmentIds(),
+            FragmentIds = tableFragmentIds
+                .Concat(TakePendingFragmentIds())
+                .Distinct(StringComparer.Ordinal)
+                .ToArray(),
         });
+        LinkFigureCaptions(tableStart);
     }
 
     private IEnumerable<XElement> TableRowElements(XElement table)

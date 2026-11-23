@@ -50,11 +50,24 @@ public partial class MainWindow
         if (match.chapter is null)
             return false;
         var chapterIndex = match.index;
+        HideReaderFootnotePopup();
+        if (!showFootnote
+            && chapterIndex == _readerChapterIndex
+            && !string.IsNullOrWhiteSpace(uri.Fragment)
+            && CurrentReaderHost is NativeReaderHost nativeHost
+            && nativeHost.TryGetFragmentMediaTarget(uri.Fragment, out _, out var isOnVisiblePage, out var imagePath, out _)
+            && isOnVisiblePage
+            && !string.IsNullOrWhiteSpace(imagePath)
+            && IsPathInside(_readerDocument.RootPath, imagePath))
+        {
+            OpenReaderImageZoom(imagePath);
+            return true;
+        }
+
         var item = new EpubReaderNavigationItem(
             T("第 {0} 章", chapterIndex + 1),
             uri.AbsoluteUri,
             chapterIndex);
-        HideReaderFootnotePopup();
         return await NavigateToReaderItemAsync(
             item,
             _readerSession.GetTokenOr(CancellationToken.None),

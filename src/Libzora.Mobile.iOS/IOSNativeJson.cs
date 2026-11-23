@@ -89,6 +89,7 @@ internal sealed record NativeAiInfo(
 [JsonSerializable(typeof(Guid[]))]
 [JsonSerializable(typeof(DateTimeOffset))]
 [JsonSerializable(typeof(MobilePreferences))]
+[JsonSerializable(typeof(LegalDocumentContent))]
 [JsonSerializable(typeof(ReaderFontList))]
 [JsonSerializable(typeof(ReaderFontInstall))]
 [JsonSerializable(typeof(ReaderProgressRow))]

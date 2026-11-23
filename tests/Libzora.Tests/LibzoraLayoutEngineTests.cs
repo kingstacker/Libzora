@@ -1414,6 +1414,48 @@ public sealed class LibzoraLayoutEngineTests : IDisposable
         Assert.InRange(body.OriginY - marker.OriginY, expectedShift - 1.5f, expectedShift + 1.5f);
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData(" ")]
+    [InlineData("\n\t")]
+    public void Horizontal_FootnoteMarkerWrapsWithItsPrecedingText(string space)
+    {
+        var path = WriteChapter($"""
+            <p>甲乙丙丁戊{space}<a href="#fn1" role="doc-noteref">注</a>己庚。</p>
+            <aside id="fn1" role="doc-footnote"><p>脚注内容。</p></aside>
+            """);
+        var content = new XhtmlChapterLoader().Load(path);
+        using var engine = CreateEngine();
+        var options = new TypesetLayoutOptions
+        {
+            WritingMode = TypesetWritingMode.HorizontalTb,
+            BaseFontSize = 30f,
+            LineHeight = 1.8f,
+            ViewportWidth = 198f,
+            ViewportHeight = 720f,
+            InsetHorizontal = 24f,
+            InsetVertical = 24f,
+        };
+        var page = engine.Compose(content, options).Pages[0];
+        var precedingOffset = content.BodyText.IndexOf('戊');
+        Assert.True(precedingOffset >= 0);
+        var markerOffset = Assert.Single(content.Blocks.SelectMany(block => block.Items),
+            item => item.Kind == InlineKind.FootnoteMarker).TextStart;
+
+        var preceding = Assert.Single(page.Runs, run => run.TextStart <= precedingOffset
+            && precedingOffset < run.TextStart + run.TextLength);
+        var marker = Assert.Single(page.Runs, run => run.TextStart == markerOffset && run.Style.Superscript);
+        var beginning = Assert.Single(page.Runs, run => run.TextStart == 0);
+        var hotZone = Assert.Single(page.HotZones, zone => zone.Kind == HotZoneKind.FootnoteMarker);
+
+        Assert.True(preceding.OriginY > beginning.OriginY);
+        Assert.Equal(options.BaseFontSize * 0.38f, preceding.OriginY - marker.OriginY, 2);
+        var precedingGlyphX = preceding.OriginX + preceding.X[^1];
+        Assert.InRange(hotZone.Rect.Left - precedingGlyphX, 0.95f * options.BaseFontSize, 1.05f * options.BaseFontSize);
+        Assert.Equal(options.BaseFontSize * 0.55f, marker.FontSize, 2);
+        Assert.EndsWith("#fn1", hotZone.Href);
+    }
+
     [Fact]
     public void Vertical_FootnoteMarkerSitsOnTheRightEdgeOfItsColumn()
     {
@@ -1792,8 +1834,8 @@ public sealed class LibzoraLayoutEngineTests : IDisposable
         var bodyRect = layout.GetCharRect(0, bodyOffset)!.Value;
         var visualGap = bodyRect.Top - headingRect.Bottom;
 
-        // Collapsed 1em margin instead of stacking 1.25*BodyLineHeight + 1em + 1em (~84px).
-        Assert.InRange(visualGap, options.BaseFontSize * 0.6f, options.BaseFontSize * 1.6f);
+        // Collapsed margin with heading breathing room instead of stacking ~84px.
+        Assert.InRange(visualGap, options.BaseFontSize * 1.0f, options.BaseFontSize * 2.2f);
     }
 
     [Fact]
@@ -2804,6 +2846,17 @@ public sealed class LibzoraLayoutEngineTests : IDisposable
         Assert.True(rules.Count >= 8, $"expected cell borders, got {rules.Count} rules");
         Assert.Contains(rules, rule => rule.Rect.Height < 2f && rule.Rect.Width > 40f);
         Assert.Contains(rules, rule => rule.Rect.Width < 2f && rule.Rect.Height > 10f);
+
+        // Adjacent bordered columns must share their inner vertical grid line
+        // instead of leaving an empty gap between column boxes.
+        var horizontalBounds = rules
+            .Where(rule => rule.Rect.Height < 2f)
+            .Select(rule => (Left: MathF.Round(rule.Rect.Left, 1), Right: MathF.Round(rule.Rect.Right, 1)))
+            .Distinct()
+            .OrderBy(span => span.Left)
+            .ToArray();
+        Assert.Equal(2, horizontalBounds.Length);
+        Assert.InRange(Math.Abs(horizontalBounds[0].Right - horizontalBounds[1].Left), 0f, 0.5f);
     }
 
     [Fact]

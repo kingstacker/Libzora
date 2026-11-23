@@ -131,7 +131,7 @@ internal sealed partial class HorizontalComposer
                 {
                     var next = i + 1;
                     while (next < end && cells[next].IsSpace) next++;
-                    if (next < end)
+                    if (next < end && !cells[next].FootnoteMarker)
                     {
                         breaks.Add(new KpBreak(i - 1, next, 0, IsHyphen: false, IsEnd: false));
                     }

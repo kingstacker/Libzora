@@ -7738,6 +7738,76 @@
             </Border>
         </Grid>
 
+        <!-- Built-in offline viewer for User Agreement and Privacy Policy -->
+        <Grid x:Name="LegalOverlay"
+              Grid.ColumnSpan="3"
+              Background="#66000000"
+              IsVisible="False"
+              ZIndex="112"
+              KeyboardNavigation.TabNavigation="Cycle"
+              KeyDown="LegalOverlay_KeyDown">
+            <Grid.Transitions>
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.15" />
+                </Transitions>
+            </Grid.Transitions>
+            <Border MaxWidth="640"
+                    MaxHeight="720"
+                    Margin="24"
+                    Background="{DynamicResource PaperBrush}"
+                    BorderBrush="{DynamicResource InkBrush}"
+                    BorderThickness="1"
+                    HorizontalAlignment="Stretch"
+                    VerticalAlignment="Center">
+                <Grid RowDefinitions="Auto,*,Auto">
+                    <StackPanel Grid.Row="0"
+                                Margin="24,20,24,14"
+                                Spacing="6">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <Rectangle Width="10"
+                                       Height="21"
+                                       Margin="0,-2,0,0"
+                                       Fill="{DynamicResource InkBrush}"
+                                       VerticalAlignment="Center" />
+                            <TextBlock x:Name="LegalTitleText"
+                                       FontSize="20"
+                                       FontWeight="Bold"
+                                       VerticalAlignment="Center" />
+                        </StackPanel>
+                        <TextBlock x:Name="LegalDateText"
+                                   Margin="20,0,0,0"
+                                   FontSize="12"
+                                   Foreground="{DynamicResource MutedInkBrush}" />
+                    </StackPanel>
+                    <ScrollViewer x:Name="LegalScrollViewer"
+                                  Grid.Row="1"
+                                  MaxHeight="520"
+                                  HorizontalScrollBarVisibility="Disabled"
+                                  VerticalScrollBarVisibility="Auto"
+                                  Margin="24,0,24,4">
+                        <StackPanel Spacing="14" Margin="0,0,6,8">
+                            <Border Padding="14,12"
+                                    Background="{DynamicResource SoftHoverBrush}"
+                                    BorderBrush="{DynamicResource HairlineBrush}"
+                                    BorderThickness="1">
+                                <TextBlock x:Name="LegalSummaryText"
+                                           FontSize="13"
+                                           LineHeight="20"
+                                           TextWrapping="Wrap" />
+                            </Border>
+                            <StackPanel x:Name="LegalSectionsPanel" Spacing="8" />
+                        </StackPanel>
+                    </ScrollViewer>
+                    <Button x:Name="LegalCloseButton"
+                            Grid.Row="2"
+                            Content="{DynamicResource Ui.Feedback.Close}"
+                            Margin="24,14,24,20"
+                            HorizontalAlignment="Right"
+                            Click="LegalCloseButton_Click" />
+                </Grid>
+            </Border>
+        </Grid>
+
         <!-- Device feedback bubble mirrors the task-history flyout: same
              paper/ink outline, square corners, text scale, and pointer size.
              It floats above the whole UI and is positioned by the host. -->

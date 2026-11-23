@@ -62,7 +62,7 @@ final class NativeProfilePageTests: XCTestCase {
 
     /// The About page must offer the user agreement and privacy policy and keep
     /// both reachable without any network or account state.
-    func testAboutPageListsLegalDocuments() {
+    func testAboutPageOpensLegalDocumentsInApp() {
         openProfile()
         let about = app.buttons["profile.about"]
         for _ in 0..<6 {
@@ -72,10 +72,28 @@ final class NativeProfilePageTests: XCTestCase {
         XCTAssertTrue(about.exists && about.isHittable)
         about.tap()
         XCTAssertTrue(app.navigationBars["关于"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.buttons["profile.about.terms"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["profile.about.privacy"].exists)
-        capture("我的-关于")
-        app.navigationBars["关于"].buttons.firstMatch.tap()
+        for (id, title, firstHeading, lastHeading) in [
+            ("terms", "用户协议", "一、协议的接受", "十三、联系我们"),
+            ("privacy", "隐私政策", "一、适用范围", "十二、联系我们")
+        ] {
+            let row = app.buttons["profile.about.\(id)"]
+            XCTAssertTrue(row.waitForExistence(timeout: 5))
+            row.tap()
+            let bar = app.navigationBars[title]
+            XCTAssertTrue(bar.waitForExistence(timeout: 5))
+            XCTAssertTrue(app.staticTexts[firstHeading].waitForExistence(timeout: 10))
+            XCTAssertFalse(app.links["在浏览器中打开"].exists)
+            capture(title)
+            let lastSection = app.staticTexts[lastHeading]
+            let document = app.scrollViews.firstMatch
+            for _ in 0..<16 {
+                if lastSection.isHittable { break }
+                document.swipeUp()
+            }
+            XCTAssertTrue(lastSection.isHittable)
+            bar.buttons.firstMatch.tap()
+            XCTAssertTrue(app.navigationBars["关于"].waitForExistence(timeout: 5))
+        }
     }
 
     private func assertAlignedRows() {

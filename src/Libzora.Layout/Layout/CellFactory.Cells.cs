@@ -174,7 +174,8 @@ internal sealed partial class CellFactory
                     item.Style,
                     item.LinkHref,
                     item.FootnoteHref,
-                    preferLatinFont);
+                    preferLatinFont,
+                    item.FootnoteText);
                 var wordLimit = Math.Min(_context.Options.ContentWidth, maxWordWidth);
                 if (unit.Kind == TextUnitKind.LatinWord
                     && unitText.Length > 1
@@ -195,6 +196,7 @@ internal sealed partial class CellFactory
                             item.LinkHref,
                             item.FootnoteHref,
                             vertical: false,
+                            footnoteText: item.FootnoteText,
                             preferLatinFont: preferLatinFont));
                         offset += element.Length;
                     }
@@ -242,13 +244,29 @@ internal sealed partial class CellFactory
     /// inline markup. The retained cell keeps the first source range, while
     /// later collapsed ranges remain in BodyText for offset compatibility.
     /// </summary>
-    public static void CollapseWhitespace(List<LayoutCell> cells)
+    public static void CollapseWhitespace(List<LayoutCell> cells, bool attachFootnoteMarkers = false)
     {
         var previousWasSpace = false;
         var write = 0;
         for (var read = 0; read < cells.Count; read++)
         {
             var cell = cells[read];
+            if (attachFootnoteMarkers && cell.FootnoteMarker)
+            {
+                // XHTML indentation before a superscript is collapsible
+                // whitespace. Keep it in BodyText for source offsets only.
+                while (write > 0 && cells[write - 1] is { IsSpace: true, IsLineBreak: false, Style.PreserveWhitespace: false })
+                    write--;
+
+                if (write > 0 && cells[write - 1] is { TrailingLetterSpacing: > 0f } preceding)
+                {
+                    cells[write - 1] = preceding with
+                    {
+                        Advance = preceding.Advance - preceding.TrailingLetterSpacing,
+                        TrailingLetterSpacing = 0f,
+                    };
+                }
+            }
             if (cell.Style.PreserveWhitespace)
             {
                 previousWasSpace = false;

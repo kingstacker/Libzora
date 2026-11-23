@@ -95,10 +95,27 @@ public sealed partial class XhtmlChapterLoader
                     Style = hints.Bold ? new TypesetInlineStyle(Bold: true) : new TypesetInlineStyle(),
                     LinkHref = ctx?.LinkHref,
                     FootnoteHref = ctx?.FootnoteHref,
+                    AltText = GetImageAltText(element),
                 },
             },
         });
         _pending.Clear();
+    }
+
+    private static string? GetImageAltText(XElement element)
+    {
+        foreach (var name in new[] { "alt", "title" })
+        {
+            var value = (string?)element.Attribute(name);
+            if (string.IsNullOrWhiteSpace(value)) continue;
+            var normalized = CollapseWhitespace(value);
+            if (normalized.Length > 0)
+            {
+                return normalized.Length <= 240 ? normalized : normalized[..240] + "…";
+            }
+        }
+
+        return null;
     }
 
     private void AddInlineImage(XElement element, FlowContext ctx)

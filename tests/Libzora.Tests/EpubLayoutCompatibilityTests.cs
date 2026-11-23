@@ -164,6 +164,27 @@ public sealed class EpubLayoutCompatibilityTests : IDisposable
         }
     }
 
+    [Fact]
+    public void CssScaledSuperscriptAvoidsDoubleShrinkAndRaisesBaseline()
+    {
+        var content = new XhtmlChapterLoader().Load(WriteChapter(
+            "<p>10<span class='sbiao'>3</span></p>",
+            ".sbiao { font-size: 0.75em; vertical-align: super; margin: 0; }"));
+
+        using var engine = CreateEngine();
+        var options = Options(TypesetWritingMode.HorizontalTb);
+        var layout = engine.Compose(content, options);
+        var runs = layout.Pages.SelectMany(page => page.Runs).ToArray();
+
+        var baseRun = Assert.Single(runs, run => run.TextStart == 0 && run.TextLength == 2);
+        var supRun = Assert.Single(runs, run => run.TextStart == 2 && run.TextLength == 1);
+
+        Assert.InRange(supRun.FontSize, baseRun.FontSize * 0.74f, baseRun.FontSize * 0.76f);
+        Assert.True(
+            baseRun.OriginY - supRun.OriginY >= options.BaseFontSize * 0.37f,
+            $"superscript baseline shift too small: base={baseRun.OriginY}, sup={supRun.OriginY}");
+    }
+
     [Theory]
     [InlineData("uppercase", "Hello World", "HELLO WORLD")]
     [InlineData("lowercase", "Hello WORLD", "hello world")]

@@ -66,6 +66,13 @@ internal sealed partial class IOSNativeFrontend
             case "settings.developer.toggle":
                 if (!_shell.TryToggleDeveloperMode(Text(args, "password"))) throw new InvalidOperationException(UiText.Get("密码错误"));
                 break;
+            case "settings.legal.get":
+                return LegalDocuments.GetDocument(Text(args, "kind") switch
+                {
+                    "terms" => LegalDocumentKind.UserAgreement,
+                    "privacy" => LegalDocumentKind.PrivacyPolicy,
+                    _ => throw new ArgumentException("Unknown legal document."),
+                });
             case "settings.feedback.submit":
                 // Reject legacy calls before reading content, images or local logs.
                 throw new InvalidOperationException(UiText.Get("账号服务不接收反馈、截图或日志，请使用 GitHub Issues。"));

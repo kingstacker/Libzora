@@ -18,6 +18,8 @@ public static class ReaderResourcePolicy
             var savedPath = Path.GetFullPath(Path.Combine(document.RootPath,
                 progress.ChapterPath.Replace('/', Path.DirectorySeparatorChar)));
             if (!IsPathInside(document.RootPath, savedPath)) return null;
+            var isAlias = document.ChapterAliases.TryGetValue(savedPath, out var canonicalPath);
+            if (isAlias) savedPath = canonicalPath!;
             var chapterIndex = document.Chapters
                 .Select((chapter, index) => (chapter, index))
                 .Where(item => string.Equals(Path.GetFullPath(item.chapter), savedPath,
@@ -28,10 +30,13 @@ public static class ReaderResourcePolicy
             if (chapterIndex < 0) return null;
             return progress with
             {
+                ChapterPath = isAlias
+                    ? Path.GetRelativePath(document.RootPath, savedPath).Replace('\\', '/')
+                    : progress.ChapterPath,
                 ChapterIndex = chapterIndex,
-                ScrollPosition = Math.Max(0, progress.ScrollPosition),
-                Fragment = DecodeFragment(progress.Fragment),
-                ContentPosition = ReaderContentPosition.Validate(progress.ContentPosition)
+                ScrollPosition = isAlias ? 0 : Math.Max(0, progress.ScrollPosition),
+                Fragment = isAlias ? null : DecodeFragment(progress.Fragment),
+                ContentPosition = isAlias ? null : ReaderContentPosition.Validate(progress.ContentPosition)
             };
         }
         catch (Exception exception) when (exception is ArgumentException or IOException

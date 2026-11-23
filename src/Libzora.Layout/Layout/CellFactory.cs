@@ -44,6 +44,7 @@ internal sealed partial class CellFactory
         // `default(TypesetInlineStyle)` predates this field and has zero here;
         // treat non-positive values as the normal size.
         var styleScale = style.FontSizeFactor > 0f ? style.FontSizeFactor : 1f;
+        var cssAlreadyScaledDown = !vertical && style.FontSizeFactor > 0f && style.FontSizeFactor < 0.99f;
         var fontSize = fontSizeOverride
             ?? _context.Options.BaseFontSize
                 * (vertical ? 1f : Math.Clamp(styleScale, 0.5f, 3f));
@@ -51,10 +52,18 @@ internal sealed partial class CellFactory
         {
             // Footnote references use a compact marker size. Other <sup>
             // content keeps the slightly larger superscript scale so ordinary
-            // mathematical/text superscripts do not change unexpectedly.
-            fontSize *= footnoteMarker ? 0.70f : 0.75f;
+            // mathematical/text superscripts do not change unexpectedly, unless
+            // publisher CSS already scaled the element below 1em.
+            if (footnoteMarker && !vertical)
+            {
+                fontSize = Math.Min(fontSize, _context.Options.BaseFontSize * 0.55f);
+            }
+            else if (!cssAlreadyScaledDown)
+            {
+                fontSize *= footnoteMarker ? 0.70f : 0.75f;
+            }
         }
-        else if (fontSizeOverride is null && style.Subscript)
+        else if (fontSizeOverride is null && style.Subscript && !cssAlreadyScaledDown)
         {
             fontSize *= 0.75f;
         }
@@ -259,10 +268,11 @@ internal sealed partial class CellFactory
         TypesetInlineStyle style,
         string? linkHref,
         string? footnoteHref,
-        bool preferLatinFont = false)
+        bool preferLatinFont = false,
+        string? footnoteText = null)
     {
         var whole = ShapeCell(
-            unitText, globalTextStart, style, linkHref, footnoteHref, vertical: false, preferLatinFont: preferLatinFont);
+            unitText, globalTextStart, style, linkHref, footnoteHref, vertical: false, footnoteText: footnoteText, preferLatinFont: preferLatinFont);
         if (!whole.Glyphs.Contains((ushort)0))
         {
             return [whole];
@@ -287,6 +297,7 @@ internal sealed partial class CellFactory
                 linkHref,
                 footnoteHref,
                 vertical: false,
+                footnoteText: footnoteText,
                 preferLatinFont: preferLatinFont));
         }
 

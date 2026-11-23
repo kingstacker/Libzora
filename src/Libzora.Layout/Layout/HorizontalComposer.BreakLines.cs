@@ -101,6 +101,7 @@ internal sealed partial class HorizontalComposer
                     && !line.HasHangingPunctuation
                     && line.Cells.Count > 0
                     && !nextIsClosing
+                    && !cell.FootnoteMarker
                     && TypesetText.IsHangablePunctuation(cell.Text)
                     && cell.Advance <= maxHang + 0.01f
                     && line.Indent + line.Used <= lineAvail + 0.01f)
@@ -116,12 +117,17 @@ internal sealed partial class HorizontalComposer
 
                 if (IsClosingMark(cell))
                 {
-                    // Pull back trailing closers, then one leading cell, so
-                    // the cluster moves down together and no closer starts
-                    // the next line.
-                    while (line.Cells.Count > 0 && IsClosingMark(line.Cells[^1]) && pulled.Count < 4)
+                    // Move closing marks or footnote references with their
+                    // preceding text. A note may have an explicit space.
+                    var keepFootnoteWithBase = cell.FootnoteMarker;
+                    while (line.Cells.Count > 0 && (keepFootnoteWithBase || pulled.Count < 4))
                     {
-                        pulled.Insert(0, line.Cells[^1]);
+                        var trailing = line.Cells[^1];
+                        if (!IsClosingMark(trailing) && !(keepFootnoteWithBase && trailing.IsSpace))
+                            break;
+
+                        keepFootnoteWithBase |= trailing.FootnoteMarker;
+                        pulled.Insert(0, trailing);
                         line.RemoveLast();
                     }
 
@@ -214,7 +220,7 @@ internal sealed partial class HorizontalComposer
     }
 
     private static bool IsClosingMark(LayoutCell cell) =>
-        cell.Character is { } c && TypesetText.IsProhibitedAtLineStart(c);
+        cell.FootnoteMarker || (cell.Character is { } c && TypesetText.IsProhibitedAtLineStart(c));
 
     private static bool IsOpeningMark(LayoutCell cell) =>
         cell.Character is { } c && TypesetText.IsProhibitedAtLineEnd(c);

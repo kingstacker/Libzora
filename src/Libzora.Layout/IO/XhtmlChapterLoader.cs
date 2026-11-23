@@ -135,6 +135,7 @@ public sealed partial class XhtmlChapterLoader
 
         PromoteLeadingTitle();
         MergeAdjacentHeadingBlocks();
+        ApplyPlainFigureAndTableReferences();
         cancellationToken.ThrowIfCancellationRequested();
 
         return new ChapterContent

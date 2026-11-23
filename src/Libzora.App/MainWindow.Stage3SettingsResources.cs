@@ -307,22 +307,55 @@ public partial class MainWindow
         }
     }
 
+    private Control? _legalDocumentOpener;
+
     private void UserAgreementButton_Click(object? sender, RoutedEventArgs e) =>
-        OpenLegalDocument(LegalDocumentLinks.UserAgreement);
+        ShowLegalDocumentOverlay(LegalDocumentKind.UserAgreement, sender as Control);
 
     private void PrivacyPolicyButton_Click(object? sender, RoutedEventArgs e) =>
-        OpenLegalDocument(LegalDocumentLinks.PrivacyPolicy);
+        ShowLegalDocumentOverlay(LegalDocumentKind.PrivacyPolicy, sender as Control);
 
-    private void OpenLegalDocument(string url)
+    private void ShowLegalDocumentOverlay(LegalDocumentKind kind, Control? opener)
     {
-        try
+        var document = LegalDocuments.GetDocument(kind);
+        _legalDocumentOpener = opener;
+        LegalTitleText.Text = document.Title;
+        LegalDateText.Text = document.EffectiveDate;
+        LegalSummaryText.Text = document.Summary;
+
+        LegalSectionsPanel.Children.Clear();
+        foreach (var block in document.Blocks)
         {
-            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+            LegalSectionsPanel.Children.Add(new SelectableTextBlock
+            {
+                Text = block.Text,
+                Margin = block.IsHeading ? new Thickness(0, 8, 0, 0) : default,
+                FontSize = block.IsHeading ? 15 : 13,
+                FontWeight = block.IsHeading ? FontWeight.SemiBold : FontWeight.Normal,
+                LineHeight = 20,
+                TextWrapping = TextWrapping.Wrap
+            });
         }
-        catch (Exception exception)
-        {
-            ShowSettingsCapsule(T("无法打开链接：{0}", UiText.Localize(exception.Message)), 4000);
-        }
+
+        LegalScrollViewer.ScrollToHome();
+        ShowOverlay(LegalOverlay);
+        LegalCloseButton.Focus();
+    }
+
+    private void LegalCloseButton_Click(object? sender, RoutedEventArgs e) => CloseLegalOverlay();
+
+    private void LegalOverlay_KeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Escape) return;
+        e.Handled = true;
+        CloseLegalOverlay();
+    }
+
+    private void CloseLegalOverlay()
+    {
+        LegalOverlay.IsVisible = false;
+        _legalDocumentOpener?.Focus();
+        _legalDocumentOpener = null;
     }
 
     private void AboutDeveloperButton_Click(object? sender, RoutedEventArgs e)

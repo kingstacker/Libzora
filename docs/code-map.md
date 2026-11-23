@@ -82,7 +82,7 @@ pattern: `MainWindow.<Area><Aspect>.cs`.
 | `MainWindow.Stage3ReaderAiSettings.cs` | Reader AI settings. |
 | `MainWindow.Stage3SettingsS3*.cs` | S3 settings, connection profiles, local change tracking, sync runs. |
 | `MainWindow.Stage3SettingsApp.cs` | Language, Calibre detection, autosave. |
-| `MainWindow.Stage3SettingsResources.cs` | Local font/dictionary management; About links to the user agreement and privacy policy. |
+| `MainWindow.Stage3SettingsResources.cs` | Local font/dictionary management; About opens the built-in legal viewer. |
 | `MainWindow.Stage3SettingsPersist.cs` | Settings read/save and data-root migration. |
 | `MainWindow.Stage3Backup.cs` | Encrypted backup export/import. |
 | `Stage3*ViewModels.cs`, `KindleBookCardViewModel.cs` | Device-side view models. |
@@ -135,7 +135,7 @@ Large services are split by responsibility so one change opens one file:
 | `S3SyncService.Database*.cs` | connection, snapshot, apply-remote (sync core), merge, dedupe, blobs, SQL, tombstones |
 | `SqliteBookLibraryService.*.cs` | queries, import, mutations, trash, collections, file paths, readers, schema |
 | `ReaderDataService.*.cs` | annotations, layout, stats, index, embeddings, search |
-| `EpubReaderPreparationService.*.cs` | toc, navigation, chapter titles, index cache, extraction, XML, sanitizer |
+| `EpubReaderPreparationService.*.cs` | toc, navigation, chapter titles, duplicate cover normalization, index cache, extraction, XML, sanitizer |
 | `PluginBridge.*.cs` | dispatch, content, AI, network, decode |
 | `EpubTranslationService.*.cs` | translate, retry, render, documents, text tools, cache, types |
 | `PinyinBookService.*.cs` | generate, annotate, AI review, documents, cache, types |
@@ -144,7 +144,7 @@ Large services are split by responsibility so one change opens one file:
 | `LibzoraMcpTools.*.cs` + `McpResults.cs` | library, collections, content, devices, validation, projection, result records |
 | `NativePdfReaderHost.*.cs` + `PdfReaderLayout.cs` | interaction, annotation callouts, search, rendering, pointer, layout, view, auto-crop, dark coloring |
 | `NativeReaderHost.*.cs` | navigation, configuration, scrolling, annotations, search, content, page counts, layout, rendering, images, pointer, selection, capture |
-| `XhtmlChapterLoader.*.cs` | flow, inline, blocks, footnotes, plain footnotes, external plain footnotes, targets, links |
+| `XhtmlChapterLoader.*.cs` | flow, inline, blocks, footnotes, plain footnotes, external plain footnotes, plain figures, targets, links |
 | `S3SyncService.*.cs` | settings, sync entry, versions, state, snapshots, cleanup, download, encryption |
 | `WpdKindleAccess.*.cs` | devices, resources, annotations, books, shell items |
 | `KindleDeviceService.*.cs` | detection, books, transfer, resources, annotations, files, native |
@@ -154,6 +154,7 @@ Large services are split by responsibility so one change opens one file:
 | `BookReflectionService.cs` + `BookReflectionFormatting.cs` | book-level reflection persistence, Markdown normalization, preview and citation helpers |
 | `BookReflectionPage.axaml.cs` + `BookReflectionCitationSheet.axaml.cs` (Mobile) | mobile reflection editor, Markdown preview and annotation citation picker |
 | `MobileShell.*.cs` | shell state, sheets, bars |
+| `Libzora.Infrastructure/LegalDocuments.cs` | Offline legal text loaded from the bundled bilingual articles in `website/`. |
 | `AppDataMigrationService.*.cs` | journal, journal I/O, payload, verification, types |
 | `AppBackupService.*.cs` | export, snapshot/import, files |
 | `TtsEnvironmentSetupService.*.cs` | edge-tts, install, python, process, types |
@@ -186,6 +187,7 @@ Large services are split by responsibility so one change opens one file:
   device-only Keychain protection and verified migration of legacy sandbox keys.
 - `src/Libzora.Mobile.iOS/NativeUI/NativePreferenceEdits.swift` — field-level
   optimistic preference writes, rollback baselines, widget-link and filter policies.
+- `NativeUI/NativeLegalDocument.swift` — settings navigation to the bundled user agreement and privacy policy.
 - `tests/Libzora.Mobile.iOS.UITests/` and `.LogicTests/` — behaviour contracts.
 
 ## Where to look for common tasks

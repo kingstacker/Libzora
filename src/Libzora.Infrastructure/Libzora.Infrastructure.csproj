@@ -40,6 +40,8 @@
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="ThirdParty/G2PW/bert-base-chinese_s2t_dict.txt" />
+    <EmbeddedResource Include="../../website/terms.html" LogicalName="Libzora.Legal.terms.html" />
+    <EmbeddedResource Include="../../website/privacy.html" LogicalName="Libzora.Legal.privacy.html" />
     <None Include="../../LICENSE" Link="LICENSE" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Include="../../THIRD-PARTY-NOTICES.md" Link="THIRD-PARTY-NOTICES.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Update="ThirdParty/Notices/**/*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />

@@ -255,11 +255,21 @@ public partial class ProfilePage : UserControl
     private async void OnDeveloperClick(object? sender, RoutedEventArgs e) =>
         await OpenUriAsync("https://github.com/kingstacker", "无法打开开发者主页");
 
-    private async void OnUserAgreementClick(object? sender, RoutedEventArgs e) =>
-        await OpenUriAsync(LegalDocumentLinks.UserAgreement, "无法打开用户协议");
+    private void OnUserAgreementClick(object? sender, RoutedEventArgs e) =>
+        ShowLegalSheet(LegalDocumentKind.UserAgreement);
 
-    private async void OnPrivacyPolicyClick(object? sender, RoutedEventArgs e) =>
-        await OpenUriAsync(LegalDocumentLinks.PrivacyPolicy, "无法打开隐私政策");
+    private void OnPrivacyPolicyClick(object? sender, RoutedEventArgs e) =>
+        ShowLegalSheet(LegalDocumentKind.PrivacyPolicy);
+
+    private void ShowLegalSheet(LegalDocumentKind kind)
+    {
+        if (_shell is null) return;
+        var document = LegalDocuments.GetDocument(kind);
+        _shell.ShowSheet(
+            document.Title,
+            new InfoSheet(string.Join("\n\n", document.Blocks.Select(block => block.Text)),
+                $"{document.EffectiveDate}\n\n{document.Summary}"));
+    }
 
     private async Task OpenIssuesAsync() =>
         await OpenUriAsync("https://github.com/kingstacker/Libzora/issues", "无法打开 GitHub Issues");

@@ -85,9 +85,10 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
             ? _layout?.HitTest(downMap2.Page, downMap2.Local) ?? -1
             : -1;
 
-        if (_pointerHotZone is { Kind: HotZoneKind.FootnoteMarker } footnote)
+        if (_pointerHotZone is { Kind: HotZoneKind.FootnoteMarker }
+            || _pointerHotZone is { Kind: HotZoneKind.Link, FootnoteText.Length: > 0 })
         {
-            UpdateFootnoteHover(position, footnote);
+            UpdateFootnoteHover(position, _pointerHotZone);
         }
 
         var downOverImage = mapped is { } downImgMap && IsBlockImageAt(downImgMap.Page, downImgMap.Local);
@@ -282,7 +283,8 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
                     },
                 });
             }
-            else if (hotZone.Kind == HotZoneKind.FootnoteMarker)
+            else if (hotZone.Kind == HotZoneKind.FootnoteMarker
+                     || !string.IsNullOrEmpty(hotZone.FootnoteText))
             {
                 UpdateFootnoteHover(null);
             }
@@ -613,17 +615,18 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
                 : null;
         }
 
-        if (zone is { Kind: HotZoneKind.FootnoteMarker } footnote
+        if ((zone is { Kind: HotZoneKind.FootnoteMarker }
+             || zone is { Kind: HotZoneKind.Link, FootnoteText.Length: > 0 })
             && position is { } hoverPoint)
         {
-            if (!string.Equals(_hoveredFootnoteHref, footnote.Href, StringComparison.Ordinal))
+            if (!string.Equals(_hoveredFootnoteHref, zone.Href, StringComparison.Ordinal))
             {
-                _hoveredFootnoteHref = footnote.Href;
+                _hoveredFootnoteHref = zone.Href;
                 Emit(new
                 {
                     type = "footnoteHover",
-                    href = footnote.Href,
-                    footnoteText = footnote.FootnoteText,
+                    href = zone.Href,
+                    footnoteText = zone.FootnoteText,
                     x = hoverPoint.X,
                     y = hoverPoint.Y,
                 });

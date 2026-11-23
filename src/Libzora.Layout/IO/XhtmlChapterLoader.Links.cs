@@ -120,7 +120,7 @@ public sealed partial class XhtmlChapterLoader
             Justify = false,
             TextIndentEm = 0f,
             SpaceBeforeLines = 0.85f,
-            SpaceAfterLines = 0.55f,
+            SpaceAfterLines = 0.90f,
             LineHeightFactor = first.LineHeightFactor,
             MarginTopEm = first.MarginTopEm,
             MarginBottomEm = first.MarginBottomEm,
@@ -353,7 +353,7 @@ public sealed partial class XhtmlChapterLoader
                 TextIndentEm = textIndentEm,
                 ExplicitTextIndent = hasExplicitIndent || ExplicitTextIndent,
                 SpaceBeforeLines = isHeading ? (hasExplicitMarginTop ? 0f : 0.85f) : SpaceBeforeLines,
-                SpaceAfterLines = isHeading ? (hasExplicitMarginBottom ? 0f : 0.55f) : SpaceAfterLines,
+                SpaceAfterLines = isHeading ? (hasExplicitMarginBottom ? 0f : 0.90f) : SpaceAfterLines,
                 LineHeightFactor = float.IsNaN(hints.LineHeightFactor)
                     ? LineHeightFactor
                     : hints.LineHeightFactor,

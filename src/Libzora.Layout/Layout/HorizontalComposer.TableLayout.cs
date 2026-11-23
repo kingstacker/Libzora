@@ -212,7 +212,7 @@ internal sealed partial class HorizontalComposer
                     cellCells.AddRange(_cells.BuildCells(item, vertical: false));
                 }
 
-                CellFactory.CollapseWhitespace(cellCells);
+                CellFactory.CollapseWhitespace(cellCells, attachFootnoteMarkers: true);
                 var inkExtent = cellCells
                     .Select(candidate => candidate.Ascent + candidate.Descent)
                     .DefaultIfEmpty(0f)
@@ -418,7 +418,7 @@ internal sealed partial class HorizontalComposer
                             item, vertical: false, maxWordWidth: cell.TextWidth));
                     }
 
-                    CellFactory.CollapseWhitespace(rebuilt);
+                    CellFactory.CollapseWhitespace(rebuilt, attachFootnoteMarkers: true);
                     if (rebuilt.Count > 0)
                     {
                         cell.Cells = rebuilt;
@@ -669,7 +669,13 @@ internal sealed partial class HorizontalComposer
                 return legacyAdded >= extra - 0.01f;
             }
 
+            // A reference superscript sits next to its base text, even on
+            // a justified line.
             var gaps = totalGlyphs - 1;
+            for (var index = start + 1; index < end; index++)
+            {
+                if (Cells[index].FootnoteMarker) gaps--;
+            }
             if (gaps <= 0)
             {
                 return true;
@@ -704,9 +710,8 @@ internal sealed partial class HorizontalComposer
                 }
 
                 var glyphCount = Math.Max(1, cell.Glyphs.Length);
-                var gapsAfter = index == end - 1
-                    ? cell.JustifyAsUnit ? 0 : Math.Max(0, glyphCount - 1)
-                    : cell.JustifyAsUnit ? 1 : glyphCount;
+                var gapsAfter = cell.JustifyAsUnit ? 0 : glyphCount - 1;
+                if (index + 1 < end && !Cells[index + 1].FootnoteMarker) gapsAfter++;
                 Cells[index] = cell with
                 {
                     GlyphX = shiftedX,

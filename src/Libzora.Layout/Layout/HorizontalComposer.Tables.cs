@@ -42,9 +42,8 @@ internal sealed partial class HorizontalComposer
 
         var cellPadX = BaseFontSize * 0.35f;
         var cellPadY = BaseFontSize * 0.25f;
-        var columnGap = BaseFontSize * 0.4f;
         var minColumnWidth = BaseFontSize * 2.2f;
-        if (minColumnWidth * capacity + columnGap * (capacity - 1) > availWidth)
+        if (minColumnWidth * capacity > availWidth)
         {
             // Many columns on a phone: readable prose beats unreadable slivers.
             PlaceTableFallback(block);
@@ -69,6 +68,9 @@ internal sealed partial class HorizontalComposer
             return;
         }
 
+        // Bordered cells collapse cleanly onto shared grid edges; only
+        // borderless tables need a horizontal gutter between columns.
+        var columnGap = hasBorders ? 0f : BaseFontSize * 0.4f;
         var gaps = columnGap * (columnCount - 1);
         if (minColumnWidth * columnCount + gaps > availWidth)
         {
@@ -89,8 +91,6 @@ internal sealed partial class HorizontalComposer
 
         _cursorY += block.SpaceBeforeLines * BodyLineHeight
             + block.MarginTopEm * BaseFontSize;
-        _pages.RecordFragment(block.ElementId);
-        _pages.RecordFragments(block.FragmentIds);
 
         var groups = BuildRowGroups(measuredRows);
         var rowTops = new float[measuredRows.Count];
@@ -110,6 +110,7 @@ internal sealed partial class HorizontalComposer
             }
         }
 
+        var recordedFragments = false;
         foreach (var (start, end) in groups)
         {
             _context.CancellationToken.ThrowIfCancellationRequested();
@@ -124,6 +125,13 @@ internal sealed partial class HorizontalComposer
             {
                 _pages.NextIfUsed();
                 _cursorY = InsetV;
+            }
+
+            if (!recordedFragments)
+            {
+                recordedFragments = true;
+                _pages.RecordFragment(block.ElementId);
+                _pages.RecordFragments(block.FragmentIds);
             }
 
             var groupTop = _cursorY;

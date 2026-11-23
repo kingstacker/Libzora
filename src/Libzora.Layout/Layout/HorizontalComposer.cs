@@ -64,8 +64,15 @@ internal sealed partial class HorizontalComposer
                     _previousBlockBottomSpace = 0f;
                     break;
                 default:
-                    PlaceTextBlock(block, previousBlockWasHeading, previousBlockWasParagraph,
-                        blockIndex + 1 < content.Blocks.Count && content.Blocks[blockIndex + 1].Kind == BlockKind.Paragraph);
+                    var nextKind = blockIndex + 1 < content.Blocks.Count
+                        ? content.Blocks[blockIndex + 1].Kind
+                        : (BlockKind?)null;
+                    PlaceTextBlock(
+                        block,
+                        previousBlockWasHeading,
+                        previousBlockWasParagraph,
+                        nextKind == BlockKind.Paragraph,
+                        nextKind == BlockKind.Heading);
                     break;
             }
 
@@ -93,7 +100,12 @@ internal sealed partial class HorizontalComposer
         return latin >= 4 && latin >= cjk * 4;
     }
 
-    private void PlaceTextBlock(ContentBlock block, bool followsHeading, bool followsParagraph = false, bool precedesParagraph = false)
+    private void PlaceTextBlock(
+        ContentBlock block,
+        bool followsHeading,
+        bool followsParagraph = false,
+        bool precedesParagraph = false,
+        bool precedesHeading = false)
     {
         var isHeading = block.Kind == BlockKind.Heading;
         var naturalLatin = _context.Options.NaturalLatinTypography
@@ -134,7 +146,7 @@ internal sealed partial class HorizontalComposer
         {
             cells.AddRange(_cells.BuildCells(item, vertical: false, maxWordWidth: availWidth, preferLatinFont: naturalLatin));
         }
-        CellFactory.CollapseWhitespace(cells);
+        CellFactory.CollapseWhitespace(cells, attachFootnoteMarkers: true);
         if (_context.Options.MangaMode
             && cells.All(cell => cell.ImagePath is null && (cell.IsSpace || cell.IsLineBreak)))
         {
@@ -257,8 +269,7 @@ internal sealed partial class HorizontalComposer
         {
             var blockHeight = 0f;
             for (var i = 0; i < lineHeights.Length; i++) blockHeight += lineHeights[i];
-            var afterReserve = block.SpaceAfterLines * BodyLineHeight
-                + block.MarginBottomEm * BaseFontSize
+            var afterReserve = ComputeBlockBottomSpace(block, precedesParagraph, precedesHeading, paragraphSpacing)
                 + bodyLineHeight * 1.8f;
             if (_cursorY + blockHeight + afterReserve > ContentBottom + 0.01f
                 && blockHeight + afterReserve <= _context.Options.ContentHeight)
@@ -415,27 +426,51 @@ internal sealed partial class HorizontalComposer
             _cursorY = InsetV;
             _previousBlockBottomSpace = 0f;
         }
-        else if (block.Kind == BlockKind.Paragraph && precedesParagraph
-            && _context.Options.OverridePublisherParagraphSpacing)
-        {
-            var bottomSpace = paragraphSpacing * BaseFontSize;
-            _previousBlockBottomSpace = bottomSpace;
-            _cursorY += bottomSpace;
-        }
-        else if (!(block.Kind == BlockKind.Paragraph && precedesParagraph
-            && _context.Options.ParagraphSpacingMatchesLineHeight))
-        {
-            var bottomSpace = block.SpaceAfterLines * BodyLineHeight
-                + block.MarginBottomEm * BaseFontSize;
-            if (block.Kind == BlockKind.Paragraph)
-                bottomSpace += paragraphSpacing * BaseFontSize;
-            _previousBlockBottomSpace = bottomSpace;
-            _cursorY += bottomSpace;
-        }
         else
         {
-            _previousBlockBottomSpace = 0f;
+            var bottomSpace = ComputeBlockBottomSpace(block, precedesParagraph, precedesHeading, paragraphSpacing);
+            _previousBlockBottomSpace = bottomSpace;
+            _cursorY += bottomSpace;
         }
+    }
+
+    private float ComputeBlockBottomSpace(
+        ContentBlock block,
+        bool precedesParagraph,
+        bool precedesHeading,
+        float paragraphSpacing)
+    {
+        if (block.PageBreakAfter)
+        {
+            return 0f;
+        }
+
+        if (block.Kind == BlockKind.Paragraph && precedesParagraph
+            && _context.Options.OverridePublisherParagraphSpacing)
+        {
+            return paragraphSpacing * BaseFontSize;
+        }
+
+        if (block.Kind == BlockKind.Paragraph && precedesParagraph
+            && _context.Options.ParagraphSpacingMatchesLineHeight)
+        {
+            return 0f;
+        }
+
+        var bottomSpace = block.SpaceAfterLines * BodyLineHeight
+            + block.MarginBottomEm * BaseFontSize;
+        if (block.Kind == BlockKind.Paragraph)
+        {
+            bottomSpace += paragraphSpacing * BaseFontSize;
+        }
+        else if (block.Kind == BlockKind.Heading && !precedesHeading)
+        {
+            // Headings with tight CSS line-height or small margin-bottom need
+            // clear visual separation before body content begins.
+            bottomSpace = Math.Max(bottomSpace, Math.Max(BodyLineHeight * 0.90f, BaseFontSize * 1.50f));
+        }
+
+        return bottomSpace;
     }
 
     private void PlaceLine(
@@ -492,7 +527,9 @@ internal sealed partial class HorizontalComposer
             }
 
             var superscriptShift = cell.Superscript
-                ? -(cell.FootnoteMarker ? BaseFontSize * 0.38f : cell.FontSize * 0.35f)
+                ? -(cell.FootnoteMarker
+                    ? BaseFontSize * 0.38f
+                    : Math.Max(BaseFontSize * 0.38f, cell.FontSize * 0.45f))
                 : 0f;
             var subscriptShift = cell.Subscript ? cell.FontSize * 0.22f : 0f;
             var cellBaseline = baseline + superscriptShift + subscriptShift;

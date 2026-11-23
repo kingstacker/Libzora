@@ -354,6 +354,43 @@ public sealed class TypographyRefinementsTests : IDisposable
     }
 
     [Fact]
+    public void HeadingMaintainsWideGapAboveFollowingBodyParagraph()
+    {
+        var html =
+            "<h2 style=\"font-size:1.125em;line-height:1.2;margin:2em 0 1em\">章节标题</h2>"
+            + "<p style=\"line-height:1.84;margin:1em 0 0\">正文第一行内容应当与上方标题保持清晰舒展的间距，不会显得挤在一起。这里再补一些字让正文换行到第二行，方便对比行距。</p>";
+        var content = new XhtmlChapterLoader().Load(WriteChapter(html));
+        using var engine = CreateEngine();
+        var options = new TypesetLayoutOptions
+        {
+            BaseFontSize = 22f,
+            LineHeight = 1.65f,
+            ParagraphSpacingMatchesLineHeight = true,
+            ViewportWidth = 420f,
+            ViewportHeight = 640f,
+            InsetHorizontal = 24f,
+            InsetVertical = 24f,
+        };
+
+        var layout = engine.Compose(content, options);
+        var page = Assert.Single(layout.Pages);
+        var headingRun = page.Runs.First(r => r.TextStart >= 0 && content.BodyText.Substring(r.TextStart, r.TextLength).Contains("章节标题"));
+        var bodyLineBaselines = page.Runs
+            .Where(r => r.TextStart >= 0 && r.TextStart >= "章节标题".Length)
+            .Select(r => r.OriginY)
+            .Distinct()
+            .Order()
+            .ToArray();
+
+        Assert.True(bodyLineBaselines.Length >= 2);
+        var bodyLinePitch = bodyLineBaselines[1] - bodyLineBaselines[0];
+        var headingToBodyGap = bodyLineBaselines[0] - headingRun.OriginY;
+        Assert.True(
+            headingToBodyGap >= bodyLinePitch + options.BaseFontSize * 1.0f,
+            $"Expected wide gap below heading: gap={headingToBodyGap}, bodyPitch={bodyLinePitch}");
+    }
+
+    [Fact]
     public void StyledBlockquoteEmitsLeftVerticalBar()
     {
         var html = "<blockquote style=\"border-left: 0.2em solid #666\"><p>这是一段带有出版社左边框样式的引用正文。</p></blockquote>";

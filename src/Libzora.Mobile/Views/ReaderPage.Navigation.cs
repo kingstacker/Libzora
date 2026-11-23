@@ -170,6 +170,15 @@ public partial class ReaderPage
     {
         if (_epubDocument is not { } document || saved is null) return null;
         if (ReaderResourcePolicy.RestoreProgress(document, saved) is { } restored) return restored;
+        if (document.OriginalChapters is { } original
+            && saved.ChapterIndex >= 0 && saved.ChapterIndex < original.Count)
+        {
+            return ReaderResourcePolicy.RestoreProgress(document, saved with
+            {
+                ChapterPath = Path.GetRelativePath(document.RootPath, original[saved.ChapterIndex])
+                    .Replace('\\', '/')
+            });
+        }
         if (saved.ChapterIndex < 0 || saved.ChapterIndex >= document.Chapters.Count) return null;
         return saved with
         {

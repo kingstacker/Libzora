@@ -24,7 +24,12 @@ public sealed record EpubReaderDocument(
     string RootPath,
     IReadOnlyList<string> Chapters,
     IReadOnlyList<EpubReaderNavigationItem> Navigation,
-    IReadOnlyList<string> ChapterTitles);
+    IReadOnlyList<string> ChapterTitles)
+{
+    public IReadOnlyDictionary<string, string> ChapterAliases { get; init; } =
+        new Dictionary<string, string>(StringComparer.Ordinal);
+    public IReadOnlyList<string>? OriginalChapters { get; init; }
+}
 
 /// <summary>
 /// Preparation entry point, limits and security policy.
@@ -36,7 +41,7 @@ public sealed partial class EpubReaderPreparationService
     private const int MaximumEpubEntries = 100_000;
     private const string ExtractionReadyFileName = ".libzora-extracted";
     private const string ReaderIndexFileName = ".libzora-reader-index.json";
-    private const string ReaderIndexFormatVersion = "3";
+    private const string ReaderIndexFormatVersion = "4";
     private const int PhysicalTocFullScanChapterLimit = 256;
     // Bump whenever sanitization changes. Existing reader caches otherwise
     // keep stale sanitized markup indefinitely.
@@ -206,7 +211,9 @@ public sealed partial class EpubReaderPreparationService
             authoritativeNavigation,
             cancellationToken);
 
-        var document = new EpubReaderDocument(cacheRoot, chapters, navigation, chapterTitles);
+        var document = await NormalizeCoverChaptersAsync(
+            new EpubReaderDocument(cacheRoot, chapters, navigation, chapterTitles),
+            package, manifest, packageDirectory, cancellationToken);
         await WriteReaderIndexAsync(cacheRoot, document, cancellationToken);
         return document;
     }

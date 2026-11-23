@@ -90,7 +90,9 @@ internal sealed partial class VerticalComposer
         // does not collide with the preceding character.
         var footnoteMarker = cell.FootnoteMarker && cell.Superscript;
         var superscriptShift = cell.Superscript
-            ? -(footnoteMarker ? _context.Options.BaseFontSize * 0.10f : cell.FontSize * 0.35f)
+            ? -(footnoteMarker
+                ? _context.Options.BaseFontSize * 0.10f
+                : Math.Max(_context.Options.BaseFontSize * 0.38f, cell.FontSize * 0.45f))
             : 0f;
         var subscriptShift = cell.Subscript ? cell.FontSize * 0.20f : 0f;
         var flowShift = superscriptShift + subscriptShift;

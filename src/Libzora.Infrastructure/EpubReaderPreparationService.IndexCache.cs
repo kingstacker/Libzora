@@ -19,7 +19,9 @@ public sealed partial class EpubReaderPreparationService
         string FormatVersion,
         List<string>? Chapters,
         List<ReaderIndexNavigationItem>? Navigation,
-        List<string>? ChapterTitles);
+        List<string>? ChapterTitles,
+        Dictionary<string, string>? ChapterAliases,
+        List<string>? OriginalChapters);
 
     private sealed record ReaderIndexNavigationItem(
         string Title,
@@ -116,11 +118,24 @@ public sealed partial class EpubReaderPreparationService
                     item.Level));
             }
 
+            var aliases = (cache.ChapterAliases ?? new Dictionary<string, string>()).ToDictionary(
+                pair => ResolveContainedPathNormalized(normalizedRoot, cacheRoot, pair.Key),
+                pair => ResolveContainedPathNormalized(normalizedRoot, cacheRoot, pair.Value),
+                StringComparer.Ordinal);
+            if (aliases.Values.Any(path => !chapters.Contains(path, StringComparer.Ordinal))) return null;
+            var originalChapters = cache.OriginalChapters?.Select(path =>
+                ResolveContainedPathNormalized(normalizedRoot, cacheRoot, path)).ToList();
+            if (originalChapters?.Any(path => !chapters.Contains(path, StringComparer.Ordinal)
+                    && !aliases.ContainsKey(path)) == true) return null;
             return new EpubReaderDocument(
                 cacheRoot,
                 chapters,
                 navigation,
-                cache.ChapterTitles);
+                cache.ChapterTitles)
+            {
+                ChapterAliases = aliases,
+                OriginalChapters = originalChapters
+            };
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -164,7 +179,12 @@ public sealed partial class EpubReaderPreparationService
                 .Select(chapter => Path.GetRelativePath(cacheRoot, chapter).Replace('\\', '/'))
                 .ToList(),
             cachedNavigation,
-            document.ChapterTitles.ToList());
+            document.ChapterTitles.ToList(),
+            document.ChapterAliases.ToDictionary(
+                pair => Path.GetRelativePath(cacheRoot, pair.Key).Replace('\\', '/'),
+                pair => Path.GetRelativePath(cacheRoot, pair.Value).Replace('\\', '/')),
+            document.OriginalChapters?.Select(path =>
+                Path.GetRelativePath(cacheRoot, path).Replace('\\', '/')).ToList());
         var indexPath = Path.Combine(cacheRoot, ReaderIndexFileName);
         var temporaryPath = Path.Combine(
             cacheRoot,

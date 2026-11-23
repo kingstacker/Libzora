@@ -36,7 +36,7 @@ public sealed class ReaderPersistenceRegressionTests(MobileUiSession session)
         var book = new Book { Id = Guid.NewGuid() };
         var epub = new BookFile { Id = Guid.NewGuid(), BookId = book.Id, Format = "epub" };
         var foreign = new BookFile { Id = Guid.NewGuid(), BookId = Guid.NewGuid(), Format = "pdf" };
-        var unsupported = new BookFile { Id = Guid.NewGuid(), BookId = book.Id, Format = "txt" };
+        var unsupported = new BookFile { Id = Guid.NewGuid(), BookId = book.Id, Format = "docx" };
         book.Files = [epub, foreign, unsupported];
 
         Assert.Null(ChooseFile(book, Guid.NewGuid()));

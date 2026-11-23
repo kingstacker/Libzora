@@ -33,7 +33,10 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         fonts.ReleaseSystemFontsExcept(fonts.MainFontPath);
     }
 
-    private async Task RecomposeAsync(ViewportReadingAnchor? readingAnchor = null, bool anchorPageStart = false)
+    private async Task RecomposeAsync(
+        ViewportReadingAnchor? readingAnchor = null,
+        bool anchorPageStart = false,
+        int? stopAfterTextOffset = null)
     {
         if (_disposed || _content is null)
         {
@@ -44,8 +47,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         var viewportAnchor = readingAnchor ?? (_preserveViewportPosition && ViewportReadingPositionMatches()
             ? _viewportReadingAnchor : null);
         _preserveViewportPosition = false;
-        var width = Math.Max(1, ComposePageWidth(Bounds.Width));
-        var height = Math.Max(1, Bounds.Height);
+        var (width, height) = ResolveComposeViewportSize();
         var startOffset = _layout is not null
             && _pageIndex < _layout.Pages.Count
             ? _layout.Pages[_pageIndex].TextStartOffset
@@ -74,8 +76,12 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
                 workerEngine = new TypesetEngine(fonts, ownsFonts: false);
                 SelectReaderMainFont(workerEngine, settings.FontFamily);
                 SelectReaderLatinFont(workerEngine, settings.LatinFontFamily);
-                var layout = workerEngine.Compose(content, options, token,
-                    anchorPageStart ? viewportAnchor?.TextOffset : null);
+                var layout = workerEngine.Compose(
+                    content,
+                    options,
+                    token,
+                    anchorPageStart ? viewportAnchor?.TextOffset : null,
+                    stopAfterTextOffset);
                 var companionLayout = ComposeSpreadCompanion(
                     isSpread,
                     companionPath,
@@ -195,6 +201,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
     {
         try
         {
+            await Task.Yield();
             await RecomposeAsync();
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)

@@ -38,6 +38,24 @@ public sealed class MangaModeTests
             var proseDoc = new EpubReaderDocument(proseDir, [proseCh], [], []);
             var proseResult = EpubMangaDetector.Detect(proseDoc);
             Assert.False(proseResult.IsManga);
+
+            // Large single-chapter prose (> 32 KB) with embedded figures must
+            // fast-scan as non-manga, while large image-only chapters remain manga.
+            var largeProseDir = Path.Combine(root, "large-prose");
+            Directory.CreateDirectory(largeProseDir);
+            var largeProseCh = Path.Combine(largeProseDir, "ch1.xhtml");
+            File.WriteAllText(largeProseCh,
+                "<html><body>" + string.Concat(Enumerable.Repeat("<p>策略思维正文测试段落内容用于触发快速流式采样检测路径。</p>", 700))
+                + "<p><img src='fig1.png'/><img src='fig2.png'/></p></body></html>");
+            Assert.False(EpubMangaDetector.Detect(new EpubReaderDocument(largeProseDir, [largeProseCh], [], [])).IsManga);
+
+            var largeComicDir = Path.Combine(root, "large-comic");
+            Directory.CreateDirectory(largeComicDir);
+            var largeComicCh = Path.Combine(largeComicDir, "ch1.xhtml");
+            File.WriteAllText(largeComicCh,
+                "<html><body>" + string.Concat(Enumerable.Repeat("<div class='panel'><img src='page.png' alt='illustration panel' /></div>", 650))
+                + "</body></html>");
+            Assert.True(EpubMangaDetector.Detect(new EpubReaderDocument(largeComicDir, [largeComicCh], [], [])).IsManga);
         }
         finally
         {

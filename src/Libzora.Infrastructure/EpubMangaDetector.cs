@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using System.Xml;
 using Libzora.Layout;
 
 namespace Libzora.Infrastructure;
@@ -11,6 +12,9 @@ public readonly record struct EpubMangaDetectionResult(bool IsManga, bool IsRigh
 /// </summary>
 public static partial class EpubMangaDetector
 {
+    private const int FastSampleThresholdBytes = 32 * 1024;
+    private const int FastSampleProseTextStopChars = 12_000;
+
     public static EpubMangaDetectionResult Detect(EpubReaderDocument document)
     {
         var (prePaginated, rtl, ltr) = InspectOpf(document.RootPath);
@@ -23,19 +27,20 @@ public static partial class EpubMangaDetector
         var count = Math.Min(6, document.Chapters.Count - start);
         var imageBlocks = 0;
         var textChars = 0;
-        var loader = new XhtmlChapterLoader();
         for (var i = 0; i < count; i++)
         {
             try
             {
-                var content = loader.Load(document.Chapters[start + i]);
-                foreach (var block in content.Blocks)
+                var (chapterImages, chapterText) = CountChapterMediaFast(
+                    document.Chapters[start + i],
+                    earlyExitOnProse: !prePaginated);
+                imageBlocks += chapterImages;
+                textChars += chapterText;
+                if (!prePaginated
+                    && textChars >= FastSampleProseTextStopChars
+                    && textChars > imageBlocks * 90)
                 {
-                    if (block.Kind == BlockKind.Image) imageBlocks++;
-                }
-                foreach (var ch in content.BodyText)
-                {
-                    if (!char.IsWhiteSpace(ch)) textChars++;
+                    return new EpubMangaDetectionResult(false, rtl, ltr);
                 }
             }
             catch
@@ -47,6 +52,130 @@ public static partial class EpubMangaDetector
         var isManga = (prePaginated && imageBlocks >= 1)
             || (imageBlocks >= 2 && textChars <= imageBlocks * 45);
         return new EpubMangaDetectionResult(isManga, rtl, ltr);
+    }
+
+    private static (int ImageBlocks, int TextChars) CountChapterMediaFast(
+        string chapterPath,
+        bool earlyExitOnProse)
+    {
+        var info = new FileInfo(chapterPath);
+        if (info.Length <= FastSampleThresholdBytes)
+        {
+            return CountChapterMediaWithLoader(chapterPath);
+        }
+
+        try
+        {
+            using var stream = new FileStream(chapterPath, FileMode.Open, FileAccess.Read, FileShare.Read, 65536);
+            using var reader = XmlReader.Create(stream, new XmlReaderSettings
+            {
+                DtdProcessing = DtdProcessing.Ignore,
+                XmlResolver = null,
+                IgnoreComments = true,
+                IgnoreProcessingInstructions = true
+            });
+            var imageBlocks = 0;
+            var textChars = 0;
+            var inBody = false;
+            var sawBody = false;
+            var skipDepth = -1;
+            while (reader.Read())
+            {
+                if (reader.NodeType == XmlNodeType.Element)
+                {
+                    if (skipDepth >= 0)
+                    {
+                        continue;
+                    }
+
+                    var name = reader.LocalName;
+                    if (name.Equals("body", StringComparison.OrdinalIgnoreCase))
+                    {
+                        inBody = true;
+                        sawBody = true;
+                        continue;
+                    }
+
+                    if (name.Equals("head", StringComparison.OrdinalIgnoreCase)
+                        || name.Equals("title", StringComparison.OrdinalIgnoreCase)
+                        || name.Equals("script", StringComparison.OrdinalIgnoreCase)
+                        || name.Equals("style", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (!reader.IsEmptyElement)
+                        {
+                            skipDepth = reader.Depth;
+                        }
+                        continue;
+                    }
+
+                    if (!inBody && sawBody)
+                    {
+                        continue;
+                    }
+
+                    if (name.Equals("img", StringComparison.OrdinalIgnoreCase)
+                        || name.Equals("image", StringComparison.OrdinalIgnoreCase))
+                    {
+                        imageBlocks++;
+                    }
+                }
+                else if (reader.NodeType == XmlNodeType.EndElement)
+                {
+                    if (skipDepth >= 0 && reader.Depth <= skipDepth)
+                    {
+                        skipDepth = -1;
+                        continue;
+                    }
+
+                    if (reader.LocalName.Equals("body", StringComparison.OrdinalIgnoreCase))
+                    {
+                        inBody = false;
+                    }
+                }
+                else if (skipDepth < 0
+                    && inBody
+                    && reader.NodeType is XmlNodeType.Text or XmlNodeType.CDATA)
+                {
+                    var value = reader.Value;
+                    for (var index = 0; index < value.Length; index++)
+                    {
+                        if (!char.IsWhiteSpace(value[index]))
+                        {
+                            textChars++;
+                        }
+                    }
+
+                    if (earlyExitOnProse
+                        && textChars >= FastSampleProseTextStopChars
+                        && textChars > imageBlocks * 90)
+                    {
+                        return (imageBlocks, textChars);
+                    }
+                }
+            }
+
+            return sawBody ? (imageBlocks, textChars) : CountChapterMediaWithLoader(chapterPath);
+        }
+        catch (XmlException)
+        {
+            return CountChapterMediaWithLoader(chapterPath);
+        }
+    }
+
+    private static (int ImageBlocks, int TextChars) CountChapterMediaWithLoader(string chapterPath)
+    {
+        var imageBlocks = 0;
+        var textChars = 0;
+        var content = new XhtmlChapterLoader().Load(chapterPath);
+        foreach (var block in content.Blocks)
+        {
+            if (block.Kind == BlockKind.Image) imageBlocks++;
+        }
+        foreach (var ch in content.BodyText)
+        {
+            if (!char.IsWhiteSpace(ch)) textChars++;
+        }
+        return (imageBlocks, textChars);
     }
 
     private static (bool PrePaginated, bool Rtl, bool Ltr) InspectOpf(string rootPath)

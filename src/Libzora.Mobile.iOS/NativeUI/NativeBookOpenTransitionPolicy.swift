@@ -34,22 +34,22 @@ enum NativeBookTransitionTarget: Equatable {
 /// Pure geometry and visibility rules shared by book open/close transitions
 /// and verified by host-side logic tests.
 enum NativeBookOpenTransitionPolicy {
-    static let openFromCoverDuration: Double = 0.44
-    static let openFromCoverMountDelay: Double = 0.41
-    static let openFromCoverCleanupDelay: Double = 0.47
+    static let openFromCoverDuration: Double = 0.62
+    static let openFromCoverMountDelay: Double = 0.58
+    static let openFromCoverCleanupDelay: Double = 0.66
 
-    static let openFromCenterDuration: Double = 0.40
-    static let openFromCenterMountDelay: Double = 0.37
-    static let openFromCenterCleanupDelay: Double = 0.43
+    static let openFromCenterDuration: Double = 0.56
+    static let openFromCenterMountDelay: Double = 0.52
+    static let openFromCenterCleanupDelay: Double = 0.60
 
-    static let closeToCoverDuration: Double = 0.38
-    static let closeToCoverCleanupDelay: Double = 0.41
+    static let closeToCoverDuration: Double = 0.53
+    static let closeToCoverCleanupDelay: Double = 0.57
 
-    static let closeToCenterDuration: Double = 0.34
-    static let closeToCenterCleanupDelay: Double = 0.37
+    static let closeToCenterDuration: Double = 0.48
+    static let closeToCenterCleanupDelay: Double = 0.52
 
     static let coverAspectRatio: CGFloat = 1.45
-    static let readerLoadingChromeGraceSeconds: Double = 0.65
+    static let readerLoadingChromeGraceSeconds: Double = 0.25
 
     static func centeredFrame(in viewport: CGRect) -> CGRect {
         let safeW = max(120, viewport.width.isFinite ? viewport.width : 390)
@@ -105,39 +105,41 @@ enum NativeBookOpenTransitionPolicy {
         activeTab: Int,
         viewport: CGRect,
         lookup: (String) -> CGRect?,
-        seriesFrontBookId: String? = nil
+        seriesFrontBookId: String? = nil,
+        topInset: CGFloat = 40,
+        bottomInset: CGFloat = 52
     ) -> NativeBookTransitionTarget {
         if fromWidget {
             return .centered(frame: centeredFrame(in: viewport))
         }
-        if let explicitFrame, isVisibleFrame(explicitFrame, in: viewport) {
+        if let explicitFrame, isVisibleFrame(explicitFrame, in: viewport, topInset: topInset, bottomInset: bottomInset) {
             if let explicitKey {
                 return .cover(frame: explicitFrame, key: explicitKey)
             }
             return .cover(frame: explicitFrame, key: "shelf:\(bookId)")
         }
-        if let key = explicitKey, let frame = lookup(key), isVisibleFrame(frame, in: viewport) {
+        if let key = explicitKey, let frame = lookup(key), isVisibleFrame(frame, in: viewport, topInset: topInset, bottomInset: bottomInset) {
             return .cover(frame: frame, key: key)
         }
-        if let detail = lookup("detail:\(bookId)"), isVisibleFrame(detail, in: viewport) {
+        if let detail = lookup("detail:\(bookId)"), isVisibleFrame(detail, in: viewport, topInset: topInset, bottomInset: bottomInset) {
             return .cover(frame: detail, key: "detail:\(bookId)")
         }
         if activeTab == 0 {
             let candidates = libraryCandidateKeys(bookId: bookId, seriesFrontBookId: seriesFrontBookId)
             for key in candidates {
-                if let frame = lookup(key), isVisibleFrame(frame, in: viewport) {
+                if let frame = lookup(key), isVisibleFrame(frame, in: viewport, topInset: topInset, bottomInset: bottomInset) {
                     return .cover(frame: frame, key: key)
                 }
             }
         } else if activeTab == 1 {
             for key in ["materialsDetail:\(bookId)", "materials:\(bookId)"] {
-                if let frame = lookup(key), isVisibleFrame(frame, in: viewport) {
+                if let frame = lookup(key), isVisibleFrame(frame, in: viewport, topInset: topInset, bottomInset: bottomInset) {
                     return .cover(frame: frame, key: key)
                 }
             }
         } else if activeTab == 2 {
             for key in ["dashboardRecent:\(bookId)", "dashboardMostRead:\(bookId)"] {
-                if let frame = lookup(key), isVisibleFrame(frame, in: viewport) {
+                if let frame = lookup(key), isVisibleFrame(frame, in: viewport, topInset: topInset, bottomInset: bottomInset) {
                     return .cover(frame: frame, key: key)
                 }
             }
@@ -151,24 +153,26 @@ enum NativeBookOpenTransitionPolicy {
         activeTab: Int,
         viewport: CGRect,
         lookup: (String) -> CGRect?,
-        seriesFrontBookId: String? = nil
+        seriesFrontBookId: String? = nil,
+        topInset: CGFloat = 40,
+        bottomInset: CGFloat = 52
     ) -> NativeBookTransitionTarget {
         if let preferredKey {
             let allowPreferred = preferredKey.hasPrefix("detail:")
                 || activeTab == 0
                 || (activeTab == 1 && (preferredKey.hasPrefix("materials:") || preferredKey.hasPrefix("materialsDetail:")))
                 || (activeTab == 2 && (preferredKey.hasPrefix("dashboardRecent:") || preferredKey.hasPrefix("dashboardMostRead:")))
-            if allowPreferred, let frame = lookup(preferredKey), isVisibleFrame(frame, in: viewport) {
+            if allowPreferred, let frame = lookup(preferredKey), isVisibleFrame(frame, in: viewport, topInset: topInset, bottomInset: bottomInset) {
                 return .cover(frame: frame, key: preferredKey)
             }
         }
-        if let detail = lookup("detail:\(bookId)"), isVisibleFrame(detail, in: viewport) {
+        if let detail = lookup("detail:\(bookId)"), isVisibleFrame(detail, in: viewport, topInset: topInset, bottomInset: bottomInset) {
             return .cover(frame: detail, key: "detail:\(bookId)")
         }
         if activeTab == 0 {
             let candidates = libraryCandidateKeys(bookId: bookId, seriesFrontBookId: seriesFrontBookId)
             for key in candidates {
-                if let frame = lookup(key), isVisibleFrame(frame, in: viewport) {
+                if let frame = lookup(key), isVisibleFrame(frame, in: viewport, topInset: topInset, bottomInset: bottomInset) {
                     return .cover(frame: frame, key: key)
                 }
             }
@@ -180,13 +184,13 @@ enum NativeBookOpenTransitionPolicy {
                 ? ["materialsDetail:\(bookId)"]
                 : ["materialsDetail:\(bookId)", "materials:\(bookId)"]
             for key in keys {
-                if let frame = lookup(key), isVisibleFrame(frame, in: viewport) {
+                if let frame = lookup(key), isVisibleFrame(frame, in: viewport, topInset: topInset, bottomInset: bottomInset) {
                     return .cover(frame: frame, key: key)
                 }
             }
         } else if activeTab == 2 {
             for key in ["dashboardRecent:\(bookId)", "dashboardMostRead:\(bookId)"] {
-                if let frame = lookup(key), isVisibleFrame(frame, in: viewport) {
+                if let frame = lookup(key), isVisibleFrame(frame, in: viewport, topInset: topInset, bottomInset: bottomInset) {
                     return .cover(frame: frame, key: key)
                 }
             }

@@ -530,9 +530,11 @@ struct NativeFloatingSurface: ViewModifier {
 }
 
 /// Uses iOS 26 Liquid Glass for floating bars, falling back to regular material on older iOS.
+/// Container bars default to non-interactive glass so child buttons and sliders do not
+/// contend with an outer interactive glass gesture recognizer.
 struct NativeLiquidGlassSurface<S: Shape>: ViewModifier {
     let shape: S
-    var interactive = true
+    var interactive = false
 
     @ViewBuilder func body(content: Content) -> some View {
         if #available(iOS 26.0, *) {
@@ -552,6 +554,17 @@ struct NativeLiquidGlassSurface<S: Shape>: ViewModifier {
                 .overlay(shape.stroke(NativeTheme.divider.opacity(0.6), lineWidth: 0.5))
                 .shadow(color: .black.opacity(0.12), radius: 12, y: 5)
         }
+    }
+}
+
+/// Immediate touch-down press feedback for buttons hosted inside a floating
+/// Liquid Glass toolbar, avoiding container-level glass gesture delays.
+struct NativeGlassToolbarButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.45 : 1)
+            .scaleEffect(configuration.isPressed ? 0.94 : 1)
+            .animation(.easeOut(duration: 0.1), value: configuration.isPressed)
     }
 }
 

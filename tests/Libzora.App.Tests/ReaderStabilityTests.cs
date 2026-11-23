@@ -698,6 +698,39 @@ public sealed class ReaderStabilityTests(SettingsUiSession session) : IDisposabl
         return host;
     }
 
+    [Fact]
+    public Task InitialViewportHintAvoidsThrowawayOnePixelComposeAndKeepsPartialLayout() => Run(async () =>
+    {
+        Directory.CreateDirectory(_directory);
+        var path = Path.Combine(_directory, "giant-single-chapter.xhtml");
+        await File.WriteAllTextAsync(path, "<html><body>" + string.Concat(Enumerable.Repeat(
+            "<p>策略思维单章超大文本首屏渐进排版测试，打开时应当立即使用容器真实尺寸并在首屏后截断。</p>", 600)) + "</body></html>");
+        using var host = new NativeReaderHost();
+        host.SetInitialViewportSize(390, 760);
+        var loaded = NextNavigation(host);
+        host.Navigate(new Uri(path), new ReaderLayoutSettings(), false, composeTextOffset: 0, allowPartialCompose: true);
+        Assert.True(await loaded.WaitAsync(TimeSpan.FromSeconds(10)));
+
+        var initialLayout = Layout(host);
+        Assert.Equal(390f, initialLayout.Options.ViewportWidth, 1);
+        Assert.Equal(760f, initialLayout.Options.ViewportHeight, 1);
+        Assert.False(initialLayout.IsComplete);
+
+        // Arranging the host to the exact hinted dimensions must not trigger a
+        // redundant relayout pass over the full chapter.
+        host.Measure(new Size(390, 760));
+        host.Arrange(new Rect(0, 0, 390, 760));
+        Assert.Same(initialLayout, Layout(host));
+
+        // Even when actual Bounds differs from the initial measure before
+        // navigation completes, completing layout in the background still yields
+        // the full chapter cleanly when requested.
+        host.CompleteLayoutInBackground();
+        await host.EnsureCompleteLayoutAsync().WaitAsync(TimeSpan.FromSeconds(15));
+        Assert.True(Layout(host).IsComplete);
+        Assert.True(Layout(host).Pages.Count > initialLayout.Pages.Count);
+    });
+
     private static async Task<NativeReaderHost> LoadNativeChapter(string path, ReaderLayoutSettings settings)
     {
         var host = new NativeReaderHost();

@@ -517,6 +517,17 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
             return;
         }
 
+        if (_options is not null
+            && Bounds.Width >= 2
+            && Bounds.Height >= 2
+            && Math.Abs(ComposePageWidth(Bounds.Width) - _options.ViewportWidth) < 0.01
+            && Math.Abs(Bounds.Height - _options.ViewportHeight) < 0.01)
+        {
+            _bitmapDirty = true;
+            InvalidateVisual();
+            return;
+        }
+
         PreservePositionForViewportChange();
         _relayoutTimer ??= new DispatcherTimer(TimeSpan.FromMilliseconds(70), DispatcherPriority.Background, async (_, _) =>
         {

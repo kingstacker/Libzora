@@ -751,6 +751,8 @@ final class NativeStore: ObservableObject {
         session.appearanceColorScheme = nil
         var args: [String: Any] = ["bookId": book.id, "sessionId": session.appearanceSessionId]
         if let location { args["location"] = location }
+        let topInset = max(40, NativeTheme.statusBarHeight + 16)
+        let bottomInset = max(52, NativeTheme.bottomTabBarInset + 8)
         let target = NativeBookOpenTransitionPolicy.resolveOpenTarget(
             bookId: book.id,
             explicitFrame: sourceFrame,
@@ -759,7 +761,9 @@ final class NativeStore: ObservableObject {
             activeTab: activeTab,
             viewport: viewportRect,
             lookup: { NativeBookCoverFrames.get($0) },
-            seriesFrontBookId: seriesFrontBookId(for: book)
+            seriesFrontBookId: seriesFrontBookId(for: book),
+            topInset: topInset,
+            bottomInset: bottomInset
         )
         let powerSaving = preferences.isPowerSaving(systemLowPower: ProcessInfo.processInfo.isLowPowerModeEnabled)
         let useBookFlip = animated && !UIAccessibility.isReduceMotionEnabled && !powerSaving
@@ -908,13 +912,17 @@ final class NativeStore: ObservableObject {
             UIView.setAnimationsEnabled(true)
 
             let frontBookId = seriesFrontBookId(for: book)
+            let topInset = max(40, NativeTheme.statusBarHeight + 16)
+            let bottomInset = max(52, NativeTheme.bottomTabBarInset + 8)
             let target = NativeBookOpenTransitionPolicy.resolveCloseTarget(
                 bookId: book.id,
                 preferredKey: preferredKey,
                 activeTab: activeTab,
                 viewport: viewportRect,
                 lookup: { NativeBookCoverFrames.get($0) },
-                seriesFrontBookId: frontBookId
+                seriesFrontBookId: frontBookId,
+                topInset: topInset,
+                bottomInset: bottomInset
             )
             closingBookTransition = NativeBookOpenTransition(
                 book: book,

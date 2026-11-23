@@ -2237,7 +2237,6 @@ final class NativeFrontendTests: XCTestCase {
         app.tabBars.buttons["阅读资料"].tap()
         let book = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'materials.book.' AND label CONTAINS 'Native UI EPUB'")).firstMatch
         XCTAssertTrue(book.waitForExistence(timeout: 15), app.debugDescription)
-        book.tap()
         let formatter = DateFormatter()
         formatter.calendar = Calendar(identifier: .gregorian)
         formatter.dateFormat = "yyyy/MM/dd"

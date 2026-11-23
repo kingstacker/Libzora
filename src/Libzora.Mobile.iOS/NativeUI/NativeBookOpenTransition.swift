@@ -236,20 +236,20 @@ struct NativeBookOpenPageTransform: AnimatableModifier {
         let cardScale = (active && isCentered) ? lerp(0.88, 1.0, smoothReveal) : 1.0
         let cardOpacity = (active && isCentered) ? smoothReveal : 1.0
         let cornerRadius = active ? lerp(6.0, 0.0, t) : 0.0
-        let flipT = active ? min(max((t - 0.06) / 0.66, 0), 1) : 1.0
-        let pageShadowOpacity = active ? 0.14 * (1.0 - flipT) : 0.0
+        let flipT = active ? min(max((t - 0.06) / 0.86, 0), 1) : 1.0
+        let pageShadowOpacity = active ? 0.22 * (1.0 - flipT) : 0.0
         let flightArc = active ? sin(t * .pi) : 0.0
 
         let restingShadowOpacity = colorScheme == .dark ? 0.0 : 0.12
-        let shadowOpacity = active ? (restingShadowOpacity * (1.0 - t) + 0.20 * flightArc) : 0.0
-        let shadowRadius = active ? (5.0 * (1.0 - t) + 18.0 * flightArc) : 0.0
-        let shadowY = active ? (2.0 * (1.0 - t) + 8.0 * flightArc) : 0.0
+        let shadowOpacity = active ? (restingShadowOpacity * (1.0 - t) + 0.22 * flightArc) : 0.0
+        let shadowRadius = active ? (5.0 * (1.0 - t) + 20.0 * flightArc) : 0.0
+        let shadowY = active ? (2.0 * (1.0 - t) + 10.0 * flightArc) : 0.0
 
         let visW = curW * cardScale
         let visH = curH * cardScale
         // Keep aspect ratio locked (uniform scale) so body text never looks squashed during expand.
         let uniformScale = active ? max(0.01, visW / targetW) : 1.0
-        let pageRevealOpacity = active ? min(1.0, max(0.0, (t - 0.12) / 0.45)) : 1.0
+        let pageRevealOpacity = active ? min(1.0, max(0.0, t / 0.14)) : 1.0
         let clipRect = active
             ? CGRect(x: (targetW - visW) * 0.5, y: (targetH - visH) * 0.5, width: visW, height: visH)
             : .zero
@@ -259,11 +259,11 @@ struct NativeBookOpenPageTransform: AnimatableModifier {
                 LinearGradient(
                     colors: [
                         Color.black.opacity(pageShadowOpacity),
-                        Color.black.opacity(pageShadowOpacity * 0.3),
+                        Color.black.opacity(pageShadowOpacity * 0.35),
                         Color.clear
                     ],
                     startPoint: .leading,
-                    endPoint: UnitPoint(x: max(0.18, 0.58 * (1.0 - flipT * 0.6)), y: 0.5)
+                    endPoint: UnitPoint(x: max(0.18, 0.72 * (1.0 - flipT * 0.65)), y: 0.5)
                 )
                 .allowsHitTesting(false)
             }
@@ -313,11 +313,10 @@ struct NativeBookOpenLiveCoverLayer: View, Animatable {
         let cardOpacity = transition.isCentered ? smoothReveal : 1.0
         let cornerRadius = lerp(6.0, 0.0, t)
 
-        let flipT = min(max((t - 0.06) / 0.66, 0), 1)
-        let angle = -24.0 * flipT
-        let coverOpacity = 1.0 - flipT
-        let coverShading = 0.14 * sin(min(1, flipT / 0.85) * .pi * 0.5)
-        let flightArc = sin(t * .pi)
+        let flipT = min(max((t - 0.06) / 0.86, 0), 1)
+        let angle = -104.0 * flipT
+        let coverOpacity = flipT < 0.72 ? 1.0 : max(0, 1.0 - (flipT - 0.72) / 0.22)
+        let coverShading = 0.26 * sin(min(1, flipT / 0.85) * .pi * 0.5)
 
         Group {
             if let coverImage = transition.coverImage {
@@ -338,9 +337,9 @@ struct NativeBookOpenLiveCoverLayer: View, Animatable {
         .overlay(alignment: .leading) {
             LinearGradient(
                 colors: [
-                    Color.black.opacity(0.18 * flightArc),
-                    Color.white.opacity(0.14 * flightArc),
-                    Color.black.opacity(0.08 * flightArc),
+                    Color.black.opacity(0.18),
+                    Color.white.opacity(0.14),
+                    Color.black.opacity(0.08),
                     Color.clear
                 ],
                 startPoint: .leading,
@@ -357,7 +356,7 @@ struct NativeBookOpenLiveCoverLayer: View, Animatable {
             axis: (x: 0, y: 1, z: 0),
             anchor: .leading,
             anchorZ: 0,
-            perspective: 0.34
+            perspective: 0.32
         )
         .opacity(coverOpacity)
         .scaleEffect(cardScale, anchor: .center)
@@ -438,19 +437,19 @@ private struct NativeBookFlipScene: View, Animatable {
             // Exact 6pt radius at t = 0 matching BookCover → 0pt at full screen.
             let cornerRadius = lerp(6.0, 0.0, t)
 
-            // Smooth crossfade from captured reader page into resting shelf cover.
-            let flipT = min(max((t - 0.04) / 0.72, 0), 1)
-            let angle = -16.0 * flipT
-            let coverOpacity = 1.0 - flipT
-            let coverShading = 0.10 * sin(min(1, flipT / 0.85) * .pi * 0.5)
-            let pageShadowOpacity = 0.12 * (1.0 - flipT)
+            // Reverse the full 3D spine flip (-104°) from captured reader page into resting shelf cover.
+            let flipT = min(max((t - 0.06) / 0.86, 0), 1)
+            let angle = -104.0 * flipT
+            let coverOpacity = flipT < 0.72 ? 1.0 : max(0, 1.0 - (flipT - 0.72) / 0.22)
+            let coverShading = 0.26 * sin(min(1, flipT / 0.85) * .pi * 0.5)
+            let pageShadowOpacity = 0.22 * (1.0 - flipT)
             let flightArc = sin(t * .pi)
 
             // Match BookCover's exact resting shadow at t = 0 so handoff never flickers.
             let restingShadowOpacity = colorScheme == .dark ? 0.0 : 0.12
-            let shadowOpacity = restingShadowOpacity * (1.0 - t) + 0.20 * flightArc
-            let shadowRadius = 5.0 * (1.0 - t) + 18.0 * flightArc
-            let shadowY = 2.0 * (1.0 - t) + 8.0 * flightArc
+            let shadowOpacity = restingShadowOpacity * (1.0 - t) + 0.22 * flightArc
+            let shadowRadius = 5.0 * (1.0 - t) + 20.0 * flightArc
+            let shadowY = 2.0 * (1.0 - t) + 10.0 * flightArc
 
             ZStack {
                 // Softly dim the underlying screen as the book shrinks back to the shelf.
@@ -472,11 +471,11 @@ private struct NativeBookFlipScene: View, Animatable {
                         LinearGradient(
                             colors: [
                                 Color.black.opacity(pageShadowOpacity),
-                                Color.black.opacity(pageShadowOpacity * 0.3),
+                                Color.black.opacity(pageShadowOpacity * 0.35),
                                 Color.clear
                             ],
                             startPoint: .leading,
-                            endPoint: UnitPoint(x: max(0.18, 0.58 * (1.0 - flipT * 0.6)), y: 0.5)
+                            endPoint: UnitPoint(x: max(0.18, 0.72 * (1.0 - flipT * 0.65)), y: 0.5)
                         )
                     }
                     .frame(width: curW, height: curH)
@@ -508,9 +507,9 @@ private struct NativeBookFlipScene: View, Animatable {
                     .overlay(alignment: .leading) {
                         LinearGradient(
                             colors: [
-                                Color.black.opacity(0.16 * flightArc),
-                                Color.white.opacity(0.12 * flightArc),
-                                Color.black.opacity(0.06 * flightArc),
+                                Color.black.opacity(0.18),
+                                Color.white.opacity(0.14),
+                                Color.black.opacity(0.08),
                                 Color.clear
                             ],
                             startPoint: .leading,
@@ -527,7 +526,7 @@ private struct NativeBookFlipScene: View, Animatable {
                         axis: (x: 0, y: 1, z: 0),
                         anchor: .leading,
                         anchorZ: 0,
-                        perspective: 0.26
+                        perspective: 0.32
                     )
                     .opacity(coverOpacity)
                 }

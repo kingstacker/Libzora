@@ -46,7 +46,7 @@ public partial class ReaderPage
         var currentPrefs = _shell.Preferences.Current;
         if (!currentPrefs.TryGetMangaSettings(_bookFile!.Id, out var resolvedManga))
         {
-            var detected = EpubMangaDetector.Detect(_epubDocument);
+            var detected = await Task.Run(() => EpubMangaDetector.Detect(_epubDocument), cancellationToken);
             resolvedManga = new MobileMangaBookSettings
             {
                 Enabled = detected.IsManga,
@@ -110,6 +110,15 @@ public partial class ReaderPage
         host.WebMessageReceived += OnReaderWebMessage;
         host.LayoutCompleted += OnReaderLayoutCompleted;
         ReaderHostSlot.Content = host.View;
+        var slotBounds = ReaderHostSlot.Bounds;
+        if (slotBounds.Width < 2 || slotBounds.Height < 2)
+        {
+            slotBounds = ReaderPaper.Bounds;
+        }
+        var slotPadding = ReaderHostSlot.Padding;
+        host.SetInitialViewportSize(
+            slotBounds.Width - slotPadding.Left - slotPadding.Right,
+            slotBounds.Height - slotPadding.Top - slotPadding.Bottom);
         BuildEpubToc();
 
         var chapterPath = _epubDocument.Chapters[_chapterIndex];
@@ -146,10 +155,10 @@ public partial class ReaderPage
         host.SetResumeMarker(ToResumeMarker(_activeSyncedMarker));
         _syncedMarkerScrollOrigin = _epubPosition;
         UpdateEpubLabels();
-        host.CompleteLayoutInBackground();
         LoadingPanel.IsVisible = false;
         _ready = true;
         NotifyNativeState();
+        host.CompleteLayoutInBackground();
     }
 
     /// <summary>

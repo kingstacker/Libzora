@@ -274,6 +274,19 @@ struct NativeStateLogicTests {
         check(materialsScrolledOffClose == .centered(frame: centered),
               "Closing to Reading Materials when the book header scrolled off-screen folds cleanly to center")
 
+        let occludedByStatusGlass = CGRect(x: 24, y: 12, width: 48, height: 68)
+        let materialsOccludedClose = NativeBookOpenTransitionPolicy.resolveCloseTarget(
+            bookId: "b1",
+            preferredKey: "materials:b1",
+            activeTab: 1,
+            viewport: viewport,
+            lookup: { key in key == "materials:b1" ? occludedByStatusGlass : nil },
+            topInset: 75,
+            bottomInset: 91
+        )
+        check(materialsOccludedClose == .centered(frame: centered),
+              "Closing when the cover sits behind the status bar glass or tab bar folds to center")
+
         let materialsDetailOpen = NativeBookOpenTransitionPolicy.resolveOpenTarget(
             bookId: "b1",
             explicitFrame: materialsFrame,

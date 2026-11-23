@@ -108,8 +108,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         // Compose off the UI thread; layout and shaping are pure CPU work on
         // engine-owned state, and the result is applied back on the UI thread.
         var settings = _settings;
-        var width = Math.Max(1, ComposePageWidth(Bounds.Width));
-        var height = Math.Max(1, Bounds.Height);
+        var (width, height) = ResolveComposeViewportSize();
         var startingArgs = new ReaderNavigationStartingEventArgs(navigationSource);
         NavigationStarting?.Invoke(this, startingArgs);
         if (startingArgs.Cancel)
@@ -189,9 +188,19 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
                 _pageIndex = 0;
                 _lastPrefetchedSlice = -1;
                 ResetMangaZoom();
-                if (Math.Abs(width - ComposePageWidth(Bounds.Width)) > 0.01
-                    || Math.Abs(height - Math.Max(1, Bounds.Height)) > 0.01)
-                    await (RelayoutTask = RecomposeAsync());
+                var (currentWidth, currentHeight) = ResolveComposeViewportSize();
+                if (Math.Abs(width - currentWidth) > 0.01
+                    || Math.Abs(height - currentHeight) > 0.01)
+                {
+                    var relayoutStopAfter = allowPartialCompose
+                        ? ResolveInitialComposeStop(
+                            composed.content,
+                            fragment,
+                            readingAnchor,
+                            composeTextOffset)
+                        : null;
+                    await (RelayoutTask = RecomposeAsync(stopAfterTextOffset: relayoutStopAfter));
+                }
                 navigationToken.ThrowIfCancellationRequested();
                 if (_disposed || version != Volatile.Read(ref _navigationVersion)) return;
                 ApplyPendingPosition();

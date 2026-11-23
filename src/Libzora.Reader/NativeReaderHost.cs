@@ -52,7 +52,37 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
     private CancellationTokenSource? _relayoutCts;
     internal Task RelayoutTask { get; private set; } = Task.CompletedTask;
     private bool _layoutCompletionScheduled;
+    private Size? _initialViewportSize;
     private const int InitialComposeAheadCharacters = 8000;
+
+    /// <summary>
+    /// Supplies the host container size before Avalonia completes the first
+    /// layout pass, avoiding a throwaway 1x1 compose and blocking full relayout.
+    /// </summary>
+    public void SetInitialViewportSize(double width, double height)
+    {
+        if (!double.IsFinite(width) || !double.IsFinite(height) || width < 2 || height < 2)
+        {
+            return;
+        }
+
+        _initialViewportSize = new Size(width, height);
+    }
+
+    private (double Width, double Height) ResolveComposeViewportSize()
+    {
+        if (Bounds.Width >= 2 && Bounds.Height >= 2)
+        {
+            return (Math.Max(1, ComposePageWidth(Bounds.Width)), Bounds.Height);
+        }
+
+        if (_initialViewportSize is { Width: >= 2, Height: >= 2 } hint)
+        {
+            return (Math.Max(1, ComposePageWidth(hint.Width)), hint.Height);
+        }
+
+        return (Math.Max(1, ComposePageWidth(Bounds.Width)), Math.Max(1, Bounds.Height));
+    }
     private ChapterContent? _content;
     private readonly List<TableTextRange> _tableTextRanges = new();
     private ChapterLayout? _layout;

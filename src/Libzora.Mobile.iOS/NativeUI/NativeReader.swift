@@ -751,7 +751,10 @@ struct NativeReaderPage: View {
                 }
             }.frame(maxWidth: .infinity, minHeight: 44).padding(.horizontal, 2).clipped()
             if searching {
-                Button(action: closeSearch) { Image(systemName: "xmark").font(.system(size: 15)).frame(width: 44, height: 44) }
+                Button(action: closeSearch) {
+                    Image(systemName: "xmark").font(.system(size: 15)).frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
                     .disabled(jumpingToSearch).accessibilityLabel(L("关闭搜索")).accessibilityIdentifier("reader.search.close")
             } else {
                 Button {
@@ -761,9 +764,12 @@ struct NativeReaderPage: View {
                         .contentShape(Rectangle())
                 }.disabled(!reader.ready).accessibilityLabel(L("搜索全书")).accessibilityIdentifier("reader.search")
             }
-            Button { run("bookmark") } label: { Image(systemName: reader.bookmark ? "bookmark.fill" : "bookmark").frame(width: 44, height: 44) }
+            Button { run("bookmark") } label: {
+                Image(systemName: reader.bookmark ? "bookmark.fill" : "bookmark").frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
                 .disabled(!reader.ready).accessibilityLabel(L("书签")).accessibilityIdentifier("reader.bookmark")
-        }.font(.system(size: 19, weight: .regular)).buttonStyle(.plain).padding(4)
+        }.font(.system(size: 19, weight: .regular)).buttonStyle(NativeGlassToolbarButtonStyle()).padding(4)
             .modifier(NativeLiquidGlassSurface(shape: Capsule()))
             .accessibilityElement(children: .contain).accessibilityIdentifier("reader.topToolbar")
             .padding(.horizontal, chromeSideInset).padding(.top, 8)
@@ -773,13 +779,19 @@ struct NativeReaderPage: View {
             HStack { Text(reader.chapter).lineLimit(1); Spacer(); Text("\(seekProgress, specifier: "%.0f")%") }
                 .font(NativeTheme.font(13)).foregroundStyle(NativeTheme.secondary)
             HStack(spacing: 0) {
-                Button { run("chapter", ["direction": -1]) } label: { Image(systemName: "backward.end").frame(width: 36, height: 44) }.accessibilityLabel(L("上一章或上一页"))
+                Button { run("chapter", ["direction": -1]) } label: {
+                    Image(systemName: "backward.end").frame(width: 36, height: 44)
+                        .contentShape(Rectangle())
+                }.accessibilityLabel(L("上一章或上一页"))
                 Slider(value: $seekProgress, in: 0...100, onEditingChanged: { editing in
                     dragging = editing
                     if !editing { run("seek", ["progress": seekProgress]) }
                 }).accessibilityLabel(L("阅读进度")).accessibilityIdentifier("reader.progress")
-                Button { run("chapter", ["direction": 1]) } label: { Image(systemName: "forward.end").frame(width: 36, height: 44) }.accessibilityLabel(L("下一章或下一页"))
-            }.font(.system(size: 17, weight: .regular)).buttonStyle(.plain).padding(.horizontal, -10).padding(.top, 2)
+                Button { run("chapter", ["direction": 1]) } label: {
+                    Image(systemName: "forward.end").frame(width: 36, height: 44)
+                        .contentShape(Rectangle())
+                }.accessibilityLabel(L("下一章或下一页"))
+            }.font(.system(size: 17, weight: .regular)).buttonStyle(NativeGlassToolbarButtonStyle()).padding(.horizontal, -10).padding(.top, 2)
             HStack(spacing: 0) {
                 tool(L("目录"), "list.bullet", identifier: "reader.目录") { panel = .toc }
                 tool(reader.speechState == 0 || reader.speechState == 4 ? L("听书") : L("停止"), "headphones",
@@ -859,7 +871,7 @@ struct NativeReaderPage: View {
                 .frame(width: 22, height: 22, alignment: .center)
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .center)
                 .contentShape(Rectangle())
-        }.buttonStyle(.plain).accessibilityLabel(title).accessibilityIdentifier(identifier)
+        }.buttonStyle(NativeGlassToolbarButtonStyle()).accessibilityLabel(title).accessibilityIdentifier(identifier)
     }
     private func selectionUnderlineAction(
         action: @escaping () -> Void,
@@ -894,7 +906,7 @@ struct NativeReaderPage: View {
             .frame(maxWidth: .infinity, minHeight: 44, alignment: .center)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(NativeGlassToolbarButtonStyle())
         .simultaneousGesture(
             LongPressGesture(minimumDuration: 0.32, maximumDistance: 18)
                 .onEnded { _ in
@@ -913,7 +925,7 @@ struct NativeReaderPage: View {
                 Text(title).font(NativeTheme.font(11, relativeTo: .caption2))
             }.frame(maxWidth: .infinity).frame(minHeight: 52).contentShape(Rectangle())
         }
-            .buttonStyle(.plain).accessibilityIdentifier(identifier)
+            .buttonStyle(NativeGlassToolbarButtonStyle()).accessibilityIdentifier(identifier)
     }
     @ViewBuilder private func panelContent(_ panel: ReaderPanel) -> some View {
         switch panel {

@@ -17,6 +17,8 @@ struct NativeLibraryPage: View {
     @State private var creatingFolder = false
     @State private var renamingFolder: LibraryFolder?
     @State private var folderBusy = false
+    @StateObject private var selection = NativeLibrarySelectionState()
+    @State private var batchDeleting = false
     @StateObject private var bookDestinations = NativeShelfBookDestinations()
     @StateObject private var scrollState = NativeLibraryScrollState()
     @State private var pageVisible = false
@@ -108,6 +110,31 @@ struct NativeLibraryPage: View {
         }.background(NativeAmbientBackground()).navigationBarHidden(true)
         .overlay(alignment: .top) {
             if !floatingMasthead { NativeLibraryStatusBarGlass(scroll: scrollState) }
+        }
+        .overlay(alignment: .bottom) {
+            if selection.active && !store.preferences.collectionsView {
+                NativeLibraryBatchBar(
+                    selectedCount: selection.selectedIds.count,
+                    busy: batchDeleting,
+                    onDelete: deleteSelectedBooks
+                )
+                .padding(.horizontal, NativeAdaptiveLayout.pageInset)
+                .padding(.bottom, 12)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .onAppear {
+            bookDestinations.onMultiSelect = { bookId in
+                withAnimation(.easeOut(duration: 0.18)) {
+                    selection.enter(initialBookId: bookId)
+                }
+            }
+        }
+        .onChange(of: store.preferences.collectionsView) { collections in
+            if collections && selection.active { selection.exit() }
+        }
+        .onChange(of: store.library.map(\.id)) { ids in
+            selection.prune(validIds: Set(ids))
         }
         .onChange(of: isActive) { active in
             if !active { NativeBookSeriesCenter.shared.dismiss() }
@@ -256,34 +283,61 @@ struct NativeLibraryPage: View {
     }
     private func masthead(floating: Bool) -> some View {
         HStack(spacing: 0) {
-            if searching {
-                NativeSearchField(text: $query, prompt: store.preferences.collectionsView ? L("搜索收藏夹") : L("搜索书名或作者"),
-                                  focused: $searchFocused, identifier: "library.search") { searchFocused = false }
-            } else {
-                NativePageTitle(title: store.preferences.collectionsView ? L("收藏夹") : L("书库"),
-                                identifier: "library.view.title")
-                Spacer(minLength: 0)
-            }
-            Button {
-                searching.toggle(); searchFocused = searching
-                if !searching { query = "" }
-            } label: {
-                Image(systemName: searching ? "xmark" : "magnifyingglass").font(.system(size: 20, weight: .regular))
-                    .frame(width: 44, height: 44)
-            }.buttonStyle(.plain).accessibilityLabel(searching ? L("关闭搜索") : L("搜索书库"))
-                .accessibilityIdentifier("library.search.toggle")
-            Button {
-                if store.preferences.collectionsView { creatingFolder = true }
-                else {
-                    importing = true
-                    store.perform { defer { importing = false }; try await store.command("library.import"); try await store.refreshLibrary() }
+            if selection.active && !store.preferences.collectionsView {
+                let visibleIds = books.map(\.id)
+                let allSelected = NativeLibraryBatchPolicy.areAllVisibleSelected(
+                    visibleIds: visibleIds, in: selection.selectedIds)
+                Button(allSelected ? L("取消全选") : L("全选")) {
+                    selection.toggleAll(visibleIds: visibleIds)
                 }
-            } label: {
-                Group { if importing { ProgressView() } else { Image(systemName: "plus").font(.system(size: 21, weight: .regular)) } }
-                    .frame(width: 44, height: 44)
-            }.buttonStyle(.plain).disabled(importing || folderBusy)
-                .accessibilityLabel(store.preferences.collectionsView ? L("新建收藏夹") : L("导入书籍"))
-                .accessibilityIdentifier("library.import")
+                .font(NativeTheme.font(15))
+                .buttonStyle(.plain)
+                .disabled(visibleIds.isEmpty || batchDeleting)
+                .accessibilityIdentifier("library.selection.toggleAll")
+                Spacer(minLength: 0)
+                Text(L("已选 {0} 本", selection.selectedIds.count))
+                    .font(NativeTheme.font(15))
+                    .foregroundStyle(NativeTheme.ink)
+                    .monospacedDigit()
+                    .accessibilityIdentifier("library.selection.count")
+                Spacer(minLength: 0)
+                Button(L("完成")) {
+                    withAnimation(.easeOut(duration: 0.18)) { selection.exit() }
+                }
+                .font(NativeTheme.font(15))
+                .buttonStyle(.plain)
+                .disabled(batchDeleting)
+                .accessibilityIdentifier("library.selection.done")
+            } else {
+                if searching {
+                    NativeSearchField(text: $query, prompt: store.preferences.collectionsView ? L("搜索收藏夹") : L("搜索书名或作者"),
+                                      focused: $searchFocused, identifier: "library.search") { searchFocused = false }
+                } else {
+                    NativePageTitle(title: store.preferences.collectionsView ? L("收藏夹") : L("书库"),
+                                    identifier: "library.view.title")
+                    Spacer(minLength: 0)
+                }
+                Button {
+                    searching.toggle(); searchFocused = searching
+                    if !searching { query = "" }
+                } label: {
+                    Image(systemName: searching ? "xmark" : "magnifyingglass").font(.system(size: 20, weight: .regular))
+                        .frame(width: 44, height: 44)
+                }.buttonStyle(.plain).accessibilityLabel(searching ? L("关闭搜索") : L("搜索书库"))
+                    .accessibilityIdentifier("library.search.toggle")
+                Button {
+                    if store.preferences.collectionsView { creatingFolder = true }
+                    else {
+                        importing = true
+                        store.perform { defer { importing = false }; try await store.command("library.import"); try await store.refreshLibrary() }
+                    }
+                } label: {
+                    Group { if importing { ProgressView() } else { Image(systemName: "plus").font(.system(size: 21, weight: .regular)) } }
+                        .frame(width: 44, height: 44)
+                }.buttonStyle(.plain).disabled(importing || folderBusy)
+                    .accessibilityLabel(store.preferences.collectionsView ? L("新建收藏夹") : L("导入书籍"))
+                    .accessibilityIdentifier("library.import")
+            }
         }.modifier(NativePageMasthead())
             .background {
                 if floating {
@@ -315,7 +369,12 @@ struct NativeLibraryPage: View {
             }.buttonStyle(.plain).foregroundStyle(mutedText).disabled(loadingFilterOptions)
                 .accessibilityLabel(advancedFilter.count == 0 ? L("筛选书籍") : L("筛选书籍，已选 {0} 项", advancedFilter.count))
                 .accessibilityIdentifier("library.filters.open")
-            NativeLibraryDisplayMenu(store: store)
+            NativeLibraryDisplayMenu(
+                store: store,
+                onSelectBooks: selection.active || books.isEmpty ? nil : {
+                    withAnimation(.easeOut(duration: 0.18)) { selection.enter() }
+                }
+            )
         }
     }
     private func booksView(width pageWidth: CGFloat) -> some View {
@@ -340,8 +399,14 @@ struct NativeLibraryPage: View {
                     NativeBookShelf(store: store, books: books, pageWidth: pageWidth, tracksVisibleCovers: true,
                                     stackSeries: store.preferences.stackBookSeries && query.isEmpty
                                         && filter == 0 && advancedFilter.count == 0,
+                                    selectionMode: selection.active,
+                                    selectedBookIds: selection.selectedIds,
+                                    onToggleSelect: { selection.toggle($0.id) },
+                                    onToggleSeriesSelect: { selection.toggleSeries($0.books.map(\.id)) },
                                     expandSeries: { id, frame in
-                                        NativeBookSeriesCenter.shared.show(NativeBookSeriesRequest(seriesID: id, sourceFrame: frame) { book, previewFrame, width in
+                                        NativeBookSeriesCenter.shared.show(NativeBookSeriesRequest(
+                                            seriesID: id, sourceFrame: frame, selection: selection
+                                        ) { book, previewFrame, width in
                                             let dismiss = { NativeBookSeriesCenter.shared.dismiss(immediate: true) }
                                             bookDestinations.showPreview(book, source: .seriesVolume, frame: previewFrame, width: width,
                                                                          store: store, actions: bookActions(book, beforeReading: dismiss),
@@ -352,7 +417,7 @@ struct NativeLibraryPage: View {
                         .id("\(filter)|\(query)|\(advancedFilter.count)|\(advancedFilter.readingStatus ?? "")|\(store.preferences.sort)|\(store.preferences.listView)|\(store.preferences.stackBookSeries)")
                 }
             }
-        }.padding(.horizontal, NativeAdaptiveLayout.pageInset).padding(.top, 8).padding(.bottom, 28)
+        }.padding(.horizontal, NativeAdaptiveLayout.pageInset).padding(.top, 8).padding(.bottom, selection.active ? 92 : 28)
     }
 
     private func libraryFailure(_ message: String) -> some View {
@@ -387,7 +452,7 @@ struct NativeLibraryPage: View {
         }.frame(maxWidth: .infinity).padding(.top, 96).padding(.bottom, 40)
     }
     @ViewBuilder private func continueCard(books: [LibraryBook]) -> some View {
-        if query.isEmpty, filter <= 1, let id = store.continueBookId, let book = books.first(where: { $0.id == id }) {
+        if !selection.active, query.isEmpty, filter <= 1, let id = store.continueBookId, let book = books.first(where: { $0.id == id }) {
             let key = "continue:\(book.id)"
             Button {
                 let frame = NativeBookCoverFrames.get(key)
@@ -503,6 +568,23 @@ struct NativeLibraryPage: View {
         } catch {
             guard !Task.isCancelled && request == filterRequest else { return }
             filterResult = NativeLibraryFilterResult(request: request, ids: [], error: error.localizedDescription)
+        }
+    }
+    private func deleteSelectedBooks() {
+        let ids = Array(selection.selectedIds)
+        guard !ids.isEmpty, !batchDeleting else { return }
+        batchDeleting = true
+        store.perform {
+            defer { batchDeleting = false }
+            do {
+                let reply: BatchDeleteReply = try await store.request("book.deleteBatch", ["bookIds": ids])
+                guard !reply.cancelled else { return }
+                withAnimation(.easeOut(duration: 0.18)) { selection.exit() }
+                try await store.refreshLibrary()
+            } catch {
+                try? await store.refreshLibrary()
+                throw error
+            }
         }
     }
     private func refresh() async {
@@ -730,15 +812,27 @@ struct NativeBookShelf: View {
     let pageWidth: CGFloat
     let tracksVisibleCovers: Bool
     private let stackSeries: Bool
+    private let selectionMode: Bool
+    private let selectedBookIds: Set<String>
+    private let onToggleSelect: (LibraryBook) -> Void
+    private let onToggleSeriesSelect: (NativeBookSeries) -> Void
     private let expandSeries: (NativeBookSeries.ID, CGRect?) -> Void
     private let actions: (LibraryBook) -> [NativeBookMenuItem]
 
     init(store: NativeStore, books: [LibraryBook], pageWidth: CGFloat, tracksVisibleCovers: Bool = false,
-         stackSeries: Bool = false, expandSeries: @escaping (NativeBookSeries.ID, CGRect?) -> Void = { _, _ in },
+         stackSeries: Bool = false,
+         selectionMode: Bool = false,
+         selectedBookIds: Set<String> = [],
+         onToggleSelect: @escaping (LibraryBook) -> Void = { _ in },
+         onToggleSeriesSelect: @escaping (NativeBookSeries) -> Void = { _ in },
+         expandSeries: @escaping (NativeBookSeries.ID, CGRect?) -> Void = { _, _ in },
          destinations: NativeShelfBookDestinations? = nil,
          actions: @escaping (LibraryBook) -> [NativeBookMenuItem]) {
         self.store = store; self.books = books; self.pageWidth = pageWidth
-        self.tracksVisibleCovers = tracksVisibleCovers; self.stackSeries = stackSeries; self.actions = actions
+        self.tracksVisibleCovers = tracksVisibleCovers; self.stackSeries = stackSeries
+        self.selectionMode = selectionMode; self.selectedBookIds = selectedBookIds
+        self.onToggleSelect = onToggleSelect; self.onToggleSeriesSelect = onToggleSeriesSelect
+        self.actions = actions
         self.expandSeries = expandSeries
         _destinations = StateObject(wrappedValue: destinations ?? NativeShelfBookDestinations())
     }
@@ -786,20 +880,29 @@ struct NativeBookShelf: View {
     @ViewBuilder private func seriesLink(_ series: NativeBookSeries) -> some View {
         let volumes = series.books
         if let front = store.frontBook(for: series) {
+            let selectedCount = NativeLibraryBatchPolicy.selectedCount(
+                in: volumes.map(\.id), from: selectedBookIds)
             NativeBookSeriesTile(title: series.title, seriesID: series.id, volumes: volumes, front: front,
                                  width: coverWidth, muted: mutedText, galleryMode: galleryMode,
                                  showRating: store.preferences.showBookRating,
                                  showSyncStatus: store.preferences.showBookSyncStatus,
                                  enabled: !store.openingReader,
+                                 selectionMode: selectionMode,
+                                 selectedVolumeCount: selectedCount,
                                  lifted: (previewCenter.request?.source == .seriesStack && previewCenter.request?.id == front.id)
                                      || store.isBookCoverHidden(forKey: "shelf:\(front.id)"),
                                  open: {
+                                     if selectionMode {
+                                         onToggleSeriesSelect(series)
+                                         return
+                                     }
                                      let key = "shelf:\(front.id)"
                                      let frame = NativeBookCoverFrames.get(key)
                                      store.perform { try await store.openReader(front, sourceFrame: frame, sourceKey: key) }
                                  },
                                  expand: { frame in expandSeries(series.id, frame) },
                                  longPress: { frame in
+                guard !selectionMode else { return }
                 destinations.showPreview(front, source: .seriesStack, frame: frame, width: coverWidth,
                                          store: store, actions: actions(front))
             })
@@ -813,39 +916,58 @@ struct NativeBookShelf: View {
         let key = "shelf:\(book.id)"
         let previewLifted = previewCenter.request?.source == .shelf && previewCenter.request?.id == book.id
         let flightLifted = store.isBookCoverHidden(forKey: key)
+        let isSelected = selectionMode && selectedBookIds.contains(book.id)
         return Button {
+            if selectionMode {
+                onToggleSelect(book)
+                return
+            }
             let frame = NativeBookCoverFrames.get(key)
             store.perform { try await store.openReader(book, sourceFrame: frame, sourceKey: key) }
         } label: {
             Group {
                 if store.preferences.listView {
-                    BookRow(book: book, showRating: store.preferences.showBookRating,
-                            showSyncStatus: store.preferences.showBookSyncStatus, muted: mutedText,
-                            coverFrameKey: key, hideCover: flightLifted)
-                        .opacity(previewLifted ? 0 : 1)
+                    HStack(spacing: 12) {
+                        BookRow(book: book, showRating: store.preferences.showBookRating,
+                                showSyncStatus: store.preferences.showBookSyncStatus, muted: mutedText,
+                                coverFrameKey: key, hideCover: flightLifted)
+                            .opacity(previewLifted ? 0 : 1)
+                        if selectionMode {
+                            NativeSelectionBadge(selected: isSelected)
+                        }
+                    }
+                    .contentShape(Rectangle())
                 } else {
                     NativeBookTile(book: book, width: coverWidth, muted: mutedText, galleryMode: galleryMode,
                                    showRating: store.preferences.showBookRating,
                                    showSyncStatus: store.preferences.showBookSyncStatus,
                                    coverFrameKey: key, hideCover: flightLifted)
                         .opacity(previewLifted ? 0 : 1)
+                        .overlay(alignment: .topTrailing) {
+                            if selectionMode {
+                                NativeSelectionBadge(selected: isSelected).padding(6)
+                            }
+                        }
                 }
             }
         }.buttonStyle(.plain).disabled(store.openingReader)
             .overlay {
-                NativeBookLink(enabled: !store.openingReader,
-                               tap: {
-                                   let frame = NativeBookCoverFrames.get(key)
-                                   store.perform { try await store.openReader(book, sourceFrame: frame, sourceKey: key) }
-                               },
-                               longPress: { frame in
-                    destinations.showPreview(book, source: .shelf, frame: frame, width: coverWidth,
-                                             isListRow: store.preferences.listView,
-                                             store: store, actions: actions(book))
-                })
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if !selectionMode {
+                    NativeBookLink(enabled: !store.openingReader,
+                                   tap: {
+                                       let frame = NativeBookCoverFrames.get(key)
+                                       store.perform { try await store.openReader(book, sourceFrame: frame, sourceKey: key) }
+                                   },
+                                   longPress: { frame in
+                        destinations.showPreview(book, source: .shelf, frame: frame, width: coverWidth,
+                                                 isListRow: store.preferences.listView,
+                                                 store: store, actions: actions(book))
+                    })
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             }
-            .accessibilityHint(L("轻点阅读，长按查看更多操作"))
+            .accessibilityValue(selectionMode ? (isSelected ? L("已选中") : L("未选中")) : "")
+            .accessibilityHint(selectionMode ? L("轻点选中或取消") : L("轻点阅读，长按查看更多操作"))
             .accessibilityIdentifier("book.\(book.id)")
     }
 }
@@ -855,10 +977,38 @@ final class NativeShelfBookDestinations: ObservableObject {
     @Published var detailBookID: String?
     @Published var showingDetail = false
     @Published var collectionBook: LibraryBook?
+    var onMultiSelect: ((String) -> Void)?
 
     func showPreview(_ book: LibraryBook, source: NativeBookPreviewRequest.Source, frame: CGRect, width: CGFloat,
                      isListRow: Bool = false, store: NativeStore, actions: [NativeBookMenuItem],
                      beforeNavigation: @escaping () -> Void = {}) {
+        var menuItems = actions
+        if let onMultiSelect {
+            menuItems.append(NativeBookMenuItem(L("多选"), identifier: "book.action.multiSelect", systemImage: "checkmark.circle") {
+                NativeBookPreviewCenter.shared.dismiss(immediate: true)
+                beforeNavigation()
+                onMultiSelect(book.id)
+            })
+        }
+        menuItems.append(contentsOf: [
+            NativeBookMenuItem(L("加入收藏夹"), identifier: "book.action.collections", systemImage: "folder.badge.plus") {
+                NativeBookPreviewCenter.shared.dismiss(immediate: true)
+                beforeNavigation()
+                self.collectionBook = book
+            },
+            NativeBookMenuItem(L("书籍详情"), identifier: "book.action.details", systemImage: "info.circle") {
+                NativeBookPreviewCenter.shared.dismiss(immediate: true)
+                beforeNavigation()
+                self.detailBookID = book.id
+                self.showingDetail = true
+            },
+            NativeBookMenuItem(L("移到回收站"), destructive: true, identifier: "book.action.delete", systemImage: "trash") {
+                store.perform {
+                    try await store.command("book.delete", ["bookId": book.id])
+                    try await store.refreshLibrary()
+                }
+            }
+        ])
         NativeBookPreviewCenter.shared.show(NativeBookPreviewRequest(
             book: book,
             source: source,
@@ -868,32 +1018,14 @@ final class NativeShelfBookDestinations: ObservableObject {
             muted: store.preferences.colorfulMode && source != .seriesVolume ? NativeTheme.mutedOnColorful : NativeTheme.muted,
             showRating: source != .seriesStack && store.preferences.showBookRating,
             showSyncStatus: source != .seriesStack && store.preferences.showBookSyncStatus,
-            actions: actions + [
-                NativeBookMenuItem(L("加入收藏夹"), identifier: "book.action.collections", systemImage: "folder.badge.plus") {
-                    NativeBookPreviewCenter.shared.dismiss(immediate: true)
-                    beforeNavigation()
-                    self.collectionBook = book
-                },
-                NativeBookMenuItem(L("书籍详情"), identifier: "book.action.details", systemImage: "info.circle") {
-                    NativeBookPreviewCenter.shared.dismiss(immediate: true)
-                    beforeNavigation()
-                    self.detailBookID = book.id
-                    self.showingDetail = true
-                },
-                NativeBookMenuItem(L("移到回收站"), destructive: true, identifier: "book.action.delete", systemImage: "trash") {
-                    store.perform {
-                        try await store.command("book.delete", ["bookId": book.id])
-                        try await store.refreshLibrary()
-                    }
-                }
-            ]))
+            actions: menuItems))
     }
 }
 
 /// A transparent touch layer over the card. A quick tap opens the book; a
 /// long press hands the card's window frame to the app-owned preview overlay,
 /// which draws no system plate, mask or rounded card edge.
-private struct NativeBookLink: UIViewRepresentable {
+struct NativeBookLink: UIViewRepresentable {
     let enabled: Bool
     let tap: () -> Void
     let longPress: (CGRect) -> Void
@@ -907,7 +1039,7 @@ private struct NativeBookLink: UIViewRepresentable {
     }
 }
 
-private final class NativeBookLinkView: UIButton {
+final class NativeBookLinkView: UIButton {
     var onTap: (() -> Void)?
     var onLongPress: ((CGRect) -> Void)?
     private var suppressTap = false
@@ -951,9 +1083,16 @@ private final class NativeBookLinkView: UIButton {
 
 struct NativeLibraryDisplayMenu: View {
     @ObservedObject var store: NativeStore
+    var onSelectBooks: (() -> Void)? = nil
     private var mutedText: Color { store.preferences.colorfulMode ? NativeTheme.mutedOnColorful : NativeTheme.muted }
     var body: some View {
         Menu {
+            if let onSelectBooks {
+                Button(action: onSelectBooks) {
+                    Label(L("选择书籍"), systemImage: "checkmark.circle")
+                }
+                .accessibilityIdentifier("library.selectBooks")
+            }
             Section(L("视图")) {
                 Picker(L("视图"), selection: Binding(get: {
                     store.preferences.collectionsView ? 2 : store.preferences.listView ? 1 : 0
@@ -1072,6 +1211,7 @@ struct NativeBookTile: View {
 struct NativeBookSeriesRequest {
     let seriesID: NativeBookSeries.ID
     let sourceFrame: CGRect?
+    var selection: NativeLibrarySelectionState? = nil
     let preview: (LibraryBook, CGRect, CGFloat) -> Void
 }
 
@@ -1128,6 +1268,8 @@ private struct NativeBookSeriesTile: View {
     let showRating: Bool
     let showSyncStatus: Bool
     let enabled: Bool
+    var selectionMode = false
+    var selectedVolumeCount = 0
     let lifted: Bool
     let open: () -> Void
     let expand: (CGRect?) -> Void
@@ -1151,6 +1293,14 @@ private struct NativeBookSeriesTile: View {
                         NativeBookSyncBadge(status: status).padding(5)
                     }
                 }
+                .overlay(alignment: .topTrailing) {
+                    if selectionMode {
+                        NativeSeriesSelectionBadge(
+                            selectedCount: selectedVolumeCount,
+                            totalCount: volumes.count
+                        ).padding(6)
+                    }
+                }
                 .accessibilityHidden(true)
                 .allowsHitTesting(false)
                 .frame(width: width, height: coverHeight, alignment: .leading)
@@ -1159,9 +1309,14 @@ private struct NativeBookSeriesTile: View {
                         Color.clear.frame(width: width, height: coverHeight).contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .overlay { NativeBookLink(enabled: enabled, tap: open, longPress: longPress) }
+                    .overlay {
+                        if !selectionMode {
+                            NativeBookLink(enabled: enabled, tap: open, longPress: longPress)
+                        }
+                    }
                     .accessibilityLabel(front.title)
-                    .accessibilityHint(L("轻点阅读，长按查看更多操作"))
+                    .accessibilityValue(selectionMode ? L("已选 {0}/{1} 册", selectedVolumeCount, volumes.count) : "")
+                    .accessibilityHint(selectionMode ? L("轻点选中或取消") : L("轻点阅读，长按查看更多操作"))
                     .accessibilityIdentifier("books.series.front.\(front.id)")
                 }
                 .overlay(alignment: .bottomTrailing) {
@@ -1274,6 +1429,7 @@ struct NativeBookSeriesOverlay: View {
     let sourceFrame: CGRect?
     @ObservedObject var store: NativeStore
     @ObservedObject var center: NativeBookSeriesCenter
+    var selection: NativeLibrarySelectionState? = nil
     let close: () -> Void
     let preview: (LibraryBook, CGRect, CGFloat) -> Void
 
@@ -1357,26 +1513,39 @@ struct NativeBookSeriesOverlay: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(alignment: .top, spacing: 14) {
                         ForEach(series.books) { book in
-                            let lifted = previewCenter.request?.source == .seriesVolume && previewCenter.request?.id == book.id
-                            let volumeKey = "seriesVolume:\(book.id)"
-                            Button { open(book) } label: {
-                                NativeBookTile(book: book, width: coverWidth,
-                                               showRating: store.preferences.showBookRating,
-                                               showSyncStatus: store.preferences.showBookSyncStatus,
-                                               coverFrameKey: volumeKey,
-                                               hideCover: store.isBookCoverHidden(forKey: volumeKey))
-                                    .frame(width: coverWidth)
-                                    .opacity(lifted ? 0 : 1)
+                            if let selection {
+                                NativeSeriesVolumeTile(
+                                    book: book,
+                                    coverWidth: coverWidth,
+                                    store: store,
+                                    selection: selection,
+                                    lifted: previewCenter.request?.source == .seriesVolume && previewCenter.request?.id == book.id,
+                                    open: { open(book) },
+                                    preview: { frame in preview(book, frame, coverWidth) }
+                                )
+                                .id(book.id)
+                            } else {
+                                let lifted = previewCenter.request?.source == .seriesVolume && previewCenter.request?.id == book.id
+                                let volumeKey = "seriesVolume:\(book.id)"
+                                Button { open(book) } label: {
+                                    NativeBookTile(book: book, width: coverWidth,
+                                                   showRating: store.preferences.showBookRating,
+                                                   showSyncStatus: store.preferences.showBookSyncStatus,
+                                                   coverFrameKey: volumeKey,
+                                                   hideCover: store.isBookCoverHidden(forKey: volumeKey))
+                                        .frame(width: coverWidth)
+                                        .opacity(lifted ? 0 : 1)
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(store.openingReader)
+                                .overlay {
+                                    NativeBookLink(enabled: !store.openingReader, tap: { open(book) },
+                                                   longPress: { frame in preview(book, frame, coverWidth) })
+                                }
+                                .accessibilityHint(L("轻点阅读，长按查看更多操作"))
+                                .accessibilityIdentifier("books.series.volume.\(book.id)")
+                                .id(book.id)
                             }
-                            .buttonStyle(.plain)
-                            .disabled(store.openingReader)
-                            .overlay {
-                                NativeBookLink(enabled: !store.openingReader, tap: { open(book) },
-                                               longPress: { frame in preview(book, frame, coverWidth) })
-                            }
-                            .accessibilityHint(L("轻点阅读，长按查看更多操作"))
-                            .accessibilityIdentifier("books.series.volume.\(book.id)")
-                            .id(book.id)
                         }
                     }
                     .padding(.horizontal, 18).padding(.bottom, 14)

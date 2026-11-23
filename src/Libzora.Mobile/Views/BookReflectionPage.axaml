@@ -1,0 +1,108 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="using:Libzora.Mobile.Controls"
+             x:Class="Libzora.Mobile.Views.BookReflectionPage"
+             Background="{DynamicResource PageBackgroundBrush}">
+  <UserControl.Styles>
+    <Style Selector="Button.tool">
+      <Setter Property="MinWidth" Value="38" />
+      <Setter Property="Height" Value="34" />
+      <Setter Property="Padding" Value="10,4" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="Background" Value="{DynamicResource SunkBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+    </Style>
+    <Style Selector="Button.tool:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource SunkStrongBrush}" />
+    </Style>
+    <Style Selector="Button.tool:pressed /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource SunkStrongBrush}" />
+    </Style>
+  </UserControl.Styles>
+
+  <Grid RowDefinitions="Auto,Auto,*,Auto">
+    <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto,Auto,Auto" Margin="8,6,8,0">
+      <c:NativeActionButton Grid.Column="0">
+        <Button Classes="icon" Name="BackButton" Tag="chevron.left" Click="OnBackClick">
+          <c:LineIcon Data="{StaticResource IconBack}" StrokeThickness="1.4" />
+        </Button>
+      </c:NativeActionButton>
+      <TextBlock Grid.Column="1" Classes="title" Text="读后思考" VerticalAlignment="Center" Margin="2,0,0,0" />
+      <Button Grid.Column="2" Name="PreviewToggleButton" Classes="ghost" Content="预览"
+              Padding="10,6" VerticalAlignment="Center" Click="OnPreviewToggleClick" />
+      <c:NativeActionButton Grid.Column="3">
+        <Button Name="SaveButton" Classes="ghost" Content="保存"
+                FontWeight="SemiBold" Foreground="{DynamicResource TextPrimaryBrush}"
+                Padding="10,6" VerticalAlignment="Center" Click="OnSaveClick" />
+      </c:NativeActionButton>
+      <c:NativeMenuButton Grid.Column="4">
+        <Button Classes="icon" Name="MoreButton">
+          <Button.Flyout>
+            <MenuFlyout Placement="BottomEdgeAlignedRight">
+              <MenuItem Header="删除读后思考" Tag="trash" Classes="destructive" Click="OnDeleteClick" />
+            </MenuFlyout>
+          </Button.Flyout>
+          <c:LineIcon Data="{StaticResource IconMore}" StrokeThickness="2.2" />
+        </Button>
+      </c:NativeMenuButton>
+    </Grid>
+
+    <StackPanel Grid.Row="1" Margin="24,10,24,10" Spacing="10">
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+        <TextBlock Name="BookTitleText"
+                   FontSize="18"
+                   FontWeight="SemiBold"
+                   TextWrapping="Wrap"
+                   MaxLines="2"
+                   TextTrimming="CharacterEllipsis" />
+        <TextBlock Grid.Column="1"
+                   Name="CharacterCountText"
+                   Classes="muted"
+                   FontSize="12"
+                   VerticalAlignment="Bottom" />
+      </Grid>
+
+      <ScrollViewer Name="FormattingBar"
+                    HorizontalScrollBarVisibility="Hidden"
+                    VerticalScrollBarVisibility="Disabled">
+        <StackPanel Orientation="Horizontal" Spacing="6">
+          <Button Classes="tool" Content="H1" Tag="h1" Click="OnFormatClick" />
+          <Button Classes="tool" Content="H2" Tag="h2" Click="OnFormatClick" />
+          <Button Classes="tool" Content="H3" Tag="h3" Click="OnFormatClick" />
+          <Button Classes="tool" Content="B" FontWeight="Bold" Tag="bold" Click="OnFormatClick" />
+          <Button Classes="tool" Content="引用" Tag="quote" Click="OnFormatClick" />
+          <Button Classes="tool" Content="引用批注" Click="OnCiteClick" />
+          <Button Classes="tool" Content="无序列表" Tag="unordered" Click="OnFormatClick" />
+          <Button Classes="tool" Content="有序列表" Tag="ordered" Click="OnFormatClick" />
+          <Button Classes="tool" Content="链接" Click="OnLinkClick" />
+          <Button Classes="tool" Content="图片" Click="OnImageClick" />
+        </StackPanel>
+      </ScrollViewer>
+    </StackPanel>
+
+    <Panel Grid.Row="2">
+      <ScrollViewer Name="EditorScroller">
+        <StackPanel Margin="24,2,24,24">
+          <TextBox Name="EditorBox"
+                   Classes="field"
+                   AcceptsReturn="True"
+                   TextWrapping="Wrap"
+                   MinHeight="280"
+                   Padding="14,12"
+                   VerticalContentAlignment="Top"
+                   PlaceholderText="写下你读完这本书后的理解、感受、疑问或行动计划。"
+                   TextChanged="OnEditorTextChanged" />
+        </StackPanel>
+      </ScrollViewer>
+
+      <ScrollViewer Name="PreviewScroller" IsVisible="False">
+        <StackPanel Name="PreviewStack" Margin="24,4,24,28" Spacing="10" />
+      </ScrollViewer>
+    </Panel>
+
+    <StackPanel Grid.Row="3" Name="ActionBar" Margin="24,4,24,14" Spacing="6">
+      <TextBlock Name="StatusText" Classes="muted" IsVisible="False" TextWrapping="Wrap" />
+    </StackPanel>
+  </Grid>
+</UserControl>

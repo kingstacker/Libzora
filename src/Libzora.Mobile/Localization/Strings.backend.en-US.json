@@ -198,5 +198,13 @@
   "正在进行全书关键词检索…": "Searching book keywords…",
   "全书检索不可用，仅使用当前页。": "Full-book search unavailable; using the current page only.",
   "当前 PDF 第 {0} 页": "Current PDF page {0}",
-  "当前页": "Current page"
+  "当前页": "Current page",
+  "未知阅读资料类型。": "Unknown reading material type.",
+  "当前正在阅读书籍，请先关闭阅读器。": "A book is currently open. Close the reader first.",
+  "请先选择要删除的书籍。": "Select books to delete first.",
+  "选中的这本书将移到回收站。": "This book will be moved to Trash.",
+  "选中的 {0} 本书将移到回收站。": "{0} selected books will be moved to Trash.",
+  "正在删除所选书籍…": "Deleting selected books…",
+  "已将 {0} 本书移到回收站。": "Moved {0} books to Trash.",
+  "书籍级": "Book-level"
 }

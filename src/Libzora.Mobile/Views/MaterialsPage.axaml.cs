@@ -16,7 +16,8 @@ public enum MaterialKind
 {
     Highlight,
     Note,
-    Bookmark
+    Bookmark,
+    Reflection
 }
 
 public sealed record MaterialEntry(
@@ -27,9 +28,15 @@ public sealed record MaterialEntry(
     string Meta,
     DateTimeOffset UpdatedAt,
     ReaderProgressRow Location,
-    string ExportLocation)
+    string ExportLocation,
+    string? PreviewText = null)
 {
+    public bool HasQuote => !string.IsNullOrWhiteSpace(Quote);
     public bool HasNote => !string.IsNullOrWhiteSpace(Note);
+    public string DisplayNote => Kind == MaterialKind.Reflection
+        ? (!string.IsNullOrWhiteSpace(PreviewText) ? PreviewText! : UiText.Get("（图片内容）"))
+        : (Note ?? string.Empty);
+    public bool HasDisplayNote => Kind == MaterialKind.Reflection || HasNote;
     public bool IsBookmark => Kind == MaterialKind.Bookmark;
 }
 
@@ -76,7 +83,27 @@ public partial class MaterialsPage : UserControl
             await _modules.Library.Books.InitializeAsync();
             await _shell.EnsureReaderDataAsync();
             var books = await _modules.Library.Books.SearchAsync();
+            var booksById = books.ToDictionary(book => book.Id);
             var entries = new List<MaterialEntry>();
+            foreach (var reflection in await _modules.Reader.Reflections.GetAllAsync())
+            {
+                if (string.IsNullOrWhiteSpace(reflection.Content)) continue;
+                if (!booksById.TryGetValue(reflection.BookId, out var book)) continue;
+                var normalized = BookReflectionMarkdown.NormalizeMarkdown(reflection.Content);
+                if (string.IsNullOrWhiteSpace(normalized)) continue;
+                var preview = BookReflectionMarkdown.GetPlainPreviewText(normalized);
+                var fileId = book.Files.FirstOrDefault()?.Id ?? Guid.Empty;
+                entries.Add(new MaterialEntry(
+                    book,
+                    MaterialKind.Reflection,
+                    string.Empty,
+                    normalized,
+                    $"{UiText.Get("读后思考")} · {reflection.UpdatedAt.LocalDateTime:yyyy/MM/dd}",
+                    reflection.UpdatedAt,
+                    new ReaderProgressRow(book.Id, fileId, string.Empty, null, 0, 0, 0, 1, reflection.UpdatedAt),
+                    UiText.Get("书籍级"),
+                    preview));
+            }
             foreach (var book in books)
             foreach (var file in book.Files)
             {
@@ -133,7 +160,9 @@ public partial class MaterialsPage : UserControl
             .GroupBy(entry => entry.Book.Id)
             .OrderByDescending(group => group.Max(entry => entry.UpdatedAt))
             .Select(group => new MaterialBookGroup(group.First().Book,
-                group.OrderByDescending(entry => entry.UpdatedAt).ToList(),
+                group.OrderByDescending(entry => entry.Kind == MaterialKind.Reflection)
+                    .ThenByDescending(entry => entry.UpdatedAt)
+                    .ToList(),
                 _covers.GetValueOrDefault(group.Key), _expandedBooks.Contains(group.Key)))
             .ToList();
         MaterialsList.ItemsSource = visible;
@@ -158,12 +187,14 @@ public partial class MaterialsPage : UserControl
             Button { Name: nameof(FilterHighlights) } => MaterialKind.Highlight,
             Button { Name: nameof(FilterNotes) } => MaterialKind.Note,
             Button { Name: nameof(FilterBookmarks) } => MaterialKind.Bookmark,
+            Button { Name: nameof(FilterReflections) } => MaterialKind.Reflection,
             _ => null
         };
         FilterAll.Classes.Set("on", _filter is null);
         FilterHighlights.Classes.Set("on", _filter == MaterialKind.Highlight);
         FilterNotes.Classes.Set("on", _filter == MaterialKind.Note);
         FilterBookmarks.Classes.Set("on", _filter == MaterialKind.Bookmark);
+        FilterReflections.Classes.Set("on", _filter == MaterialKind.Reflection);
         Present();
     }
 
@@ -193,7 +224,13 @@ public partial class MaterialsPage : UserControl
         {
             var records = entries.Select(entry => new ReadingMaterialRecord(
                 ReadingMaterialSource.Local, entry.Book.Title,
-                entry.Kind switch { MaterialKind.Note => "笔记", MaterialKind.Bookmark => "书签", _ => "划线" },
+                entry.Kind switch
+                {
+                    MaterialKind.Note => UiText.Get("笔记"),
+                    MaterialKind.Bookmark => UiText.Get("书签"),
+                    MaterialKind.Reflection => UiText.Get("读后思考"),
+                    _ => UiText.Get("划线")
+                },
                 entry.ExportLocation, entry.Quote, entry.Note ?? string.Empty, entry.UpdatedAt)).ToArray();
             var fileName = $"Libzora-阅读资料-{DateTime.Now:yyyyMMdd-HHmmss}.{(markdown ? "md" : "txt")}";
             await using var content = new MemoryStream();
@@ -245,6 +282,12 @@ public partial class MaterialsPage : UserControl
         StyledElement? source = e.Source as StyledElement;
         while (source is not null && source.DataContext is not MaterialEntry)
             source = source.Parent as StyledElement;
-        if (source?.DataContext is MaterialEntry entry) _shell?.OpenReader(entry.Book, entry.Location);
+        if (source?.DataContext is MaterialEntry entry)
+        {
+            if (entry.Kind == MaterialKind.Reflection)
+                _shell?.OpenBookReflection(entry.Book);
+            else
+                _shell?.OpenReader(entry.Book, entry.Location);
+        }
     }
 }

@@ -106,6 +106,8 @@ private struct NativeMarkdownBlocks: View {
                         .padding(.vertical, 2)
                 case let .table(table):
                     NativeMarkdownTableBlock(table: table, baseSize: max(13, baseSize - 2), muted: muted)
+                case let .image(alt, url):
+                    NativeMarkdownImageBlock(alt: alt, url: url)
                 }
             }
         }
@@ -270,6 +272,40 @@ private struct NativeMarkdownTableBlock: View {
 
     private static func estimatedWidth(_ text: String) -> CGFloat {
         text.unicodeScalars.reduce(CGFloat(0)) { $0 + ($1.isASCII ? 7.4 : 14.5) }
+    }
+}
+
+private struct NativeMarkdownImageBlock: View {
+    let alt: String
+    let url: String
+
+    private var decodedImage: UIImage? {
+        guard url.lowercased().hasPrefix("data:image/"),
+              let comma = url.firstIndex(of: ",") else {
+            return nil
+        }
+        let header = String(url[..<comma]).lowercased()
+        let payload = String(url[url.index(after: comma)...])
+        guard header.contains(";base64"),
+              let data = Data(base64Encoded: payload, options: .ignoreUnknownCharacters) else {
+            return nil
+        }
+        return UIImage(data: data)
+    }
+
+    var body: some View {
+        if let image = decodedImage {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFit()
+                .frame(maxWidth: .infinity, maxHeight: 320, alignment: .leading)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        } else {
+            let label = alt.isEmpty ? "[\(L("图片"))]" : "[\(L("图片")): \(alt)]"
+            Text(label)
+                .font(NativeTheme.font(13, relativeTo: .footnote))
+                .foregroundStyle(NativeTheme.secondary)
+        }
     }
 }
 

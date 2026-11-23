@@ -97,18 +97,36 @@ public partial class MainWindow
         var deletedIds = new HashSet<Guid>();
         try
         {
-            foreach (var card in cards)
+            var result = await _library.DeleteBatchAsync(
+                cards.Select(card => card.Book.Id).ToArray(),
+                _lifetimeCancellation.Token);
+            deletedIds.UnionWith(result.DeletedIds);
+            if (result.Failures.Count == 0)
             {
-                await _library.DeleteAsync(card.Book.Id, _lifetimeCancellation.Token);
-                deletedIds.Add(card.Book.Id);
+                if (SeriesShelfOverlay.IsVisible)
+                    CloseSeriesShelfOverlay(immediate: true);
+                ClearSelectedBook();
+                ClearBookMultiSelection();
+                await RefreshLibraryAsync();
+                SetTaskStatus(completionMessage);
+                ShowSettingsCapsule(completionMessage, 2400, success: true);
+                return;
             }
-            if (SeriesShelfOverlay.IsVisible)
-                CloseSeriesShelfOverlay(immediate: true);
-            ClearSelectedBook();
-            ClearBookMultiSelection();
-            await RefreshLibraryAsync();
-            SetTaskStatus(completionMessage);
-            ShowSettingsCapsule(completionMessage, 2400, success: true);
+
+            if (deletedIds.Count > 0)
+            {
+                _selectedBookIds.ExceptWith(deletedIds);
+                if (_selectedCard is not null && deletedIds.Contains(_selectedCard.Book.Id)) ClearSelectedBook();
+                try { await RefreshLibraryAsync(); }
+                catch (Exception refreshException) { Debug.WriteLine($"Library refresh after partial deletion failed: {refreshException}"); }
+                UpdateMultiSelectionUi();
+            }
+            var firstError = UiText.Localize(result.Failures[0].ErrorMessage);
+            var message = deletedIds.Count > 0
+                ? T("已将 {0} 本书移入回收站，剩余书籍未删除：{1}", deletedIds.Count, firstError)
+                : firstError;
+            SetTaskStatus(T("批量删除失败：{0}", message));
+            await ShowMessageAsync(T("无法删除书籍"), message);
         }
         catch (Exception exception)
         {

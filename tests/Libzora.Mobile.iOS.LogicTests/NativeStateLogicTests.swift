@@ -156,6 +156,10 @@ struct NativeStateLogicTests {
         )
         check(widgetTarget == .centered(frame: centered) && widgetTarget.sourceKey == nil && widgetTarget.isCentered,
               "Widget entry always expands from a centered hero card instead of a shelf corner")
+        check(NativeBookOpenTransitionPolicy.openFromCenterDuration == NativeBookOpenTransitionPolicy.openFromCoverDuration
+                && NativeBookOpenTransitionPolicy.openFromCenterMountDelay == NativeBookOpenTransitionPolicy.openFromCoverMountDelay
+                && NativeBookOpenTransitionPolicy.openFromCenterCleanupDelay == NativeBookOpenTransitionPolicy.openFromCoverCleanupDelay,
+              "Centered widget open animation matches library cover open animation speed")
 
         let offscreenShelfTarget = NativeBookOpenTransitionPolicy.resolveOpenTarget(
             bookId: "b1",
@@ -376,6 +380,65 @@ struct NativeStateLogicTests {
                   chromeVisible: true, ready: true, searching: false, hasError: false, loadingChromeVisible: false),
               "Tapping the page reveals the top toolbar normally once ready")
 
-        print("Passed \(assertions) iOS preference, widget-link, filter, search and transition regression assertions.")
+        // Swipe-to-delete policy for reading materials.
+        let phoneWidth: CGFloat = 342
+        let fullPhone = NativeSwipeDeletePolicy.fullSwipeThreshold(cardWidth: phoneWidth)
+        check(fullPhone >= 156 && fullPhone < phoneWidth,
+              "Phone full-swipe threshold stays reachable and within card width")
+        check(NativeSwipeDeletePolicy.fullSwipeThreshold(cardWidth: 900) == 220,
+              "Wide iPad cards cap full-swipe travel so users do not drag across the whole screen")
+        check(NativeSwipeDeletePolicy.clampedDragOffset(startOffset: 0, translationX: 40, cardWidth: phoneWidth) == 0,
+              "Rightward drag from rest never exposes a leading gap")
+        check(NativeSwipeDeletePolicy.clampedDragOffset(startOffset: -82, translationX: -400, cardWidth: phoneWidth) == -phoneWidth,
+              "Leftward drag clamps to card width")
+        check(NativeSwipeDeletePolicy.decideReleaseOutcome(
+                  startOffset: 0, currentOffset: -20, velocityX: -120, cardWidth: phoneWidth) == .closed,
+              "Small accidental swipe snaps closed")
+        check(NativeSwipeDeletePolicy.decideReleaseOutcome(
+                  startOffset: 0, currentOffset: -64, velocityX: -650, cardWidth: phoneWidth) == .open,
+              "Quick partial left flick opens the delete button instead of deleting unexpectedly")
+        check(NativeSwipeDeletePolicy.decideReleaseOutcome(
+                  startOffset: 0, currentOffset: -fullPhone, velocityX: -200, cardWidth: phoneWidth) == .delete,
+              "Long single left swipe past full-swipe threshold deletes immediately")
+        check(NativeSwipeDeletePolicy.decideReleaseOutcome(
+                  startOffset: -82, currentOffset: -(fullPhone + 4), velocityX: -100, cardWidth: phoneWidth) == .delete,
+              "Swiping further left from an already revealed delete button deletes immediately")
+        check(NativeSwipeDeletePolicy.decideReleaseOutcome(
+                  startOffset: -82, currentOffset: -96, velocityX: -50, cardWidth: phoneWidth) == .open,
+              "Small leftward nudge while open stays open without deleting")
+        check(NativeSwipeDeletePolicy.decideReleaseOutcome(
+                  startOffset: -82, currentOffset: -40, velocityX: 350, cardWidth: phoneWidth) == .closed,
+              "Swiping right on an open card closes it")
+
+        // Book-level reading reflection formatting helpers.
+        let sample = "# 核心感想\n\n> 原文引述\n>\n> --《测试书》\n\n![图片](data:image/png;base64,AAA= =80x80)\n\n**重要结论**"
+        check(NativeBookReflectionPolicy.countCharacters(in: sample) == ("核心感想" + "原文引述" + "--《测试书》" + "重要结论").count,
+              "Character count ignores markdown markers and embedded base64 images")
+        let plain = NativeBookReflectionPolicy.plainPreviewText(from: sample)
+        check(!plain.contains("data:image") && plain.contains("核心感想") && plain.contains("重要结论"),
+              "Plain preview strips images and formatting tokens")
+        check(NativeBookReflectionPolicy.formatCitationBlock(text: "金句", bookTitle: "书一") == "> 金句\n>\n> --《书一》",
+              "Citation block formats quote and book title attribution")
+        let prefixed = NativeBookReflectionPolicy.toggleLinePrefix(
+            in: "第一行\n第二行",
+            selection: NSRange(location: 1, length: 0),
+            prefix: "## ",
+            isHeading: true
+        )
+        check(prefixed.text == "## 第一行\n第二行", "Heading prefix applies to current line only")
+        let unprefixed = NativeBookReflectionPolicy.toggleLinePrefix(
+            in: prefixed.text,
+            selection: prefixed.selection,
+            prefix: "## ",
+            isHeading: true
+        )
+        check(unprefixed.text == "第一行\n第二行", "Heading prefix toggles back off")
+        let bolded = NativeBookReflectionPolicy.toggleBold(
+            in: "这里加粗",
+            selection: NSRange(location: 2, length: 2)
+        )
+        check(bolded.text == "这里**加粗**", "Bold wraps selected substring")
+
+        print("Passed \(assertions) iOS preference, widget-link, filter, search, swipe-delete and transition regression assertions.")
     }
 }

@@ -465,4 +465,56 @@ public sealed class NativeFrontendContractTests
         Assert.True(infoDoc.RootElement.GetProperty("configured").GetBoolean());
         Assert.Equal("deepseek", infoDoc.RootElement.GetProperty("provider").GetString());
     }
+
+    [Fact]
+    public void BookReflectionContractsSerializeWithSourceGeneratedContext()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var bookId = Guid.NewGuid();
+        var reflection = new Libzora.iOSHead.NativeBookReflection(
+            bookId,
+            "# 感悟\n\n**核心句**",
+            "# 感悟\n\n**核心句**",
+            "感悟\n\n核心句",
+            now.AddMinutes(-10),
+            now,
+            true);
+        using var reflectionDoc = JsonDocument.Parse(Serialize(reflection));
+        Assert.Equal(bookId.ToString(), reflectionDoc.RootElement.GetProperty("bookId").GetString());
+        Assert.True(reflectionDoc.RootElement.GetProperty("hasContent").GetBoolean());
+        Assert.Equal("感悟\n\n核心句", reflectionDoc.RootElement.GetProperty("previewText").GetString());
+
+        var citations = new[]
+        {
+            new Libzora.iOSHead.NativeReflectionCitation(
+                Guid.NewGuid(),
+                bookId,
+                "测试书",
+                "第一章",
+                "被选中的句子",
+                "我的批注",
+                now,
+                "被选中的句子")
+        };
+        using var citationDoc = JsonDocument.Parse(Serialize(citations));
+        Assert.Equal("测试书", citationDoc.RootElement[0].GetProperty("bookTitle").GetString());
+        Assert.Equal("被选中的句子", citationDoc.RootElement[0].GetProperty("displayText").GetString());
+
+        var material = new Libzora.iOSHead.NativeMaterial(
+            $"reflection:{bookId:D}",
+            bookId,
+            "测试书",
+            "reflection",
+            string.Empty,
+            "# 感悟",
+            "2026/11/23",
+            now,
+            new ReaderProgressRow(bookId, Guid.Empty, string.Empty, null, 0, 0, 0, 1, now))
+        {
+            ExportLocation = "书籍级"
+        };
+        using var materialDoc = JsonDocument.Parse(Serialize(new[] { material }));
+        Assert.Equal("reflection", materialDoc.RootElement[0].GetProperty("kind").GetString());
+        Assert.Equal($"reflection:{bookId:D}", materialDoc.RootElement[0].GetProperty("id").GetString());
+    }
 }

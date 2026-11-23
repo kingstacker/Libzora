@@ -40,6 +40,26 @@ func requestObject<Value: Encodable>(_ value: Value) throws -> Any {
 
 struct CreatedFolder: Decodable { let id: String; let name: String }
 struct CoverResult: Decodable { let cover: String? }
+struct PickedImageData: Decodable { let dataUrl: String? }
+struct BookReflectionRecord: Decodable, Equatable {
+    let bookId: String
+    let content: String
+    let previewMarkdown: String
+    let previewText: String
+    let createdAt: String?
+    let updatedAt: String?
+    let hasContent: Bool
+}
+struct ReflectionCitation: Decodable, Identifiable, Equatable {
+    let id: String
+    let bookId: String
+    let bookTitle: String
+    let chapterLabel: String
+    let selectedText: String
+    let note: String
+    let updatedAt: String
+    let displayText: String
+}
 struct MessageResult: Decodable { let message: String; let warning: String? }
 struct TextResult: Decodable { let text: String }
 struct AiSource: Decodable, Identifiable, Equatable {
@@ -228,7 +248,14 @@ struct MaterialRecord: Decodable, Identifiable, Equatable {
     let location: JSONValue
     let highlightColor: String?
     let underlineStyle: String?
-    var kindLabel: String { kind == "note" ? L("笔记") : kind == "bookmark" ? L("书签") : L("划线") }
+    var kindLabel: String {
+        switch kind {
+        case "note": return L("笔记")
+        case "bookmark": return L("书签")
+        case "reflection": return L("读后思考")
+        default: return L("划线")
+        }
+    }
 }
 
 struct DashboardBook: Decodable, Identifiable {

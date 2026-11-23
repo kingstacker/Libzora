@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Libzora.ApplicationServices;
 using Libzora.Core;
@@ -39,6 +40,7 @@ public partial class BookDetailPage : UserControl
             Present();
             await LoadCoverAsync();
             await LoadProgressAsync();
+            await LoadReflectionAsync();
         };
     }
 
@@ -109,6 +111,51 @@ public partial class BookDetailPage : UserControl
             _shell.ShowToast("读取阅读进度失败：" + exception.Message);
         }
     }
+
+    private async Task LoadReflectionAsync()
+    {
+        using var operation = MobileDataCoordinator.TryBeginOperation();
+        if (operation is null) return;
+        try
+        {
+            await _shell.EnsureReaderDataAsync();
+            var reflection = await _modules.Reader.Reflections.GetAsync(_book.Id);
+            PresentReflection(reflection);
+        }
+        catch (Exception exception)
+        {
+            ReflectionPreviewText.Text = UiText.Get("读后思考暂时不可用：{0}", UiText.Localize(exception.Message));
+            ReflectionUpdatedText.IsVisible = false;
+        }
+    }
+
+    private void PresentReflection(ReaderBookReflection? reflection)
+    {
+        var normalized = reflection is null
+            ? string.Empty
+            : BookReflectionMarkdown.NormalizeMarkdown(reflection.Content);
+        var plainPreview = BookReflectionMarkdown.GetPlainPreviewText(normalized);
+        if (reflection is null || string.IsNullOrWhiteSpace(normalized))
+        {
+            ReflectionPreviewText.Text = UiText.Get("还没有写下读后思考。");
+            ReflectionUpdatedText.IsVisible = false;
+            EditReflectionButton.Content = UiText.Get("写读后思考");
+            return;
+        }
+
+        ReflectionPreviewText.Text = string.IsNullOrWhiteSpace(plainPreview)
+            ? UiText.Get("（包含图片内容，轻点查看或编辑）")
+            : plainPreview;
+        ReflectionUpdatedText.Text = UiText.Get(
+            "更新时间：{0}",
+            reflection.UpdatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm"));
+        ReflectionUpdatedText.IsVisible = true;
+        EditReflectionButton.Content = UiText.Get("编辑");
+    }
+
+    private void OnEditReflectionClick(object? sender, RoutedEventArgs e) => _shell.OpenBookReflection(_book);
+
+    private void OnReflectionCardTapped(object? sender, TappedEventArgs e) => _shell.OpenBookReflection(_book);
 
     private void OnBackClick(object? sender, RoutedEventArgs e) => _shell.GoBack();
 

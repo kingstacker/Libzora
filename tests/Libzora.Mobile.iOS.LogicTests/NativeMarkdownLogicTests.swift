@@ -148,12 +148,23 @@ struct NativeMarkdownLogicTests {
         }
     }
 
+    private static func testStandaloneImageBlock() {
+        let blocks = NativeMarkdownParser.parse("# 感悟\n\n![插图](data:image/png;base64,abc =120x80)\n\n尾段")
+        check(blocks.count == 3, "Expected heading, standalone image block and paragraph; got \(blocks.count)")
+        if case let .image(alt, url) = blocks[1].kind {
+            check(alt == "插图" && url == "data:image/png;base64,abc", "Standalone image strips size hint and preserves data URI")
+        } else {
+            fatalError("Expected image block at index 1")
+        }
+    }
+
     static func main() {
         testBlockParsingAndDisplayMath()
         testCjkEmphasisAndSnakeCase()
         testInlineMathAndCitationsAndSafeLinks()
         testMathFormatter()
         testStreamingUnclosedFence()
+        testStandaloneImageBlock()
         print("NativeMarkdownLogicTests: \(assertions) assertions passed")
     }
 }

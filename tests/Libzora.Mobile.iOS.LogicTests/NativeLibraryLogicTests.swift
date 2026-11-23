@@ -167,6 +167,26 @@ struct NativeLibraryLogicTests {
             check(NativeSyncKeyConfirmation.decision(operation: operation, key: "new", savedKey: "old", confirmation: "") == .proceed,
                   "\(operation) does not persist the encryption key")
         }
+
+        // Batch book selection policy.
+        let toggled = NativeLibraryBatchPolicy.toggle("b1", in: [])
+        check(toggled == ["b1"], "Toggling an unselected book adds it")
+        check(NativeLibraryBatchPolicy.toggle("b1", in: toggled).isEmpty, "Toggling again removes it")
+        check(NativeLibraryBatchPolicy.toggle("", in: []).isEmpty, "Empty IDs are ignored")
+
+        let allSelected = NativeLibraryBatchPolicy.toggleAll(visibleIds: ["b1", "b2"], in: ["b3"])
+        check(allSelected == ["b1", "b2", "b3"], "Selecting all visible books preserves off-filter selection")
+        check(NativeLibraryBatchPolicy.areAllVisibleSelected(visibleIds: ["b1", "b2"], in: allSelected),
+              "All visible books are recognized as selected")
+        let deselectedVisible = NativeLibraryBatchPolicy.toggleAll(visibleIds: ["b1", "b2"], in: allSelected)
+        check(deselectedVisible == ["b3"], "Deselecting all visible books keeps other selected IDs intact")
+        check(!NativeLibraryBatchPolicy.areAllVisibleSelected(visibleIds: [], in: ["b1"]),
+              "Empty visible shelf does not report all selected")
+        check(NativeLibraryBatchPolicy.pruned(["b1", "b2", "gone"], validIds: ["b1", "b2"]) == ["b1", "b2"],
+              "Pruning drops IDs no longer in the library")
+        check(NativeLibraryBatchPolicy.selectedCount(in: ["b1", "b2", "b3"], from: ["b1", "b3"]) == 2,
+              "Series selection count matches selected member volumes")
+
         print("Passed \(assertions) iOS adaptive-layout, library and sync-key logic assertions.")
     }
 }

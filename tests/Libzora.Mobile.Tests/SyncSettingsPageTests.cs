@@ -269,7 +269,7 @@ public sealed class SyncSettingsPageTests(MobileUiSession session)
             shell.OpenBook(new Book { Title = "测试书籍", Description = new string('文', 150) });
             var page = Assert.IsType<BookDetailPage>(shell.CurrentPage);
             await Until(() => items is not null &&
-                page.GetVisualDescendants().OfType<NativeActionButton>().Count() == 5 &&
+                page.GetVisualDescendants().OfType<NativeActionButton>().Count() == 6 &&
                 page.GetVisualDescendants().OfType<NativeActionButton>().All(group => group.Content is Grid));
             Assert.Equal(5, items!.Count);
             var expand = page.FindControl<Button>("ExpandButton")!;

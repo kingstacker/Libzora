@@ -13,14 +13,15 @@
       </StackPanel>
     </Grid>
 
-    <c:NativeSegmentGroup Grid.Row="1" Margin="12,0,12,8">
+    <ScrollViewer Grid.Row="1" Margin="12,0,12,8" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled">
       <StackPanel Orientation="Horizontal" Spacing="2">
         <Button Name="FilterAll" Classes="chip on" Content="全部" Click="OnFilterClick" />
         <Button Name="FilterHighlights" Classes="chip" Content="划线" Click="OnFilterClick" />
         <Button Name="FilterNotes" Classes="chip" Content="笔记" Click="OnFilterClick" />
         <Button Name="FilterBookmarks" Classes="chip" Content="书签" Click="OnFilterClick" />
+        <Button Name="FilterReflections" Classes="chip" Content="读后思考" Click="OnFilterClick" />
       </StackPanel>
-    </c:NativeSegmentGroup>
+    </ScrollViewer>
 
     <ScrollViewer Grid.Row="2">
       <StackPanel Margin="24,4,24,28">
@@ -71,9 +72,11 @@
                             <StackPanel Grid.Column="1" Spacing="5">
                               <TextBlock Text="{Binding Meta}" Classes="muted" FontSize="12"
                                          MaxLines="1" TextTrimming="CharacterEllipsis" />
-                              <TextBlock Text="{Binding Quote}" FontSize="14" TextWrapping="Wrap" LineHeight="21" />
-                              <TextBlock Text="{Binding Note}" IsVisible="{Binding HasNote}" Classes="secondary"
-                                         FontSize="13" TextWrapping="Wrap" LineHeight="20" />
+                              <TextBlock Text="{Binding Quote}" IsVisible="{Binding HasQuote}"
+                                         FontSize="14" TextWrapping="Wrap" LineHeight="21" />
+                              <TextBlock Text="{Binding DisplayNote}" IsVisible="{Binding HasDisplayNote}"
+                                         Classes="secondary" FontSize="13" TextWrapping="Wrap" LineHeight="20"
+                                         MaxLines="4" TextTrimming="CharacterEllipsis" />
                             </StackPanel>
                           </Grid>
                         </Border>
@@ -93,7 +96,7 @@
                       HorizontalAlignment="Center" Foreground="{DynamicResource TextMutedBrush}" />
           <TextBlock Name="EmptyTitle" Classes="title" Text="还没有阅读资料"
                      HorizontalAlignment="Center" Margin="0,8,0,0" />
-          <TextBlock Classes="muted" Text="书签、划线和笔记会汇集在这里"
+          <TextBlock Classes="muted" Text="书签、划线、笔记与读后思考会汇集在这里"
                      HorizontalAlignment="Center" />
         </StackPanel>
       </StackPanel>

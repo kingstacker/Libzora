@@ -326,6 +326,61 @@ public sealed partial class SqliteBookLibraryService
         finally { _databaseGate.Release(); }
     }
 
+    public async Task<BookBatchDeleteResult> DeleteBatchAsync(
+        IReadOnlyList<Guid> bookIds,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(bookIds);
+        if (bookIds.Count == 0)
+            return new BookBatchDeleteResult([], []);
+
+        var uniqueIds = bookIds.Distinct().ToArray();
+        var deletedIds = new List<Guid>(uniqueIds.Length);
+        var failures = new List<BookBatchDeleteFailure>();
+
+        using var processLease = await AppDataProcessLock.AcquireAsync(_paths, cancellationToken);
+        await _databaseGate.WaitAsync(cancellationToken);
+        try
+        {
+            await using var connection = await OpenConnectionAsync(cancellationToken);
+            try
+            {
+                foreach (var bookId in uniqueIds)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var book = await ReadBookByIdAsync(connection, bookId, cancellationToken);
+                    if (book is null)
+                        continue;
+
+                    try
+                    {
+                        await MoveBookToTrashAsync(connection, book, cancellationToken);
+                        deletedIds.Add(book.Id);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch (Exception exception)
+                    {
+                        failures.Add(new BookBatchDeleteFailure(book.Id, book.Title, exception.Message));
+                    }
+                }
+            }
+            finally
+            {
+                if (deletedIds.Count > 0)
+                    NotifyDataChanged();
+            }
+        }
+        finally
+        {
+            _databaseGate.Release();
+        }
+
+        return new BookBatchDeleteResult(deletedIds, failures);
+    }
+
     public async Task RemoveFromLibraryKeepFilesAsync(Guid bookId, CancellationToken cancellationToken = default)
     {
         using var processLease = await AppDataProcessLock.AcquireAsync(_paths, cancellationToken);

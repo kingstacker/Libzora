@@ -38,9 +38,9 @@ enum NativeBookOpenTransitionPolicy {
     static let openFromCoverMountDelay: Double = 0.58
     static let openFromCoverCleanupDelay: Double = 0.66
 
-    static let openFromCenterDuration: Double = 0.56
-    static let openFromCenterMountDelay: Double = 0.52
-    static let openFromCenterCleanupDelay: Double = 0.60
+    static let openFromCenterDuration: Double = openFromCoverDuration
+    static let openFromCenterMountDelay: Double = openFromCoverMountDelay
+    static let openFromCenterCleanupDelay: Double = openFromCoverCleanupDelay
 
     static let closeToCoverDuration: Double = 0.53
     static let closeToCoverCleanupDelay: Double = 0.57

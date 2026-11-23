@@ -50,12 +50,14 @@ pattern: `MainWindow.<Area><Aspect>.cs`.
 | `MainWindow.ReaderTocNavigation*.cs` | TOC navigation, locations, annotations, in-page search. |
 | `MainWindow.ReaderToc.cs`, `MainWindow.ReaderToc.*.cs` | TOC panel (layout, rows, compact mode, markers, scroll bar). |
 | `MainWindow.ReaderPaging.cs` | Page turns, continuous scroll, transitions. |
+| `MainWindow.ReaderOpenTransition.cs` | Cover lift + paper crossfade reader open/close transitions. |
 | `MainWindow.ReaderPageStats.cs` | Page counts, position, progress. |
 | `MainWindow.ReaderToolbar.cs` | Toolbar menus (flow, animation, bookmarks). |
 | `MainWindow.ReaderZenMode.cs` | Zen mode and window chrome. |
 | `MainWindow.ReaderSelectionPopup.cs` | Selection action bar. |
+| `MainWindow.ReaderHighlightPalette.cs` | Annotation inline underline style, color swatch palette, and card converters. |
 | `MainWindow.ReaderImageZoom.cs` | Double-click illustration lightbox and zoom/pan overlay. |
-| `MainWindow.ReaderFootnotes.cs` | Footnote and annotation popovers. |
+| `MainWindow.ReaderFootnotes.cs`, `ReaderAnnotationCardLayout.cs` | Footnote/annotation popovers and hover card layout math. |
 | `MainWindow.ReaderBridge.cs` | WebView bridge message dispatch. |
 | `MainWindow.ReaderFeatures*.cs` | Shortcuts, PDF navigation, tabs, bookmarks, whole-book search, progress slider and layout panel. |
 | `MainWindow.ReaderManga.cs` | Desktop manga mode detection, per-book preferences, direction/spread/crop/black-canvas controls. |
@@ -149,6 +151,8 @@ Large services are split by responsibility so one change opens one file:
 | `HorizontalComposer.*.cs` | line breaking, Knuth-Plass, images, tables, table layout |
 | `GlyphShaper.cs` + `GlyphShaper.Variants.cs` | HarfBuzz shaping, system font loading, paired Latin/monospace and true Bold/Italic variants |
 | `ReaderPage.*.cs` (Mobile) | navigation, position, input, selection, chrome, lifecycle, native (actions, search) |
+| `BookReflectionService.cs` + `BookReflectionFormatting.cs` | book-level reflection persistence, Markdown normalization, preview and citation helpers |
+| `BookReflectionPage.axaml.cs` + `BookReflectionCitationSheet.axaml.cs` (Mobile) | mobile reflection editor, Markdown preview and annotation citation picker |
 | `MobileShell.*.cs` | shell state, sheets, bars |
 | `AppDataMigrationService.*.cs` | journal, journal I/O, payload, verification, types |
 | `AppBackupService.*.cs` | export, snapshot/import, files |
@@ -164,9 +168,12 @@ Large services are split by responsibility so one change opens one file:
 
 - `src/Libzora.Mobile.iOS/NativeUI/*.swift` — SwiftUI screens: bookshelf,
   library, reader (`NativeReader.swift`, `NativeReaderAssistant.swift`,
+  `NativeBookReflection.swift`, `NativeBookReflectionPolicy.swift`,
   `NativeMarkdownParser.swift`, `NativeMarkdown.swift`,
   `NativeBookOpenTransition.swift`,
-  `NativeBookOpenTransitionPolicy.swift`, `NativeReaderHighlightPalette.swift`,
+  `NativeBookOpenTransitionPolicy.swift`, `NativeSwipeDeletePolicy.swift`,
+  `NativeLibraryBatchPolicy.swift`, `NativeLibraryBatchSelection.swift`,
+  `NativeReaderHighlightPalette.swift`,
   `NativeReaderAdvancedTypography.swift`, `NativeReaderLatinFontPicker.swift`),
   settings, account, membership, theme, widgets.
 - `src/Libzora.Mobile.iOS/IOSNativeFrontend.*.cs` — C# side of the bridge,

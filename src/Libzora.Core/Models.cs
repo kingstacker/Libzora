@@ -468,3 +468,9 @@ public sealed record FormatConversionProgress(double Percentage, string Message)
 }
 
 public sealed record FormatConversionMetadata(string Title, string Authors, string? CoverPath = null);
+
+public sealed record BookBatchDeleteFailure(Guid BookId, string Title, string ErrorMessage);
+
+public sealed record BookBatchDeleteResult(
+    IReadOnlyList<Guid> DeletedIds,
+    IReadOnlyList<BookBatchDeleteFailure> Failures);

@@ -340,49 +340,9 @@ internal sealed partial class BookReflectionEditorSurface : Border
         }
     }
 
-    internal static string NormalizeMarkdown(string markdown)
-    {
-        var normalized = markdown;
-        for (var attempt = 0; attempt < 3 && LooksLikeNestedJsonString(normalized); attempt++)
-        {
-            try
-            {
-                var decoded = JsonSerializer.Deserialize<string>(normalized);
-                if (decoded is null || decoded == normalized)
-                    break;
-                normalized = decoded;
-            }
-            catch (JsonException)
-            {
-                break;
-            }
-        }
-        return normalized;
-    }
+    internal static string NormalizeMarkdown(string markdown) =>
+        BookReflectionMarkdown.NormalizeMarkdown(markdown);
 
-    internal static string RemoveImagesForPreview(string markdown)
-    {
-        var normalized = NormalizeMarkdown(markdown).ReplaceLineEndings("\n");
-        var lines = normalized.Split('\n');
-        var preview = new StringBuilder(normalized.Length);
-
-        foreach (var line in lines)
-        {
-            if (ImagePattern.IsMatch(line))
-                continue;
-
-            preview.AppendLine(MarkdownImageTokenPattern.Replace(line, string.Empty));
-        }
-
-        return preview.ToString().Trim();
-    }
-
-    private static bool LooksLikeNestedJsonString(string value) =>
-        value.Length >= 2
-        && value[0] == '"'
-        && value[^1] == '\"'
-        && (value.Contains("\\n", StringComparison.Ordinal)
-            || value.Contains("\\r", StringComparison.Ordinal)
-            || value.Contains("\\\"", StringComparison.Ordinal)
-            || value.Contains("\\\\", StringComparison.Ordinal));
+    internal static string RemoveImagesForPreview(string markdown) =>
+        BookReflectionMarkdown.RemoveImagesForPreview(markdown);
 }

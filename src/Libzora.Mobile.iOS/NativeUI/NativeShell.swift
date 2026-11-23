@@ -141,6 +141,7 @@ struct NativeShell: View {
             if let (request, series) = activeSeries {
                 NativeBookSeriesOverlay(series: series, sourceFrame: request.sourceFrame,
                                         store: store, center: seriesCenter,
+                                        selection: request.selection,
                                         close: { seriesCenter.dismiss() },
                                         preview: request.preview)
             }

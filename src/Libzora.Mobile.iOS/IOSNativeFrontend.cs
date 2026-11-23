@@ -422,6 +422,7 @@ internal sealed partial class IOSNativeFrontend
                 if (command.StartsWith("book.", StringComparison.Ordinal)
                     || command.StartsWith("collection.", StringComparison.Ordinal)
                     || command.StartsWith("materials.", StringComparison.Ordinal)
+                    || command.StartsWith("reflection.", StringComparison.Ordinal)
                     || command.StartsWith("trash.", StringComparison.Ordinal)
                     || command.StartsWith("backup.", StringComparison.Ordinal)
                     || command.StartsWith("txt.", StringComparison.Ordinal)

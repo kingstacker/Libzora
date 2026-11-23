@@ -2249,6 +2249,111 @@ final class NativeFrontendTests: XCTestCase {
                        "Material locations must not show EPUB file paths.")
     }
 
+    func testMaterialsSwipeToRevealAndFullSwipeDelete() throws {
+        try openBook(containing: "Native UI EPUB")
+        let typography = app.buttons["reader.排版"]
+        XCTAssertTrue(typography.waitForExistence(timeout: 40))
+
+        // Seed a bookmark and a highlight so we can verify both tap-to-delete and full-swipe delete.
+        let bookmark = app.buttons["reader.bookmark"]
+        XCTAssertTrue(bookmark.waitForExistence(timeout: 10))
+        if bookmark.value as? String != "1" {
+            bookmark.tap()
+        }
+        let window = app.windows.firstMatch
+        window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)).tap()
+        XCTAssertTrue(waitUntil { !typography.exists })
+        selectText()
+        let highlight = app.buttons["reader.划线"]
+        highlight.tap()
+        XCTAssertTrue(waitUntil { !highlight.exists })
+
+        window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)).tap()
+        XCTAssertTrue(app.buttons["reader.close"].waitForExistence(timeout: 10))
+        app.buttons["reader.close"].tap()
+        XCTAssertTrue(app.buttons["book.back"].waitForExistence(timeout: 15))
+        app.buttons["book.back"].tap()
+
+        app.tabBars.buttons["阅读资料"].tap()
+        let entries = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'materials.entry.'"))
+        XCTAssertTrue(waitUntil(timeout: 15) { entries.count >= 2 }, "Expected at least two material entries.\n\(app.debugDescription)")
+
+        // 1. Partial left swipe reveals the delete button, then tapping it deletes the entry.
+        let first = entries.element(boundBy: 0)
+        let firstId = first.identifier.replacingOccurrences(of: "materials.entry.", with: "")
+        let initialCount = entries.count
+        first.coordinate(withNormalizedOffset: CGVector(dx: 0.80, dy: 0.5))
+            .press(forDuration: 0.02, thenDragTo: first.coordinate(withNormalizedOffset: CGVector(dx: 0.50, dy: 0.5)))
+        let deleteButton = app.buttons["materials.delete.\(firstId)"]
+        XCTAssertTrue(deleteButton.waitForExistence(timeout: 5), "Partial left swipe must reveal the delete button.")
+        attachScreenshot("阅读资料左滑显示删除")
+        deleteButton.tap()
+        XCTAssertTrue(waitUntil(timeout: 10) {
+            !self.app.buttons["materials.entry.\(firstId)"].exists && entries.count == initialCount - 1
+        }, "Tapping the revealed delete button must remove the entry.")
+
+        // 2. Swiping further left from the revealed state directly deletes the entry.
+        let second = entries.element(boundBy: 0)
+        let secondId = second.identifier.replacingOccurrences(of: "materials.entry.", with: "")
+        second.coordinate(withNormalizedOffset: CGVector(dx: 0.80, dy: 0.5))
+            .press(forDuration: 0.02, thenDragTo: second.coordinate(withNormalizedOffset: CGVector(dx: 0.52, dy: 0.5)))
+        XCTAssertTrue(app.buttons["materials.delete.\(secondId)"].waitForExistence(timeout: 5))
+        second.coordinate(withNormalizedOffset: CGVector(dx: 0.65, dy: 0.5))
+            .press(forDuration: 0.02, thenDragTo: second.coordinate(withNormalizedOffset: CGVector(dx: 0.10, dy: 0.5)))
+        XCTAssertTrue(waitUntil(timeout: 10) {
+            !self.app.buttons["materials.entry.\(secondId)"].exists && entries.count == initialCount - 2
+        }, "Swiping further left must directly delete the entry.")
+    }
+
+    func testLibraryMultiSelectBatchDeleteMovesBooksToTrash() throws {
+        let displayMenu = app.buttons["library.display"]
+        XCTAssertTrue(displayMenu.waitForExistence(timeout: 20))
+        displayMenu.tap()
+        let selectBooks = app.buttons["library.selectBooks"]
+        XCTAssertTrue(selectBooks.waitForExistence(timeout: 5))
+        selectBooks.tap()
+
+        let done = app.buttons["library.selection.done"]
+        XCTAssertTrue(done.waitForExistence(timeout: 5))
+        let toggleAll = app.buttons["library.selection.toggleAll"]
+        XCTAssertTrue(toggleAll.exists)
+        let deleteButton = app.buttons["library.selection.delete"]
+        XCTAssertTrue(deleteButton.waitForExistence(timeout: 5))
+        XCTAssertFalse(deleteButton.isEnabled)
+
+        let books = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'book.'"))
+        let initialCount = books.count
+        guard initialCount >= 2 else {
+            throw XCTSkip("需要至少两本书用于验证批量删除")
+        }
+        let first = books.element(boundBy: 0)
+        let second = books.element(boundBy: 1)
+        let firstId = first.identifier
+        let secondId = second.identifier
+        first.tap()
+        second.tap()
+        XCTAssertTrue(waitUntil { deleteButton.isEnabled })
+        XCTAssertTrue(app.staticTexts["library.selection.count"].label.contains("2"))
+        attachScreenshot("书库多选-已选两本")
+
+        // Cancelling the confirmation dialog keeps multi-select mode and selection intact.
+        deleteButton.tap()
+        let cancelAlert = app.alerts.buttons["取消"]
+        XCTAssertTrue(cancelAlert.waitForExistence(timeout: 5))
+        cancelAlert.tap()
+        XCTAssertTrue(done.exists)
+        XCTAssertTrue(deleteButton.isEnabled)
+
+        // Confirming moves the selected books to trash and exits multi-select mode.
+        deleteButton.tap()
+        let confirmAlert = app.alerts.buttons["移到回收站"]
+        XCTAssertTrue(confirmAlert.waitForExistence(timeout: 5))
+        confirmAlert.tap()
+        XCTAssertTrue(waitUntil(timeout: 15) {
+            !done.exists && !self.app.buttons[firstId].exists && !self.app.buttons[secondId].exists
+        }, "Batch deleting selected books must exit selection mode and remove them from the shelf.")
+    }
+
     func testReaderTocGlobalExpandAndCollapse() throws {
         try openBook(containing: "Native UI EPUB")
         app.buttons["reader.排版"].tap()

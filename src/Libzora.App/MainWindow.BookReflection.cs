@@ -179,20 +179,8 @@ public partial class MainWindow
             .ToArray();
     }
 
-    private static string ResolveBookReflectionCitationChapter(string chapterPath)
-    {
-        if (chapterPath.StartsWith("pdf:page:", StringComparison.OrdinalIgnoreCase))
-        {
-            var pageText = chapterPath["pdf:page:".Length..];
-            return int.TryParse(pageText, out var page) && page > 0
-                ? UiText.Get("第 {0} 页", page)
-                : "PDF";
-        }
-
-        var normalized = chapterPath.Replace('\\', '/').TrimEnd('/');
-        var name = Path.GetFileNameWithoutExtension(normalized);
-        return string.IsNullOrWhiteSpace(name) ? UiText.Get("未指定章节") : name;
-    }
+    private static string ResolveBookReflectionCitationChapter(string chapterPath) =>
+        BookReflectionMarkdown.ResolveCitationChapterLabel(chapterPath);
 
     private async Task EditBookReflectionAsync(BookCardViewModel card)
     {

@@ -51,6 +51,9 @@ struct NativeBookDetailPage: View {
     @State private var editor = false
     @State private var folders = false
     @State private var rename = false
+    @State private var reflectionEditor = false
+    @State private var reflection: BookReflectionRecord?
+    @State private var reflectionLoaded = false
     @State private var busy = false
     @State private var expanded = false
     private var book: LibraryBook? { store.library.first { $0.id == bookId } }
@@ -119,6 +122,15 @@ struct NativeBookDetailPage: View {
                     try await store.command("book.rename", ["bookId": bookId, "title": title]); try await store.refreshLibrary()
                 }
             }
+            .sheet(isPresented: $reflectionEditor) {
+                if let book {
+                    NativeBookReflectionEditor(store: store, bookId: bookId, bookTitle: book.title) { updated in
+                        reflection = updated
+                        reflectionLoaded = true
+                    }
+                }
+            }
+            .task(id: bookId) { await loadReflection() }
     }
 
     private func bookHeader(_ book: LibraryBook, coverWidth: CGFloat) -> some View {
@@ -148,6 +160,7 @@ struct NativeBookDetailPage: View {
                         .font(NativeTheme.font(14)).foregroundStyle(NativeTheme.muted).buttonStyle(.plain)
                 }.padding(.top, wide ? 0 : 32)
             }
+            reflectionSection(wide: wide && (book.description?.isEmpty ?? true))
             HStack {
                 Text(L("书籍信息")).font(NativeTheme.font(13)).foregroundStyle(NativeTheme.muted)
                 Spacer()
@@ -172,6 +185,70 @@ struct NativeBookDetailPage: View {
             }
         }
     }
+    @ViewBuilder private func reflectionSection(wide: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(L("读后思考")).font(NativeTheme.font(13)).foregroundStyle(NativeTheme.muted)
+                Spacer()
+                Button(reflection?.hasContent == true ? L("编辑") : L("写读后思考")) {
+                    reflectionEditor = true
+                }
+                .font(NativeTheme.font(14))
+                .foregroundStyle(NativeTheme.muted)
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("book.reflection.edit")
+            }
+            Button { reflectionEditor = true } label: {
+                VStack(alignment: .leading, spacing: 6) {
+                    if !reflectionLoaded {
+                        Text(L("正在读取读后思考…"))
+                            .font(NativeTheme.font(13.5))
+                            .foregroundStyle(NativeTheme.muted)
+                    } else if let reflection, reflection.hasContent {
+                        if !reflection.previewMarkdown.isEmpty {
+                            NativeMarkdownView(reflection.previewMarkdown, fontSize: 13.5, muted: true)
+                                .frame(maxHeight: 150, alignment: .topLeading)
+                                .clipped()
+                        } else {
+                            Text(L("（包含图片内容，轻点查看或编辑）"))
+                                .font(NativeTheme.font(13.5))
+                                .foregroundStyle(NativeTheme.secondary)
+                        }
+                        if let updated = NativeBookReflectionPolicy.formatUpdatedTimestamp(reflection.updatedAt) {
+                            Text(L("更新时间：{0}", updated))
+                                .font(NativeTheme.font(11.5, relativeTo: .caption))
+                                .foregroundStyle(NativeTheme.muted)
+                        }
+                    } else {
+                        Text(L("还没有写下读后思考。"))
+                            .font(NativeTheme.font(13.5))
+                            .foregroundStyle(NativeTheme.muted)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .background(NativeTheme.sunk, in: RoundedRectangle(cornerRadius: 12))
+                .contentShape(RoundedRectangle(cornerRadius: 12))
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("book.reflection.card")
+        }
+        .padding(.top, wide ? 0 : 24)
+    }
+
+    private func loadReflection() async {
+        do {
+            let loaded: BookReflectionRecord = try await store.request("reflection.get", ["bookId": bookId])
+            if !Task.isCancelled {
+                reflection = loaded
+                reflectionLoaded = true
+            }
+        } catch {
+            if !Task.isCancelled { reflectionLoaded = true }
+        }
+    }
+
     private func action(_ operation: String, _ args: [String: Any] = [:]) {
         busy = true; var payload = args; payload["bookId"] = bookId
         store.perform {

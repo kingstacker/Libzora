@@ -61,6 +61,8 @@ public partial class MobileShell
 
     public void OpenBookEditor(Book book) => Push(new BookEditPage(book, _modules, this));
 
+    public void OpenBookReflection(Book book) => Push(new BookReflectionPage(book, _modules, this));
+
     public void ShowReadingData() => ShowRoot(ShellTab.ReadingData, new ReadingDataPage(_modules, this));
 
     public void OpenSyncSettings() => Push(new SyncSettingsPage(_modules, this));

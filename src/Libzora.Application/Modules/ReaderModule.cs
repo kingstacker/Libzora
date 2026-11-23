@@ -7,6 +7,7 @@ public sealed class ReaderModule
     internal ReaderModule(ApplicationModuleOptions options, LibraryModule library)
     {
         Data = new ReaderDataService(options.Paths);
+        Reflections = new BookReflectionService(Data, library.Books);
         ProgressRecovery = new ReaderProgressRecoveryService(options.Paths, Data);
         ReadingTimeRecovery = new ReaderReadingTimeRecoveryService(options.Paths, Data);
         Content = new EpubBookContentService(Data);
@@ -18,6 +19,7 @@ public sealed class ReaderModule
     }
 
     public ReaderDataService Data { get; }
+    public BookReflectionService Reflections { get; }
     public ReaderProgressRecoveryService ProgressRecovery { get; }
     public ReaderReadingTimeRecoveryService ReadingTimeRecovery { get; }
     public EpubBookContentService Content { get; }

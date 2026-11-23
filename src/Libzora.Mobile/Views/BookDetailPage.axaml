@@ -60,6 +60,34 @@
           </c:NativeActionButton>
         </StackPanel>
 
+        <StackPanel Name="ReflectionPanel" Spacing="8" Margin="0,24,0,0">
+          <Grid ColumnDefinitions="*,Auto">
+            <TextBlock Classes="label" Text="读后思考" VerticalAlignment="Center" />
+            <c:NativeActionButton Grid.Column="1">
+              <Button Name="EditReflectionButton" Classes="ghost" Content="编辑" Click="OnEditReflectionClick" />
+            </c:NativeActionButton>
+          </Grid>
+          <Border Name="ReflectionCard"
+                  Background="{DynamicResource SunkBrush}"
+                  CornerRadius="12"
+                  Padding="14,12"
+                  Tapped="OnReflectionCardTapped">
+            <StackPanel Spacing="6">
+              <TextBlock Name="ReflectionPreviewText"
+                         Text="还没有写下读后思考。"
+                         Classes="secondary"
+                         TextWrapping="Wrap"
+                         LineHeight="22"
+                         MaxLines="6"
+                         TextTrimming="CharacterEllipsis" />
+              <TextBlock Name="ReflectionUpdatedText"
+                         Classes="muted"
+                         FontSize="11.5"
+                         IsVisible="False" />
+            </StackPanel>
+          </Border>
+        </StackPanel>
+
         <Grid ColumnDefinitions="*,Auto" Margin="0,24,0,4">
           <TextBlock Classes="label" Text="书籍信息" VerticalAlignment="Center" />
           <c:NativeActionButton Grid.Column="1">

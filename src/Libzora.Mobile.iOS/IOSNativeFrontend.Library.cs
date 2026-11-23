@@ -45,6 +45,8 @@ internal sealed partial class IOSNativeFrontend
                 if (await ConfirmAsync(UiText.Get("删除这本书"), UiText.Get("《{0}》将移到回收站。", deleteBook.Title), UiText.Get("移到回收站")))
                     await library.DeleteAsync(deleteBook.Id, token);
                 break;
+            case "book.deleteBatch":
+                return await DeleteBooksBatchAsync(args, token);
             case "book.kindle":
                 await SendToKindleAsync(await GetBookAsync(args, token), token);
                 break;
@@ -74,6 +76,20 @@ internal sealed partial class IOSNativeFrontend
             case "materials.export":
                 await ExportMaterialsAsync(args, token);
                 break;
+            case "materials.delete":
+                await DeleteMaterialAsync(args, token);
+                break;
+            case "reflection.get":
+                return await GetBookReflectionAsync(args, token);
+            case "reflection.save":
+                return await SaveBookReflectionAsync(args, token);
+            case "reflection.delete":
+                await DeleteBookReflectionAsync(args, token);
+                break;
+            case "reflection.citations":
+                return await GetReflectionCitationsAsync(args, token);
+            case "reflection.pickImage":
+                return await PickReflectionImageAsync(token);
             case "dashboard.get":
                 var period = (ReadingPeriod)Number(args, "period");
                 if (!Enum.IsDefined(period)) throw new InvalidOperationException(UiText.Get("无效的阅读周期。"));
@@ -103,6 +119,56 @@ internal sealed partial class IOSNativeFrontend
     private async Task<Book> GetBookAsync(JsonElement args, CancellationToken token) =>
         await _shell.Modules.Library.Books.GetBookAsync(Id(args, "bookId"), token)
         ?? throw new InvalidOperationException(UiText.Get("书籍已不存在。"));
+
+    private async Task<object> DeleteBooksBatchAsync(JsonElement args, CancellationToken token)
+    {
+        if (_reader is not null)
+            throw new InvalidOperationException(UiText.Get("当前正在阅读书籍，请先关闭阅读器。"));
+        if (!args.TryGetProperty("bookIds", out var rawIds) || rawIds.ValueKind != JsonValueKind.Array)
+            throw new InvalidOperationException(UiText.Get("请先选择要删除的书籍。"));
+
+        var ids = new List<Guid>();
+        var seen = new HashSet<Guid>();
+        foreach (var element in rawIds.EnumerateArray())
+        {
+            if (element.ValueKind == JsonValueKind.String
+                && Guid.TryParse(element.GetString(), out var id)
+                && seen.Add(id))
+            {
+                ids.Add(id);
+            }
+        }
+        if (ids.Count == 0)
+            return Data(("cancelled", false), ("deletedCount", 0), ("failedCount", 0));
+
+        var message = ids.Count == 1
+            ? UiText.Get("选中的这本书将移到回收站。")
+            : UiText.Get("选中的 {0} 本书将移到回收站。", ids.Count);
+        if (!await ConfirmAsync(UiText.Get("删除所选书籍"), message, UiText.Get("移到回收站")))
+            return Data(("cancelled", true), ("deletedCount", 0), ("failedCount", 0));
+
+        var showBusy = ids.Count > 5;
+        if (showBusy) Publish(Data(("type", "dataBusy"), ("busy", true), ("message", UiText.Get("正在删除所选书籍…"))));
+        try
+        {
+            var result = await _shell.Modules.Library.Books.DeleteBatchAsync(ids, token);
+            if (result.DeletedIds.Count > 0 && result.Failures.Count == 0)
+                _shell.ShowToast(UiText.Get("已将 {0} 本书移到回收站。", result.DeletedIds.Count));
+            else if (result.Failures.Count > 0)
+            {
+                var error = UiText.Localize(result.Failures[0].ErrorMessage);
+                var failureMessage = result.DeletedIds.Count > 0
+                    ? UiText.Get("已将 {0} 本书移入回收站，剩余书籍未删除：{1}", result.DeletedIds.Count, error)
+                    : error;
+                throw new InvalidOperationException(failureMessage);
+            }
+            return Data(("cancelled", false), ("deletedCount", result.DeletedIds.Count), ("failedCount", result.Failures.Count));
+        }
+        finally
+        {
+            if (showBusy) Publish(Data(("type", "dataBusy"), ("busy", false)));
+        }
+    }
 
     private async Task SaveBookAsync(JsonElement args, CancellationToken token)
     {
@@ -171,7 +237,29 @@ internal sealed partial class IOSNativeFrontend
     private async Task<object> GetMaterialsAsync(CancellationToken token)
     {
         var entries = new List<NativeMaterial>();
-        foreach (var book in await _shell.Modules.Library.Books.SearchAsync(cancellationToken: token))
+        var books = await _shell.Modules.Library.Books.SearchAsync(cancellationToken: token);
+        var booksById = books.ToDictionary(book => book.Id);
+        foreach (var reflection in await _shell.Modules.Reader.Reflections.GetAllAsync(token))
+        {
+            if (string.IsNullOrWhiteSpace(reflection.Content)) continue;
+            var normalized = BookReflectionMarkdown.NormalizeMarkdown(reflection.Content);
+            if (string.IsNullOrWhiteSpace(normalized)) continue;
+            var book = booksById.GetValueOrDefault(reflection.BookId);
+            var title = book?.Title ?? UiText.Get("已删除的本地书籍");
+            var fileId = book?.Files.FirstOrDefault()?.Id ?? Guid.Empty;
+            entries.Add(new NativeMaterial(
+                $"reflection:{reflection.BookId:D}",
+                reflection.BookId,
+                title,
+                "reflection",
+                string.Empty,
+                normalized,
+                $"{reflection.UpdatedAt.LocalDateTime:yyyy/MM/dd}",
+                reflection.UpdatedAt,
+                new ReaderProgressRow(reflection.BookId, fileId, string.Empty, null, 0, 0, 0, 1, reflection.UpdatedAt))
+            { ExportLocation = UiText.Get("书籍级") });
+        }
+        foreach (var book in books)
         foreach (var file in book.Files)
         {
             foreach (var mark in await _shell.Modules.Reader.Data.GetBookmarksAsync(file.Id, token))
@@ -206,8 +294,14 @@ internal sealed partial class IOSNativeFrontend
         var entries = args.GetProperty("ids").EnumerateArray()
             .Select(id => _materials.GetValueOrDefault(id.GetString() ?? string.Empty)).OfType<NativeMaterial>().ToArray();
         var records = entries.Select(entry => new ReadingMaterialRecord(ReadingMaterialSource.Local, entry.BookTitle,
-            entry.Kind switch { "note" => UiText.Get("笔记"), "bookmark" => UiText.Get("书签"), _ => UiText.Get("划线") }, entry.ExportLocation,
-            entry.Quote, entry.Note, entry.UpdatedAt)).ToArray();
+            entry.Kind switch
+            {
+                "note" => UiText.Get("笔记"),
+                "bookmark" => UiText.Get("书签"),
+                "reflection" => UiText.Get("读后思考"),
+                _ => UiText.Get("划线")
+            },
+            entry.ExportLocation, entry.Quote, entry.Note, entry.UpdatedAt)).ToArray();
         var markdown = Flag(args, "markdown", true);
         await using var output = new MemoryStream();
         if (markdown) await ReadingMaterialsExport.WriteMarkdownAsync(output, records, token);
@@ -215,6 +309,110 @@ internal sealed partial class IOSNativeFrontend
         var share = _shell.Services.FileShare ?? throw new InvalidOperationException(UiText.Get("此设备不支持分享文件。"));
         if (await share.ShareAsync(UiText.Get("Libzora-阅读资料-{0:yyyyMMdd-HHmmss}.{1}", DateTime.Now, markdown ? "md" : "txt"), output.ToArray()))
             _shell.ShowToast(UiText.Get("已分享 {0} 条阅读资料", entries.Length));
+    }
+
+    private async Task DeleteMaterialAsync(JsonElement args, CancellationToken token)
+    {
+        var key = Text(args, "id");
+        var kind = _materials.TryGetValue(key, out var cached)
+            ? cached.Kind
+            : OptionalText(args, "kind");
+        if (string.Equals(kind, "reflection", StringComparison.OrdinalIgnoreCase)
+            || key.StartsWith("reflection:", StringComparison.OrdinalIgnoreCase))
+        {
+            var rawBookId = key.StartsWith("reflection:", StringComparison.OrdinalIgnoreCase)
+                ? key["reflection:".Length..]
+                : key;
+            if (!Guid.TryParse(rawBookId, out var bookId))
+                throw new InvalidOperationException(UiText.Get("未知阅读资料类型。"));
+            await _shell.Modules.Reader.Reflections.DeleteAsync(bookId, token);
+            _materials.Remove(key);
+            return;
+        }
+        if (!Guid.TryParse(key, out var id))
+            throw new InvalidOperationException(UiText.Get("未知阅读资料类型。"));
+        if (string.Equals(kind, "bookmark", StringComparison.OrdinalIgnoreCase))
+            await _shell.Modules.Reader.Data.DeleteBookmarkAsync(id, token);
+        else if (string.Equals(kind, "highlight", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(kind, "note", StringComparison.OrdinalIgnoreCase))
+            await _shell.Modules.Reader.Data.DeleteAnnotationAsync(id, token);
+        else
+            throw new InvalidOperationException(UiText.Get("未知阅读资料类型。"));
+        _materials.Remove(key);
+    }
+
+    private async Task<NativeBookReflection> GetBookReflectionAsync(JsonElement args, CancellationToken token)
+    {
+        var bookId = Id(args, "bookId");
+        var reflection = await _shell.Modules.Reader.Reflections.GetAsync(bookId, token);
+        return ToNativeReflection(bookId, reflection);
+    }
+
+    private async Task<NativeBookReflection> SaveBookReflectionAsync(JsonElement args, CancellationToken token)
+    {
+        var bookId = Id(args, "bookId");
+        var content = Text(args, "content");
+        var saved = await _shell.Modules.Reader.Reflections.SaveAsync(bookId, content, token);
+        _shell.ShowToast(string.IsNullOrWhiteSpace(saved.Content)
+            ? UiText.Get("读后思考已清空。")
+            : UiText.Get("读后思考已保存。"));
+        return ToNativeReflection(bookId, saved);
+    }
+
+    private async Task DeleteBookReflectionAsync(JsonElement args, CancellationToken token)
+    {
+        var bookId = Id(args, "bookId");
+        await _shell.Modules.Reader.Reflections.DeleteAsync(bookId, token);
+        _shell.ShowToast(UiText.Get("读后思考已清空。"));
+    }
+
+    private async Task<NativeReflectionCitation[]> GetReflectionCitationsAsync(JsonElement args, CancellationToken token)
+    {
+        var bookTitle = OptionalText(args, "bookTitle");
+        var citations = await _shell.Modules.Reader.Reflections.LoadCitationsAsync(bookTitle, token);
+        return citations
+            .Select(citation => new NativeReflectionCitation(
+                citation.Id,
+                citation.BookId,
+                citation.BookTitle,
+                citation.ChapterLabel,
+                citation.SelectedText,
+                citation.Note,
+                citation.UpdatedAt,
+                citation.DisplayText))
+            .ToArray();
+    }
+
+    private async Task<object> PickReflectionImageAsync(CancellationToken token)
+    {
+        var files = await _shell.Services.ImportSource.PickFilesAsync(token);
+        try
+        {
+            if (files.Count == 0) return Data(("dataUrl", null));
+            var bytes = await File.ReadAllBytesAsync(files[0], token);
+            using var input = new MemoryStream(bytes);
+            using var image = new Bitmap(input);
+            using var output = new MemoryStream();
+            image.Save(output, PngBitmapEncoderOptions.Default);
+            return Data(("dataUrl", "data:image/png;base64," + Convert.ToBase64String(output.ToArray())));
+        }
+        finally { _shell.Services.ImportSource.ReleaseFiles(files); }
+    }
+
+    private static NativeBookReflection ToNativeReflection(Guid bookId, ReaderBookReflection? reflection)
+    {
+        var content = reflection is null
+            ? string.Empty
+            : BookReflectionMarkdown.NormalizeMarkdown(reflection.Content);
+        var hasContent = !string.IsNullOrWhiteSpace(content);
+        return new NativeBookReflection(
+            bookId,
+            content,
+            hasContent ? BookReflectionMarkdown.BuildPreviewMarkdown(content) : string.Empty,
+            hasContent ? BookReflectionMarkdown.GetPlainPreviewText(content) : string.Empty,
+            reflection?.CreatedAt,
+            reflection?.UpdatedAt,
+            hasContent);
     }
 
     private async Task BackupAsync(bool restore, CancellationToken token)

@@ -16,6 +16,25 @@ internal sealed record NativeMaterial(string Id, Guid BookId, string BookTitle, 
     [JsonIgnore] public string ExportLocation { get; init; } = LocationText;
 }
 
+internal sealed record NativeBookReflection(
+    Guid BookId,
+    string Content,
+    string PreviewMarkdown,
+    string PreviewText,
+    DateTimeOffset? CreatedAt,
+    DateTimeOffset? UpdatedAt,
+    bool HasContent);
+
+internal sealed record NativeReflectionCitation(
+    Guid Id,
+    Guid BookId,
+    string BookTitle,
+    string ChapterLabel,
+    string SelectedText,
+    string Note,
+    DateTimeOffset UpdatedAt,
+    string DisplayText);
+
 internal sealed record ReaderFontOption(
     string Key,
     string Name,
@@ -81,6 +100,9 @@ internal sealed record NativeAiInfo(
 [JsonSerializable(typeof(NativeReaderSearchItem[]))]
 [JsonSerializable(typeof(NativeReaderSearchBatch))]
 [JsonSerializable(typeof(NativeMaterial[]))]
+[JsonSerializable(typeof(NativeBookReflection))]
+[JsonSerializable(typeof(NativeReflectionCitation))]
+[JsonSerializable(typeof(NativeReflectionCitation[]))]
 [JsonSerializable(typeof(BookCollection))]
 [JsonSerializable(typeof(LibraryFilterOptions))]
 [JsonSerializable(typeof(ReadingDashboard))]

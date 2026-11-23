@@ -36,6 +36,7 @@ struct NativeMarkdownBlock: Identifiable, Equatable {
         case quote([NativeMarkdownBlock])
         case rule
         case table(NativeMarkdownTable)
+        case image(alt: String, url: String)
     }
 
     let id: Int
@@ -123,6 +124,11 @@ struct NativeMarkdownParser {
             }
             if Self.listItem(raw) != nil {
                 blocks.append(make(.list(parseList())))
+                continue
+            }
+            if let image = Self.standaloneImage(trimmed) {
+                blocks.append(make(.image(alt: image.alt, url: image.url)))
+                index += 1
                 continue
             }
             blocks.append(make(.paragraph(parseParagraph())))
@@ -393,6 +399,17 @@ struct NativeMarkdownParser {
             || isRule(trimmed)
             || trimmed.hasPrefix(">")
             || listItem(line) != nil
+            || standaloneImage(trimmed) != nil
+    }
+
+    private static func standaloneImage(_ trimmed: String) -> (alt: String, url: String)? {
+        guard trimmed.hasPrefix("![") else { return nil }
+        let chars = Array(trimmed)
+        guard let parsed = NativeMarkdownInlineParser.parseImageBracketLink(chars, start: 0, end: chars.count),
+              parsed.nextIndex == chars.count else {
+            return nil
+        }
+        return (parsed.alt, parsed.url)
     }
 
     private static func isStandaloneDisplayMathStart(_ trimmed: String) -> Bool {
@@ -810,6 +827,16 @@ enum NativeMarkdownInlineParser {
         guard !digits.isEmpty, i < end, chars[i] == "]" else { return nil }
         if i + 1 < end, chars[i + 1] == "(" { return nil }
         return ("S" + digits, i + 1)
+    }
+
+    static func parseImageBracketLink(
+        _ chars: [Character],
+        start: Int,
+        end: Int
+    ) -> (alt: String, url: String, nextIndex: Int)? {
+        guard start + 1 < end, chars[start] == "!", chars[start + 1] == "[" else { return nil }
+        guard let parsed = parseBracketLink(chars, bracketStart: start + 1, end: end) else { return nil }
+        return (parsed.label, parsed.url, parsed.nextIndex)
     }
 
     private static func parseBracketLink(

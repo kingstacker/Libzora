@@ -8,6 +8,7 @@ trap 'rm -rf "$output"' EXIT
 xcrun --sdk macosx swiftc -swift-version 5 -parse-as-library \
   "$root/src/Libzora.Mobile.iOS/NativeUI/NativeLibraryModels.swift" \
   "$root/src/Libzora.Mobile.iOS/NativeUI/NativeBookSeries.swift" \
+  "$root/src/Libzora.Mobile.iOS/NativeUI/NativeLibraryBatchPolicy.swift" \
   "$root/src/Libzora.Mobile.iOS/NativeUI/NativeSyncKeyConfirmation.swift" \
   "$root/src/Libzora.Mobile.iOS/NativeUI/NativeAdaptiveLayout.swift" \
   "$root/tests/Libzora.Mobile.iOS.LogicTests/NativeLibraryLogicTests.swift" \
@@ -18,6 +19,8 @@ xcrun --sdk macosx swiftc -swift-version 5 -parse-as-library \
   "$root/src/Libzora.Mobile.iOS/NativeUI/NativePreferenceEdits.swift" \
   "$root/src/Libzora.Mobile.iOS/NativeUI/NativeReaderSearchCursor.swift" \
   "$root/src/Libzora.Mobile.iOS/NativeUI/NativeBookOpenTransitionPolicy.swift" \
+  "$root/src/Libzora.Mobile.iOS/NativeUI/NativeSwipeDeletePolicy.swift" \
+  "$root/src/Libzora.Mobile.iOS/NativeUI/NativeBookReflectionPolicy.swift" \
   "$root/tests/Libzora.Mobile.iOS.LogicTests/NativeStateLogicTests.swift" \
   -o "$output/native-state-tests"
 "$output/native-state-tests"

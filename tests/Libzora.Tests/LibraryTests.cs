@@ -1089,6 +1089,75 @@ public sealed class LibraryTests
     }
 
     [Fact]
+    public async Task DeleteBatchMovesSelectedBooksToTrashWithSingleNotificationAndIdempotence()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var epubA = Path.Combine(root, "批量一.epub");
+            var epubB = Path.Combine(root, "批量二.epub");
+            CreateEpub(epubA, "batch-a", "批量一");
+            CreateEpub(epubB, "batch-b", "批量二");
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            var service = new SqliteBookLibraryService(paths, new BookMetadataService());
+            await service.InitializeAsync();
+            await service.ImportAsync([epubA, epubB]);
+            var books = await service.SearchAsync();
+            Assert.Equal(2, books.Count);
+
+            var dataChangedCount = 0;
+            service.DataChanged += (_, _) => dataChangedCount++;
+
+            var missingId = Guid.NewGuid();
+            var result = await service.DeleteBatchAsync([books[0].Id, books[0].Id, books[1].Id, missingId]);
+            Assert.Equal(2, result.DeletedIds.Count);
+            Assert.Empty(result.Failures);
+            Assert.Equal(1, dataChangedCount);
+            Assert.Empty(await service.SearchAsync());
+            Assert.Equal(2, (await service.GetTrashItemsAsync()).Count);
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
+    public async Task DeleteBatchReturnsPartialSuccessWhenOneBookIsBlocked()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var epubA = Path.Combine(root, "可删.epub");
+            var epubB = Path.Combine(root, "受阻.epub");
+            CreateEpub(epubA, "batch-ok", "可删书籍");
+            CreateEpub(epubB, "batch-blocked", "受阻书籍");
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            var service = new SqliteBookLibraryService(paths, new BookMetadataService());
+            await service.InitializeAsync();
+            await service.ImportAsync([epubA, epubB]);
+            var books = await service.SearchAsync();
+            Assert.Equal(2, books.Count);
+            var okBook = books.First(book => book.Title == "可删书籍");
+            var blockedBook = books.First(book => book.Title == "受阻书籍");
+
+            await ExecuteSqlAsync(
+                paths.Database,
+                $"CREATE TRIGGER BlockBatchBook BEFORE DELETE ON Books WHEN OLD.Id='{blockedBook.Id}' BEGIN SELECT RAISE(FAIL, 'blocked'); END;");
+
+            var dataChangedCount = 0;
+            service.DataChanged += (_, _) => dataChangedCount++;
+
+            var result = await service.DeleteBatchAsync([okBook.Id, blockedBook.Id]);
+            Assert.Equal([okBook.Id], result.DeletedIds);
+            var failure = Assert.Single(result.Failures);
+            Assert.Equal(blockedBook.Id, failure.BookId);
+            Assert.Equal(1, dataChangedCount);
+            var remaining = Assert.Single(await service.SearchAsync());
+            Assert.Equal(blockedBook.Id, remaining.Id);
+            Assert.Single(await service.GetTrashItemsAsync());
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
     public async Task StartupDeletesInterruptedPurgeAfterTrashRowWasCommitted()
     {
         var root = TestHelpers.CreateTempDirectory();

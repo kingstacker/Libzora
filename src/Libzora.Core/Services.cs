@@ -42,6 +42,9 @@ public interface IBookLibraryService
     Task<string?> EnsurePdfCoverAsync(Guid bookId, CancellationToken cancellationToken = default) => Task.FromResult<string?>(null);
     Task DeleteFileAsync(Guid bookId, Guid bookFileId, CancellationToken cancellationToken = default);
     Task DeleteAsync(Guid bookId, CancellationToken cancellationToken = default);
+    Task<BookBatchDeleteResult> DeleteBatchAsync(
+        IReadOnlyList<Guid> bookIds,
+        CancellationToken cancellationToken = default);
     Task RemoveFromLibraryKeepFilesAsync(Guid bookId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<LibraryTrashItem>> GetTrashItemsAsync(CancellationToken cancellationToken = default);
     Task RestoreTrashItemAsync(Guid trashItemId, CancellationToken cancellationToken = default);

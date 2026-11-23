@@ -141,7 +141,7 @@ internal sealed partial class BookReflectionEditorSurface : Border
         if (index < 0 || text.Length == 0)
             return;
 
-        citationBookTitle = NormalizeCitationBookTitle(citationBookTitle);
+        citationBookTitle = BookReflectionMarkdown.NormalizeCitationBookTitle(citationBookTitle);
 
         var length = view.LastPlainText.Length;
         var start = Math.Clamp(selection.Start, 0, length);
@@ -221,44 +221,13 @@ internal sealed partial class BookReflectionEditorSurface : Border
         return citations
             .Where(citation => normalizedQuery.Length == 0
                 || citation.SearchText.Contains(normalizedQuery, StringComparison.CurrentCultureIgnoreCase))
-            .OrderByDescending(citation => IsSameBook(citation.BookTitle, currentBookTitle))
+            .OrderByDescending(citation => BookReflectionMarkdown.IsSameBook(citation.BookTitle, currentBookTitle))
             .ThenByDescending(citation => citation.UpdatedAt)
             .ToArray();
     }
 
-    private static bool IsSameBook(string? citationBookTitle, string? currentBookTitle)
-    {
-        var citationTitle = NormalizeBookTitleForMatch(citationBookTitle);
-        var currentTitle = NormalizeBookTitleForMatch(currentBookTitle);
-        return currentTitle.Length > 0
-            && string.Equals(citationTitle, currentTitle, StringComparison.CurrentCultureIgnoreCase);
-    }
-
-    private static string NormalizeBookTitleForMatch(string? title)
-    {
-        var normalized = title?.Trim() ?? string.Empty;
-        return normalized.Length >= 2
-            && normalized[0] == '《'
-            && normalized[^1] == '》'
-            ? normalized[1..^1].Trim()
-            : normalized;
-    }
-
-    internal static string FormatCitationSource(string? bookTitle)
-    {
-        var title = NormalizeCitationBookTitle(bookTitle);
-        if (title.Length == 0)
-            return string.Empty;
-
-        var decoratedTitle = title.StartsWith("《", StringComparison.Ordinal)
-            && title.EndsWith("》", StringComparison.Ordinal)
-            ? title
-            : $"《{title}》";
-        return $"--{decoratedTitle}";
-    }
-
-    private static string NormalizeCitationBookTitle(string? value) =>
-        (value ?? string.Empty).Trim().ReplaceLineEndings(" ");
+    internal static string FormatCitationSource(string? bookTitle) =>
+        BookReflectionMarkdown.FormatCitationSource(bookTitle);
 
     private async Task<BookReflectionCitation?> PickCitationAsync()
     {

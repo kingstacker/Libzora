@@ -60,6 +60,24 @@ final class NativeProfilePageTests: XCTestCase {
         openProfile()
     }
 
+    /// The About page must offer the user agreement and privacy policy and keep
+    /// both reachable without any network or account state.
+    func testAboutPageListsLegalDocuments() {
+        openProfile()
+        let about = app.buttons["profile.about"]
+        for _ in 0..<6 {
+            if about.exists && about.isHittable { break }
+            app.swipeUp()
+        }
+        XCTAssertTrue(about.exists && about.isHittable)
+        about.tap()
+        XCTAssertTrue(app.navigationBars["关于"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["profile.about.terms"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["profile.about.privacy"].exists)
+        capture("我的-关于")
+        app.navigationBars["关于"].buttons.firstMatch.tap()
+    }
+
     private func assertAlignedRows() {
         let title = app.staticTexts["page.profile"]
         XCTAssertTrue(title.exists && title.isHittable)

@@ -540,7 +540,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
                 _pageIndex = Math.Clamp(_pageIndex, 0, Math.Max(0, PageCount - 1));
                 _bitmapDirty = true;
                 InvalidateVisual();
-                EmitScroll();
+                EmitScroll(layoutAdjusted: true);
             }
         });
         _relayoutTimer.Stop();

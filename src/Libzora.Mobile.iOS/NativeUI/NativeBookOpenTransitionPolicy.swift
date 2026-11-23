@@ -4,7 +4,7 @@ import Foundation
 /// Resolved anchor for a book open or close transition.
 /// `.cover` anchors directly to a live visible cover on the active screen;
 /// `.centered` uses a balanced hero card in the middle of the viewport
-/// (used for Home Screen widget entry and off-screen / cross-tab fallbacks).
+/// (used for off-screen or cross-tab fallbacks).
 enum NativeBookTransitionTarget: Equatable {
     case cover(frame: CGRect, key: String)
     case centered(frame: CGRect)
@@ -31,25 +31,73 @@ enum NativeBookTransitionTarget: Equatable {
     }
 }
 
+enum NativeBookOpenSource {
+    case cover
+    case widget
+    case materials
+}
+
+enum NativeBookOpenAnimation: Equatable {
+    case cover
+    case slide
+    case fade
+    case none
+
+    var isPageAnimation: Bool { self == .slide || self == .fade }
+}
+
 /// Pure geometry and visibility rules shared by book open/close transitions
 /// and verified by host-side logic tests.
 enum NativeBookOpenTransitionPolicy {
-    static let openFromCoverDuration: Double = 0.62
-    static let openFromCoverMountDelay: Double = 0.58
-    static let openFromCoverCleanupDelay: Double = 0.66
+    static let openFromCoverDuration: Double = 0.68
+    static let openFromCoverMountDelay = openFromCoverDuration - 0.04
+    static let openFromCoverCleanupDelay = openFromCoverDuration + 0.04
 
     static let openFromCenterDuration: Double = openFromCoverDuration
     static let openFromCenterMountDelay: Double = openFromCoverMountDelay
     static let openFromCenterCleanupDelay: Double = openFromCoverCleanupDelay
 
-    static let closeToCoverDuration: Double = 0.53
-    static let closeToCoverCleanupDelay: Double = 0.57
+    static let closeToCoverDuration: Double = 0.59
+    static let closeToCoverCleanupDelay = closeToCoverDuration + 0.04
 
-    static let closeToCenterDuration: Double = 0.48
-    static let closeToCenterCleanupDelay: Double = 0.52
+    static let closeToCenterDuration: Double = 0.54
+    static let closeToCenterCleanupDelay = closeToCenterDuration + 0.04
 
     static let coverAspectRatio: CGFloat = 1.45
     static let readerLoadingChromeGraceSeconds: Double = 0.25
+    static let pageTransitionDuration: Double = 0.24
+
+    static func openAnimation(
+        source: NativeBookOpenSource,
+        animated: Bool,
+        reduceMotion: Bool,
+        powerSaving: Bool,
+        pageAnimation: Int
+    ) -> NativeBookOpenAnimation {
+        guard animated, !reduceMotion, !powerSaving else { return .none }
+        if source == .cover { return .cover }
+        switch pageAnimation {
+        case 0: return .none
+        case 1: return .fade
+        default: return .slide
+        }
+    }
+
+    static func closeAnimation(
+        source: NativeBookOpenSource,
+        animated: Bool,
+        reduceMotion: Bool,
+        powerSaving: Bool,
+        pageAnimation: Int
+    ) -> NativeBookOpenAnimation {
+        openAnimation(
+            source: source == .materials ? .materials : .cover,
+            animated: animated,
+            reduceMotion: reduceMotion,
+            powerSaving: powerSaving,
+            pageAnimation: pageAnimation
+        )
+    }
 
     static func centeredFrame(in viewport: CGRect) -> CGRect {
         let safeW = max(120, viewport.width.isFinite ? viewport.width : 390)
@@ -101,7 +149,6 @@ enum NativeBookOpenTransitionPolicy {
         bookId: String,
         explicitFrame: CGRect?,
         explicitKey: String?,
-        fromWidget: Bool,
         activeTab: Int,
         viewport: CGRect,
         lookup: (String) -> CGRect?,
@@ -109,9 +156,6 @@ enum NativeBookOpenTransitionPolicy {
         topInset: CGFloat = 40,
         bottomInset: CGFloat = 52
     ) -> NativeBookTransitionTarget {
-        if fromWidget {
-            return .centered(frame: centeredFrame(in: viewport))
-        }
         if let explicitFrame, isVisibleFrame(explicitFrame, in: viewport, topInset: topInset, bottomInset: bottomInset) {
             if let explicitKey {
                 return .cover(frame: explicitFrame, key: explicitKey)
@@ -127,12 +171,6 @@ enum NativeBookOpenTransitionPolicy {
         if activeTab == 0 {
             let candidates = libraryCandidateKeys(bookId: bookId, seriesFrontBookId: seriesFrontBookId)
             for key in candidates {
-                if let frame = lookup(key), isVisibleFrame(frame, in: viewport, topInset: topInset, bottomInset: bottomInset) {
-                    return .cover(frame: frame, key: key)
-                }
-            }
-        } else if activeTab == 1 {
-            for key in ["materialsDetail:\(bookId)", "materials:\(bookId)"] {
                 if let frame = lookup(key), isVisibleFrame(frame, in: viewport, topInset: topInset, bottomInset: bottomInset) {
                     return .cover(frame: frame, key: key)
                 }

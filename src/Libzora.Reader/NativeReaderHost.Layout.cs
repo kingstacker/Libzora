@@ -155,7 +155,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         if (!_disposed && completingPartialLayout && _layout is { IsComplete: true })
         {
             LayoutCompleted?.Invoke(this, EventArgs.Empty);
-            EmitScroll();
+            EmitScroll(layoutAdjusted: true);
         }
     }
 

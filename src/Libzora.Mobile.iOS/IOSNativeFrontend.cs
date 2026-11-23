@@ -171,7 +171,7 @@ internal sealed partial class IOSNativeFrontend
             case "read":
                 var id = url.AbsolutePath.Trim('/');
                 if (Guid.TryParse(id, out var bookId))
-                    Publish(Data(("type", "openBook"), ("bookId", bookId.ToString())));
+                    Publish(Data(("type", "openWidgetBook"), ("bookId", bookId.ToString())));
                 break;
             case "dashboard":
                 ShowTab(2);

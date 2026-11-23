@@ -12,7 +12,7 @@ using Xunit;
 namespace Libzora.Mobile.Tests;
 
 [Collection("Mobile UI")]
-public sealed class ReaderPersistenceRegressionTests(MobileUiSession session)
+public sealed partial class ReaderPersistenceRegressionTests(MobileUiSession session)
 {
     private const BindingFlags PrivateInstance = BindingFlags.Instance | BindingFlags.NonPublic;
 

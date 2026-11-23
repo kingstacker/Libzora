@@ -2249,6 +2249,68 @@ final class NativeFrontendTests: XCTestCase {
                        "Material locations must not show EPUB file paths.")
     }
 
+    func testWidgetBookLinkOpensFromColdLaunchAndSwitchesReaders() throws {
+        guard #available(iOS 16.4, *) else { throw XCTSkip("URL launch requires iOS 16.4.") }
+        showLibrary()
+        var links: [(title: String, url: URL)] = []
+        for title in ["Native UI EPUB", "Native UI PDF"] {
+            let book = app.buttons.matching(NSPredicate(
+                format: "identifier BEGINSWITH 'book.' AND label CONTAINS %@", title)).firstMatch
+            for _ in 0..<12 {
+                if book.exists && book.isHittable { break }
+                app.swipeUp()
+            }
+            XCTAssertTrue(book.exists && book.isHittable)
+            let id = try XCTUnwrap(UUID(uuidString: String(book.identifier.dropFirst("book.".count))))
+            let url = try XCTUnwrap(URL(string: "libzora://read/\(id.uuidString)"))
+            links.append((title, url))
+            for _ in 0..<12 {
+                if app.buttons["library.display"].isHittable { break }
+                app.swipeDown()
+            }
+        }
+        app.terminate()
+        for (title, url) in links {
+            app.open(url)
+            let loading = app.descendants(matching: .any)["reader.loading"]
+            let page = app.descendants(matching: .any)["reader.page"]
+            XCTAssertTrue(waitUntil(timeout: 40) { page.isHittable && !loading.exists })
+            XCTAssertTrue(toggleReaderChrome(until: app.staticTexts[title]))
+            XCTAssertTrue(app.staticTexts[title].isHittable)
+            attachScreenshot("小组件跳转-\(title)")
+        }
+    }
+
+    func testMaterialsBookAndBookmarkOpenAndCloseReader() throws {
+        app.tabBars.buttons["阅读资料"].tap()
+        let bookmarks = app.buttons["materials.filter.bookmark"]
+        XCTAssertTrue(bookmarks.waitForExistence(timeout: 15))
+        bookmarks.tap()
+
+        let book = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'materials.book.'")).firstMatch
+        try XCTSkipUnless(book.waitForExistence(timeout: 10), "This preview library needs a saved bookmark.")
+        book.tap()
+        let position = app.staticTexts["reader.position"]
+        XCTAssertTrue(position.waitForExistence(timeout: 40))
+        attachScreenshot("阅读资料打开书籍")
+        let back = app.buttons["reader.close"]
+        XCTAssertTrue(toggleReaderChrome(until: back))
+        back.tap()
+        XCTAssertTrue(waitUntil { book.isHittable && !position.isHittable })
+
+        let entry = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'materials.entry.'")).firstMatch
+        XCTAssertTrue(entry.waitForExistence(timeout: 10))
+        entry.tap()
+        XCTAssertTrue(position.waitForExistence(timeout: 40))
+        let bookmark = app.buttons["reader.bookmark"]
+        XCTAssertTrue(toggleReaderChrome(until: bookmark))
+        XCTAssertTrue(bookmark.isEnabled)
+        attachScreenshot("阅读资料打开书签位置")
+        back.tap()
+        XCTAssertTrue(waitUntil { entry.isHittable && !position.isHittable })
+        attachScreenshot("关闭书籍返回阅读资料")
+    }
+
     func testMaterialsSwipeToRevealAndFullSwipeDelete() throws {
         try openBook(containing: "Native UI EPUB")
         let typography = app.buttons["reader.排版"]

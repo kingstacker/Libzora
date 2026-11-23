@@ -150,7 +150,7 @@ Large services are split by responsibility so one change opens one file:
 | `KindleDeviceService.*.cs` | detection, books, transfer, resources, annotations, files, native |
 | `HorizontalComposer.*.cs` | line breaking, Knuth-Plass, images, tables, table layout |
 | `GlyphShaper.cs` + `GlyphShaper.Variants.cs` | HarfBuzz shaping, system font loading, paired Latin/monospace and true Bold/Italic variants |
-| `ReaderPage.*.cs` (Mobile) | navigation, position, input, selection, chrome, lifecycle, native (actions, search) |
+| `ReaderPage.*.cs` (Mobile) | navigation (request generations and exact chapter matching), position, input, selection, footnote/figure detours and durable body progress, chrome, lifecycle, native (actions, search) |
 | `BookReflectionService.cs` + `BookReflectionFormatting.cs` | book-level reflection persistence, Markdown normalization, preview and citation helpers |
 | `BookReflectionPage.axaml.cs` + `BookReflectionCitationSheet.axaml.cs` (Mobile) | mobile reflection editor, Markdown preview and annotation citation picker |
 | `MobileShell.*.cs` | shell state, sheets, bars |
@@ -176,6 +176,9 @@ Large services are split by responsibility so one change opens one file:
   `NativeReaderHighlightPalette.swift`,
   `NativeReaderAdvancedTypography.swift`, `NativeReaderLatinFontPicker.swift`),
   settings, account, membership, theme, widgets.
+- `NativeUI/NativeBridge.swift` — store, bridge requests/events, preferences and library refresh;
+  `NativeBridge.Reader.swift` — reader presentation, restore, widget links, queued opens and teardown;
+  `NativeReaderOpenPolicy.swift` — revision-safe latest-intent queue and active-open deduplication.
 - `src/Libzora.Mobile.iOS/IOSNativeFrontend.*.cs` — C# side of the bridge,
   split by area (`Library`, `Reader`, `Settings`, `Fonts`).
 - `src/Libzora.Mobile.iOS/IOSMobileHost.cs` — host wiring.

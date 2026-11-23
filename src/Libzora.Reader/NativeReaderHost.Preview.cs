@@ -182,4 +182,137 @@ public sealed partial class NativeReaderHost
                 block, settings, width, theme, fonts, ResolveImage, cancellationToken),
             cancellationToken);
     }
+
+    /// <summary>
+    /// Resolves a fragment ID to its target page and any associated standalone
+    /// figure image or table block, allowing the caller to jump when the target
+    /// is on another page or open the media preview when already visible.
+    /// </summary>
+    public bool TryGetFragmentMediaTarget(
+        string? fragmentId,
+        out int targetPage,
+        out bool isOnVisiblePage,
+        out string? imagePath,
+        out int tableBlockIndex)
+    {
+        targetPage = -1;
+        isOnVisiblePage = false;
+        imagePath = null;
+        tableBlockIndex = -1;
+
+        if (string.IsNullOrWhiteSpace(fragmentId) || _layout is null || _content is null)
+        {
+            return false;
+        }
+
+        var normalized = NormalizeFragment(fragmentId);
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return false;
+        }
+
+        targetPage = _layout.GetPageIndexOfFragment(normalized);
+        if (targetPage >= 0)
+        {
+            if (IsScroll)
+            {
+                var targetScroll = Math.Max(0, targetPage) * Math.Max(1, Bounds.Height);
+                isOnVisiblePage = Math.Abs(targetScroll - _scrollOffset) < 4;
+            }
+            else if (IsSpread)
+            {
+                var spreadStart = _pageIndex - (_pageIndex % 2);
+                isOnVisiblePage = targetPage == spreadStart || targetPage == spreadStart + 1;
+            }
+            else
+            {
+                isOnVisiblePage = targetPage == _pageIndex;
+            }
+        }
+
+        for (var i = 0; i < _content.Blocks.Count; i++)
+        {
+            var block = _content.Blocks[i];
+            if (!string.Equals(block.ElementId, normalized, StringComparison.Ordinal)
+                && !block.FragmentIds.Contains(normalized, StringComparer.Ordinal))
+            {
+                continue;
+            }
+
+            if (TryExtractBlockMedia(i, out imagePath, out tableBlockIndex))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private bool TryExtractBlockMedia(int blockIndex, out string? imagePath, out int tableBlockIndex)
+    {
+        imagePath = null;
+        tableBlockIndex = -1;
+        if (_content is null || blockIndex < 0 || blockIndex >= _content.Blocks.Count)
+        {
+            return false;
+        }
+
+        var block = _content.Blocks[blockIndex];
+        if (block.Kind == BlockKind.Image)
+        {
+            var path = block.Items.FirstOrDefault(item => item.Kind == InlineKind.Image)?.ImagePath;
+            if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
+            {
+                imagePath = path;
+                return true;
+            }
+        }
+        else if (block.Kind == BlockKind.Table && block.Table is { Rows.Count: > 0 })
+        {
+            tableBlockIndex = blockIndex;
+            return true;
+        }
+        else if (block.IsCaption)
+        {
+            if (blockIndex > 0 && TryExtractDirectBlockMedia(blockIndex - 1, out imagePath, out tableBlockIndex))
+            {
+                return true;
+            }
+
+            if (blockIndex + 1 < _content.Blocks.Count && TryExtractDirectBlockMedia(blockIndex + 1, out imagePath, out tableBlockIndex))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private bool TryExtractDirectBlockMedia(int blockIndex, out string? imagePath, out int tableBlockIndex)
+    {
+        imagePath = null;
+        tableBlockIndex = -1;
+        if (_content is null || blockIndex < 0 || blockIndex >= _content.Blocks.Count)
+        {
+            return false;
+        }
+
+        var block = _content.Blocks[blockIndex];
+        if (block.Kind == BlockKind.Image)
+        {
+            var path = block.Items.FirstOrDefault(item => item.Kind == InlineKind.Image)?.ImagePath;
+            if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
+            {
+                imagePath = path;
+                return true;
+            }
+        }
+        else if (block.Kind == BlockKind.Table && block.Table is { Rows.Count: > 0 })
+        {
+            tableBlockIndex = blockIndex;
+            return true;
+        }
+
+        return false;
+    }
 }

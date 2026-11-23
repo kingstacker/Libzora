@@ -127,6 +127,13 @@ struct NativeStateLogicTests {
               "Search cursor tracks stable hit IDs across wrapped and continued insertions")
 
         // Book open/close transition geometry, widget entry, and top-bar anti-flash policy.
+        check(NativeBookOpenTransitionPolicy.openFromCoverMountDelay < NativeBookOpenTransitionPolicy.openFromCoverDuration
+                && NativeBookOpenTransitionPolicy.openFromCoverDuration < NativeBookOpenTransitionPolicy.openFromCoverCleanupDelay,
+              "The reader mounts near the end of the 3D open and the overlay remains until the animation settles")
+        check(NativeBookOpenTransitionPolicy.closeToCoverDuration < NativeBookOpenTransitionPolicy.closeToCoverCleanupDelay
+                && NativeBookOpenTransitionPolicy.closeToCenterDuration < NativeBookOpenTransitionPolicy.closeToCenterCleanupDelay,
+              "The 3D close overlay remains through the last frame for both landing positions")
+
         let viewport = CGRect(x: 0, y: 0, width: 393, height: 852)
         let centered = NativeBookOpenTransitionPolicy.centeredFrame(in: viewport)
         check(abs(centered.midX - viewport.midX) < 0.5 && abs(centered.midY - viewport.midY) < 0.5,
@@ -145,27 +152,50 @@ struct NativeStateLogicTests {
         check(!NativeBookOpenTransitionPolicy.isVisibleFrame(buriedTabBarFrame, in: viewport),
               "Cover mostly buried below the bottom tab bar is rejected")
 
-        let widgetTarget = NativeBookOpenTransitionPolicy.resolveOpenTarget(
-            bookId: "b1",
-            explicitFrame: nil,
-            explicitKey: nil,
-            fromWidget: true,
-            activeTab: 0,
-            viewport: viewport,
-            lookup: { key in key == "shelf:b1" ? visibleShelfFrame : continueFrame }
-        )
-        check(widgetTarget == .centered(frame: centered) && widgetTarget.sourceKey == nil && widgetTarget.isCentered,
-              "Widget entry always expands from a centered hero card instead of a shelf corner")
-        check(NativeBookOpenTransitionPolicy.openFromCenterDuration == NativeBookOpenTransitionPolicy.openFromCoverDuration
-                && NativeBookOpenTransitionPolicy.openFromCenterMountDelay == NativeBookOpenTransitionPolicy.openFromCoverMountDelay
-                && NativeBookOpenTransitionPolicy.openFromCenterCleanupDelay == NativeBookOpenTransitionPolicy.openFromCoverCleanupDelay,
-              "Centered widget open animation matches library cover open animation speed")
+        for source in [NativeBookOpenSource.widget, .materials] {
+            check(NativeBookOpenTransitionPolicy.openAnimation(
+                source: source, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: 3) == .slide,
+                "Widget and Reading Materials use the default page slide")
+            check(NativeBookOpenTransitionPolicy.openAnimation(
+                source: source, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: 1) == .fade,
+                "Page entry respects the fade preference")
+            check(NativeBookOpenTransitionPolicy.openAnimation(
+                source: source, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: 0) == .none,
+                "Page entry respects the disabled preference")
+            check(NativeBookOpenTransitionPolicy.openAnimation(
+                source: source, animated: true, reduceMotion: true, powerSaving: false, pageAnimation: 3) == .none,
+                "Page entry respects Reduce Motion")
+            check(NativeBookOpenTransitionPolicy.openAnimation(
+                source: source, animated: true, reduceMotion: false, powerSaving: true, pageAnimation: 3) == .none,
+                "Page entry respects reader power saving")
+        }
+        check(NativeBookOpenTransitionPolicy.openAnimation(
+            source: .cover, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: 3) == .cover,
+            "A shelf or dashboard cover still uses the book opening animation")
+        check(NativeBookOpenTransitionPolicy.openAnimation(
+            source: .cover, animated: false, reduceMotion: false, powerSaving: false, pageAnimation: 3) == .none,
+            "Restoring a reader session has no opening animation")
+
+        check(NativeBookOpenTransitionPolicy.closeAnimation(
+            source: .materials, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: 3) == .slide,
+            "Closing a book opened from Reading Materials slides back")
+        check(NativeBookOpenTransitionPolicy.closeAnimation(
+            source: .materials, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: 1) == .fade,
+            "Closing a book opened from Reading Materials respects the fade preference")
+        check(NativeBookOpenTransitionPolicy.closeAnimation(
+            source: .materials, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: 0) == .none,
+            "Closing a book opened from Reading Materials respects the disabled preference")
+        check(NativeBookOpenTransitionPolicy.closeAnimation(
+            source: .materials, animated: true, reduceMotion: true, powerSaving: false, pageAnimation: 3) == .none,
+            "Closing a book opened from Reading Materials respects Reduce Motion")
+        check(NativeBookOpenTransitionPolicy.closeAnimation(
+            source: .cover, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: 3) == .cover,
+            "Closing a shelf book still uses the cover animation")
 
         let offscreenShelfTarget = NativeBookOpenTransitionPolicy.resolveOpenTarget(
             bookId: "b1",
             explicitFrame: nil,
             explicitKey: nil,
-            fromWidget: false,
             activeTab: 0,
             viewport: viewport,
             lookup: { key in
@@ -181,7 +211,6 @@ struct NativeStateLogicTests {
             bookId: "b1",
             explicitFrame: nil,
             explicitKey: nil,
-            fromWidget: false,
             activeTab: 2,
             viewport: viewport,
             lookup: { key in key == "shelf:b1" ? visibleShelfFrame : nil }
@@ -234,22 +263,6 @@ struct NativeStateLogicTests {
               "Closing a widget-opened book below the fold keeps the shelf at top and lands on the Continue Reading card")
 
         let materialsFrame = CGRect(x: 20, y: 180, width: 48, height: 68)
-        let materialsOpenTarget = NativeBookOpenTransitionPolicy.resolveOpenTarget(
-            bookId: "b1",
-            explicitFrame: materialsFrame,
-            explicitKey: "materials:b1",
-            fromWidget: false,
-            activeTab: 1,
-            viewport: viewport,
-            lookup: { key in
-                if key == "materials:b1" { return materialsFrame }
-                if key == "shelf:b1" { return visibleShelfFrame }
-                return nil
-            }
-        )
-        check(materialsOpenTarget == .cover(frame: materialsFrame, key: "materials:b1"),
-              "Opening an annotation from Reading Materials anchors to that book's visible cover")
-
         let materialsCloseTarget = NativeBookOpenTransitionPolicy.resolveCloseTarget(
             bookId: "b1",
             preferredKey: "materials:b1",
@@ -291,22 +304,6 @@ struct NativeStateLogicTests {
         check(materialsOccludedClose == .centered(frame: centered),
               "Closing when the cover sits behind the status bar glass or tab bar folds to center")
 
-        let materialsDetailOpen = NativeBookOpenTransitionPolicy.resolveOpenTarget(
-            bookId: "b1",
-            explicitFrame: materialsFrame,
-            explicitKey: "materialsDetail:b1",
-            fromWidget: false,
-            activeTab: 1,
-            viewport: viewport,
-            lookup: { key in
-                if key == "materialsDetail:b1" { return materialsFrame }
-                if key == "materials:b1" { return offscreenShelfFrame }
-                return nil
-            }
-        )
-        check(materialsDetailOpen == .cover(frame: materialsFrame, key: "materialsDetail:b1"),
-              "Opening an annotation from pushed Book Materials detail anchors to its detail header cover")
-
         let materialsDetailClose = NativeBookOpenTransitionPolicy.resolveCloseTarget(
             bookId: "b1",
             preferredKey: "materialsDetail:b1",
@@ -341,7 +338,6 @@ struct NativeStateLogicTests {
             bookId: "b1",
             explicitFrame: dashboardRecentFrame,
             explicitKey: "dashboardRecent:b1",
-            fromWidget: false,
             activeTab: 2,
             viewport: viewport,
             lookup: { key in

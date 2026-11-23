@@ -140,11 +140,14 @@ public partial class ReaderPage
 
     private async Task OpenTablePreviewAsync(int blockIndex)
     {
-        if (_readerHost is not NativeReaderHost host) return;
+        if (_readerHost is not NativeReaderHost host || _epubDocument is not { } document) return;
+        var generation = _readerNavigationGeneration;
+        var chapter = _chapterIndex;
         try
         {
             var width = Math.Max(720, ReaderHostSlot.Bounds.Width * 2.4);
             var path = await host.RenderTablePreviewAsync(blockIndex, width, _lifetime.Token);
+            if (!IsReaderNavigationCurrent(generation, host, document, chapter)) return;
             if (string.IsNullOrWhiteSpace(path))
             {
                 _shell.ShowToast(UiText.Get("这个表格暂时无法单独显示"));
@@ -158,7 +161,8 @@ public partial class ReaderPage
         }
         catch (Exception exception)
         {
-            _shell.ShowToast(UiText.Get("无法打开表格"));
+            if (IsReaderNavigationCurrent(generation, host, document, chapter))
+                _shell.ShowToast(UiText.Get("无法打开表格"));
             Console.WriteLine($"[Libzora] table preview failed: {exception.Message}");
         }
     }
@@ -271,6 +275,7 @@ public partial class ReaderPage
 
     private void MarkNativeNavigation()
     {
+        BeginReaderNavigation();
         if (!_usesNativeFrontend || _disposed) return;
         CancelNativeSearchJump();
         NativeClearSearchHighlight();

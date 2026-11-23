@@ -19,7 +19,7 @@ mkdir -p "$native_output"
 native_sdk_path="$(xcrun --sdk "$native_sdk" --show-sdk-path)"
 native_flags=(-O)
 if [[ "$native_configuration" == Debug ]]; then
-  native_flags=(-Onone -g)
+  native_flags=(-Onone -g -D DEBUG)
 fi
 
 xcrun --sdk "$native_sdk" swiftc \

@@ -37,6 +37,7 @@ struct NativeReaderPage: View {
     let book: LibraryBook
     let appColorScheme: ColorScheme
     let appearanceSessionId: String
+    let openAnimation: NativeBookOpenAnimation
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var panel: ReaderPanel?
@@ -67,6 +68,12 @@ struct NativeReaderPage: View {
     /// PostScript name of the body font, so the reading footer matches the page.
     @State private var bodyFontName = "KingHwaOldSong"
     @State private var systemLowPowerMode = ProcessInfo.processInfo.isLowPowerModeEnabled
+    @State private var openingPageRevealed = false
+    private var hiddenPageAnimation: NativeBookOpenAnimation {
+        if store.readerPageExitAnimation.isPageAnimation { return store.readerPageExitAnimation }
+        return openingPageRevealed ? .none : openAnimation
+    }
+
     @State private var openTransitionProgress: Double = 0
     @State private var openTransitionStartedId: UUID?
     private var activeOpenTransition: NativeBookOpenTransition? {
@@ -233,8 +240,23 @@ struct NativeReaderPage: View {
                 .frame(width: fullGeometry.size.width, height: fullGeometry.size.height)
             }
             .ignoresSafeArea()
+            .offset(x: hiddenPageAnimation == .slide ? contentWidth + safeInsets.leading + safeInsets.trailing : 0)
+            .opacity(hiddenPageAnimation == .fade ? 0 : 1)
+            .allowsHitTesting(!hiddenPageAnimation.isPageAnimation)
+            .accessibilityHidden(hiddenPageAnimation.isPageAnimation)
         }
         .ignoresSafeArea(.keyboard)
+        .task(id: reader.ready || reader.error != nil) {
+            guard openAnimation.isPageAnimation, !openingPageRevealed else { return }
+            // Give UIKit time to commit the full-screen presentation. Let a slow book
+            // reveal its loading state rather than leaving the previous screen in place.
+            let delay: UInt64 = reader.ready || reader.error != nil ? 70_000_000 : 300_000_000
+            try? await Task.sleep(nanoseconds: delay)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: NativeBookOpenTransitionPolicy.pageTransitionDuration)) {
+                openingPageRevealed = true
+            }
+        }
         .task(id: activeOpenTransition?.id) {
             guard let transition = activeOpenTransition else {
                 openTransitionProgress = 1

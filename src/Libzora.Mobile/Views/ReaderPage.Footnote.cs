@@ -38,7 +38,6 @@ public partial class ReaderPage
     private double _footnoteReturnSettledTop;
     private double _footnoteReturnSettledLeft;
     private int _footnoteReturnSettledChapter = -1;
-    private DateTime _footnoteReturnSettledAt;
     private double _lastScrollTop;
     private double _lastScrollLeft;
 
@@ -187,9 +186,10 @@ public partial class ReaderPage
             || !target.IsFile
             || string.IsNullOrEmpty(target.Fragment))
             return;
+        var generation = BeginReaderNavigation();
+        var originChapter = _chapterIndex;
         var path = Path.GetFullPath(target.LocalPath);
-        var chapter = document.Chapters.ToList().FindIndex(candidate =>
-            string.Equals(Path.GetFullPath(candidate), path, StringComparison.OrdinalIgnoreCase));
+        var chapter = FindEpubChapter(document, path);
         if (chapter < 0) return;
 
         var backlink = _activeFootnoteBacklink;
@@ -205,14 +205,16 @@ public partial class ReaderPage
         // note jumps keep the original body baseline.
         if (!_footnoteProgressSuppressed)
         {
-            if (!await SaveProgressSoonAsync(force: true) || _lastSavedProgress is null)
+            var saved = await SaveProgressSoonAsync(force: true);
+            if (!IsReaderNavigationCurrent(generation, host, document, originChapter)) return;
+            if (!saved || _lastSavedProgress is null)
             {
                 _shell.ShowToast(UiText.Get("无法保存阅读进度，请稍后重试。"));
                 return;
             }
             _footnoteBodyProgress = _lastSavedProgress;
         }
-        if (_disposed || !ReferenceEquals(_readerHost, host)) return;
+        if (!IsReaderNavigationCurrent(generation, host, document, originChapter)) return;
         NativeDismissFootnote();
         _footnoteReturn.Add(returnPoint);
         // Keep the outermost body return point when limiting nested notes.
@@ -235,7 +237,8 @@ public partial class ReaderPage
                       && await RevealPlainFootnoteAsync(host, definitionOffset))
                 : chapter == _chapterIndex
                     ? await RevealFootnoteInChapterAsync(host, fragment)
-                    : await NavigateToChapterAsync(host, chapter, new Uri(target.AbsoluteUri));
+                    : await NavigateToChapterAsync(host, chapter, new Uri(new Uri(document.Chapters[chapter]).AbsoluteUri + target.Fragment));
+            if (!ReferenceEquals(_footnoteReturn.LastOrDefault(), returnPoint)) return;
             if (!navigated)
             {
                 _footnoteReturn.RemoveAt(_footnoteReturn.Count - 1);
@@ -252,6 +255,7 @@ public partial class ReaderPage
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
         {
+            if (!ReferenceEquals(_footnoteReturn.LastOrDefault(), returnPoint)) return;
             _footnoteReturn.RemoveAt(_footnoteReturn.Count - 1);
             _footnoteProgressSuppressed = _footnoteReturn.Count > 0;
             if (!_footnoteProgressSuppressed) _footnoteBodyProgress = null;
@@ -260,6 +264,7 @@ public partial class ReaderPage
         }
         catch (Exception exception)
         {
+            if (!ReferenceEquals(_footnoteReturn.LastOrDefault(), returnPoint)) return;
             _footnoteReturn.RemoveAt(_footnoteReturn.Count - 1);
             _footnoteProgressSuppressed = _footnoteReturn.Count > 0;
             if (!_footnoteProgressSuppressed) _footnoteBodyProgress = null;
@@ -318,6 +323,7 @@ public partial class ReaderPage
             || _readerHost is not NativeReaderHost host
             || _epubDocument is not { } document)
             return;
+        BeginReaderNavigation();
         var point = _footnoteReturn[^1];
         _footnoteReturn.RemoveAt(_footnoteReturn.Count - 1);
         _tts?.NotifyManualNavigation();
@@ -380,8 +386,9 @@ public partial class ReaderPage
         {
             return false;
         }
-        // The jump and restore settle their own scroll messages first.
-        if (DateTime.UtcNow - _footnoteReturnSettledAt < TimeSpan.FromMilliseconds(500)) return false;
+        // Programmatic jump/restore messages are synchronous and protected by
+        // _footnoteNavigationInFlight. Never absorb a real turn into a timed
+        // settling window: the first movement away ends the detour.
         if (_chapterIndex == _footnoteReturnSettledChapter
             && Math.Abs(top - _footnoteReturnSettledTop) <= 2
             && Math.Abs(left - _footnoteReturnSettledLeft) <= 2)
@@ -392,14 +399,59 @@ public partial class ReaderPage
         return true;
     }
 
+    /// <summary>
+    /// Jumps to an in-chapter figure or table target while recording a return
+    /// point so the reader can return to the referring paragraph with one tap.
+    /// </summary>
+    private async Task JumpToInChapterFragmentWithReturnAsync(NativeReaderHost host, string fragment)
+    {
+        if (!_usesNativeFrontend || _epubDocument is not { } document) return;
+        var generation = _readerNavigationGeneration;
+        var originChapter = _chapterIndex;
+        var returnPoint = new FootnoteReturnPoint(
+            _chapterIndex,
+            host.CaptureContentPosition(),
+            (int)Math.Clamp(_epubPosition, 0, int.MaxValue),
+            _footnoteJumpBacklink);
+        if (!_footnoteProgressSuppressed)
+        {
+            var saved = await SaveProgressSoonAsync(force: true);
+            if (!IsReaderNavigationCurrent(generation, host, document, originChapter)) return;
+            if (!saved || _lastSavedProgress is null)
+            {
+                _shell.ShowToast(UiText.Get("无法保存阅读进度，请稍后重试。"));
+                return;
+            }
+            _footnoteBodyProgress = _lastSavedProgress;
+        }
+        if (!IsReaderNavigationCurrent(generation, host, document, originChapter)) return;
+        NativeDismissFootnote();
+        _footnoteReturn.Add(returnPoint);
+        if (_footnoteReturn.Count > MaximumFootnoteReturnDepth) _footnoteReturn.RemoveAt(1);
+        _footnoteProgressSuppressed = _footnoteBodyProgress is not null;
+        _footnoteJumpBacklink = null;
+        _footnoteNavigationInFlight = true;
+        try
+        {
+            host.ScrollToFragment(fragment);
+            UpdateEpubLabels();
+            MarkFootnoteReturnSettled();
+            NotifyNativeState();
+        }
+        finally
+        {
+            _footnoteNavigationInFlight = false;
+        }
+    }
+
     /// <summary>Remembers the note location a reader must leave to end the detour.</summary>
     private void MarkFootnoteReturnSettled()
     {
         if (_footnoteReturn.Count == 0) return;
         _footnoteReturnSettledChapter = _chapterIndex;
-        _footnoteReturnSettledTop = _lastScrollTop;
-        _footnoteReturnSettledLeft = _lastScrollLeft;
-        _footnoteReturnSettledAt = DateTime.UtcNow;
+        var position = (_readerHost as NativeReaderHost)?.GetScrollState().Position;
+        _footnoteReturnSettledTop = _layout.FlowMode == 0 ? position ?? _lastScrollTop : 0;
+        _footnoteReturnSettledLeft = _layout.FlowMode == 0 ? 0 : position ?? _lastScrollLeft;
         _footnoteReturnHasBaseline = true;
     }
 

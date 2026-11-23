@@ -151,6 +151,8 @@ public partial class ReaderPage
 
     private async Task JumpToAsync(TocEntry item)
     {
+        BeginReaderNavigation();
+        ClearFootnoteNavigation();
         ClearActiveSyncedMarker();
         _tts?.NotifyManualNavigation();
         _shell.HideSheet();

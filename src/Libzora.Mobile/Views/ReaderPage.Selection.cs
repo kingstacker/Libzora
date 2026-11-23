@@ -48,13 +48,47 @@ public partial class ReaderPage
             }
 
             if (_readerHost is not NativeReaderHost host || _epubDocument is not { } document) return;
+            var generation = BeginReaderNavigation();
+            var originChapter = _chapterIndex;
             _tts?.NotifyManualNavigation();
-            ClearFootnoteNavigation();
-            var target = new Uri(new Uri(document.Chapters[_chapterIndex]), href);
+            var target = new Uri(new Uri(document.Chapters[originChapter]), href);
             var path = Path.GetFullPath(target.LocalPath);
-            var chapter = document.Chapters.ToList().FindIndex(item =>
-                string.Equals(Path.GetFullPath(item), path, StringComparison.Ordinal));
+            var chapter = FindEpubChapter(document, path);
             if (chapter < 0) return;
+            target = new Uri(new Uri(document.Chapters[chapter]).AbsoluteUri + target.Fragment);
+            var fragment = string.IsNullOrWhiteSpace(target.Fragment)
+                ? null
+                : Uri.UnescapeDataString(target.Fragment.TrimStart('#'));
+            if (chapter == _chapterIndex && !string.IsNullOrWhiteSpace(fragment))
+            {
+                await host.EnsureCompleteLayoutAsync();
+                if (!IsReaderNavigationCurrent(generation, host, document, originChapter)) return;
+                if (host.TryGetFragmentMediaTarget(fragment, out var mediaPage, out var isOnVisiblePage, out var imagePath, out var tableBlockIndex))
+                {
+                    if (_usesNativeFrontend && isOnVisiblePage)
+                    {
+                        if (!string.IsNullOrWhiteSpace(imagePath))
+                        {
+                            RaiseReaderMedia("image", imagePath);
+                            return;
+                        }
+
+                        if (tableBlockIndex >= 0)
+                        {
+                            await OpenTablePreviewAsync(tableBlockIndex);
+                            return;
+                        }
+                    }
+
+                    if (_usesNativeFrontend && mediaPage >= 0 && !isOnVisiblePage)
+                    {
+                        await JumpToInChapterFragmentWithReturnAsync(host, fragment);
+                        return;
+                    }
+                }
+            }
+
+            ClearFootnoteNavigation();
             if (await NavigateToChapterAsync(host, chapter, target))
             {
                 UpdateEpubLabels();

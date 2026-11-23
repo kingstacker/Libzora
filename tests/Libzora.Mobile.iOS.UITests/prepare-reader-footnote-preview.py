@@ -87,6 +87,7 @@ def main():
     parser.add_argument("--app", required=True, type=Path)
     parser.add_argument("--simulator", required=True)
     parser.add_argument("--covers-from", type=Path, default=Path(__file__).resolve().parents[2] / "公版书")
+    parser.add_argument("--page-animation", type=int, choices=(0, 1, 3), default=0)
     args = parser.parse_args()
     source = args.app.resolve(strict=True)
     info = plistlib.loads((source / "Info.plist").read_bytes())
@@ -130,7 +131,12 @@ def main():
             CREATE TABLE IF NOT EXISTS BookFiles (
             Id TEXT PRIMARY KEY, BookId TEXT NOT NULL REFERENCES Books(Id) ON DELETE CASCADE,
             Format TEXT NOT NULL, RelativePath TEXT NOT NULL, Size INTEGER NOT NULL,
-            Sha256 TEXT NOT NULL UNIQUE, SyncUpdatedAt TEXT NULL);""")
+            Sha256 TEXT NOT NULL UNIQUE, SyncUpdatedAt TEXT NULL);
+            CREATE TABLE IF NOT EXISTS ReaderBookmarks (
+            Id TEXT PRIMARY KEY, BookId TEXT NOT NULL, BookFileId TEXT NOT NULL,
+            ChapterPath TEXT NOT NULL, Fragment TEXT NULL, ChapterIndex INTEGER NOT NULL DEFAULT 0,
+            ScrollPosition INTEGER NULL, FlowMode INTEGER NOT NULL DEFAULT 0, ContentPositionJson TEXT NULL,
+            Title TEXT NOT NULL DEFAULT '', Quote TEXT NOT NULL DEFAULT '', CreatedAt TEXT NOT NULL);""")
         has_progress = db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='ReaderProgress'").fetchone()
         for index, ((label, body, notes), image) in enumerate(zip(FIXTURES, covers)):
             title = "脚注回归·" + label
@@ -149,15 +155,21 @@ def main():
                        (book_id, title, "脚注回归测试", str(cover.relative_to(data)), now, now))
             db.execute("INSERT OR REPLACE INTO BookFiles (Id,BookId,Format,RelativePath,Size,Sha256) VALUES (?,?,?,?,?,?)",
                        (file_id, book_id, "epub", str(epub.relative_to(data)), epub.stat().st_size, hashlib.sha256(epub.read_bytes()).hexdigest()))
+            if label == "旧式锚点":
+                bookmark_id = str(uuid.uuid5(uuid.NAMESPACE_URL, BUNDLE + "/bookmark/" + label))
+                db.execute("""INSERT OR REPLACE INTO ReaderBookmarks
+                    (Id,BookId,BookFileId,ChapterPath,Fragment,ChapterIndex,ScrollPosition,FlowMode,Title,CreatedAt)
+                    VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                    (bookmark_id, book_id, file_id, "notes.xhtml", "bz1", 1, 0, 1, "原注", now))
     # Preferences belong exclusively to this synthetic fixture bundle.
     preferences = app_root / "mobile-preferences.json"
     previous = json.loads(preferences.read_text()) if preferences.exists() else {}
     previous.update({"UiLanguage": "zh-CN", "ThemeMode": 1, "ReaderTheme": 0,
                      "ReaderThemeFollowsAppearance": False, "ReaderFontScale": 1.35,
                      "ReaderBodyPadding": 24, "ReaderParagraphIndent": False,
-                     "ReaderVerticalWriting": False, "ReaderPageAnimation": 0})
+                     "ReaderVerticalWriting": False, "ReaderPageAnimation": args.page_animation})
     preferences.write_text(json.dumps(previous), encoding="utf-8")
-    print(f"Installed isolated {BUNDLE}; four fixtures with real book covers; artifacts: {output}")
+    print(f"Installed isolated {BUNDLE}; {len(FIXTURES)} fixtures with real book covers; artifacts: {output}")
 
 
 if __name__ == "__main__":

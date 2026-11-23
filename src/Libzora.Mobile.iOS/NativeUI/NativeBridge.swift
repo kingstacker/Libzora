@@ -240,20 +240,27 @@ final class NativeStore: ObservableObject {
     /// Only shown on an ordinary cold launch into the library (~1s), never on resume/reader-restore/widget deep-links.
     @Published var showsLaunchAnimation: Bool
     @Published var openingBookTransition: NativeBookOpenTransition?
+    var readerOpenAnimation: NativeBookOpenAnimation = .none
+    @Published var readerPageExitAnimation: NativeBookOpenAnimation = .none
+    var readerOpenSource: NativeBookOpenSource = .cover
     @Published var closingBookTransition: NativeBookOpenTransition?
     @Published var closingBookBackdrop = false
     @Published var closingBookSnapshot: UIImage?
     var activeTab = 0
     private(set) var viewportRect: CGRect = UIScreen.main.bounds
-    private var lastBookOpenOrigin: (bookId: String, sourceKey: String)?
-    private var pendingBookPresentContinuation: CheckedContinuation<Void, Never>?
-    private var pendingOpenFromWidget = false
+    var lastBookOpenOrigin: (bookId: String, sourceKey: String)?
+    var readerPresentationActive = false
+    var closingReader = false
+    var openingReaderBookId: String?
+    var openingReaderGeneration: Int?
+    var queuedReaderOpen = NativeReaderOpenQueue<NativeReaderOpenRequest>()
+    var pendingOpenSource: NativeBookOpenSource = .cover
     @Published var library: [LibraryBook] = [] {
         didSet { librarySeriesCache = nil }
     }
-    private var librarySeriesCache: [NativeBookSeries.ID: NativeBookSeries]?
-    private static let bookOpenOrderKey = "libzora.reader.bookOpenOrder"
-    @Published private var bookOpenOrder = UserDefaults.standard.dictionary(forKey: bookOpenOrderKey) as? [String: Int] ?? [:]
+    var librarySeriesCache: [NativeBookSeries.ID: NativeBookSeries]?
+    static let bookOpenOrderKey = "libzora.reader.bookOpenOrder"
+    @Published var bookOpenOrder = UserDefaults.standard.dictionary(forKey: bookOpenOrderKey) as? [String: Int] ?? [:]
     @Published var folders: [LibraryFolder] = []
     @Published private(set) var preparingLibrary = true
     @Published private(set) var libraryLoaded = false
@@ -290,12 +297,12 @@ final class NativeStore: ObservableObject {
     @Published var txtReview: TxtReview?
     @Published var syncStatus = ""
     @Published var requestedTab: Int?
-    private static let lastReaderKey = "libzora.reader.lastBookId"
+    static let lastReaderKey = "libzora.reader.lastBookId"
     private static let coldLaunchBrandingDurationNs: UInt64 = 1_000_000_000
-    private var pendingReaderRestore: String?
-    private var pendingOpenBookId: String?
+    var pendingReaderRestore: String?
+    var pendingOpenBookId: String?
     /// Bumped whenever a widget link supersedes the reader that is opening.
-    private var readerOpenGeneration = 0
+    var readerOpenGeneration = 0
     private var nextId: Int64 = 0
     private var pending: [Int64: (Data) -> Void] = [:]
     private var toastTask: Task<Void, Never>?
@@ -306,10 +313,10 @@ final class NativeStore: ObservableObject {
     private static let localizedCommands: Set<String> = [
         "settings.profile", "dashboard.get", "materials.get", "reader.toc", "reader.fonts"
     ]
-    private var libraryRefreshRevision = 0
-    private var appliedLibraryRevision = 0
-    private var pendingBookRequiredRevision = 0
-    private var pendingBookRefreshTask: Task<Void, Never>?
+    var libraryRefreshRevision = 0
+    var appliedLibraryRevision = 0
+    var pendingBookRequiredRevision = 0
+    var pendingBookRefreshTask: Task<Void, Never>?
     private var launchStarted = false
     private var libraryChangedDuringLaunch = false
 
@@ -419,7 +426,10 @@ final class NativeStore: ObservableObject {
         case "restart": restartRequired = true
         case "toast": showToast(event.message ?? "")
         case "accountInvalidated": account = nil
-        case "openBook": if let id = event.bookId { openRequestedBook(id) }
+        case "openBook", "openWidgetBook":
+            if let id = event.bookId {
+                openRequestedBook(id, source: event.type == "openWidgetBook" ? .widget : .cover)
+            }
         case "openTab":
             if let tab = event.tab {
                 showsLaunchAnimation = false
@@ -491,7 +501,7 @@ final class NativeStore: ObservableObject {
         }
         preparingLibrary = false
         if libraryLoaded && !Task.isCancelled {
-            openPendingReaderIfNeeded(animated: true)
+            openPendingReaderIfNeeded()
             restorePendingReaderIfNeeded()
         } else {
             releaseLaunchRestore()
@@ -527,106 +537,6 @@ final class NativeStore: ObservableObject {
         guard !preparingLibrary else { return }
         openPendingReaderIfNeeded()
         restorePendingReaderIfNeeded()
-    }
-
-    /// A widget can deep-link into a book before the shelf has loaded, or
-    /// while another book is open. Keep the request until a fresh library
-    /// snapshot can resolve it and the reader is free.
-    func openRequestedBook(_ bookId: String) {
-        showsLaunchAnimation = false
-        pendingReaderRestore = nil
-        if readerBook?.id == bookId {
-            pendingOpenBookId = nil
-            pendingOpenFromWidget = false
-            return
-        }
-        pendingOpenBookId = bookId
-        pendingOpenFromWidget = true
-        pendingBookRequiredRevision = libraryRefreshRevision + 1
-        if preparingLibrary {
-            restoringReader = true
-            return
-        }
-        if readerBook != nil {
-            perform { await self.closeReader(animated: false) }
-        } else if openingReader {
-            // The reader that is opening came from the saved-session restore
-            // or an older link; the newest widget tap wins immediately.
-            readerOpenGeneration += 1
-            completeBookOpenPresentation()
-        } else if !library.isEmpty {
-            openPendingReaderIfNeeded(animated: true)
-        } else {
-            perform { try await self.refreshLibrary() }
-        }
-    }
-
-    /// Invalidates an in-flight reader open and dismisses a visible cover.
-    private func dismissReaderForTab() {
-        readerOpenGeneration += 1
-        pendingOpenFromWidget = false
-        completeBookOpenPresentation()
-        restoringReader = false
-        if readerBook != nil { perform { await self.closeReader(animated: false) } }
-    }
-
-    private func openPendingReaderIfNeeded(animated: Bool = true) {
-        guard let bookId = pendingOpenBookId, libraryLoaded,
-              readerBook == nil, !openingReader, !restartRequired else { return }
-        let book = library.first(where: { $0.id == bookId })
-        switch NativeBookLinkResolution.decide(found: book != nil, snapshotRevision: appliedLibraryRevision,
-                                              requiredRevision: pendingBookRequiredRevision) {
-        case .refresh:
-            guard pendingBookRefreshTask == nil else { return }
-            pendingBookRefreshTask = Task {
-                var refreshed = false
-                do { try await refreshLibrary(); refreshed = true }
-                catch { if !Task.isCancelled { failure = error.localizedDescription } }
-                pendingBookRefreshTask = nil
-                // A newer link may require a snapshot newer than this refresh.
-                if refreshed { openPendingReaderIfNeeded(animated: animated) }
-            }
-        case .missing:
-            pendingOpenBookId = nil
-            pendingOpenFromWidget = false
-            restoringReader = false
-            showToast(L("书籍已不存在。"))
-        case .open:
-            guard let book else { return }
-            let fromWidget = pendingOpenFromWidget
-            pendingOpenBookId = nil
-            pendingOpenFromWidget = false
-            // An explicit widget tap wins over restoring the last reader session.
-            perform { try await self.openReader(book, animated: animated, fromWidget: fromWidget) }
-        }
-    }
-
-    /// The shelf's first successful load is the safe moment to reopen the
-    /// book that was on screen when the app was last quit.
-    private func restorePendingReaderIfNeeded() {
-        guard let bookId = pendingReaderRestore,
-              readerBook == nil, !openingReader, !restartRequired,
-              pendingOpenBookId == nil else { return }
-        guard !library.isEmpty else {
-            // Keep waiting for a populated snapshot, but never trap the user
-            // behind the launch cover on a shelf that is still loading.
-            restoringReader = false
-            return
-        }
-        pendingReaderRestore = nil
-        guard let book = library.first(where: { $0.id == bookId }) else {
-            UserDefaults.standard.removeObject(forKey: Self.lastReaderKey)
-            restoringReader = false
-            return
-        }
-        // An unstructured task outlives the refresh that triggered it, so a
-        // cancelled pull-to-refresh cannot eat the reader restoration.
-        Task { try? await self.openReader(book, animated: false) }
-    }
-
-    /// A failed first shelf load must not leave the launch cover on screen.
-    func releaseLaunchRestore() {
-        if readerBook == nil && !openingReader { restoringReader = false }
     }
 
     private func applyUiLanguage(_ language: String) {
@@ -696,288 +606,6 @@ final class NativeStore: ObservableObject {
         guard rect.width > 120, rect.height > 160,
               rect.origin.x.isFinite, rect.origin.y.isFinite else { return }
         viewportRect = rect
-    }
-
-    func isBookCoverHidden(forKey key: String) -> Bool {
-        openingBookTransition?.sourceKey == key || closingBookTransition?.sourceKey == key
-    }
-
-    private func seriesFrontBookId(for book: LibraryBook) -> String? {
-        guard preferences.stackBookSeries else { return nil }
-        if librarySeriesCache == nil { librarySeriesCache = NativeBookSeries.groups(library) }
-        guard let series = librarySeriesCache?.values.first(where: { $0.books.contains(where: { $0.id == book.id }) }) else {
-            return nil
-        }
-        return frontBook(for: series)?.id
-    }
-
-    private func resolveTransitionCoverImage(for book: LibraryBook, preferredWidth: CGFloat) async -> UIImage? {
-        guard let path = book.coverPath else { return nil }
-        let targetPixels = max(360, Int(min(max(preferredWidth, 160), 320) * 3))
-        if let exact = NativeCoverCache.cachedImage(path: path, version: book.updatedAt, pixels: targetPixels) {
-            return exact
-        }
-        if let cached = NativeCoverCache.bestCachedImage(path: path, version: book.updatedAt) {
-            if max(cached.size.width, cached.size.height) < CGFloat(targetPixels) * 0.7 {
-                let version = book.updatedAt
-                Task { _ = await NativeCoverCache.image(path: path, version: version, pixels: targetPixels) }
-            }
-            return cached
-        }
-        return await NativeCoverCache.image(path: path, version: book.updatedAt, pixels: targetPixels)
-    }
-
-    func completeBookOpenPresentation(for transitionId: UUID? = nil) {
-        if let transitionId, openingBookTransition?.id != transitionId { return }
-        pendingBookPresentContinuation?.resume()
-        pendingBookPresentContinuation = nil
-    }
-
-    func openReader(_ book: LibraryBook, location: [String: Any]? = nil,
-                    animated: Bool = true, sourceFrame: CGRect? = nil,
-                    sourceKey: String? = nil, fromWidget: Bool = false) async throws {
-        guard !openingReader, readerBook == nil else { return }
-        openingReader = true
-        defer { openingReader = false }
-        let generation = readerOpenGeneration
-        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-        NativeBookPreviewCenter.shared.dismiss(immediate: true)
-        if fromWidget {
-            NativeBookSeriesCenter.shared.dismiss()
-        }
-        session.reset()
-        session.appearanceSessionId = UUID().uuidString
-        session.appearanceRevision = 0
-        session.appearanceColorScheme = nil
-        var args: [String: Any] = ["bookId": book.id, "sessionId": session.appearanceSessionId]
-        if let location { args["location"] = location }
-        let topInset = max(40, NativeTheme.statusBarHeight + 16)
-        let bottomInset = max(52, NativeTheme.bottomTabBarInset + 8)
-        let target = NativeBookOpenTransitionPolicy.resolveOpenTarget(
-            bookId: book.id,
-            explicitFrame: sourceFrame,
-            explicitKey: sourceKey,
-            fromWidget: fromWidget,
-            activeTab: activeTab,
-            viewport: viewportRect,
-            lookup: { NativeBookCoverFrames.get($0) },
-            seriesFrontBookId: seriesFrontBookId(for: book),
-            topInset: topInset,
-            bottomInset: bottomInset
-        )
-        let powerSaving = preferences.isPowerSaving(systemLowPower: ProcessInfo.processInfo.isLowPowerModeEnabled)
-        let useBookFlip = animated && !UIAccessibility.isReduceMotionEnabled && !powerSaving
-        if let originKey = target.sourceKey, animated, !fromWidget {
-            lastBookOpenOrigin = (book.id, originKey)
-        } else {
-            lastBookOpenOrigin = nil
-        }
-        closingBookTransition = nil
-        // Mount `NativeReaderPage` immediately inside a clear fullScreenCover
-        // and launch `reader.open` concurrently while the hardcover expands
-        // and swings open over the live reader surface, so body text renders
-        // during the flip instead of flashing in after it ends.
-        if useBookFlip {
-            let coverImage = await resolveTransitionCoverImage(for: book, preferredWidth: target.frame.width)
-            guard generation == readerOpenGeneration else {
-                openingBookTransition = nil
-                Task { @MainActor [weak self] in self?.openPendingReaderIfNeeded(animated: true) }
-                return
-            }
-            let transition = NativeBookOpenTransition(
-                book: book,
-                sourceFrame: target.frame,
-                sourceKey: target.sourceKey,
-                isCentered: target.isCentered,
-                coverImage: coverImage
-            )
-            openingBookTransition = transition
-            var transaction = Transaction()
-            transaction.disablesAnimations = true
-            UIView.setAnimationsEnabled(false)
-            withTransaction(transaction) {
-                readerBook = book
-            }
-            // Wait one frame so UIKit commits the non-animated presentation,
-            // then immediately re-enable animations so the open morph runs concurrently.
-            try? await Task.sleep(nanoseconds: 12_000_000)
-            UIView.setAnimationsEnabled(true)
-            guard generation == readerOpenGeneration else {
-                openingBookTransition = nil
-                Task { @MainActor [weak self] in self?.openPendingReaderIfNeeded(animated: true) }
-                return
-            }
-            let transitionId = transition.id
-            let fallbackTimeout = (target.isCentered
-                ? NativeBookOpenTransitionPolicy.openFromCenterCleanupDelay
-                : NativeBookOpenTransitionPolicy.openFromCoverCleanupDelay) + 0.16
-            DispatchQueue.main.asyncAfter(deadline: .now() + fallbackTimeout) { [weak self] in
-                guard let self else { return }
-                if self.openingBookTransition?.id == transitionId {
-                    self.openingBookTransition = nil
-                }
-                self.restoringReader = false
-            }
-        } else if animated {
-            openingBookTransition = nil
-            readerBook = book
-            restoringReader = false
-        } else {
-            openingBookTransition = nil
-            var transaction = Transaction()
-            transaction.disablesAnimations = true
-            UIView.setAnimationsEnabled(false)
-            withTransaction(transaction) {
-                readerBook = book
-            }
-            Task { @MainActor [weak self] in
-                try? await Task.sleep(nanoseconds: 50_000_000)
-                UIView.setAnimationsEnabled(true)
-                self?.restoringReader = false
-            }
-        }
-        do {
-            let _: Done = try await request("reader.open", args)
-            guard generation == readerOpenGeneration else {
-                // A widget link arrived while the reader was opening. A tab link
-                // must not be covered by this reader, and a newer book link
-                // should replace it, so close the stale reader first.
-                openingReader = false
-                let _: Done? = try? await request("reader.close")
-                readerBook = nil
-                session.reset()
-                openPendingReaderIfNeeded(animated: true)
-                return
-            }
-            UserDefaults.standard.set(book.id, forKey: Self.lastReaderKey)
-            let nextOrder = (bookOpenOrder.values.max() ?? 0) + 1
-            bookOpenOrder[book.id] = nextOrder
-            UserDefaults.standard.set(bookOpenOrder, forKey: Self.bookOpenOrderKey)
-        } catch {
-            UIView.setAnimationsEnabled(true)
-            if generation == readerOpenGeneration {
-                readerBook = nil
-                restoringReader = false
-                let _: Done? = try? await request("reader.close")
-                openPendingReaderIfNeeded(animated: true)
-            }
-            throw error
-        }
-    }
-
-    func closeReader(animated: Bool = true) async {
-        restoringReader = false
-        openingBookTransition = nil
-        let closingBook = readerBook
-        let closingProgress = session.state.progress
-        let powerSaving = preferences.isPowerSaving(systemLowPower: ProcessInfo.processInfo.isLowPowerModeEnabled)
-        let shouldAnimateClose = animated && closingBook != nil
-            && !UIAccessibility.isReduceMotionEnabled && !powerSaving
-        let preferredKey = (lastBookOpenOrigin?.bookId == closingBook?.id) ? lastBookOpenOrigin?.sourceKey : nil
-        let preferredCoverWidth = NativeBookOpenTransitionPolicy.centeredFrame(in: viewportRect).width
-        let pageSnapshot = shouldAnimateClose ? captureReaderSnapshot() : nil
-        async let preloadedCover: UIImage? = {
-            guard shouldAnimateClose, let book = closingBook else { return nil }
-            return await resolveTransitionCoverImage(for: book, preferredWidth: preferredCoverWidth)
-        }()
-        let coverImage = await preloadedCover
-        let closeWaitDuration: Double
-        if shouldAnimateClose, let book = closingBook {
-            lastBookOpenOrigin = nil
-            // Hold the live page snapshot beneath the fullScreenCover while
-            // dismissing it so closing never flashes blank paper.
-            closingBookSnapshot = pageSnapshot
-            closingBookBackdrop = true
-            defer {
-                closingBookBackdrop = false
-                closingBookSnapshot = nil
-                UIView.setAnimationsEnabled(true)
-            }
-            if closingProgress < 99.5, continueBookId != book.id,
-               library.contains(where: { $0.id == book.id }) {
-                continueBookId = book.id
-            }
-            var transaction = Transaction()
-            transaction.disablesAnimations = true
-            UIView.setAnimationsEnabled(false)
-            withTransaction(transaction) {
-                readerBook = nil
-            }
-            // Start backend teardown immediately without blocking the shrink animation.
-            let closeBackend = Task { @MainActor in
-                do { let _: Done = try await self.request("reader.close") }
-                catch { if !Task.isCancelled { self.failure = error.localizedDescription } }
-            }
-            try? await Task.sleep(nanoseconds: 16_000_000)
-            UIView.setAnimationsEnabled(true)
-
-            let frontBookId = seriesFrontBookId(for: book)
-            let topInset = max(40, NativeTheme.statusBarHeight + 16)
-            let bottomInset = max(52, NativeTheme.bottomTabBarInset + 8)
-            let target = NativeBookOpenTransitionPolicy.resolveCloseTarget(
-                bookId: book.id,
-                preferredKey: preferredKey,
-                activeTab: activeTab,
-                viewport: viewportRect,
-                lookup: { NativeBookCoverFrames.get($0) },
-                seriesFrontBookId: frontBookId,
-                topInset: topInset,
-                bottomInset: bottomInset
-            )
-            closingBookTransition = NativeBookOpenTransition(
-                book: book,
-                sourceFrame: target.frame,
-                sourceKey: target.sourceKey,
-                isCentered: target.isCentered,
-                coverImage: coverImage,
-                pageSnapshot: pageSnapshot
-            )
-            closingBookBackdrop = false
-            closingBookSnapshot = nil
-            closeWaitDuration = (target.isCentered
-                ? NativeBookOpenTransitionPolicy.closeToCenterCleanupDelay
-                : NativeBookOpenTransitionPolicy.closeToCoverCleanupDelay) + 0.03
-            _ = await closeBackend.value
-        } else {
-            do { let _: Done = try await request("reader.close") }
-            catch { if !Task.isCancelled { failure = error.localizedDescription }; return }
-            closeWaitDuration = 0
-            lastBookOpenOrigin = nil
-            if !animated {
-                var transaction = Transaction()
-                transaction.disablesAnimations = true
-                UIView.setAnimationsEnabled(false)
-                withTransaction(transaction) {
-                    readerBook = nil
-                }
-                Task { @MainActor in
-                    try? await Task.sleep(nanoseconds: 50_000_000)
-                    UIView.setAnimationsEnabled(true)
-                }
-            } else {
-                readerBook = nil
-            }
-        }
-        session.reset()
-        UserDefaults.standard.removeObject(forKey: Self.lastReaderKey)
-        if closeWaitDuration > 0 {
-            // Wait for the cover-shut animation to land on its shelf slot
-            // before refreshing/re-sorting the library underneath it.
-            try? await Task.sleep(nanoseconds: UInt64(closeWaitDuration * 1_000_000_000))
-        }
-        do { try await refreshLibrary() }
-        catch { if !Task.isCancelled { failure = error.localizedDescription } }
-    }
-
-    private func captureReaderSnapshot() -> UIImage? {
-        guard let view = readerController.viewIfLoaded,
-              view.bounds.width > 10, view.bounds.height > 10 else { return nil }
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = min(UIScreen.main.scale, 2.0)
-        format.opaque = false
-        return UIGraphicsImageRenderer(bounds: view.bounds, format: format).image { _ in
-            view.drawHierarchy(in: view.bounds, afterScreenUpdates: false)
-        }
     }
 
     func perform(_ work: @escaping @MainActor () async throws -> Void) {

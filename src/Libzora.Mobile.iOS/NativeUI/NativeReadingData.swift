@@ -82,9 +82,8 @@ struct NativeMaterials: View {
                         let coverKey = "materials:\(id)"
                         Button {
                             if let book {
-                                let frame = NativeBookCoverFrames.get(coverKey)
                                 store.perform {
-                                    try await store.openReader(book, sourceFrame: frame, sourceKey: coverKey)
+                                    try await store.openReader(book, sourceKey: coverKey, source: .materials)
                                 }
                             } else {
                                 store.showToast(L("这本书已不在书库中"))
@@ -177,13 +176,12 @@ struct NativeMaterials: View {
                 if item.kind == "reflection" {
                     editingReflection = (item.bookId, book?.title ?? item.bookTitle)
                 } else if let book {
-                    let frame = NativeBookCoverFrames.get(coverKey)
                     store.perform {
                         try await store.openReader(
                             book,
                             location: item.location.foundationValue as? [String: Any],
-                            sourceFrame: frame,
-                            sourceKey: coverKey
+                            sourceKey: coverKey,
+                            source: .materials
                         )
                     }
                 } else { store.showToast(L("这本书已不在书库中")) }

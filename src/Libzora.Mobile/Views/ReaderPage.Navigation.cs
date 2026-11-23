@@ -245,10 +245,33 @@ public partial class ReaderPage
         NotifyNativeState();
     }
 
+    private long _readerNavigationGeneration;
+
+    private long BeginReaderNavigation() => ++_readerNavigationGeneration;
+
+    private bool IsReaderNavigationCurrent(long generation, NativeReaderHost host, EpubReaderDocument document, int chapter) =>
+        !_disposed && generation == _readerNavigationGeneration
+        && ReferenceEquals(_readerHost, host) && ReferenceEquals(_epubDocument, document)
+        && _chapterIndex == chapter;
+
+    private static int FindEpubChapter(EpubReaderDocument document, string path)
+    {
+        var compatible = -1;
+        var ambiguous = false;
+        for (var index = 0; index < document.Chapters.Count; index++)
+        {
+            var candidate = Path.GetFullPath(document.Chapters[index]);
+            if (string.Equals(candidate, path, StringComparison.Ordinal)) return index;
+            if (!string.Equals(candidate, path, StringComparison.OrdinalIgnoreCase)) continue;
+            if (compatible >= 0) ambiguous = true;
+            compatible = index;
+        }
+        return ambiguous ? -1 : compatible;
+    }
+
     /// <summary>
-    /// The index changes before navigating because position messages from the
-    /// new chapter arrive while it loads; a failed load puts it back so labels
-    /// and saved progress keep describing the chapter still on screen.
+    /// Publish the destination index before its position messages arrive. Only
+    /// the current request may roll it back when loading fails.
     /// </summary>
     private async Task<bool> NavigateToChapterAsync(
         NativeReaderHost host,
@@ -257,6 +280,7 @@ public partial class ReaderPage
         int? composeTextOffset = null,
         bool allowPartialCompose = true)
     {
+        var generation = BeginReaderNavigation();
         var previous = _chapterIndex;
         _chapterIndex = chapter;
         var navigated = false;
@@ -268,11 +292,11 @@ public partial class ReaderPage
                 _lifetime.Token,
                 composeTextOffset: composeTextOffset,
                 allowPartialCompose: allowPartialCompose);
-            return navigated;
+            return navigated && generation == _readerNavigationGeneration;
         }
         finally
         {
-            if (!navigated) _chapterIndex = previous;
+            if (!navigated && generation == _readerNavigationGeneration) _chapterIndex = previous;
         }
     }
 
@@ -332,21 +356,32 @@ public partial class ReaderPage
                     _pendingDragScroll = (top, left);
                     return;
                 }
+                // Reflow can change coordinates without moving the reader away
+                // from a note. Rebase before processing the new position.
+                if (_footnoteReturnHasBaseline && _chapterIndex == _footnoteReturnSettledChapter
+                    && root.TryGetProperty("layoutAdjusted", out var adjusted) && adjusted.ValueKind == JsonValueKind.True)
+                {
+                    _footnoteReturnSettledTop = top;
+                    _footnoteReturnSettledLeft = left;
+                }
                 ApplyScrollUpdate(top, left);
             }
             else if (type.GetString() == "link")
             {
                 _tapConsumed = true;
                 var linkHref = root.TryGetProperty("href", out var href) ? href.GetString() : null;
+                var isFootnote = root.TryGetProperty("footnote", out var footnote)
+                    && footnote.ValueKind == JsonValueKind.True;
                 if (_usesNativeFrontend
-                    && root.TryGetProperty("footnote", out var footnote)
-                    && footnote.ValueKind == JsonValueKind.True
+                    && isFootnote
                     && !IsExactFootnoteBacklink(linkHref))
                     _ = ShowFootnoteAsync(root);
                 else
                     _ = HandleLinkAsync(
                         linkHref,
-                        root.TryGetProperty("footnoteText", out var note) && note.ValueKind == JsonValueKind.String
+                        isFootnote
+                            && root.TryGetProperty("footnoteText", out var note)
+                            && note.ValueKind == JsonValueKind.String
                             ? note.GetString()
                             : null);
             }

@@ -81,10 +81,12 @@ struct NativeShell: View {
         .font(NativeTheme.font()).foregroundStyle(NativeTheme.ink).tint(NativeTheme.ink)
         .environment(\.symbolVariants, .none)
         .background(NativeAmbientBackground()).preferredColorScheme(store.preferences.colorScheme)
-        .fullScreenCover(item: $store.readerBook) { book in
+        .fullScreenCover(item: $store.readerBook, onDismiss: store.readerPresentationDismissed) { book in
             NativeReaderPage(store: store, session: store.session, book: book,
-                             appColorScheme: appColorScheme, appearanceSessionId: store.session.appearanceSessionId)
+                             appColorScheme: appColorScheme, appearanceSessionId: store.session.appearanceSessionId,
+                             openAnimation: store.readerOpenAnimation)
                 .modifier(NativeClearFullScreenBackground())
+                .onAppear { store.readerPresentationAppeared(for: book.id) }
         }
         .sheet(item: $store.txtReview) { review in NativeTxtReview(store: store, review: review) }
         .modifier(NativeFeedback(store: store, active: store.readerBook == nil))

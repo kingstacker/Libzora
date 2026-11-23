@@ -14,7 +14,15 @@ final class ReaderFootnoteTests: XCTestCase {
         XCTAssertEqual(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'book.' AND label CONTAINS '脚注回归·'")).count, 5)
     }
 
-    override func tearDownWithError() throws { app.terminate() }
+    override func tearDownWithError() throws {
+        if (testRun?.failureCount ?? 0) > 0 {
+            let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+            attachment.name = "阅读器回归失败现场"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+        app.terminate()
+    }
 
     func testLegacyCssFootnoteOpensWithoutChangingPosition() {
         checkpoint("脚注回归-真实封面书库")
@@ -78,6 +86,104 @@ final class ReaderFootnoteTests: XCTestCase {
         checkpoint("脚注回归-普通链接不误识别")
     }
 
+    func testCloseQueuesOneTapUntilSlowTeardownFinishes() {
+        app.terminate()
+        app.launchArguments = ["--libzora-disable-restore", "--libzora-test-slow-reader-close"]
+        app.launchEnvironment["LIBZORA_TEST_SLOW_READER_CLOSE"] = "1"
+        app.launch()
+        _ = openBook("旧式锚点")
+        showReaderChrome()
+        app.buttons["reader.close"].tap()
+        let next = libraryBook("跨文件多段")
+        XCTAssertTrue(waitUntil(timeout: 3) { next.isHittable }, "The shelf must be interactive before slow teardown completes")
+        next.tap() // No retry: this intent must survive the still-running close.
+        XCTAssertTrue(waitUntil(timeout: 40) { self.position.isHittable && !self.app.descendants(matching: .any)["reader.loading"].exists })
+        showReaderChrome()
+        XCTAssertTrue(app.otherElements["reader.topToolbar"].staticTexts["脚注回归·跨文件多段"].isHittable, app.debugDescription)
+        checkpoint("阅读器竞态-关闭期间单次点击打开新书")
+    }
+
+    func testMaterialsExitReleasesTheModalBeforeSlowTeardown() {
+        app.terminate()
+        app.launchArguments = ["--libzora-disable-restore", "--libzora-test-slow-reader-close"]
+        app.launchEnvironment["LIBZORA_TEST_SLOW_READER_CLOSE"] = "1"
+        app.launch()
+        let materialsTab = app.tabBars.buttons["阅读资料"]
+        XCTAssertTrue(materialsTab.waitForExistence(timeout: 15))
+        materialsTab.tap()
+        let filter = app.buttons["materials.filter.bookmark"]
+        XCTAssertTrue(filter.waitForExistence(timeout: 10))
+        filter.tap()
+        let entry = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'materials.entry.'")).firstMatch
+        XCTAssertTrue(entry.waitForExistence(timeout: 15), app.debugDescription)
+        entry.tap()
+        XCTAssertTrue(waitUntil(timeout: 40) { self.position.isHittable && !self.app.descendants(matching: .any)["reader.loading"].exists })
+        let original = position.label
+        showReaderChrome()
+        app.buttons["reader.close"].tap()
+        XCTAssertTrue(waitUntil(timeout: 3) { entry.isHittable },
+                      "The material list must not remain behind an invisible reader during slow close")
+        entry.tap()
+        XCTAssertTrue(waitUntil(timeout: 40) { self.position.isHittable && !self.app.descendants(matching: .any)["reader.loading"].exists })
+        XCTAssertEqual(position.label, original, "Queued material opens must retain the bookmark location")
+        checkpoint("阅读器竞态-资料退出与书签位置重开")
+    }
+
+    func testCancelStartupRestoreDoesNotRestoreAgainOnNextLaunch() {
+        _ = openBook("旧式锚点")
+        checkpoint("阅读器竞态-准备上次阅读恢复")
+        app.terminate()
+        app.launchArguments = ["--libzora-test-slow-reader-open"]
+        app.launchEnvironment["LIBZORA_TEST_SLOW_READER_OPEN"] = "1"
+        app.launch()
+        let close = app.buttons["reader.close"]
+        XCTAssertTrue(waitUntil(timeout: 15) { close.isHittable && !self.position.exists }, app.debugDescription)
+        close.tap()
+        XCTAssertTrue(waitUntil(timeout: 3) { self.app.scrollViews["library.ready"].isHittable })
+        // Relaunch immediately, before the canceled request can finish cleanup.
+        app.terminate()
+        app.launchArguments = []
+        app.launchEnvironment.removeValue(forKey: "LIBZORA_TEST_SLOW_READER_OPEN")
+        app.launch()
+        XCTAssertTrue(waitUntil(timeout: 40) { self.app.scrollViews["library.ready"].isHittable })
+        XCTAssertFalse(app.descendants(matching: .any)["reader.loading"].isHittable)
+        XCTAssertFalse(position.isHittable)
+        checkpoint("阅读器竞态-取消恢复后再次启动留在书库")
+    }
+
+    func testCanceledSameBookOpenAcceptsANewWidgetLink() throws {
+        guard #available(iOS 16.4, *) else { throw XCTSkip("URL launch requires iOS 16.4") }
+        app.terminate()
+        app.launchArguments = ["--libzora-disable-restore", "--libzora-test-slow-reader-open"]
+        app.launchEnvironment["LIBZORA_TEST_SLOW_READER_OPEN"] = "1"
+        app.launch()
+        let book = libraryBook("旧式锚点")
+        XCTAssertTrue(book.waitForExistence(timeout: 15))
+        let id = try XCTUnwrap(UUID(uuidString: String(book.identifier.dropFirst("book.".count))))
+        book.tap()
+        let close = app.buttons["reader.close"]
+        XCTAssertTrue(waitUntil(timeout: 15) { close.isHittable && !self.position.exists }, app.debugDescription)
+        app.open(try XCTUnwrap(URL(string: "libzora://library")))
+        app.open(try XCTUnwrap(URL(string: "libzora://read/\(id.uuidString)")))
+        XCTAssertTrue(waitUntil(timeout: 40) { self.position.isHittable && !self.app.descendants(matching: .any)["reader.loading"].exists },
+                      "The new same-book widget link must survive cancellation of the earlier open")
+        showReaderChrome()
+        XCTAssertTrue(app.otherElements["reader.topToolbar"].staticTexts["脚注回归·旧式锚点"].isHittable)
+        checkpoint("阅读器竞态-取消后同书小组件链接仍可打开")
+    }
+
+    private func libraryBook(_ label: String) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'book.' AND label CONTAINS %@", "脚注回归·" + label)).firstMatch
+    }
+
+    private func showReaderChrome() {
+        let close = app.buttons["reader.close"]
+        if !close.isHittable {
+            app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+        }
+        XCTAssertTrue(waitUntil { close.isHittable }, app.debugDescription)
+    }
+
     private var position: XCUIElement { app.staticTexts["reader.position"] }
 
     private func openBook(_ label: String) -> String {
@@ -85,7 +191,7 @@ final class ReaderFootnoteTests: XCTestCase {
         XCTAssertTrue(book.waitForExistence(timeout: 15), app.debugDescription)
         book.tap()
         XCTAssertTrue(position.waitForExistence(timeout: 40), app.debugDescription)
-        XCTAssertTrue(waitUntil { !self.app.otherElements["reader.loading"].exists }, app.debugDescription)
+        XCTAssertTrue(waitUntil { !self.app.descendants(matching: .any)["reader.loading"].exists }, app.debugDescription)
         return position.label
     }
 

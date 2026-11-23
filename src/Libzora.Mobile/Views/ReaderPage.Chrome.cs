@@ -46,6 +46,8 @@ public partial class ReaderPage
 
     private async Task SeekAsync(double percent)
     {
+        BeginReaderNavigation();
+        ClearFootnoteNavigation();
         ClearActiveSyncedMarker();
         _tts?.NotifyManualNavigation();
         try

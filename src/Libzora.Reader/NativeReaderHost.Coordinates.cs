@@ -28,7 +28,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
             new ReaderWebMessageReceivedEventArgs(JsonSerializer.Serialize(message)));
     }
 
-    private void EmitScroll()
+    private void EmitScroll(bool layoutAdjusted = false)
     {
         SyncScrollBar();
         var state = GetScrollState();
@@ -39,6 +39,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         Emit(new
         {
             type = "scroll",
+            layoutAdjusted,
             top = scrollMode ? state.Position : 0.0,
             left = scrollMode ? 0.0 : state.Position,
             scrollWidth = state.ScrollWidth,

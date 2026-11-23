@@ -607,6 +607,26 @@ public sealed partial class SettingsTests(SettingsUiSession session)
     });
 
     [Fact]
+    public Task AboutExposesLegalLinks() => Run(async () =>
+    {
+        await using var scope = await TestWindow.Create(new AppSettings
+        {
+            UiLanguage = "zh-CN", OnboardingCompleted = true, NetworkEnabled = false,
+            AutoUpdateCheckEnabled = false, AutoConnectDevice = false, GridGalleryDisplay = false
+        });
+        scope.Call("SettingsButton_Click", null, new RoutedEventArgs());
+        scope.Call("ShowSettingsSection", "About");
+        await Render();
+        scope.Get<ScrollViewer>("SettingsScrollViewer").ScrollToEnd();
+        await Render();
+        var terms = scope.Get<Button>("UserAgreementButton");
+        Assert.True(terms.IsEffectivelyVisible);
+        Assert.Equal("用户协议", terms.Content?.ToString());
+        Assert.Equal("隐私政策", scope.Get<Button>("PrivacyPolicyButton").Content?.ToString());
+        Capture(scope.Window, "zh-CN-about-legal");
+    });
+
+    [Fact]
     public Task AdvancedExposesSoftwareLogExport() => Run(async () =>
     {
         await using var scope = await TestWindow.Create(new AppSettings { UiLanguage = "zh-CN" });

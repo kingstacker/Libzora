@@ -73,17 +73,24 @@ public partial class MainWindow
             ? NormalizeReaderLayoutForPlatform(_readerBaseLayout)
             : NormalizeReaderLayoutForPlatform(_readerLayout);
 
+    internal static ReaderLayoutSettings BuildEffectiveProseLayout(ReaderLayoutSettings normalizedBase) =>
+        normalizedBase with
+        {
+            MangaMode = false,
+            MangaAutoCrop = false,
+            MangaRightToLeft = false,
+            ParagraphSpacingMatchesLineHeight = normalizedBase.ParagraphSpacing <= 0,
+            OverridePublisherLineHeight = true,
+            OverridePublisherParagraphSpacing = true,
+            NaturalLatinTypography = true
+        };
+
     private ReaderLayoutSettings BuildEffectiveReaderLayout(ReaderLayoutSettings baseLayout)
     {
         var normalizedBase = NormalizeReaderLayoutForPlatform(baseLayout);
         if (_readerIsPdf || !_readerMangaSettings.Enabled)
         {
-            return normalizedBase with
-            {
-                MangaMode = false,
-                MangaAutoCrop = false,
-                MangaRightToLeft = false
-            };
+            return BuildEffectiveProseLayout(normalizedBase);
         }
 
         var verticalScroll = _readerMangaSettings.Direction == MangaReadingDirection.VerticalScroll;

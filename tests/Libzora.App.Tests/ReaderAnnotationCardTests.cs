@@ -231,6 +231,58 @@ public sealed class ReaderAnnotationCardTests(SettingsUiSession session)
         Assert.False(popup.IsOpen);
     });
 
+    [Fact]
+    public Task NoteEditorShowsStylePickerDeleteAndAccentBarMatchingHighlight() => Run(async () =>
+    {
+        await using var scope = await ReaderTestWindow.Create();
+        using var host = await ReaderAppearanceTests.LoadChapter(scope, new());
+        var annotation = new ReaderAnnotation
+        {
+            Id = Guid.NewGuid(),
+            StartOffset = 12,
+            EndOffset = 40,
+            SelectedText = "原文摘录",
+            UnderlineStyle = "marker",
+            Color = "#64B5F6",
+            Note = "已有笔记"
+        };
+
+        scope.Set("_selectedReaderAnnotation", null);
+        scope.Set("_readerPendingSelection", "新选文本");
+        scope.Call("ShowReaderAnnotationInputPopup");
+        await ReaderTests.Render();
+        Assert.True(scope.Get<Popup>("ReaderAnnotationInputPopup").IsOpen);
+        Assert.False(scope.Get<Button>("ReaderAnnotationInputDeleteButton").IsVisible);
+
+        var palette = scope.Get<StackPanel>("ReaderAnnotationInputPalette");
+        var blueButton = Assert.Single(palette.Children.OfType<Button>(), b => b.Tag as string == "#64B5F6");
+        blueButton.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        await ReaderTests.Render();
+        Assert.Equal("marker", scope.Field<string>("_readerAnnotationInputStyle"));
+        Assert.Equal("#64B5F6", scope.Field<string>("_readerAnnotationInputColor"));
+        Assert.Contains("selected", blueButton.Classes);
+        scope.Call("CloseReaderAnnotationInputPopup");
+
+        scope.Set("_selectedReaderAnnotation", annotation);
+        scope.Set("_readerPendingSelection", annotation.SelectedText);
+        scope.Call("ShowReaderAnnotationInputPopup");
+        await ReaderTests.Render();
+        Assert.True(scope.Get<Button>("ReaderAnnotationInputDeleteButton").IsVisible);
+        Assert.Equal("#64B5F6", scope.Field<string>("_readerAnnotationInputColor"));
+        scope.Call("CloseReaderAnnotationInputPopup");
+
+        scope.Call("ShowReaderAnnotationHoverPopup", annotation.Note, new Point(60, 60), annotation, false);
+        await ReaderTests.Render();
+        var accent = scope.Get<Border>("ReaderAnnotationHoverAccentBar");
+        Assert.True(accent.IsVisible);
+        Assert.Equal(Avalonia.Media.Color.Parse("#64B5F6"),
+            Assert.IsAssignableFrom<Avalonia.Media.ISolidColorBrush>(accent.Background).Color);
+        scope.Call("HideReaderAnnotationHoverPopup");
+
+        scope.Set("_readerActiveHost", null);
+        scope.Get<ContentControl>("ReaderActiveHostSlot").Content = null;
+    });
+
     private static void Capture(Control card, string name)
     {
         var output = Environment.GetEnvironmentVariable("LIBZORA_READER_ARTIFACTS");

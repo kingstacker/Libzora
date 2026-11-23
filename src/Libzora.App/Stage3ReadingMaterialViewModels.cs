@@ -144,6 +144,7 @@ public sealed class Stage3ReadingMaterialGroupViewModel : ObservableObject, IDis
 public sealed class Stage3ReadingMaterialViewModel : ObservableObject, IDisposable
 {
     private bool _isSelected;
+    private bool _isExportMode;
     private readonly string _bookTitleSource;
     private readonly string _typeLabelSource;
 
@@ -234,6 +235,17 @@ public sealed class Stage3ReadingMaterialViewModel : ObservableObject, IDisposab
     public string DateLabel => UpdatedAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? UiText.Get("时间未知");
     public string SearchText => string.Join('\n', SourceLabel, BookTitle, TypeLabel, ChapterLabel, Location, Quote, Note);
     public bool IsDeletedBook { get; init; }
+    public bool IsExportMode
+    {
+        get => _isExportMode;
+        set
+        {
+            if (SetProperty(ref _isExportMode, value))
+                OnPropertyChanged(nameof(IsNotExportMode));
+        }
+    }
+    public bool IsNotExportMode => !IsExportMode;
+
     public bool IsSelected
     {
         get => _isSelected;

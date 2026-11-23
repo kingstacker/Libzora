@@ -335,6 +335,15 @@ public partial class MainWindow
             && (annotation is null || !TryGetReaderPdfPage(annotation.ChapterPath, out _))) return;
         ReaderAnnotationHoverNote.Text = note ?? string.Empty;
         ReaderAnnotationHoverHeading.IsVisible = false;
+        if (ReaderAnnotationAccentBrushConverter.TryGetHighlightBrush(annotation, isReaderTheme: true, out var accentBrush))
+        {
+            ReaderAnnotationHoverAccentBar.Background = accentBrush;
+            ReaderAnnotationHoverAccentBar.IsVisible = true;
+        }
+        else
+        {
+            ReaderAnnotationHoverAccentBar.IsVisible = false;
+        }
         _readerAnnotationHoverSequence++;
         ReaderAnnotationHoverNote.IsVisible = !string.IsNullOrWhiteSpace(note);
         _readerAnnotationHoverAnnotationId = annotation?.Id;
@@ -389,6 +398,7 @@ public partial class MainWindow
             pdf.ClearAnnotationCallout();
         ReaderAnnotationHoverHostPopup.IsOpen = false;
         ReaderAnnotationHoverPopup.IsVisible = false;
+        ReaderAnnotationHoverAccentBar.IsVisible = false;
         ReaderAnnotationHoverNote.Text = string.Empty;
         _readerAnnotationHoverPlacementPoint = null;
         _readerAnnotationHoverAnnotationId = null;

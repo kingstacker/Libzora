@@ -168,4 +168,33 @@ public sealed partial class SettingsTests
         Assert.True(scope.Get<Button>("RefreshReadingMaterialsButton").IsEffectivelyVisible);
         Assert.All(scope.Window.ReadingMaterialGroups, group => Assert.False(group.IsExportMode));
     }
+
+    [Fact]
+    public Task ReadingMaterialDefaultCardsHideCheckboxesAndSelectOnClick() => Run(async () =>
+    {
+        await using var scope = await TestWindow.Create();
+        await LoadExportNotesAsync(scope);
+        scope.Window.ReadingMaterialGroups[0].IsExpanded = true;
+        await Render();
+
+        var page = scope.Get<Grid>("ReadingMaterialsPage");
+        var card = Assert.Single(page.GetVisualDescendants().OfType<Border>()
+            .Where(border => border.Classes.Contains("readingMaterialCard"))
+            .Take(1));
+        var checkBox = Assert.Single(card.GetVisualDescendants().OfType<CheckBox>());
+        Assert.False(checkBox.IsVisible);
+        Assert.False(scope.Get<Button>("DeleteReadingMaterialsButton").IsEnabled);
+
+        var point = card.TranslatePoint(new Point(card.Bounds.Width / 2, card.Bounds.Height / 2), scope.Window)!.Value;
+        scope.Window.MouseDown(point, MouseButton.Left, RawInputModifiers.None);
+        scope.Window.MouseUp(point, MouseButton.Left, RawInputModifiers.None);
+        await Render();
+
+        Assert.Contains("selected", card.Classes);
+        Assert.True(scope.Get<Button>("DeleteReadingMaterialsButton").IsEnabled);
+
+        scope.Get<Button>("ExportReadingMaterialsToggleButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await Render();
+        Assert.True(checkBox.IsVisible);
+    });
 }

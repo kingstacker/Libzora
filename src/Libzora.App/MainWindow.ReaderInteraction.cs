@@ -38,7 +38,8 @@ namespace Libzora;
 public partial class MainWindow
 {
     private ReaderLayoutSettings _readerBaseLayout = NormalizeReaderLayoutForPlatform(new ReaderLayoutSettings());
-    private ReaderLayoutSettings _readerLayout = NormalizeReaderLayoutForPlatform(new ReaderLayoutSettings());
+    private ReaderLayoutSettings _readerLayout = BuildEffectiveProseLayout(NormalizeReaderLayoutForPlatform(new ReaderLayoutSettings()));
+    private ReaderReadingStats? _readerBookReadingStats;
     private bool _readerVerticalDebugBoxesEnabled =
         Environment.GetEnvironmentVariable("LIBZORA_VERTICAL_DEBUG_BOXES") == "1";
 
@@ -489,6 +490,17 @@ public partial class MainWindow
         await _readerReadingTimeRecovery.SaveAsync(card.Book.Id, file.Id, seconds,
             CalculateReaderProgressPercent(), _readerChapterIndex,
             _readerDocument?.Chapters.Count ?? (_readerIsPdf ? _readerPdfPages.Count : 0), CancellationToken.None);
+        var currentSeconds = (_readerBookReadingStats?.CumulativeSeconds ?? 0) + seconds;
+        _readerBookReadingStats = new ReaderReadingStats
+        {
+            BookId = card.Book.Id,
+            BookFileId = file.Id,
+            CumulativeSeconds = currentSeconds,
+            ProgressPercent = CalculateReaderProgressPercent(),
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        if (_appSettings.ReaderProgressDisplay == ReaderProgressDisplayMode.BookTimeRemaining)
+            ReaderChapterText.Text = GetReaderChapterPositionLabel();
     }
 
     private void UpdateReaderZoomLabel()

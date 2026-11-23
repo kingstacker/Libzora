@@ -341,7 +341,7 @@ public partial class MainWindow
         // WebView edge cover would expose bands or clip Webtoon artwork.
         ReaderWebViewHost.Margin = (_readerIsPdf || IsReaderMangaMode)
             ? new Thickness(0)
-            : new Thickness(0, 12, 2, _readerZenMode ? 0 : 10);
+            : new Thickness(0, 0, 2, 0);
         ReaderWebViewBottomCover.IsVisible = !_readerIsPdf && !IsReaderMangaMode;
     }
 
@@ -478,14 +478,14 @@ public partial class MainWindow
         _readerTocMinimal = _readerTocMinimalBeforeZen;
         ReaderContentPanel.RowDefinitions[0].Height = new GridLength(52);
         ReaderHeaderBar.IsVisible = true;
-        ReaderContentPanel.RowDefinitions[2].Height = new GridLength(50);
+        ReaderContentPanel.RowDefinitions[2].Height = new GridLength(42);
         ReaderFooterBar.IsVisible = true;
         ReaderTocPanel.Margin = new Thickness(0, 38, 0, 0);
         ReaderTocCompactPanel.Margin = new Thickness(0, 38, 0, 0);
         ReaderContentPanel.Margin = new Thickness(0, 38, 0, 0);
         ReaderAssistantPanel.Margin = new Thickness(0, 38, 0, 0);
         ReaderLayoutSettingsOverlay.Margin = new Thickness(0);
-        ReaderWebViewBottomCover.Margin = new Thickness(0, 0, 0, 10);
+        ReaderWebViewBottomCover.Margin = new Thickness(0);
         UpdateReaderBookmarkCornerSurface();
         ApplyReaderPanelLayout();
         UpdateReaderZenTocToggle();

@@ -40,7 +40,7 @@ public partial class MainWindow
     private async void ReaderAiSettingsButton_Click(object? sender, RoutedEventArgs e)
     {
         if (BlockNavigationWhileTransferring()) return;
-        if (ReaderRoot.IsVisible) await CloseReaderAsync();
+        if (ReaderRoot.IsVisible) await CloseReaderCoreAsync(animate: false);
         if (ReaderRoot.IsVisible) return;
         OpenSettingsExpander("Reading", SettingsAiExpander);
         await EnsureMainReaderAiSettingsLoadedAsync();
@@ -51,7 +51,7 @@ public partial class MainWindow
     private async void ReaderAiVectorStatusButton_Click(object? sender, RoutedEventArgs e)
     {
         if (BlockNavigationWhileTransferring()) return;
-        if (ReaderRoot.IsVisible) await CloseReaderAsync();
+        if (ReaderRoot.IsVisible) await CloseReaderCoreAsync(animate: false);
         if (ReaderRoot.IsVisible) return;
         OpenSettingsExpander("Reading", SettingsAiExpander);
         await EnsureMainReaderAiSettingsLoadedAsync();

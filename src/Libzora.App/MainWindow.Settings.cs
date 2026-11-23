@@ -73,7 +73,7 @@ public partial class MainWindow
     private async Task OpenApplicationSettingsAsync()
     {
         if (BlockNavigationWhileTransferring()) return;
-        if (ReaderRoot.IsVisible) await CloseReaderAsync();
+        if (ReaderRoot.IsVisible) await CloseReaderCoreAsync(animate: false);
         if (ReaderRoot.IsVisible) return;
         ShowStage3Page(SettingsPage, SettingsNavigationButton);
         SettingsDataPathText.Text = _paths.Data;

@@ -10,6 +10,8 @@ using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Libzora.Core;
 using Libzora.Infrastructure;
+using Libzora.Layout;
+using System.Globalization;
 using System.Text.RegularExpressions;
 
 namespace Libzora;
@@ -166,14 +168,20 @@ public partial class MainWindow
         try
         {
             var baseLayout = GetBaseReaderLayout();
+            PopulateReaderFontOptions(baseLayout.FontFamily, baseLayout.LatinFontFamily);
             ReaderFontScaleSlider.Value = baseLayout.FontScale;
             ReaderLineHeightSlider.Value = baseLayout.LineHeight;
             ReaderMaxWidthSlider.Value = baseLayout.MaxWidth;
             ReaderBodyPaddingSlider.Value = baseLayout.BodyPadding;
+            SelectReaderParagraphSpacing(baseLayout.ParagraphSpacing);
+            SelectReaderTextAlignment(baseLayout.AlignLeft);
             ReaderVerticalWritingCheck.IsChecked = baseLayout.VerticalWriting;
             ReaderParagraphIndentCheck.IsChecked = baseLayout.ParagraphIndent;
             ReaderHyphenationCheck.IsChecked = baseLayout.HyphenateEnglish;
+            ReaderCjkLatinSpacingCheck.IsChecked = baseLayout.CjkLatinSpacing;
+            ReaderAvoidWidowsCheck.IsChecked = baseLayout.AvoidWidowsAndOrphans;
             SelectReaderFontFamily(baseLayout.FontFamily);
+            SelectReaderLatinFontFamily(baseLayout.LatinFontFamily);
             SelectReaderFlowMode(_readerLayout.FlowMode, _readerLayout.TwoPageMode);
             SelectReaderPageAnimation(_readerPageAnimation);
         }
@@ -202,10 +210,18 @@ public partial class MainWindow
         && ReaderLineHeightSlider is not null
         && ReaderMaxWidthSlider is not null
         && ReaderBodyPaddingSlider is not null
+        && ReaderParagraphSpacingTightOption is not null
+        && ReaderParagraphSpacingNormalOption is not null
+        && ReaderParagraphSpacingLooseOption is not null
+        && ReaderAlignJustifyOption is not null
+        && ReaderAlignLeftOption is not null
         && ReaderFontFamilyBox is not null
+        && ReaderLatinFontFamilyBox is not null
         && ReaderVerticalWritingCheck is not null
         && ReaderParagraphIndentCheck is not null
-        && ReaderHyphenationCheck is not null;
+        && ReaderHyphenationCheck is not null
+        && ReaderCjkLatinSpacingCheck is not null
+        && ReaderAvoidWidowsCheck is not null;
 
     private bool _suppressReaderLayoutChange;
     private CancellationTokenSource? _readerLayoutApplyCancellation;
@@ -218,6 +234,32 @@ public partial class MainWindow
     }
 
     private void ReaderFontFamilyBox_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressReaderLayoutChange || !AreReaderLayoutControlsReady()) return;
+        ScheduleReaderLayoutApply();
+    }
+
+    private void ReaderLatinFontFamilyBox_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressReaderLayoutChange || !AreReaderLayoutControlsReady()) return;
+        ScheduleReaderLayoutApply();
+    }
+
+    private void ReaderParagraphSpacingOption_IsCheckedChanged(object? sender, RoutedEventArgs e)
+    {
+        if (_suppressReaderLayoutChange || !AreReaderLayoutControlsReady()
+            || sender is not RadioButton { IsChecked: true }) return;
+        ScheduleReaderLayoutApply();
+    }
+
+    private void ReaderTextAlignmentOption_IsCheckedChanged(object? sender, RoutedEventArgs e)
+    {
+        if (_suppressReaderLayoutChange || !AreReaderLayoutControlsReady()
+            || sender is not RadioButton { IsChecked: true }) return;
+        ScheduleReaderLayoutApply();
+    }
+
+    private void ReaderCjkLatinSpacingCheck_IsCheckedChanged(object? sender, RoutedEventArgs e)
     {
         if (_suppressReaderLayoutChange || !AreReaderLayoutControlsReady()) return;
         ScheduleReaderLayoutApply();
@@ -259,6 +301,12 @@ public partial class MainWindow
         ScheduleReaderLayoutApply();
     }
 
+    private void ReaderAvoidWidowsCheck_IsCheckedChanged(object? sender, RoutedEventArgs e)
+    {
+        if (_suppressReaderLayoutChange || !AreReaderLayoutControlsReady()) return;
+        ScheduleReaderLayoutApply();
+    }
+
     private void ScheduleReaderLayoutApply()
     {
         _readerLayoutApplyCancellation?.Cancel();
@@ -288,19 +336,32 @@ public partial class MainWindow
         });
     }
 
-    private ReaderLayoutSettings ReadReaderLayoutFromControls() => new ReaderLayoutSettings(
-        ReaderFontScaleSlider.Value,
-        ReaderLineHeightSlider.Value,
-        ReaderMaxWidthSlider.Value,
-        ReaderBodyPaddingSlider.Value,
-        (ReaderFontFamilyBox.SelectedItem as ComboBoxItem)?.Tag as string ?? string.Empty,
-        GetBaseReaderLayout().FlowMode,
-        ReaderVerticalWritingCheck.IsChecked == true,
-        GetBaseReaderLayout().TwoPageMode)
+    private ReaderLayoutSettings ReadReaderLayoutFromControls()
     {
-        ParagraphIndent = ReaderParagraphIndentCheck.IsChecked == true,
-        HyphenateEnglish = ReaderHyphenationCheck.IsChecked != false
-    };
+        var latinTag = (ReaderLatinFontFamilyBox.SelectedItem as ComboBoxItem)?.Tag as string;
+        var latinFontFamily = string.IsNullOrWhiteSpace(latinTag)
+            || string.Equals(latinTag, "auto", StringComparison.OrdinalIgnoreCase)
+            ? null
+            : latinTag;
+        return new ReaderLayoutSettings(
+            ReaderFontScaleSlider.Value,
+            ReaderLineHeightSlider.Value,
+            ReaderMaxWidthSlider.Value,
+            ReaderBodyPaddingSlider.Value,
+            (ReaderFontFamilyBox.SelectedItem as ComboBoxItem)?.Tag as string ?? string.Empty,
+            GetBaseReaderLayout().FlowMode,
+            ReaderVerticalWritingCheck.IsChecked == true,
+            GetBaseReaderLayout().TwoPageMode)
+        {
+            ParagraphIndent = ReaderParagraphIndentCheck.IsChecked == true,
+            ParagraphSpacing = ReadSelectedReaderParagraphSpacing(),
+            HyphenateEnglish = ReaderHyphenationCheck.IsChecked != false,
+            AlignLeft = ReaderAlignLeftOption.IsChecked == true,
+            CjkLatinSpacing = ReaderCjkLatinSpacingCheck.IsChecked != false,
+            LatinFontFamily = latinFontFamily,
+            AvoidWidowsAndOrphans = ReaderAvoidWidowsCheck.IsChecked == true
+        };
+    }
 
     private void ReaderLayoutSettingsCloseButton_Click(object? sender, RoutedEventArgs e)
         => ReaderLayoutSettingsPopup.IsOpen = false;
@@ -346,10 +407,16 @@ public partial class MainWindow
                 ReaderLineHeightSlider.Value = _readerLayout.LineHeight;
                 ReaderMaxWidthSlider.Value = _readerLayout.MaxWidth;
                 ReaderBodyPaddingSlider.Value = _readerLayout.BodyPadding;
+                SelectReaderParagraphSpacing(_readerLayout.ParagraphSpacing);
+                SelectReaderTextAlignment(_readerLayout.AlignLeft);
                 ReaderVerticalWritingCheck.IsChecked = _readerLayout.VerticalWriting;
                 ReaderParagraphIndentCheck.IsChecked = _readerLayout.ParagraphIndent;
                 ReaderHyphenationCheck.IsChecked = _readerLayout.HyphenateEnglish;
+                ReaderCjkLatinSpacingCheck.IsChecked = _readerLayout.CjkLatinSpacing;
+                ReaderAvoidWidowsCheck.IsChecked = _readerLayout.AvoidWidowsAndOrphans;
+                PopulateReaderFontOptions(_readerLayout.FontFamily, _readerLayout.LatinFontFamily);
                 SelectReaderFontFamily(_readerLayout.FontFamily);
+                SelectReaderLatinFontFamily(_readerLayout.LatinFontFamily);
                 SelectReaderFlowMode(_readerLayout.FlowMode, _readerLayout.TwoPageMode);
             }
             finally
@@ -377,10 +444,16 @@ public partial class MainWindow
             ReaderLineHeightSlider.Value = ReaderLayoutDefaults.DefaultLineHeight;
             ReaderMaxWidthSlider.Value = ReaderLayoutDefaults.DefaultMaxWidth;
             ReaderBodyPaddingSlider.Value = ReaderLayoutDefaults.DefaultBodyPadding;
+            SelectReaderParagraphSpacing(ReaderLayoutDefaults.DefaultParagraphSpacing);
+            SelectReaderTextAlignment(false);
             ReaderVerticalWritingCheck.IsChecked = false;
             ReaderParagraphIndentCheck.IsChecked = false;
             ReaderHyphenationCheck.IsChecked = true;
+            ReaderCjkLatinSpacingCheck.IsChecked = true;
+            ReaderAvoidWidowsCheck.IsChecked = false;
+            PopulateReaderFontOptions(ReaderFontDefaults.DefaultFamily, null);
             SelectReaderFontFamily(ReaderFontDefaults.DefaultFamily);
+            SelectReaderLatinFontFamily(null);
             SelectReaderFlowMode(1, false);
             SelectReaderPageAnimation(ReaderAnimationFade);
         }
@@ -411,6 +484,137 @@ public partial class MainWindow
             .OfType<ComboBoxItem>()
             .FirstOrDefault(candidate => string.Equals(candidate.Tag as string, family, StringComparison.OrdinalIgnoreCase));
         ReaderFontFamilyBox.SelectedItem = item ?? ReaderFontFamilyBox.Items.OfType<ComboBoxItem>().FirstOrDefault();
+    }
+
+    private void SelectReaderLatinFontFamily(string? family)
+    {
+        var target = string.IsNullOrWhiteSpace(family) ? "auto" : family.Trim();
+        var item = ReaderLatinFontFamilyBox.Items
+            .OfType<ComboBoxItem>()
+            .FirstOrDefault(candidate => string.Equals(candidate.Tag as string, target, StringComparison.OrdinalIgnoreCase));
+        ReaderLatinFontFamilyBox.SelectedItem = item ?? ReaderLatinFontFamilyBox.Items.OfType<ComboBoxItem>().FirstOrDefault();
+    }
+
+    private void SelectReaderParagraphSpacing(double spacing)
+    {
+        ReaderParagraphSpacingTightOption.IsChecked = spacing <= 0.1;
+        ReaderParagraphSpacingNormalOption.IsChecked = spacing is > 0.1 and < 0.8;
+        ReaderParagraphSpacingLooseOption.IsChecked = spacing >= 0.8;
+    }
+
+    private double ReadSelectedReaderParagraphSpacing()
+    {
+        foreach (var option in new[]
+        {
+            ReaderParagraphSpacingTightOption,
+            ReaderParagraphSpacingNormalOption,
+            ReaderParagraphSpacingLooseOption
+        })
+        {
+            if (option.IsChecked == true
+                && double.TryParse(option.Tag?.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed))
+            {
+                return parsed;
+            }
+        }
+        return ReaderLayoutDefaults.DefaultParagraphSpacing;
+    }
+
+    private void SelectReaderTextAlignment(bool alignLeft)
+    {
+        ReaderAlignJustifyOption.IsChecked = !alignLeft;
+        ReaderAlignLeftOption.IsChecked = alignLeft;
+    }
+
+    private void PopulateReaderFontOptions(string? activeBodyFamily, string? activeLatinFamily)
+    {
+        if (ReaderFontFamilyBox is not null)
+        {
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var items = new List<ComboBoxItem>();
+
+            void AddBodyItem(string label, string tag)
+            {
+                if (string.IsNullOrWhiteSpace(tag) || !seen.Add(tag)) return;
+                items.Add(new ComboBoxItem { Content = label, Tag = tag });
+            }
+
+            AddBodyItem(T("京华老宋体（默认）"), ReaderFontDefaults.DefaultFamily);
+            AddBodyItem(T("系统默认"), ReaderFontDefaults.SystemDefaultFamily);
+            AddBodyItem(T("微软雅黑"), "Microsoft YaHei UI");
+            AddBodyItem(T("宋体 (SimSun)"), "SimSun");
+            AddBodyItem(T("黑体 (SimHei)"), "SimHei");
+            AddBodyItem(T("楷体 (KaiTi)"), "KaiTi");
+            AddBodyItem(T("等线 (DengXian)"), "DengXian");
+            AddBodyItem(T("思源宋体"), "Source Han Serif SC, Noto Serif CJK SC");
+
+            foreach (var entry in ReaderFontCatalog.Entries)
+            {
+                var key = ReaderFontDefaults.CatalogFamilyPrefix + entry.Id;
+                if (ReaderFontRegistry.IsInstalled(key))
+                    AddBodyItem($"{entry.DisplayName} · {T("已下载")}", key);
+            }
+
+            foreach (var font in ManagedFonts)
+            {
+                if (!font.CssFamily.StartsWith(ReaderFontDefaults.CatalogFamilyPrefix, StringComparison.OrdinalIgnoreCase)
+                    && ReaderFontRegistry.IsInstalled(font.CssFamily))
+                {
+                    AddBodyItem($"{font.DisplayName} · {T("已导入")}", font.CssFamily);
+                }
+            }
+
+            foreach (var face in SystemFontCatalog.CjkFonts)
+                AddBodyItem($"{T("系统")} · {face.DisplayName}", ReaderFontDefaults.SystemFamilyPrefix + face.Family);
+
+            if (!string.IsNullOrWhiteSpace(activeBodyFamily) && !seen.Contains(activeBodyFamily.Trim()))
+            {
+                var trimmed = activeBodyFamily.Trim();
+                var display = trimmed.StartsWith(ReaderFontDefaults.SystemFamilyPrefix, StringComparison.OrdinalIgnoreCase)
+                    ? trimmed[ReaderFontDefaults.SystemFamilyPrefix.Length..]
+                    : trimmed;
+                AddBodyItem(display, trimmed);
+            }
+
+            ReaderFontFamilyBox.Items.Clear();
+            foreach (var item in items) ReaderFontFamilyBox.Items.Add(item);
+        }
+
+        if (ReaderLatinFontFamilyBox is not null)
+        {
+            var seenLatin = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var latinItems = new List<ComboBoxItem>();
+
+            void AddLatinItem(string label, string tag)
+            {
+                if (string.IsNullOrWhiteSpace(tag) || !seenLatin.Add(tag)) return;
+                latinItems.Add(new ComboBoxItem { Content = label, Tag = tag });
+            }
+
+            AddLatinItem(T("跟随正文"), "auto");
+            foreach (var face in SystemFontCatalog.LatinFonts)
+                AddLatinItem(face.DisplayName, ReaderFontDefaults.SystemFamilyPrefix + face.Family);
+
+            foreach (var font in ManagedFonts)
+            {
+                if (ReaderFontRegistry.IsInstalled(font.CssFamily))
+                    AddLatinItem($"{font.DisplayName} · {T("已导入")}", font.CssFamily);
+            }
+
+            if (!string.IsNullOrWhiteSpace(activeLatinFamily)
+                && !string.Equals(activeLatinFamily.Trim(), "auto", StringComparison.OrdinalIgnoreCase)
+                && !seenLatin.Contains(activeLatinFamily.Trim()))
+            {
+                var trimmed = activeLatinFamily.Trim();
+                var display = trimmed.StartsWith(ReaderFontDefaults.SystemFamilyPrefix, StringComparison.OrdinalIgnoreCase)
+                    ? trimmed[ReaderFontDefaults.SystemFamilyPrefix.Length..]
+                    : trimmed;
+                AddLatinItem(display, trimmed);
+            }
+
+            ReaderLatinFontFamilyBox.Items.Clear();
+            foreach (var item in latinItems) ReaderLatinFontFamilyBox.Items.Add(item);
+        }
     }
 
     private (int FlowMode, bool TwoPageMode) GetSelectedReaderFlowMode()

@@ -22,7 +22,7 @@ public partial class MainWindow
         _macOSQuitAfterReaderInProgress = true;
         try
         {
-            await CloseReaderAsync();
+            await CloseReaderCoreAsync(animate: false);
             (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.TryShutdown();
         }
         finally

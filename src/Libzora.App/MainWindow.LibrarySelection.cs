@@ -77,10 +77,58 @@ public partial class MainWindow
         }
 
         ShowLibraryDetailPane();
+        ScrollLibrarySelectionIntoView(card);
         UpdateSeriesShelfOverlayPlacement();
         _detailPaneBookId = card.Book.Id;
         SyncCardSelectionVisuals();
         _ = RefreshBookReflectionDetailsAsync(card.Book.Id);
+    }
+
+    private void ScrollLibrarySelectionIntoView(BookCardViewModel card)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (!ReferenceEquals(_selectedCard, card) || !LibraryRoot.IsVisible || !LibraryWorkspace.IsVisible)
+                return;
+            var list = BookList.IsVisible ? BookList : BookGrid;
+            var index = ViewModel.ShelfBooks.IndexOf(card);
+            if (index < 0 && !string.IsNullOrWhiteSpace(card.SeriesKey))
+                index = FindShelfBookIndex(card);
+            if (index < 0) return;
+
+            list.UpdateLayout();
+            var container = list.ContainerFromIndex(index);
+            if (container is null)
+            {
+                list.ScrollIntoView(index);
+                list.UpdateLayout();
+                container = list.ContainerFromIndex(index);
+            }
+            if (container is null) return;
+
+            var scrollViewer = list.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault();
+            if (scrollViewer is null || scrollViewer.Viewport.Height <= 0)
+            {
+                list.ScrollIntoView(index);
+                return;
+            }
+
+            if (container.TranslatePoint(default, scrollViewer) is not { } topLeft
+                || container.TranslatePoint(new Point(0, container.Bounds.Height), scrollViewer) is not { } bottomLeft)
+                return;
+
+            const double margin = 12;
+            var viewportHeight = scrollViewer.Viewport.Height;
+            var currentY = scrollViewer.Offset.Y;
+            var nextY = currentY;
+            if (topLeft.Y < margin)
+                nextY = Math.Max(0, currentY + topLeft.Y - margin);
+            else if (bottomLeft.Y > viewportHeight - margin)
+                nextY = currentY + (bottomLeft.Y - (viewportHeight - margin));
+
+            if (Math.Abs(nextY - currentY) > 0.5)
+                scrollViewer.Offset = new Vector(scrollViewer.Offset.X, nextY);
+        }, DispatcherPriority.Loaded);
     }
 
     private string DescribeBookCollections(BookCardViewModel card)

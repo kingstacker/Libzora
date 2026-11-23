@@ -203,8 +203,7 @@ public sealed record ReaderLayoutSettings(
     /// </summary>
     public bool HyphenateEnglish { get; init; } = true;
     /// <summary>Keep at least two lines together at paragraph page boundaries.</summary>
-    [System.Text.Json.Serialization.JsonIgnore]
-    public bool AvoidWidowsAndOrphans { get; init; } = true;
+    public bool AvoidWidowsAndOrphans { get; init; } = false;
     /// <summary>Optional paired Latin reading font (<c>system:Georgia</c>, etc.); null follows <see cref="FontFamily"/>.</summary>
     public string? LatinFontFamily { get; init; }
     /// <summary>Left-align body prose instead of justifying both edges.</summary>

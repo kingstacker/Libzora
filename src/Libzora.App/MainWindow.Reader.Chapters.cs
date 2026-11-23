@@ -163,13 +163,51 @@ public partial class MainWindow
                 ? $"{tocIndex + 1} / {_readerTocItems.Count} · {_readerTocItems[tocIndex].Title}"
                 : $"{_readerChapterIndex + 1} / {_readerDocument.Chapters.Count} · {GetReaderChapterDisplayName(_readerChapterIndex)}";
 
-    private string GetReaderChapterPositionLabel() => _readerIsPdf
-        ? GetPdfPagePositionLabel()
-        : _readerDocument is null
-            ? string.Empty
-            : GetCurrentReaderTocIndex() is var tocIndex && tocIndex >= 0
+    private string GetReaderChapterPositionLabel()
+    {
+        if (_readerIsPdf)
+        {
+            return _appSettings.ReaderProgressDisplay == ReaderProgressDisplayMode.BookTimeRemaining
+                ? GetReaderRemainingTimeLabel()
+                : GetPdfPagePositionLabel();
+        }
+        if (_readerDocument is null) return string.Empty;
+        return _appSettings.ReaderProgressDisplay switch
+        {
+            ReaderProgressDisplayMode.Off => string.Empty,
+            ReaderProgressDisplayMode.Pages => FormatReaderPagePositionLabel(),
+            ReaderProgressDisplayMode.BookTimeRemaining => GetReaderRemainingTimeLabel(),
+            _ => GetCurrentReaderTocIndex() is var tocIndex && tocIndex >= 0
                 ? $"{tocIndex + 1} / {_readerTocItems.Count}"
-                : $"{_readerChapterIndex + 1} / {_readerDocument.Chapters.Count}";
+                : $"{_readerChapterIndex + 1} / {_readerDocument.Chapters.Count}"
+        };
+    }
+
+    private string FormatReaderPagePositionLabel()
+    {
+        var position = GetReaderPagePosition();
+        return $"{position.CurrentPage} / {position.TotalPages}";
+    }
+
+    private string GetReaderRemainingTimeLabel()
+    {
+        const long paceLearningSeconds = 120;
+        const double paceLearningProgress = 1;
+        var totalSeconds = (_readerBookReadingStats?.CumulativeSeconds ?? 0) + _readerActiveSeconds;
+        var progress = Math.Clamp(CalculateReaderProgressPercent(), 0, 100);
+        if (totalSeconds < paceLearningSeconds
+            || _readerBookReadingStats is null
+            || !double.IsFinite(_readerBookReadingStats.ProgressPercent)
+            || _readerBookReadingStats.ProgressPercent < paceLearningProgress)
+        {
+            return T("阅读速度估计中");
+        }
+
+        var measured = Math.Clamp(_readerBookReadingStats.ProgressPercent, paceLearningProgress, 100);
+        var secondsPerPercent = _readerBookReadingStats.CumulativeSeconds / measured;
+        var seconds = secondsPerPercent * Math.Max(0, 100 - progress);
+        return T("剩余约 {0}", ReaderReadingTimeEstimate.FormatDuration(seconds));
+    }
 
     private async Task MoveReaderFooterTocAsync(int direction)
     {

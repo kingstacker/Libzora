@@ -403,7 +403,7 @@
         </Style>
         <Style Selector="Button.readerSelectionAction">
             <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
-            <Setter Property="Background" Value="{DynamicResource ReaderPageBrush}" />
+            <Setter Property="Background" Value="Transparent" />
             <Setter Property="Foreground" Value="{DynamicResource ReaderInkBrush}" />
             <Setter Property="BorderBrush" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
@@ -418,7 +418,7 @@
             <Setter Property="VerticalContentAlignment" Value="Center" />
             <Setter Property="Template" Value="{StaticResource ReaderToolbarButtonTemplate}" />
             <Setter Property="ToolTip.Placement" Value="Top" />
-            <Setter Property="ToolTip.VerticalOffset" Value="-8" />
+            <Setter Property="ToolTip.VerticalOffset" Value="-10" />
             <Setter Property="Transitions">
                 <Transitions />
             </Setter>
@@ -2356,18 +2356,94 @@
         <Style Selector="Button.readerNoteItem">
             <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
             <Setter Property="MinHeight" Value="44" />
-            <Setter Property="Padding" Value="2,7" />
+            <Setter Property="Padding" Value="0" />
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="Foreground" Value="{DynamicResource ReaderInkBrush}" />
-            <Setter Property="BorderBrush" Value="{DynamicResource ReaderBorderBrush}" />
-            <Setter Property="BorderThickness" Value="0,0,0,1" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
             <Setter Property="CornerRadius" Value="0" />
             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
             <Setter Property="VerticalContentAlignment" Value="Center" />
             <Setter Property="Template" Value="{StaticResource ReaderToolbarButtonTemplate}" />
         </Style>
         <Style Selector="Button.readerNoteItem:pointerover">
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+        <Style Selector="Border.readerNoteCard">
             <Setter Property="Background" Value="{DynamicResource ReaderHoverBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource ReaderBorderBrush}" />
+            <Setter Property="BorderThickness" Value="0.75" />
+            <Setter Property="CornerRadius" Value="0" />
+            <Setter Property="Padding" Value="11,9" />
+            <Setter Property="Margin" Value="0,0,0,8" />
+        </Style>
+        <Style Selector="Border.readerNoteCard:pointerover">
+            <Setter Property="Background" Value="{DynamicResource ReaderPressedBrush}" />
+        </Style>
+        <Style Selector="Border.readingMaterialCard">
+            <Setter Property="Background" Value="{DynamicResource SoftHoverBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}" />
+            <Setter Property="BorderThickness" Value="0.75" />
+            <Setter Property="CornerRadius" Value="0" />
+        </Style>
+        <Style Selector="Border.readingMaterialCard:pointerover">
+            <Setter Property="Background" Value="{DynamicResource PressedBrush}" />
+        </Style>
+        <Style Selector="Border.readingMaterialCard.selected">
+            <Setter Property="BorderBrush" Value="{DynamicResource InkBrush}" />
+            <Setter Property="BorderThickness" Value="1.2" />
+        </Style>
+        <Style Selector="Border.readingMaterialCard StackPanel.readingMaterialHoverActions">
+            <Setter Property="IsVisible" Value="False" />
+        </Style>
+        <Style Selector="Border.readingMaterialCard:pointerover StackPanel.readingMaterialHoverActions">
+            <Setter Property="IsVisible" Value="True" />
+        </Style>
+        <Style Selector="Grid.readerShell TextBox.readerNoteInputField">
+            <Setter Property="Background" Value="{DynamicResource ReaderHoverBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource ReaderInkBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource ReaderBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="0" />
+            <Setter Property="Padding" Value="10,8" />
+            <Setter Property="FontSize" Value="13.5" />
+            <Setter Property="LineHeight" Value="20" />
+        </Style>
+        <Style Selector="Grid.readerShell TextBox.readerNoteInputField:focus">
+            <Setter Property="BorderBrush" Value="{DynamicResource ReaderInkBrush}" />
+        </Style>
+        <Style Selector="Button.readerNotePrimaryAction">
+            <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
+            <Setter Property="MinHeight" Value="32" />
+            <Setter Property="Padding" Value="16,5" />
+            <Setter Property="Background" Value="{DynamicResource ReaderInkBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource ReaderPageBrush}" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="CornerRadius" Value="0" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Template" Value="{StaticResource ReaderToolbarButtonTemplate}" />
+        </Style>
+        <Style Selector="Button.readerNotePrimaryAction:pointerover">
+            <Setter Property="Opacity" Value="0.86" />
+        </Style>
+        <Style Selector="Button.readerNoteDangerAction">
+            <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
+            <Setter Property="MinHeight" Value="32" />
+            <Setter Property="Padding" Value="8,5" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="#C9453B" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="CornerRadius" Value="0" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Template" Value="{StaticResource ReaderToolbarButtonTemplate}" />
+        </Style>
+        <Style Selector="Button.readerNoteDangerAction:pointerover">
+            <Setter Property="Background" Value="#14C9453B" />
         </Style>
         <Style Selector="Grid.readerShell TextBox.readerMinimalField">
             <Setter Property="Background" Value="Transparent" />

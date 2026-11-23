@@ -18,6 +18,7 @@ public sealed class ReaderLayoutDefaultsTests
         Assert.False(defaults.TwoPageMode);
         Assert.False(defaults.ParagraphIndent);
         Assert.True(defaults.HyphenateEnglish);
+        Assert.False(defaults.AvoidWidowsAndOrphans);
         Assert.Equal(0, defaults.ParagraphSpacing);
     }
 
@@ -74,15 +75,17 @@ public sealed class ReaderLayoutDefaultsTests
     [InlineData(double.PositiveInfinity, null)]
     public void BottomInsetOverrideIsNormalizedButNeverStored(double? padding, double? expected)
     {
-        var settings = new ReaderLayoutSettings { BodyBottomPadding = padding, NaturalLatinTypography = true };
+        var settings = new ReaderLayoutSettings { BodyBottomPadding = padding, NaturalLatinTypography = true, AvoidWidowsAndOrphans = true };
         var normalized = ReaderLayoutDefaults.Normalize(settings);
         Assert.True(normalized.NaturalLatinTypography);
+        Assert.True(normalized.AvoidWidowsAndOrphans);
         Assert.Equal(expected, normalized.BodyBottomPadding);
         Assert.Equal(24, normalized.BodyPadding);
         var json = System.Text.Json.JsonSerializer.Serialize(settings);
         var restored = System.Text.Json.JsonSerializer.Deserialize<ReaderLayoutSettings>(json)!;
         Assert.Null(restored.BodyBottomPadding);
         Assert.False(restored.NaturalLatinTypography);
+        Assert.True(restored.AvoidWidowsAndOrphans);
     }
 
     [Fact]

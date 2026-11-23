@@ -212,13 +212,13 @@
         <Setter Property="Foreground" Value="#000000" />
     </Style>
     <Style Selector="Button.readerMarkerColorPicker">
-        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Background" Value="{DynamicResource ReaderHoverBrush}" />
         <Setter Property="Foreground" Value="{DynamicResource ReaderInkBrush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource ReaderBorderBrush}" />
-        <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="Padding" Value="5,2" />
-        <Setter Property="Height" Value="24" />
-        <Setter Property="MinHeight" Value="24" />
+        <Setter Property="BorderThickness" Value="0.75" />
+        <Setter Property="Padding" Value="7,2" />
+        <Setter Property="Height" Value="26" />
+        <Setter Property="MinHeight" Value="26" />
         <Setter Property="CornerRadius" Value="0" />
     </Style>
     <Style Selector="Button.readerMarkerColorPicker:pointerover, Button.readerMarkerColorOption:pointerover">
@@ -239,19 +239,19 @@
         <Setter Property="CornerRadius" Value="0" />
     </Style>
     <Style Selector="Button.readerMarkerColorOption">
-        <Setter Property="Width" Value="28" />
-        <Setter Property="Height" Value="28" />
-        <Setter Property="MinWidth" Value="28" />
-        <Setter Property="MinHeight" Value="28" />
-        <Setter Property="Padding" Value="4" />
+        <Setter Property="Width" Value="26" />
+        <Setter Property="Height" Value="26" />
+        <Setter Property="MinWidth" Value="26" />
+        <Setter Property="MinHeight" Value="26" />
+        <Setter Property="Padding" Value="3" />
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="BorderBrush" Value="Transparent" />
-        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="BorderThickness" Value="1.5" />
         <Setter Property="CornerRadius" Value="0" />
     </Style>
     <Style Selector="Button.readerMarkerColorOption.selected">
         <Setter Property="BorderBrush" Value="{DynamicResource ReaderInkBrush}" />
-        <Setter Property="Background" Value="{DynamicResource ReaderSelectedBrush}" />
+        <Setter Property="Background" Value="Transparent" />
     </Style>
     <Style Selector="MenuFlyoutPresenter.readerMenu">
         <Setter Property="Background" Value="{DynamicResource ReaderPageBrush}" />

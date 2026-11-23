@@ -59,16 +59,24 @@ public partial class MainWindow
         HandleReaderBridgeMessage(e.Body);
     }
 
-    private async Task CloseReaderAsync()
+    private Task CloseReaderAsync() => CloseReaderCoreAsync(animate: true);
+
+    private async Task CloseReaderCoreAsync(bool animate)
     {
         if (Interlocked.Exchange(ref _readerCloseInProgress, 1) != 0) return;
         // Preserve the reading viewport until its progress has been saved.
         _readerToolbarAutoHideEnabled = false;
         _readerToolbarHideTimer?.Stop();
         _readerToolbarLayoutTimer?.Stop();
-        // The bookshelf close action must never leave a page snapshot or
-        // in-flight reader transition animating over the switch.
+        // Cancel any in-flight open transition, then snapshot the live reading
+        // page before cleanup hides ReaderRoot so the 3D close animation lands
+        // smoothly back on the shelf cover.
         ResetReaderOpenTransition();
+        var shouldAnimateClose = animate
+            && ReaderRoot.IsVisible
+            && !_lifetimeCancellation.IsCancellationRequested
+            && !_applicationShuttingDown;
+        var closingCard = _readerBookCard;
         // Cancel the session before waiting on persistence so an active page
         // turn releases its gate immediately.
         _readerSession.Cancel();
@@ -76,6 +84,7 @@ public partial class MainWindow
         CancelReaderChapterPreload();
         Interlocked.Exchange(ref _readerPendingKeyboardNavigation, 0);
         StopReaderTransitionOverlays();
+        var closingTransition = shouldAnimateClose ? PrepareReaderCloseTransition(closingCard) : null;
         // Invalidate debounced bridge saves before waiting for the authoritative
         // close checkpoint. The close path below is the only save that should
         // survive a return to the bookshelf.
@@ -118,6 +127,8 @@ public partial class MainWindow
             try
             {
                 await CleanupReaderAfterCloseAsync();
+                if (closingTransition is not null)
+                    await PlayReaderCloseTransitionAsync(closingTransition);
             }
             finally
             {
@@ -248,8 +259,9 @@ public partial class MainWindow
         ReaderRoot.ColumnDefinitions[2].Width = new GridLength(0);
         ReaderContentPanel.RowDefinitions[0].Height = new GridLength(52);
         ReaderHeaderBar.IsVisible = true;
-        ReaderContentPanel.RowDefinitions[2].Height = new GridLength(50);
+        ReaderContentPanel.RowDefinitions[2].Height = new GridLength(42);
         ReaderFooterBar.IsVisible = true;
+        _readerBookReadingStats = null;
         ReaderTransitionCover.Opacity = 0;
         _readerAssistantVisibleBeforeZen = false;
         _readerIsPdf = false;

@@ -91,8 +91,8 @@ public sealed class ReaderAppearanceTests(SettingsUiSession session)
         Assert.Equal(20, tocTitle.FontSize);
         Assert.Equal(layoutBeforeTocChange, scope.Field<ReaderLayoutSettings>("_readerLayout"));
         var themes = Assert.IsType<UniformGrid>(scope.Get<RadioButton>("ReaderClassicThemeOption").Parent);
-        Assert.Equal(3, themes.Children.Count);
-        Assert.Equal(3, themes.Columns);
+        Assert.Equal(4, themes.Children.Count);
+        Assert.Equal(4, themes.Columns);
         scope.Get<RadioButton>("ReaderGreenThemeOption").IsChecked = true;
         scope.Get<ToggleSwitch>("ReaderPaperEnabledCheck").IsChecked = true;
         scope.Get<Slider>("ReaderPaperStrengthSlider").Value = 75;
@@ -271,7 +271,10 @@ public sealed class ReaderAppearanceTests(SettingsUiSession session)
 
         scope.Call("ReaderLayoutResetButton_Click", null, new RoutedEventArgs());
         Assert.False(scope.Field<ReaderBookLayoutProfile?>("_readerBookLayoutProfile")!.UseBookOverride);
-        Assert.Equal(globalSettings.DefaultReaderLayout, scope.Field<ReaderLayoutSettings>("_readerLayout"));
+        Assert.Equal(globalSettings.DefaultReaderLayout, scope.Field<ReaderLayoutSettings>("_readerBaseLayout"));
+        Assert.Equal(
+            scope.Call<ReaderLayoutSettings>("BuildEffectiveReaderLayout", globalSettings.DefaultReaderLayout),
+            scope.Field<ReaderLayoutSettings>("_readerLayout"));
         Assert.Equal(
             globalSettings.ReaderAppearance.Theme,
             scope.Property<ReaderAppearanceSettings>("CurrentReaderAppearance").Theme);
@@ -339,6 +342,105 @@ public sealed class ReaderAppearanceTests(SettingsUiSession session)
         Assert.True(scope.Get<StackPanel>("ReaderTextLayoutPanel").IsVisible);
         Assert.True(scope.Get<RadioButton>("ReaderBookScopeGlobalOption").IsVisible);
         Assert.True(scope.Get<RadioButton>("ReaderBookScopeBookOption").IsVisible);
+    });
+
+    [Fact]
+    public Task ProseViewportAvoidsRedundantVerticalMarginAndPersistsWidowToggle() => Run(async () =>
+    {
+        await using var scope = await ReaderTestWindow.Create();
+        using var host = await LoadChapter(scope, new());
+        scope.Call("UpdateReaderBookmarkCornerSurface");
+        Assert.Equal(new Thickness(0, 0, 2, 0), scope.Get<Control>("ReaderWebViewHost").Margin);
+        Assert.Equal(new Thickness(0), scope.Get<Control>("ReaderWebViewBottomCover").Margin);
+
+        scope.Call("ReaderLayoutSettingsButton_Click", null, new RoutedEventArgs());
+        await ReaderTests.Render();
+        var toggle = scope.Get<ToggleSwitch>("ReaderAvoidWidowsCheck");
+        Assert.False(toggle.IsChecked);
+
+        toggle.IsChecked = true;
+        await WaitUntilAsync(async () =>
+        {
+            var stored = await new AppSettingsStore(scope.Paths).LoadAsync();
+            return stored.DefaultReaderLayout.AvoidWidowsAndOrphans;
+        });
+        Assert.True(scope.Field<ReaderLayoutSettings>("_readerLayout").AvoidWidowsAndOrphans);
+
+        scope.Call("ReaderLayoutResetButton_Click", null, new RoutedEventArgs());
+        await ReaderTests.Render();
+        Assert.False(toggle.IsChecked);
+        Assert.False(scope.Field<ReaderLayoutSettings>("_readerLayout").AvoidWidowsAndOrphans);
+
+        scope.Get<Popup>("ReaderLayoutSettingsPopup").IsOpen = false;
+        scope.Set("_readerActiveHost", null);
+        scope.Get<ContentControl>("ReaderActiveHostSlot").Content = null;
+    });
+
+    [Fact]
+    public Task DesktopReaderMatchesMobileTypographyAppearanceAndProgressControls() => Run(async () =>
+    {
+        await using var scope = await ReaderTestWindow.Create();
+        var baseLayout = scope.Field<ReaderLayoutSettings>("_readerBaseLayout");
+        var proseLayout = scope.Call<ReaderLayoutSettings>("BuildEffectiveReaderLayout", baseLayout);
+        Assert.True(proseLayout.NaturalLatinTypography);
+        Assert.True(proseLayout.OverridePublisherLineHeight);
+        Assert.True(proseLayout.OverridePublisherParagraphSpacing);
+        Assert.True(proseLayout.ParagraphSpacingMatchesLineHeight);
+
+        using var host = await LoadChapter(scope, proseLayout);
+        scope.Call("ReaderLayoutSettingsButton_Click", null, new RoutedEventArgs());
+        await ReaderTests.Render();
+
+        // Dark Ink paper theme + dark ThemeScope variant, while settings card stays Light.
+        scope.Get<RadioButton>("ReaderInkThemeOption").IsChecked = true;
+        await scope.Field<Task>("_readerAppearanceSaveTask");
+        await ReaderTests.Render();
+        Assert.Equal(ReaderTheme.Ink, scope.Property<ReaderAppearanceSettings>("CurrentReaderAppearance").Theme);
+        Assert.Equal(Avalonia.Styling.ThemeVariant.Dark, scope.Get<ThemeVariantScope>("ReaderThemeScope").RequestedThemeVariant);
+
+        scope.Get<ToggleSwitch>("ReaderFollowSystemThemeCheck").IsChecked = true;
+        await scope.Field<Task>("_readerAppearanceSaveTask");
+        Assert.True(scope.Field<AppSettings>("_appSettings").ReaderAppearance.FollowSystemAppearance);
+
+        // Progress display modes: Pages, BookTimeRemaining, Off, Chapters.
+        scope.Get<RadioButton>("ReaderProgressPagesOption").IsChecked = true;
+        await scope.Field<Task>("_readerAppearanceSaveTask");
+        Assert.Equal(ReaderProgressDisplayMode.Pages, scope.Field<AppSettings>("_appSettings").ReaderProgressDisplay);
+        Assert.Matches(@"^\d+ / \d+$", scope.Get<TextBlock>("ReaderChapterText").Text ?? string.Empty);
+
+        scope.Get<RadioButton>("ReaderProgressTimeOption").IsChecked = true;
+        await scope.Field<Task>("_readerAppearanceSaveTask");
+        Assert.False(string.IsNullOrWhiteSpace(scope.Get<TextBlock>("ReaderChapterText").Text));
+
+        scope.Get<RadioButton>("ReaderProgressOffOption").IsChecked = true;
+        await scope.Field<Task>("_readerAppearanceSaveTask");
+        Assert.False(scope.Get<Button>("ReaderPagePositionButton").IsVisible);
+
+        scope.Get<RadioButton>("ReaderProgressChaptersOption").IsChecked = true;
+        await scope.Field<Task>("_readerAppearanceSaveTask");
+        Assert.True(scope.Get<Button>("ReaderPagePositionButton").IsVisible);
+
+        // Paragraph spacing, left alignment, CJK-Latin toggle, Latin paired font.
+        scope.Get<RadioButton>("ReaderParagraphSpacingNormalOption").IsChecked = true;
+        scope.Get<RadioButton>("ReaderAlignLeftOption").IsChecked = true;
+        scope.Get<ToggleSwitch>("ReaderCjkLatinSpacingCheck").IsChecked = false;
+        var latinBox = scope.Get<ComboBox>("ReaderLatinFontFamilyBox");
+        if (latinBox.Items.Count > 1)
+            latinBox.SelectedIndex = 1;
+
+        await WaitUntilAsync(async () =>
+        {
+            var stored = (await new AppSettingsStore(scope.Paths).LoadAsync()).DefaultReaderLayout;
+            return Math.Abs(stored.ParagraphSpacing - 0.5) < 0.01 && stored.AlignLeft && !stored.CjkLatinSpacing;
+        });
+
+        var updatedLayout = scope.Field<ReaderLayoutSettings>("_readerLayout");
+        Assert.False(updatedLayout.ParagraphSpacingMatchesLineHeight);
+        Assert.True(updatedLayout.NaturalLatinTypography);
+
+        scope.Get<Popup>("ReaderLayoutSettingsPopup").IsOpen = false;
+        scope.Set("_readerActiveHost", null);
+        scope.Get<ContentControl>("ReaderActiveHostSlot").Content = null;
     });
 
     private Task Run(Func<Task> action) => session.Session.Dispatch(async () => { await action(); return true; }, CancellationToken.None);

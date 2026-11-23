@@ -296,7 +296,11 @@ public partial class MainWindow
             .OrderByDescending(item => item.UpdatedAt ?? DateTimeOffset.MinValue)
             .ToArray();
         ReadingMaterials.Clear();
-        foreach (var item in filtered) ReadingMaterials.Add(item);
+        foreach (var item in filtered)
+        {
+            item.IsExportMode = _readingMaterialsExportMode;
+            ReadingMaterials.Add(item);
+        }
         foreach (var group in ReadingMaterialGroups) group.Dispose();
         ReadingMaterialGroups.Clear();
         var grouped = source == "all"
@@ -413,6 +417,29 @@ public partial class MainWindow
         await LocateReadingMaterialAsync(item);
     }
 
+    private void ReadingMaterialEntry_PointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (_readingMaterialsExportMode
+            || sender is not Control { DataContext: Stage3ReadingMaterialViewModel item }
+            || !e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+            return;
+        if (e.Source is Visual source && source.GetVisualAncestors().OfType<Button>().Any())
+            return;
+
+        var additive = (e.KeyModifiers & (KeyModifiers.Meta | KeyModifiers.Control)) != 0;
+        if (additive)
+        {
+            item.IsSelected = !item.IsSelected;
+        }
+        else
+        {
+            var wasSoleSelected = item.IsSelected && ReadingMaterials.Count(candidate => candidate.IsSelected) == 1;
+            foreach (var candidate in _allStage3ReadingMaterials)
+                candidate.IsSelected = !wasSoleSelected && ReferenceEquals(candidate, item);
+        }
+        UpdateReadingMaterialsActionState();
+    }
+
     private async void ReadingMaterialEntry_DoubleTapped(object? sender, TappedEventArgs e)
     {
         if (sender is not Control { DataContext: Stage3ReadingMaterialViewModel item }) return;
@@ -422,8 +449,16 @@ public partial class MainWindow
 
     private async void ReadingMaterialOpenButton_Click(object? sender, RoutedEventArgs e)
     {
+        e.Handled = true;
         if (sender is Control { DataContext: Stage3ReadingMaterialViewModel item })
             await OpenReadingMaterialAsync(item);
+    }
+
+    private async void ReadingMaterialDeleteButton_Click(object? sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        if (sender is Control { DataContext: Stage3ReadingMaterialViewModel item })
+            await DeleteReadingMaterialsAsync([item]);
     }
 
     private async Task OpenReadingMaterialAsync(Stage3ReadingMaterialViewModel item)
@@ -611,6 +646,11 @@ public partial class MainWindow
     private async void DeleteReadingMaterialsButton_Click(object? sender, RoutedEventArgs e)
     {
         var selected = ReadingMaterials.Where(item => item.IsSelected).ToArray();
+        await DeleteReadingMaterialsAsync(selected);
+    }
+
+    private async Task DeleteReadingMaterialsAsync(Stage3ReadingMaterialViewModel[] selected)
+    {
         if (selected.Any(item => !CanDeleteReadingMaterial(item)))
         {
             ReadingMaterialsStatusText.Text = T("所选设备笔记仅支持读取和导出，或来源设备已断开。");

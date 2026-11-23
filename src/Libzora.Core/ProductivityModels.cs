@@ -125,6 +125,7 @@ public sealed record AppSettings
     public bool? ReaderVerticalDebugBoxesEnabled { get; init; }
     public ReaderLayoutSettings DefaultReaderLayout { get; init; } = new();
     public ReaderAppearanceSettings ReaderAppearance { get; init; } = new();
+    public ReaderProgressDisplayMode ReaderProgressDisplay { get; init; } = ReaderProgressDisplayMode.Chapters;
     // Reader navigation chrome stays global, including with a per-book layout.
     public double ReaderTocFontSize { get; init; } = ReaderTocDefaults.DefaultFontSize;
     /// <summary>Per-book comic/manga preferences keyed by bookFileId ("N" format).</summary>
@@ -235,6 +236,9 @@ public sealed record AppSettings
             AutoBackupRetention = Math.Clamp(settings.AutoBackupRetention, 1, 30),
             DefaultReaderLayout = ReaderLayoutDefaults.Normalize(settings.DefaultReaderLayout ?? new ReaderLayoutSettings()),
             ReaderAppearance = ReaderAppearanceSettings.Normalize(settings.ReaderAppearance),
+            ReaderProgressDisplay = Enum.IsDefined(settings.ReaderProgressDisplay)
+                ? settings.ReaderProgressDisplay
+                : ReaderProgressDisplayMode.Chapters,
             ReaderTocFontSize = ReaderTocDefaults.NormalizeFontSize(settings.ReaderTocFontSize),
             MangaBooks = NormalizeMangaBooks(settings.MangaBooks),
             Translation = BookTranslationSettings.Normalize(settings.Translation),

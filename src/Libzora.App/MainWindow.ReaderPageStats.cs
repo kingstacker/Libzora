@@ -130,8 +130,17 @@ public partial class MainWindow
             ReaderNextButton.IsEnabled = GetReaderFooterTocIndex() is var tocIndex
                     && tocIndex >= 0
                     && tocIndex + 1 < _readerTocItems.Count;
+        UpdateReaderFooterProgressDisplay();
         UpdateReaderSearchCount();
         UpdateReaderTtsUi();
+    }
+
+    private void UpdateReaderFooterProgressDisplay()
+    {
+        if (ReaderPagePositionButton is not null)
+            ReaderPagePositionButton.IsVisible = _readerIsPdf || _appSettings.ReaderProgressDisplay != ReaderProgressDisplayMode.Off;
+        if (ReaderChapterText is not null)
+            ReaderChapterText.Text = GetReaderChapterPositionLabel();
     }
 
     private (double Width, double Height) GetReaderPageCountMeasure()

@@ -82,7 +82,7 @@ public partial class MainWindow
                 await log.WriteLineAsync("PASS import external EPUB " + externalCard.Title);
                 await OpenBookAsync(externalCard, externalFile);
                 await ValidateExternalVerticalEpubAsync(log);
-                await CloseReaderAsync();
+                await CloseReaderCoreAsync(animate: false);
                 await log.WriteLineAsync("PASS external EPUB vertical validation completed");
             }
             else
@@ -108,7 +108,7 @@ public partial class MainWindow
                 var epubFile = await ResolveImportedValidationFile(epubCard, epubPath, log);
                 await OpenBookAsync(epubCard, epubFile);
                 await ValidateCurrentEpubReaderAsync(log);
-                await CloseReaderAsync();
+                await CloseReaderCoreAsync(animate: false);
             }
 
             await log.WriteLineAsync("PASS Kreader Linux validation completed");

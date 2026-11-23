@@ -168,6 +168,14 @@ public partial class MainWindow
                 ?? T("PDF 第 {0} 页 · 页面批注", _readerPdfPage)
             : _readerPendingSelection;
         ReaderAnnotationInputBox.Text = _selectedReaderAnnotation?.Note ?? string.Empty;
+        _readerAnnotationInputStyle = NormalizeReaderAnnotationStyle(
+            _selectedReaderAnnotation?.UnderlineStyle ?? _readerLastHighlightStyle);
+        _readerAnnotationInputColor = NormalizeReaderAnnotationColor(
+            _selectedReaderAnnotation?.Color
+            ?? (_readerAnnotationInputStyle == "marker" ? _readerLastMarkerColor : "#000000"));
+        ReaderAnnotationInputDeleteButton.IsVisible = _selectedReaderAnnotation is not null;
+        RefreshReaderAnnotationInputStyleControls();
+
         var placedOutsidePdfPage = _readerIsPdf
             && CurrentReaderHost is IPdfAnnotationVisualHost pdf
             && TryShowReaderPdfAnnotationCallout(
@@ -175,7 +183,7 @@ public partial class MainWindow
                 pdf,
                 _selectedReaderAnnotation,
                 _readerLastSelectionPopupAnchor,
-                new Size(264, 152),
+                new Size(312, 260),
                 requireVisibleBounds: true);
         if (!placedOutsidePdfPage)
         {
@@ -188,8 +196,8 @@ public partial class MainWindow
             ShowReaderPopupNearSelection(
                 ReaderAnnotationInputPopup,
                 ReaderAnnotationInputPanel,
-                fallbackWidth: 264,
-                fallbackHeight: 152,
+                fallbackWidth: 312,
+                fallbackHeight: 260,
                 _readerLastSelectionPopupAnchor,
                 _readerLastSelectionPopupBottom);
         }
@@ -290,8 +298,24 @@ public partial class MainWindow
     private void ReaderAnnotationInputCancelButton_Click(object? sender, RoutedEventArgs e)
         => CloseReaderAnnotationInputPopup();
 
+    private async void ReaderAnnotationInputDeleteButton_Click(object? sender, RoutedEventArgs e)
+    {
+        if (_selectedReaderAnnotation is not { } annotation) return;
+        await DeleteReaderAnnotationAsync(annotation);
+    }
+
     private async void ReaderAnnotationInputSaveButton_Click(object? sender, RoutedEventArgs e)
-        => await SaveReaderAnnotationAsync(ReaderAnnotationInputBox.Text ?? string.Empty);
+    {
+        var style = NormalizeReaderAnnotationStyle(_readerAnnotationInputStyle);
+        var color = style == "marker" || !string.Equals(_readerAnnotationInputColor, "#000000", StringComparison.OrdinalIgnoreCase)
+            ? NormalizeReaderAnnotationColor(_readerAnnotationInputColor)
+            : "#000000";
+        _readerLastHighlightStyle = style;
+        if (style == "marker")
+            _readerLastMarkerColor = color;
+        RefreshReaderSelectionHighlightButton();
+        await SaveReaderAnnotationAsync(ReaderAnnotationInputBox.Text ?? string.Empty, style, color);
+    }
 
     private void ReaderAnnotationInputBox_KeyDown(object? sender, KeyEventArgs e)
     {

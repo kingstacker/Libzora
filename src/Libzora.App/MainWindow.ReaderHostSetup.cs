@@ -130,6 +130,9 @@ public partial class MainWindow
         _readerTocExpandedBeforeZen = true;
         _readerTocMinimalBeforeZen = false;
         _readerActiveSeconds = 0;
+        _readerBookReadingStats = null;
+        if (_readerBookFile is { } statsFile)
+            _ = LoadReaderBookReadingStatsAsync(statsFile.Id, cancellationToken);
         ReaderBookInfoText.Text = _readerBookCard?.Title ?? UiText.Get("目录");
         BuildReaderTocRows();
         CollapseReaderTocToCurrentChapter(_readerChapterIndex);
@@ -181,6 +184,25 @@ public partial class MainWindow
         UpdateReaderToolbar();
         StartReaderStatsTimer();
         StartReaderFootnoteHoverPoll();
+    }
+
+    private async Task LoadReaderBookReadingStatsAsync(Guid bookFileId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var stats = await _readerData.GetReadingStatsAsync(bookFileId, cancellationToken);
+            if (cancellationToken.IsCancellationRequested || _readerBookFile?.Id != bookFileId)
+                return;
+            _readerBookReadingStats = stats;
+            if (_appSettings.ReaderProgressDisplay == ReaderProgressDisplayMode.BookTimeRemaining)
+                ReaderChapterText.Text = GetReaderChapterPositionLabel();
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch
+        {
+        }
     }
 
     private static IReadOnlyList<EpubReaderNavigationItem> BuildReaderNavigationItems(

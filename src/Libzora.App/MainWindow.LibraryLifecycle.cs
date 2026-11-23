@@ -374,7 +374,7 @@ public partial class MainWindow
             trashItem.Dispose();
         LibraryTrashItems.Clear();
         if (_readerDocument is not null || _readerIsPdf)
-            await CloseReaderAsync();
+            await CloseReaderCoreAsync(animate: false);
         _readerNavigationCancellation?.Cancel();
         _readerSession.Cancel();
         _embeddingModelDownloadCancellation?.Cancel();

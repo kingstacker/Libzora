@@ -1,11 +1,70 @@
+using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
+using Avalonia.Data.Converters;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml.MarkupExtensions;
 using Avalonia.Media;
+using Libzora.Core;
 
 namespace Libzora;
+
+public sealed class ReaderAnnotationAccentBrushConverter : IValueConverter
+{
+    public static readonly ReaderAnnotationAccentBrushConverter Instance = new();
+
+    public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        var annotation = value switch
+        {
+            ReaderAnnotation a => a,
+            Stage3ReadingMaterialViewModel m => m.LocalAnnotation,
+            _ => null
+        };
+        var isReaderTheme = string.Equals(parameter as string, "reader", StringComparison.OrdinalIgnoreCase);
+        if (TryGetHighlightBrush(annotation, isReaderTheme, out var brush))
+            return brush;
+        return AppAppearanceResources.GetBrush(isReaderTheme ? "ReaderBorderBrush" : "SubtleInkBrush");
+    }
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+
+    internal static bool TryGetHighlightBrush(ReaderAnnotation? annotation, bool isReaderTheme, out IBrush brush)
+    {
+        brush = Brushes.Transparent;
+        if (annotation is null) return false;
+        var style = annotation.UnderlineStyle?.Trim().ToLowerInvariant();
+        var hex = annotation.Color?.Trim();
+        var isBlack = string.IsNullOrWhiteSpace(hex) || string.Equals(hex, "#000000", StringComparison.OrdinalIgnoreCase);
+        if (isBlack)
+        {
+            if (style != "marker") return false;
+            brush = AppAppearanceResources.GetBrush(isReaderTheme ? "ReaderInkBrush" : "InkBrush");
+            return true;
+        }
+        if (Color.TryParse(hex, out var color))
+        {
+            brush = new SolidColorBrush(color);
+            return true;
+        }
+        return false;
+    }
+}
+
+public sealed class ReaderAnnotationDateConverter : IValueConverter
+{
+    public static readonly ReaderAnnotationDateConverter Instance = new();
+
+    public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        value is DateTimeOffset date
+            ? date.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)
+            : string.Empty;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}
 
 public partial class MainWindow
 {
@@ -103,5 +162,89 @@ public partial class MainWindow
             }
         }
         RefreshReaderHighlightMenuSelection(style);
+    }
+
+    private string _readerAnnotationInputStyle = "solid";
+    private string _readerAnnotationInputColor = "#000000";
+
+    private PopupFlyoutBase? ReaderAnnotationInputStyleFlyout => ReaderAnnotationInputStyleButton is { } button
+        ? FlyoutBase.GetAttachedFlyout(button) as PopupFlyoutBase
+        : null;
+
+    private void RefreshReaderAnnotationInputStyleControls()
+    {
+        if (ReaderAnnotationInputStyleButton is null) return;
+        var style = NormalizeReaderAnnotationStyle(_readerAnnotationInputStyle);
+        var color = NormalizeReaderAnnotationColor(_readerAnnotationInputColor);
+        _readerAnnotationInputStyle = style;
+        _readerAnnotationInputColor = color;
+
+        ReaderAnnotationInputStyleLabel.Text = style switch
+        {
+            "double" => T("双线"),
+            "dashed" => T("虚线"),
+            "dotted" => T("点线"),
+            "wavy" => T("波浪线"),
+            "marker" => T("荧光标记"),
+            _ => T("直线")
+        };
+
+        ReaderAnnotationInputStyleSolidLine.IsVisible = style == "solid";
+        ReaderAnnotationInputStyleDoubleLine.IsVisible = style == "double";
+        ReaderAnnotationInputStyleDashedLine.IsVisible = style == "dashed";
+        ReaderAnnotationInputStyleDottedLine.IsVisible = style == "dotted";
+        ReaderAnnotationInputStyleWavyLine.IsVisible = style == "wavy";
+        ReaderAnnotationInputStyleMarkerBar.IsVisible = style == "marker";
+        if (style == "marker")
+        {
+            ReaderAnnotationInputStyleMarkerBar.Background = string.Equals(color, "#000000", StringComparison.OrdinalIgnoreCase)
+                ? AppAppearanceResources.GetBrush("ReaderInkBrush")
+                : new SolidColorBrush(Color.Parse(color));
+        }
+
+        if (ReaderAnnotationInputStyleFlyout is MenuFlyout flyout)
+        {
+            foreach (var item in flyout.Items.OfType<MenuItem>())
+                item.Classes.Set("active", string.Equals(item.Tag as string, style, StringComparison.OrdinalIgnoreCase));
+        }
+
+        foreach (var option in ReaderAnnotationInputPalette.Children.OfType<Button>())
+        {
+            var optionHex = option.Tag as string ?? string.Empty;
+            var isSelected = style == "marker"
+                ? string.Equals(optionHex, color, StringComparison.OrdinalIgnoreCase)
+                : string.Equals(optionHex, color, StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(optionHex, "#000000", StringComparison.OrdinalIgnoreCase);
+            option.Classes.Set("selected", isSelected);
+        }
+
+        if (ReaderAnnotationAccentBrushConverter.TryGetHighlightBrush(
+                new ReaderAnnotation { UnderlineStyle = style, Color = color },
+                isReaderTheme: true,
+                out var accentBrush))
+        {
+            ReaderAnnotationInputQuoteBar.Background = accentBrush;
+        }
+        else
+        {
+            ReaderAnnotationInputQuoteBar.Background = AppAppearanceResources.GetBrush("ReaderBorderBrush");
+        }
+    }
+
+    private void ReaderAnnotationInputStyleItem_Click(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuItem { Tag: string style }) return;
+        _readerAnnotationInputStyle = NormalizeReaderAnnotationStyle(style);
+        RefreshReaderAnnotationInputStyleControls();
+    }
+
+    private void ReaderAnnotationInputColorItem_Click(object? sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        if (sender is not Button { Tag: string color }) return;
+        _readerAnnotationInputColor = NormalizeReaderAnnotationColor(color);
+        if (_readerAnnotationInputStyle != "marker")
+            _readerAnnotationInputStyle = "marker";
+        RefreshReaderAnnotationInputStyleControls();
     }
 }

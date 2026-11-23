@@ -10,7 +10,7 @@ internal static class ReaderAnnotationCardLayout
     internal static Rect Place(Rect quote, Size viewport, Func<double, double> measure)
     {
         const double gap = 8;
-        var width = Math.Min(220, Math.Max(1, viewport.Width - 2 * gap));
+        var width = Math.Min(248, Math.Max(1, viewport.Width - 2 * gap));
         var height = measure(width);
         var x = Math.Clamp(quote.Left, gap, Math.Max(gap, viewport.Width - width - gap));
         var below = Math.Max(0, viewport.Height - gap - quote.Bottom - gap);
@@ -43,7 +43,7 @@ internal static class ReaderAnnotationCardLayout
                 heading.Measure(new Size(contentWidth, double.PositiveInfinity));
                 // Measure the text directly: a ScrollViewer can report its old
                 // viewport instead of its full content before the popup opens.
-                text.Measure(new Size(Math.Max(1, contentWidth - 16), double.PositiveInfinity));
+                text.Measure(new Size(Math.Max(1, contentWidth - 28), double.PositiveInfinity));
                 lastHeight = Math.Ceiling(heading.DesiredSize.Height + content.RowSpacing
                     + text.DesiredSize.Height + inset.Top + inset.Bottom);
                 lastWidth = width;

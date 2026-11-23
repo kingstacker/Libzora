@@ -1,9 +1,12 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
+using Avalonia.Platform;
 using Avalonia.Styling;
+using Avalonia.VisualTree;
 using Libzora.Core;
 
 namespace Libzora;
@@ -25,20 +28,46 @@ public partial class MainWindow
             ? ReaderAppearanceSettings.Normalize(_readerBookLayoutProfile!.Appearance)
             : ReaderAppearanceSettings.Normalize(_appSettings.ReaderAppearance);
 
-    private ReaderAppearanceSettings CurrentReaderAppearance =>
-        IsReaderMangaBlackCanvas
-            ? new ReaderAppearanceSettings
+    private Avalonia.Platform.IPlatformSettings? ResolvePlatformSettings() =>
+        this.GetPlatformSettings() ?? Application.Current?.PlatformSettings;
+
+    private bool IsSystemDarkAppearance() =>
+        ResolvePlatformSettings()?.GetColorValues().ThemeVariant == Avalonia.Platform.PlatformThemeVariant.Dark;
+
+    private ReaderAppearanceSettings ResolveEffectiveReaderAppearance(ReaderAppearanceSettings appearance)
+    {
+        if (IsReaderMangaBlackCanvas)
+        {
+            return new ReaderAppearanceSettings
             {
                 Theme = ReaderTheme.Ink,
                 PaperEnabled = false,
                 FibersEnabled = false,
-                AnnotationDisplayMode = BaseReaderAppearance.AnnotationDisplayMode
-            }
-            : BaseReaderAppearance;
+                AnnotationDisplayMode = appearance.AnnotationDisplayMode
+            };
+        }
+
+        if (!appearance.FollowSystemAppearance) return appearance;
+        return appearance with
+        {
+            Theme = IsSystemDarkAppearance() ? ReaderTheme.Ink : ReaderTheme.Classic
+        };
+    }
+
+    private ReaderAppearanceSettings CurrentReaderAppearance =>
+        ResolveEffectiveReaderAppearance(BaseReaderAppearance);
 
     private void InitializeReaderAppearance()
     {
         ReaderBookInfoText.LayoutUpdated += (_, _) => UpdateReaderBookTitleToolTip();
+        if (ResolvePlatformSettings() is { } platformSettings)
+        {
+            platformSettings.ColorValuesChanged += (_, _) =>
+            {
+                if (ReaderRoot.IsVisible && !IsReaderMangaBlackCanvas && BaseReaderAppearance.FollowSystemAppearance)
+                    Avalonia.Threading.Dispatcher.UIThread.Post(ApplyReaderAppearance);
+            };
+        }
         ApplyReaderAppearance();
         ReaderRoot.PropertyChanged += (_, e) =>
         {
@@ -88,7 +117,9 @@ public partial class MainWindow
         ReaderAppearanceResources.Populate(Resources, appearance, pureBlack);
         ApplyReaderTocFontSize();
         ReaderAppearanceResources.PopulateControls(ReaderThemeScope.Resources, appearance, pureBlack);
-        ReaderThemeScope.RequestedThemeVariant = ThemeVariant.Light;
+        ReaderThemeScope.RequestedThemeVariant = (appearance.Theme == ReaderTheme.Ink || pureBlack)
+            ? ThemeVariant.Dark
+            : ThemeVariant.Light;
         (_readerActiveHost as NativeReaderHost)?.SetPureBlackBackground(pureBlack);
         (_readerPreloadHost as NativeReaderHost)?.SetPureBlackBackground(pureBlack);
         (_readerActiveHost as IReaderAppearanceHost)?.SetAppearance(appearance);
@@ -115,8 +146,10 @@ public partial class MainWindow
         try
         {
             var appearance = BaseReaderAppearance;
-            foreach (var option in new[] { ReaderClassicThemeOption, ReaderBeigeThemeOption, ReaderGreenThemeOption })
+            foreach (var option in new[] { ReaderClassicThemeOption, ReaderBeigeThemeOption, ReaderGreenThemeOption, ReaderInkThemeOption })
                 option.IsChecked = Enum.TryParse<ReaderTheme>(option.Tag?.ToString(), out var theme) && theme == appearance.Theme;
+            ReaderFollowSystemThemeCheck.IsChecked = appearance.FollowSystemAppearance;
+            SelectReaderProgressDisplay(_appSettings.ReaderProgressDisplay);
             ReaderPaperEnabledCheck.IsChecked = appearance.PaperEnabled;
             ReaderPaperStrengthSlider.Value = appearance.PaperStrength * 100;
             ReaderTocFontSizeSlider.Value = _appSettings.ReaderTocFontSize;
@@ -164,7 +197,44 @@ public partial class MainWindow
     {
         if (_suppressReaderAppearanceChange || sender is not RadioButton { IsChecked: true } option
             || !Enum.TryParse<ReaderTheme>(option.Tag?.ToString(), out var theme)) return;
-        ChangeReaderAppearance(BaseReaderAppearance with { Theme = theme });
+        _suppressReaderAppearanceChange = true;
+        try { ReaderFollowSystemThemeCheck.IsChecked = false; }
+        finally { _suppressReaderAppearanceChange = false; }
+        ChangeReaderAppearance(BaseReaderAppearance with { Theme = theme, FollowSystemAppearance = false });
+    }
+
+    private void ReaderFollowSystemThemeCheck_IsCheckedChanged(object? sender, RoutedEventArgs e)
+    {
+        if (_suppressReaderAppearanceChange) return;
+        ChangeReaderAppearance(BaseReaderAppearance with
+        {
+            FollowSystemAppearance = ReaderFollowSystemThemeCheck.IsChecked == true
+        });
+    }
+
+    private void SelectReaderProgressDisplay(ReaderProgressDisplayMode mode)
+    {
+        foreach (var option in new[]
+        {
+            ReaderProgressChaptersOption,
+            ReaderProgressPagesOption,
+            ReaderProgressTimeOption,
+            ReaderProgressOffOption
+        })
+        {
+            option.IsChecked = Enum.TryParse<ReaderProgressDisplayMode>(option.Tag?.ToString(), out var itemMode)
+                && itemMode == mode;
+        }
+    }
+
+    private void ReaderProgressDisplayOption_IsCheckedChanged(object? sender, RoutedEventArgs e)
+    {
+        if (_suppressReaderAppearanceChange || sender is not RadioButton { IsChecked: true } option
+            || !Enum.TryParse<ReaderProgressDisplayMode>(option.Tag?.ToString(), out var mode)) return;
+        if (_appSettings.ReaderProgressDisplay == mode) return;
+        _appSettings = _appSettings with { ReaderProgressDisplay = mode };
+        UpdateReaderFooterProgressDisplay();
+        _readerAppearanceSaveTask = SaveReaderAppearanceAsync(globalOnly: true);
     }
 
     private void ReaderPaperCheck_IsCheckedChanged(object? sender, RoutedEventArgs e)
@@ -312,7 +382,7 @@ public partial class MainWindow
         var layout = GetBaseReaderLayout();
         _readerBaseLayout = layout;
         if (!IsReaderMangaMode)
-            _readerLayout = layout;
+            _readerLayout = BuildEffectiveProseLayout(layout);
         if (ReaderUsesBookOverride)
         {
             _readerBookLayoutProfile = ReaderBookLayoutProfile.Normalize(

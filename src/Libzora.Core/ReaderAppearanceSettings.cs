@@ -28,12 +28,23 @@ public enum ReaderAnnotationDisplayMode
     Click = 1
 }
 
+/// <summary>What the reader footer badge displays on desktop.</summary>
+public enum ReaderProgressDisplayMode
+{
+    Chapters = 0,
+    Pages = 1,
+    BookTimeRemaining = 2,
+    Off = 3
+}
+
 /// <summary>Global paint preferences, deliberately separate from pagination settings.</summary>
 public sealed record ReaderAppearanceSettings
 {
     public const double DefaultPaperStrength = 0.45;
 
     public ReaderTheme Theme { get; init; } = ReaderTheme.Classic;
+    /// <summary>Follow the operating system light/dark appearance (Classic vs Ink).</summary>
+    public bool FollowSystemAppearance { get; init; }
     public bool PaperEnabled { get; init; }
     public double PaperStrength { get; init; } = DefaultPaperStrength;
     public bool FibersEnabled { get; init; }

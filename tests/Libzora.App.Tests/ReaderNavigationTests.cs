@@ -348,7 +348,7 @@ public sealed partial class SettingsTests
         Assert.Equal(0, sourceCover.Opacity);
         Assert.NotNull(scope.Get<Image>("ReaderOpenTransitionShelf").Source);
         Assert.NotNull(scope.Get<Image>("ReaderOpenTransitionImage").Source);
-        Assert.NotNull(scope.Get<Image>("ReaderOpenTransitionImage").RenderTransform);
+        Assert.NotNull(liftedCover.RenderTransform);
         Assert.Equal(sourceSize.Width, liftedCover.Width);
         Assert.Equal(sourceSize.Height, liftedCover.Height);
         Assert.Equal(0, scope.Get<TextBlock>("ReaderOpenTransitionLoadingText").Opacity);
@@ -356,6 +356,7 @@ public sealed partial class SettingsTests
         Assert.True(scope.Get<Control>("ReaderRoot").IsVisible);
         Assert.Equal(1, sourceCover.Opacity);
         Assert.Null(scope.Get<Image>("ReaderOpenTransitionImage").Source);
+        Assert.Null(scope.Get<Image>("ReaderOpenTransitionPageImage").Source);
         Assert.Null(scope.Get<Image>("ReaderOpenTransitionShelf").Source);
         Assert.Null(scope.Field<object?>("_readerOpenTransition"));
     });
@@ -441,20 +442,86 @@ public sealed partial class SettingsTests
     });
 
     [Fact]
-    public Task ReaderOpeningWithoutCoverSkipsTheHeroLayer() => Run(async () =>
+    public Task ReaderOpeningWithoutCoverUsesFallback3DCover() => Run(async () =>
     {
         await using var scope = await TestWindow.Create();
         await SeedLayoutLibrary(scope);
+        var card = scope.Window.ViewModel.Books[0];
+        card.UnloadCover();
         var sourceCover = scope.Get<ListBox>("BookGrid").ContainerFromIndex(0)!
             .GetVisualDescendants().OfType<Border>()
             .First(control => control.Classes.Contains("bookCover"));
-        sourceCover.GetVisualDescendants().OfType<Image>().First().Source = null;
+        sourceCover.GetVisualDescendants().OfType<Image>().Last().Source = null;
 
-        scope.Call("StartReaderOpenTransition", scope.Window.ViewModel.Books[0], null);
+        scope.Call("StartReaderOpenTransition", card, null);
+        Assert.True(scope.Get<Grid>("ReaderOpenTransitionLayer").IsVisible);
+        Assert.True(scope.Get<Border>("ReaderOpenTransitionFallbackCover").IsVisible);
+        Assert.Equal(0, sourceCover.Opacity);
+        Assert.NotNull(scope.Field<object?>("_readerOpenTransition"));
+        await scope.Call<Task>("CompleteReaderOpenTransitionAsync");
         Assert.False(scope.Get<Grid>("ReaderOpenTransitionLayer").IsVisible);
         Assert.Equal(1, sourceCover.Opacity);
+    });
+
+    [Fact]
+    public Task ReaderClosingGlidesProportionalCoverBackOntoShelf() => Run(async () =>
+    {
+        await using var scope = await TestWindow.Create();
+        await SeedLayoutLibrary(scope);
+        var card = scope.Window.ViewModel.Books[0];
+        var grid = scope.Get<ListBox>("BookGrid");
+        var sourceCover = grid.ContainerFromIndex(0)!
+            .GetVisualDescendants().OfType<Border>()
+            .First(control => control.Classes.Contains("bookCover"));
+
+        await scope.Call<Task>("OpenBookAsync", card, null, true);
+        Assert.True(scope.Get<Control>("ReaderRoot").IsVisible);
+        Assert.False(scope.Get<Grid>("ReaderOpenTransitionLayer").IsVisible);
+
+        var closing = scope.Call<Task>("CloseReaderAsync");
+        await Until(() => scope.Get<Grid>("ReaderOpenTransitionLayer").IsVisible
+            && scope.Get<Control>("LibraryRoot").IsVisible);
+        Assert.NotNull(scope.Get<Image>("ReaderOpenTransitionPageImage").Source);
+        Assert.Equal(sourceCover.Bounds.Width, scope.Get<Border>("ReaderOpenTransitionCover").Width, 8);
+        Assert.Equal(sourceCover.Bounds.Height, scope.Get<Border>("ReaderOpenTransitionCover").Height, 8);
+        Assert.Equal(0, sourceCover.Opacity);
+
+        await closing;
+        Assert.False(scope.Get<Grid>("ReaderOpenTransitionLayer").IsVisible);
+        Assert.False(scope.Get<Control>("ReaderRoot").IsVisible);
+        Assert.True(scope.Get<Control>("LibraryRoot").IsVisible);
+        Assert.Equal(1, sourceCover.Opacity);
+        Assert.Null(scope.Get<Image>("ReaderOpenTransitionPageImage").Source);
         Assert.Null(scope.Field<object?>("_readerOpenTransition"));
-        await scope.Call<Task>("CompleteReaderOpenTransitionAsync");
+    });
+
+    [Fact]
+    public Task SelectingBottomRowBookScrollsItIntoViewWhenDetailPaneReflowsGrid() => Run(async () =>
+    {
+        await using var scope = await TestWindow.Create();
+        await SeedLayoutLibrary(scope);
+        scope.Window.Width = 860;
+        scope.Window.Height = 440;
+        await Render();
+
+        var grid = scope.Get<ListBox>("BookGrid");
+        var scrollViewer = Assert.Single(grid.GetVisualDescendants().OfType<ScrollViewer>());
+        const int targetIndex = 1;
+        var container = grid.ContainerFromIndex(targetIndex)!;
+        var clickPoint = container.TranslatePoint(new Point(container.Bounds.Width / 2, 24), scope.Window)!.Value;
+        scope.Window.MouseDown(clickPoint, MouseButton.Left, RawInputModifiers.None);
+        scope.Window.MouseUp(clickPoint, MouseButton.Left, RawInputModifiers.None);
+
+        await Until(() => scope.Get<Control>("LibraryDetailPane").IsVisible);
+        await Render();
+        await Render();
+
+        var updatedContainer = grid.ContainerFromIndex(targetIndex)!;
+        var topLeft = updatedContainer.TranslatePoint(default, scrollViewer)!.Value;
+        var bottomLeft = updatedContainer.TranslatePoint(new Point(0, updatedContainer.Bounds.Height), scrollViewer)!.Value;
+        Assert.True(topLeft.Y >= 0, $"Selected card top {topLeft.Y} scrolled above viewport.");
+        Assert.True(bottomLeft.Y <= scrollViewer.Viewport.Height + 1,
+            $"Selected card bottom {bottomLeft.Y} extends past viewport {scrollViewer.Viewport.Height}.");
     });
 
     [Theory]

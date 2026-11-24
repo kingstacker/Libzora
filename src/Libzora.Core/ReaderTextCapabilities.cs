@@ -95,6 +95,17 @@ public interface IReaderResumeMarkerHost : IReaderHost
     void SetResumeMarker(ReaderResumeMarker? marker);
 }
 
+/// <summary>
+/// Optional notification that a requested, current-viewport page was drawn.
+/// This is a drawing notification, not a guarantee that the display compositor
+/// has presented the frame. Native shells must finish their own display handoff.
+/// </summary>
+public interface IReaderPresentationFrameHost : IReaderHost
+{
+    event Action<long>? PresentationFrameRendered;
+    void RequestPresentationFrame(long revision);
+}
+
 /// <summary>Optional renderer-specific estimates for a whole book.</summary>
 public interface IReaderPageCountHost : IReaderHost
 {

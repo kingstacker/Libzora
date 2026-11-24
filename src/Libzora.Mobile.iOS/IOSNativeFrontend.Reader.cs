@@ -130,6 +130,13 @@ internal sealed partial class IOSNativeFrontend
                 case "reader.showChrome": reader.SetChromeVisible(true); break;
                 case "reader.speechPause": reader.NativePauseSpeech(); break;
                 case "reader.speechStop": await reader.NativeStopSpeechAsync(); break;
+                case "reader.speechSkip": reader.NativeSkipSpeechSegment(Number(args, "direction", 1)); break;
+                case "reader.speechSpeed": await reader.NativeSetSpeechSpeedAsync(args.GetProperty("speed").GetDouble()); break;
+                case "reader.speechSleep":
+                    await reader.NativeSetSpeechSleepTimerAsync(
+                        Number(args, "minutes", 0),
+                        Flag(args, "afterChapter", false));
+                    break;
                 case "reader.clearSelection": reader.NativeClearSelection(); break;
                 case "reader.footnoteDismiss": reader.NativeDismissFootnote(); break;
                 case "reader.footnoteJump": await reader.NativeJumpFootnoteAsync(); break;

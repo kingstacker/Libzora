@@ -502,6 +502,13 @@ public partial class MainWindow
             _readerTtsFloatingCollapseTimer?.Stop();
             _readerTtsFloatingAutoHideTimer?.Stop();
         }
+        if (e.State is TtsPlaybackState.Paused
+            or TtsPlaybackState.Stopped
+            or TtsPlaybackState.Error
+            && _readerListeningSeconds > 0)
+        {
+            _ = ObserveReadingTimeFlushAsync();
+        }
         if (e.State == TtsPlaybackState.Error
             && !string.IsNullOrWhiteSpace(e.Message))
         {

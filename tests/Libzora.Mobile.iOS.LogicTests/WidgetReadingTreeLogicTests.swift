@@ -236,6 +236,133 @@ struct WidgetReadingTreeLogicTests {
               && lifecycleProfile.accents.filter { $0.kind == .heirloomFruit }.count == 1,
               "Finished books on mature lush tree produce ripe and heirloom fruits concurrently")
 
+        // Listening companion and seasonal/festival atmosphere resolution.
+        check(lifecycleProfile.listeningBirdCount == 0, "Zero listening duration renders no songbirds")
+        let listeningProfile = KkReadingTreeProfile(
+            totalSeconds: KkTreeStage.leafy.minimumSeconds + 3_600,
+            todaySeconds: 2_400,
+            streakDays: 4,
+            booksFinished: 2,
+            annotationCount: 6,
+            totalListeningSeconds: 40_000,
+            todayListeningSeconds: 1_200,
+            atmosphere: KkTreeAtmosphere(season: .autumn, festival: .none, enabled: true))
+        check(listeningProfile.hasListenedToday, "Positive todayListeningSeconds marks active listening today")
+        check(listeningProfile.listeningBirdCount == 2, "10h+ cumulative listening spawns two perched songbirds")
+
+        let gregorian = Calendar(identifier: .gregorian)
+        func gDate(_ year: Int, _ month: Int, _ day: Int) -> Date {
+            gregorian.date(from: DateComponents(year: year, month: month, day: day, hour: 12))!
+        }
+        check(KkTreeSeason.resolve(for: gDate(2026, 4, 15)) == .spring, "April resolves to spring")
+        check(KkTreeSeason.resolve(for: gDate(2026, 7, 15)) == .summer, "July resolves to summer")
+        check(KkTreeSeason.resolve(for: gDate(2026, 10, 15)) == .autumn, "October resolves to autumn")
+        check(KkTreeSeason.resolve(for: gDate(2026, 12, 25)) == .winter, "December resolves to winter")
+        check(KkTreeFestival.resolve(for: gDate(2026, 12, 25)) == .christmas, "Dec 25 resolves to Christmas")
+        check(KkTreeFestival.resolve(for: gDate(2026, 1, 1)) == .newYear, "Jan 1 resolves to New Year")
+        // Chinese lunar + Gregorian holidays & major US holidays in 2026:
+        // Spring Festival = Feb 17, Valentine's = Feb 14, Lantern = Mar 3, Qingming = Apr 5,
+        // Dragon Boat = Jun 19, Independence Day = Jul 4, Qixi = Aug 19, Mid-Autumn = Sep 25,
+        // National Day = Oct 1, Double Ninth = Oct 18, Halloween = Oct 31, Thanksgiving = Nov 26.
+        check(KkTreeFestival.resolve(for: gDate(2026, 2, 14)) == .valentinesDay, "Feb 14 resolves to Valentine's Day")
+        check(KkTreeFestival.resolve(for: gDate(2026, 2, 17)) == .springFestival, "Lunar 1/1 resolves to Spring Festival")
+        check(KkTreeFestival.resolve(for: gDate(2026, 3, 3)) == .lanternFestival, "Lunar 1/15 resolves to Lantern Festival")
+        check(KkTreeFestival.resolve(for: gDate(2026, 4, 5)) == .qingming, "Qingming solar term resolves correctly")
+        check(KkTreeFestival.resolve(for: gDate(2026, 6, 19)) == .dragonBoat, "Lunar 5/5 resolves to Dragon Boat Festival")
+        check(KkTreeFestival.resolve(for: gDate(2026, 7, 4)) == .independenceDay, "Jul 4 resolves to Independence Day")
+        check(KkTreeFestival.resolve(for: gDate(2026, 8, 19)) == .qixi, "Lunar 7/7 resolves to Qixi Festival")
+        check(KkTreeFestival.resolve(for: gDate(2026, 9, 25)) == .midAutumn, "Lunar 8/15 resolves to Mid-Autumn Festival")
+        check(KkTreeFestival.resolve(for: gDate(2026, 10, 1)) == .nationalDay, "Oct 1 resolves to National Day")
+        check(KkTreeFestival.resolve(for: gDate(2026, 10, 18)) == .doubleNinth, "Lunar 9/9 resolves to Double Ninth Festival")
+        check(KkTreeFestival.resolve(for: gDate(2026, 10, 31)) == .halloween, "Oct 31 resolves to Halloween")
+        check(KkTreeFestival.resolve(for: gDate(2026, 11, 26)) == .thanksgiving, "4th Thursday of Nov resolves to Thanksgiving")
+        check(KkTreeAtmosphere.resolve(for: gDate(2026, 9, 25), enabled: true).showsFullMoon,
+              "Mid-Autumn with seasonal decorations enabled shows full moon")
+        check(!KkTreeAtmosphere.resolve(for: gDate(2026, 12, 25), enabled: false).enabled,
+              "Disabling seasonal decorations suppresses seasonal and festival overlays")
+
+        // Snapshot decoding stays backward-compatible when seasonalDecorations or listening fields are omitted.
+        let legacyListeningSnapshotJson = """
+        {
+          "reading": {
+            "todaySeconds": 600,
+            "weekSeconds": 1800,
+            "totalSeconds": 7200,
+            "streakDays": 2,
+            "booksStarted": 3,
+            "booksFinished": 1,
+            "bookmarkCount": 4,
+            "annotationCount": 3,
+            "days": [{"date":"2026-04-01","seconds":600}]
+          },
+          "continueBooks": []
+        }
+        """
+        let legacyDecoded = try? JSONDecoder().decode(KkSnapshot.self, from: Data(legacyListeningSnapshotJson.utf8))
+        check(legacyDecoded != nil, "Legacy widget snapshot JSON decodes without new listening keys")
+        check(legacyDecoded?.reading.safeTotalListeningSeconds == 0, "Missing listening seconds defaults to 0")
+        check(KkReadingTreeProfile(snapshot: legacyDecoded!, date: gDate(2026, 12, 25)).atmosphere.festival == .christmas,
+              "Snapshot reading tree enables seasonal and festival atmosphere by default")
+
+        // Weekly chart aligns Monday -> Sunday even when reference date is Tuesday.
+        let tuesdayRef = gDate(2026, 11, 24)
+        let mondayFirst = KkFormat.mondayFirstWeekDays(
+            [
+                KkDay(date: "2026-11-22", seconds: 900),
+                KkDay(date: "2026-11-23", seconds: 1200),
+                KkDay(date: "2026-11-24", seconds: 480)
+            ],
+            referenceDate: tuesdayRef
+        )
+        check(mondayFirst.count == 7, "Monday-first week always returns 7 days")
+        check(mondayFirst.first?.date == "2026-11-23" && mondayFirst.first?.seconds == 1200,
+              "Monday-first week starts on Monday with Monday reading time")
+        check(mondayFirst[1].date == "2026-11-24" && mondayFirst[1].seconds == 480,
+              "Monday-first week places Tuesday second")
+        check(mondayFirst.last?.date == "2026-11-29" && mondayFirst.last?.seconds == 0,
+              "Monday-first week ends on Sunday with 0 for future days")
+
+        // Stale widget snapshots roll over cleanly across days, weeks, and years.
+        let rolloverReading = KkReading(
+            todaySeconds: 900,
+            streakDays: 500,
+            weekSeconds: 4500,
+            totalSeconds: 5_400_000, // 1,500 hours
+            booksStarted: 120,
+            booksFinished: 85,
+            bookmarkCount: 640,
+            annotationCount: 1850,
+            days: [
+                KkDay(date: "2026-11-23", seconds: 1800, listeningSeconds: nil),
+                KkDay(date: "2026-11-24", seconds: 900, listeningSeconds: nil)
+            ],
+            todayListeningSeconds: 0,
+            weekListeningSeconds: 0,
+            totalListeningSeconds: 0
+        )
+        let sameDaySnapshot = "2026-11-24T09:00:00Z"
+        let nextDay = gDate(2026, 11, 25)
+        let twoDaysLater = gDate(2026, 11, 26)
+        let nextYear = gDate(2028, 3, 1)
+        check(KkFormat.effectiveTodaySeconds(reading: rolloverReading, generatedAt: sameDaySnapshot, on: tuesdayRef) == 900,
+              "Same-day widget shows todaySeconds")
+        check(KkFormat.effectiveTodaySeconds(reading: rolloverReading, generatedAt: sameDaySnapshot, on: nextDay) == 0,
+              "Next-day widget without app launch clears yesterday todaySeconds to 0")
+        check(KkFormat.effectiveStreakDays(reading: rolloverReading, generatedAt: sameDaySnapshot, on: nextDay) == 500,
+              "500-day multi-year streak remains active through the day after last reading")
+        check(KkFormat.effectiveStreakDays(reading: rolloverReading, generatedAt: sameDaySnapshot, on: twoDaysLater) == 0,
+              "Streak resets cleanly to 0 after missing a full day")
+        check(KkFormat.effectiveWeekSeconds(reading: rolloverReading, generatedAt: sameDaySnapshot, on: nextYear) == 0,
+              "Week total resets to 0 when snapshot is from a prior year")
+        check(KkFormat.compactHoursParts(rolloverReading.totalSeconds, isChinese: true) == ("1500", "小时"),
+              "Multi-year 1,500h reading total formats cleanly")
+        check(KkFormat.compactCount(9999, isChinese: true) == "9999",
+              "Counts below 10k stay exact")
+        check(KkFormat.compactCount(12_000, isChinese: true) == "1.2万",
+              "Large Chinese counts >= 10k compact cleanly with 万")
+        check(KkFormat.compactCount(25_600, isChinese: false) == "25.6k",
+              "Large English counts >= 10k compact cleanly with k")
+
         print("Passed \(assertions) widget reading tree regression assertions.")
     }
 }

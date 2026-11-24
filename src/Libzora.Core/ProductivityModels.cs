@@ -368,16 +368,22 @@ public sealed record ReadingDashboard(
     IReadOnlyList<ReadingDashboardBook> RecentBooks,
     IReadOnlyList<ReadingDashboardDay> DailyReading)
 {
+    public long ListeningSeconds { get; init; }
+    public int StreakDays { get; init; }
     public IReadOnlyList<ReadingDashboardBook> Books { get; init; } = RecentBooks;
     public IReadOnlyList<ReadingDashboardBook> MostReadBooks { get; init; } = RecentBooks;
 }
 
 public sealed record ReadingDashboardBook(Guid BookId, Guid BookFileId, double ProgressPercent, long CumulativeSeconds, DateTimeOffset UpdatedAt)
 {
+    public long ListeningSeconds { get; init; }
     public string Title { get; init; } = string.Empty;
     public bool IsInLibrary { get; init; }
 }
-public sealed record ReadingDashboardDay(DateOnly Date, long ActiveSeconds);
+public sealed record ReadingDashboardDay(DateOnly Date, long ActiveSeconds)
+{
+    public long ListeningSeconds { get; init; }
+}
 
 public enum ReadingMaterialSource { Local, Device, Kindle = Device }
 

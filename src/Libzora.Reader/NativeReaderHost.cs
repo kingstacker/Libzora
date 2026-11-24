@@ -24,7 +24,7 @@ namespace Libzora;
 /// so the surrounding reader pipeline keeps working unchanged.
 /// </summary>
 
-public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPageSnapshotProvider, IReaderAppearanceHost, IReaderConfiguredHost, IReaderLocationHost, IReaderLayoutNavigationHost, IReaderPaginationHost, IReaderAnnotationHost, IReaderSpeechHost, IReaderSelectionHost, IReaderAnnotationBoundsHost, IReaderFootnoteVisualHost, IReaderPageCountHost, IReaderVisualTransitionHost, IReaderResumeMarkerHost
+public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPageSnapshotProvider, IReaderAppearanceHost, IReaderConfiguredHost, IReaderLocationHost, IReaderLayoutNavigationHost, IReaderPaginationHost, IReaderAnnotationHost, IReaderSpeechHost, IReaderSelectionHost, IReaderAnnotationBoundsHost, IReaderFootnoteVisualHost, IReaderPageCountHost, IReaderVisualTransitionHost, IReaderResumeMarkerHost, IReaderPresentationFrameHost
 {
     public const string BundledFontFileName = "KingHwaOldSong-v3.0.ttf";
 
@@ -50,6 +50,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
     private TypesetEngine? _engine;
     private readonly object _engineGate = new();
     private CancellationTokenSource? _relayoutCts;
+    private bool _backgroundCompletionActive;
     internal Task RelayoutTask { get; private set; } = Task.CompletedTask;
     private bool _layoutCompletionScheduled;
     private Size? _initialViewportSize;

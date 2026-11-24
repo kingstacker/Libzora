@@ -61,4 +61,42 @@ public sealed partial class SettingsTests
         Assert.Equal(2, scope.Window.DashboardRecentItems.Count);
         Assert.Equal(2, scope.Window.DashboardBookTimes.Count);
     });
+
+    [Theory]
+    [InlineData("zh-CN", "含听书")]
+    [InlineData("en-US", "listening")]
+    public Task ReadingDashboard_DisplaysListeningDurationBreakdown(string language, string expectedToken) => Run(async () =>
+    {
+        await using var scope = await TestWindow.Create();
+        ((Libzora.App)Application.Current!).ApplyLanguage(language);
+        var bookId = Guid.NewGuid();
+        var fileId = Guid.NewGuid();
+        await using (var connection = new SqliteConnection($"Data Source={scope.Paths.Database}"))
+        {
+            await connection.OpenAsync();
+            using var insert = connection.CreateCommand();
+            insert.CommandText = """
+                INSERT INTO Books (Id, Title, Authors, CreatedAt, UpdatedAt)
+                VALUES ($bookId, 'Audio Companion Book', 'Author', $time, $time);
+                INSERT INTO BookFiles (Id, BookId, Format, RelativePath, Size, Sha256)
+                VALUES ($fileId, $bookId, 'epub', 'library/audio/book.epub', 1, $hash);
+                """;
+            insert.Parameters.AddWithValue("$bookId", bookId.ToString());
+            insert.Parameters.AddWithValue("$fileId", fileId.ToString());
+            insert.Parameters.AddWithValue("$time", DateTimeOffset.UtcNow.ToString("O"));
+            insert.Parameters.AddWithValue("$hash", new string('c', 64));
+            await insert.ExecuteNonQueryAsync();
+        }
+
+        var reader = scope.Field<ReaderDataService>("_readerData");
+        await reader.AddReadingTimeAsync(bookId, fileId, activeSeconds: 900, progressPercent: 30, completedChapters: 2, totalChapters: 10, listeningSeconds: 600);
+
+        await scope.Call<Task>("RefreshReadingDashboardAsync");
+
+        var avgText = scope.Get<TextBlock>("DashboardDailyAverageText").Text ?? "";
+        Assert.Contains(expectedToken, avgText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(expectedToken, scope.Window.DashboardBookTimes[0].ValueLabel, StringComparison.OrdinalIgnoreCase);
+        var todayColumn = Assert.Single(scope.Window.DashboardDays, day => !string.IsNullOrEmpty(day.TimeLabel));
+        Assert.Contains(expectedToken, todayColumn.DetailLabel, StringComparison.OrdinalIgnoreCase);
+    });
 }

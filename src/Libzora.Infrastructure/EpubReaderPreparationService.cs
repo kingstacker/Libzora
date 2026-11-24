@@ -80,10 +80,16 @@ public sealed partial class EpubReaderPreparationService
         _paths = paths;
     }
 
-    public async Task<EpubReaderDocument> PrepareAsync(
+    public Task<EpubReaderDocument> PrepareAsync(
         string epubPath,
         string sha256,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        Task.Run(() => PrepareCoreAsync(epubPath, sha256, cancellationToken), cancellationToken);
+
+    private async Task<EpubReaderDocument> PrepareCoreAsync(
+        string epubPath,
+        string sha256,
+        CancellationToken cancellationToken)
     {
         var cacheKey = string.Concat(sha256.Where(Uri.IsHexDigit)).ToLowerInvariant();
         if (cacheKey.Length != 64)

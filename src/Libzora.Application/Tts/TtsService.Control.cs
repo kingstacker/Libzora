@@ -9,6 +9,41 @@ namespace Libzora.ApplicationServices.Tts;
 /// </summary>
 public sealed partial class TtsService : IDisposable
 {
+    public void UpdateSettings(TtsSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        lock (_gate)
+        {
+            if (_disposed) return;
+            _settings = TtsSettings.Normalize(settings);
+        }
+    }
+
+    private void OnExternalPauseStateChanged(bool paused)
+    {
+        TtsPlaybackState nextState;
+        int segmentIndex;
+        int segmentCount;
+        lock (_gate)
+        {
+            if (_disposed || _loopTask is null) return;
+            if (paused)
+            {
+                if (_state is not (TtsPlaybackState.Playing or TtsPlaybackState.Generating)) return;
+                nextState = TtsPlaybackState.Paused;
+            }
+            else
+            {
+                if (_state != TtsPlaybackState.Paused || _player is { IsPaused: true }) return;
+                nextState = TtsPlaybackState.Playing;
+            }
+            segmentIndex = _segmentIndex;
+            segmentCount = _segmentCount;
+        }
+        if (paused) CancelPendingNavigation();
+        SetState(nextState, null, segmentIndex, segmentCount);
+    }
+
     public void PauseOrResume()
     {
         if (_disposed || _player is null) return;

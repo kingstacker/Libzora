@@ -19,12 +19,11 @@ public sealed class IOSNativeSceneDelegate : UIResponder, IUIWindowSceneDelegate
 #endif
         if (scene is not UIWindowScene windowScene || session.Role != UIWindowSceneSessionRole.Application) return;
         Window = new UIWindow(windowScene);
-        IOSNativeFrontend.Attach(Window);
-        Window.MakeKeyAndVisible();
-
         if (options.UrlContexts is { } urls) OpenUrlContexts(scene, urls);
         if (options.UserActivities is { } activities)
             foreach (var activity in activities) ContinueUserActivity(scene, activity);
+        IOSNativeFrontend.Attach(Window);
+        Window.MakeKeyAndVisible();
     }
 
     [Export("scene:openURLContexts:")]

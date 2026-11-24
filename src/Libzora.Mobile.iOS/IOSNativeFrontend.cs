@@ -43,6 +43,7 @@ internal sealed partial class IOSNativeFrontend
     private string? _readerSessionId;
     private CancellationTokenSource? _readerCancellation;
     private Thickness _nativeSurfaceInsets;
+    private readonly IOSNowPlayingController _nowPlaying;
 
     internal static bool IsAttached => _current is not null;
 
@@ -52,6 +53,7 @@ internal sealed partial class IOSNativeFrontend
         _readerSurface = readerSurface;
         _readerController = readerController;
         _window = window;
+        _nowPlaying = new IOSNowPlayingController(() => _reader);
         // Notification callbacks may run as soon as they are registered.
         // Their snapshot coordinator must already be fully initialized.
         _widgetSnapshots = new WidgetSnapshotCoordinator(
@@ -361,12 +363,21 @@ internal sealed partial class IOSNativeFrontend
                     _readerSessionId = Text(args, "sessionId");
                     _reader = new ReaderPage(book, _shell.Modules, _shell, jump);
                     var sessionId = _readerSessionId;
-                    _reader.NativeStateChanged += state => Publish(Data(("type", "reader"), ("sessionId", sessionId), ("reader", state)));
+                    _reader.NativeStateChanged += state =>
+                    {
+                        if (_reader is { } active && string.Equals(_readerSessionId, sessionId, StringComparison.Ordinal))
+                            _nowPlaying.Update(active, state, _shell.Modules.Paths);
+                        Publish(Data(("type", "reader"), ("sessionId", sessionId), ("reader", state)));
+                    };
                     _reader.NativeDialogRequested += dialog => Publish(Data(("type", "readerDialog"), ("sessionId", sessionId), ("dialog", dialog)));
                     _reader.NativeReaderMediaRequested += media => Publish(Data(("type", "readerMedia"), ("sessionId", sessionId), ("media", media)));
                     _reader.NativeFootnoteRequested += footnote => Publish(Data(("type", "readerFootnote"), ("sessionId", sessionId), ("footnote", footnote)));
                     _reader.NativeSearchBatchChanged += search => Publish(Data(("type", "readerSearch"), ("sessionId", sessionId), ("search", search)));
                     _reader.UseNativeFrontend();
+                    var surfaceBounds = _readerSurface.Bounds.Width >= 2 && _readerSurface.Bounds.Height >= 2
+                        ? _readerSurface.Bounds
+                        : _window.Bounds;
+                    _reader.NativeSetViewportHint(surfaceBounds.Width, surfaceBounds.Height);
                     _reader.NativeSetSurfaceInsets(_nativeSurfaceInsets);
                     var darkAppearance = _shell.Preferences.Current.ThemeMode switch
                     {
@@ -401,15 +412,19 @@ internal sealed partial class IOSNativeFrontend
                 await _readerGate.WaitAsync(token);
                 try
                 {
+                    var insetSession = Text(args, "sessionId");
+                    if (_reader is not null && !string.Equals(_readerSessionId, insetSession, StringComparison.Ordinal))
+                        return Data(("accepted", false), ("revision", 0L));
                     _nativeSurfaceInsets = new Thickness(
                         ReadDouble(args, "left"),
                         ReadDouble(args, "top"),
                         ReadDouble(args, "right"),
                         ReadDouble(args, "bottom"));
                     _reader?.NativeSetSurfaceInsets(_nativeSurfaceInsets);
+                    return Data(("accepted", _reader is not null),
+                        ("revision", _reader?.NativePresentationFrameRevision ?? 0L));
                 }
                 finally { _readerGate.Release(); }
-                return Data();
             case "reader.close":
                 _readerCancellation?.Cancel();
                 await _readerGate.WaitAsync(token);
@@ -437,6 +452,7 @@ internal sealed partial class IOSNativeFrontend
 
     private async Task CloseReaderAsync()
     {
+        _nowPlaying.Clear();
         if (_reader is not { } reader) return;
         reader.NativeCancelSearch();
         await reader.PauseAsync();

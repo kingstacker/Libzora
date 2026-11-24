@@ -3123,4 +3123,10 @@ This run stopped early because online requested access verification; the remaini
     <x:String x:Key="Ui.Auto.250943837F4B36B8">Ctrl+B  Toggle bookmark</x:String>
     <x:String x:Key="Ui.Auto.C170EBBDB0678FA9">Ctrl++ / Ctrl+- / Ctrl+0  Zoom or adjust font size</x:String>
     <x:String x:Key="Ui.Auto.21D0F362C79A67BA">F11  Toggle zen mode</x:String>
+    <x:String x:Key="Ui.Auto.AA2D9157400D1E25">7-day avg {0} · incl. {1} listening</x:String>
+    <x:String x:Key="Ui.Auto.2F1D20B590B7BD2D">{0} (incl. {1} listening)</x:String>
+    <x:String x:Key="Ui.Auto.D9D13D5F56DA03FE">Listening {0}</x:String>
+    <x:String x:Key="Ui.Auto.BB79A4C3654C8733">Sync Key Required</x:String>
+    <x:String x:Key="Ui.Auto.77BEF6D44D5A9BA0">Set a sync key below before enabling sync.</x:String>
+    <x:String x:Key="Ui.Auto.02E18DCAC519CBB0">Enter and confirm a matching sync key below before enabling sync.</x:String>
 </ResourceDictionary>

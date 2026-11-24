@@ -98,6 +98,7 @@ public sealed partial class NativePdfReaderHost
         if (_layout is null) return;
         if (Math.Abs(DeviceScaling - _layoutDpi) > 0.001) ScheduleRender();
         var visiblePages = VisiblePageNumbers.ToArray();
+        var targetPageDrawn = false;
         // Paint every shadow below every sheet. When pages are close together,
         // a later page's shadow must never tint an earlier page's paper.
         foreach (var pageNumber in visiblePages)
@@ -114,6 +115,7 @@ public sealed partial class NativePdfReaderHost
                 if (cached.PreviewBitmap is { } preview && cached.PreviewRotation == Rotation && cached.PreviewPalette == _palette)
                 {
                     context.DrawImage(preview, new Rect(preview.Size), page);
+                    if (pageNumber == PageNumber) targetPageDrawn = true;
                 }
                 if (cached.Bitmap is { } bitmap && cached.Raster is { } raster
                     && raster.Rotation == Rotation && cached.Palette == _palette)
@@ -124,6 +126,7 @@ public sealed partial class NativePdfReaderHost
                         (double)raster.Width / raster.PagePixelWidth * page.Width,
                         (double)raster.Height / raster.PagePixelHeight * page.Height);
                     context.DrawImage(bitmap, new Rect(bitmap.Size), target);
+                    if (pageNumber == PageNumber && !HasUncoveredViewportRegion()) targetPageDrawn = true;
                 }
             }
             // Rotate the original annotation geometry as a whole, including
@@ -186,6 +189,7 @@ public sealed partial class NativePdfReaderHost
             DrawAnnotationCalloutConnector(context, callout.Anchor, callout.Bounds, _palette.Ink);
         foreach (var additional in _additionalAnnotationConnectors)
             DrawAnnotationCalloutConnector(context, additional.Anchor, additional.Bounds, _palette.Ink);
+        NotifyPresentationFrameDrawn(targetPageDrawn);
     }
 
     public void SetResumeMarker(ReaderResumeMarker? marker)

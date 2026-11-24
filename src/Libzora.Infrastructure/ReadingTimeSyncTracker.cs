@@ -33,8 +33,11 @@ internal static class ReadingTimeSyncTracker
                 ReadingDate TEXT NOT NULL,
                 DeviceId TEXT NOT NULL,
                 Seconds INTEGER NOT NULL CHECK (Seconds >= 0),
+                ListeningSeconds INTEGER NOT NULL DEFAULT 0 CHECK (ListeningSeconds >= 0),
                 PRIMARY KEY (BookFileId, ReadingDate, DeviceId)
             );
+            CREATE INDEX IF NOT EXISTS IX_S3SyncReadingDayCounters_ReadingDate
+                ON S3SyncReadingDayCounters(ReadingDate);
             INSERT OR IGNORE INTO S3SyncLocalMetadata (Key, Value)
                 VALUES ('reading-time-device', $device);
             INSERT OR IGNORE INTO S3SyncReadingTimeCounters (BookFileId, DeviceId, Seconds)
@@ -138,21 +141,25 @@ internal static class ReadingTimeSyncTracker
         Guid fileId,
         DateTimeOffset recordedAt,
         long activeSeconds,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        long listeningSeconds = 0)
     {
         if (activeSeconds <= 0) return;
+        var clampedListening = Math.Clamp(listeningSeconds, 0, activeSeconds);
         var date = recordedAt.UtcDateTime.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
         var deviceId = await GetLocalCounterIdAsync(connection, transaction, fileId, cancellationToken);
         using var command = Command(connection, transaction, """
-            INSERT INTO S3SyncReadingDayCounters (BookFileId, ReadingDate, DeviceId, Seconds)
-            VALUES ($file, $date, $device, $seconds)
+            INSERT INTO S3SyncReadingDayCounters (BookFileId, ReadingDate, DeviceId, Seconds, ListeningSeconds)
+            VALUES ($file, $date, $device, $seconds, $listening)
             ON CONFLICT(BookFileId, ReadingDate, DeviceId) DO UPDATE SET
-                Seconds = S3SyncReadingDayCounters.Seconds + excluded.Seconds;
+                Seconds = S3SyncReadingDayCounters.Seconds + excluded.Seconds,
+                ListeningSeconds = S3SyncReadingDayCounters.ListeningSeconds + excluded.ListeningSeconds;
             """,
             ("$file", fileId.ToString()),
             ("$date", date),
             ("$device", deviceId),
-            ("$seconds", activeSeconds));
+            ("$seconds", activeSeconds),
+            ("$listening", clampedListening));
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 

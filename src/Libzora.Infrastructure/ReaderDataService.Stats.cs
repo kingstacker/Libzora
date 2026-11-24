@@ -17,7 +17,7 @@ public sealed partial class ReaderDataService
         await using var connection = await OpenConnectionAsync(cancellationToken);
         var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT BookId, BookFileId, CumulativeSeconds, ProgressPercent, CompletedChapters, TotalChapters, UpdatedAt
+            SELECT BookId, BookFileId, CumulativeSeconds, ListeningSeconds, ProgressPercent, CompletedChapters, TotalChapters, UpdatedAt
             FROM ReaderReadingStats
             WHERE BookFileId = $bookFileId;
             """;
@@ -29,10 +29,11 @@ public sealed partial class ReaderDataService
             BookId = Guid.Parse(reader.GetString(0)),
             BookFileId = Guid.Parse(reader.GetString(1)),
             CumulativeSeconds = reader.GetInt64(2),
-            ProgressPercent = reader.GetDouble(3),
-            CompletedChapters = reader.GetInt32(4),
-            TotalChapters = reader.GetInt32(5),
-            UpdatedAt = DateTimeOffset.Parse(reader.GetString(6))
+            ListeningSeconds = reader.GetInt64(3),
+            ProgressPercent = reader.GetDouble(4),
+            CompletedChapters = reader.GetInt32(5),
+            TotalChapters = reader.GetInt32(6),
+            UpdatedAt = DateTimeOffset.Parse(reader.GetString(7))
         };
     }
 
@@ -87,13 +88,13 @@ public sealed partial class ReaderDataService
         var hasLibrary = Convert.ToInt32(await librarySchema.ExecuteScalarAsync(cancellationToken)) != 0;
         using var history = connection.CreateCommand();
         history.CommandText = hasLibrary ? """
-            SELECT s.BookId, s.BookFileId, s.ProgressPercent, s.CumulativeSeconds, s.UpdatedAt,
+            SELECT s.BookId, s.BookFileId, s.ProgressPercent, s.CumulativeSeconds, s.ListeningSeconds, s.UpdatedAt,
                    COALESCE(b.Title, h.Title, ''), b.Id IS NOT NULL
             FROM ReaderReadingStats s
             LEFT JOIN ReaderReadingHistory h ON h.BookFileId = s.BookFileId
             LEFT JOIN Books b ON b.Id = s.BookId;
             """ : """
-            SELECT s.BookId, s.BookFileId, s.ProgressPercent, s.CumulativeSeconds, s.UpdatedAt,
+            SELECT s.BookId, s.BookFileId, s.ProgressPercent, s.CumulativeSeconds, s.ListeningSeconds, s.UpdatedAt,
                    COALESCE(h.Title, ''), 0
             FROM ReaderReadingStats s
             LEFT JOIN ReaderReadingHistory h ON h.BookFileId = s.BookFileId;
@@ -104,9 +105,11 @@ public sealed partial class ReaderDataService
             while (await reader.ReadAsync(cancellationToken))
                 fileHistory.Add(new ReadingDashboardBook(
                     Guid.Parse(reader.GetString(0)), Guid.Parse(reader.GetString(1)), reader.GetDouble(2),
-                    reader.GetInt64(3), DateTimeOffset.Parse(reader.GetString(4)))
+                    reader.GetInt64(3), DateTimeOffset.Parse(reader.GetString(5)))
                 {
-                    Title = reader.GetString(5), IsInLibrary = reader.GetInt32(6) != 0
+                    ListeningSeconds = reader.GetInt64(4),
+                    Title = reader.GetString(6),
+                    IsInLibrary = reader.GetInt32(7) != 0
                 });
         }
         // A book can have several formats. Sum their time, but use the most
@@ -115,12 +118,14 @@ public sealed partial class ReaderDataService
             .Select(group => group.OrderByDescending(item => item.UpdatedAt).ThenBy(item => item.BookFileId).First() with
             {
                 CumulativeSeconds = group.Sum(item => item.CumulativeSeconds),
+                ListeningSeconds = group.Sum(item => item.ListeningSeconds),
                 Title = group.Select(item => item.Title).FirstOrDefault(title => !string.IsNullOrWhiteSpace(title)) ?? string.Empty
             })
             .OrderByDescending(item => item.UpdatedAt).ThenBy(item => item.BookId).ToArray();
         var started = books.Length;
         var finished = books.Count(item => item.ProgressPercent >= 99.5);
         var seconds = books.Sum(item => item.CumulativeSeconds);
+        var listeningSeconds = books.Sum(item => item.ListeningSeconds);
         var average = books.Length == 0 ? 0 : books.Average(item => item.ProgressPercent);
 
         var counts = connection.CreateCommand();
@@ -147,7 +152,7 @@ public sealed partial class ReaderDataService
         var firstDay = lastDay.AddDays(-(dayCount - 1));
         var dailyCommand = connection.CreateCommand();
         dailyCommand.CommandText = """
-            SELECT ReadingDate, COALESCE(SUM(Seconds), 0)
+            SELECT ReadingDate, COALESCE(SUM(Seconds), 0), COALESCE(SUM(ListeningSeconds), 0)
             FROM S3SyncReadingDayCounters
             WHERE ReadingDate >= $cutoff AND ReadingDate <= $lastDay
             GROUP BY ReadingDate
@@ -155,22 +160,73 @@ public sealed partial class ReaderDataService
             """;
         dailyCommand.Parameters.AddWithValue("$cutoff", firstDay.ToString("yyyy-MM-dd"));
         dailyCommand.Parameters.AddWithValue("$lastDay", lastDay.ToString("yyyy-MM-dd"));
-        var dailyValues = new Dictionary<DateOnly, long>();
+        var dailyValues = new Dictionary<DateOnly, (long Active, long Listening)>();
         await using (var reader = await dailyCommand.ExecuteReaderAsync(cancellationToken))
         {
             while (await reader.ReadAsync(cancellationToken))
             {
                 if (DateOnly.TryParse(reader.GetString(0), out var day))
-                    dailyValues[day] = reader.GetInt64(1);
+                    dailyValues[day] = (reader.GetInt64(1), reader.GetInt64(2));
             }
         }
         var dailyReading = Enumerable.Range(0, dayCount)
             .Select(offset => firstDay.AddDays(offset))
-            .Select(day => new ReadingDashboardDay(day, dailyValues.GetValueOrDefault(day)))
+            .Select(day =>
+            {
+                var entry = dailyValues.GetValueOrDefault(day);
+                return new ReadingDashboardDay(day, entry.Active) { ListeningSeconds = entry.Listening };
+            })
             .ToArray();
+
+        // Compute true consecutive streak across all recorded years so streaks
+        // beyond 30/366 days never get truncated by the chart window.
+        var streakCommand = connection.CreateCommand();
+        streakCommand.CommandText = """
+            SELECT ReadingDate
+            FROM S3SyncReadingDayCounters
+            WHERE ReadingDate <= $lastDay AND Seconds > 0
+            GROUP BY ReadingDate
+            HAVING SUM(Seconds) > 0
+            ORDER BY ReadingDate DESC;
+            """;
+        streakCommand.Parameters.AddWithValue("$lastDay", lastDay.ToString("yyyy-MM-dd"));
+        var streakDays = 0;
+        var expectedStreakDate = lastDay;
+        await using (var streakReader = await streakCommand.ExecuteReaderAsync(cancellationToken))
+        {
+            while (await streakReader.ReadAsync(cancellationToken))
+            {
+                if (!DateOnly.TryParseExact(
+                        streakReader.GetString(0),
+                        "yyyy-MM-dd",
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        System.Globalization.DateTimeStyles.None,
+                        out var activeDate))
+                {
+                    continue;
+                }
+                if (activeDate > lastDay) continue;
+                if (activeDate == expectedStreakDate)
+                {
+                    streakDays++;
+                    expectedStreakDate = expectedStreakDate.AddDays(-1);
+                }
+                else if (streakDays == 0 && activeDate == lastDay.AddDays(-1))
+                {
+                    streakDays++;
+                    expectedStreakDate = activeDate.AddDays(-1);
+                }
+                else
+                {
+                    break;
+                }
+            }
+        }
 
         return new ReadingDashboard(started, finished, seconds, average, bookmarks, annotations, recentBooks, dailyReading)
         {
+            ListeningSeconds = listeningSeconds,
+            StreakDays = streakDays,
             Books = books,
             MostReadBooks = books.OrderByDescending(item => item.CumulativeSeconds)
                 .ThenByDescending(item => item.UpdatedAt).Take(8).ToArray()
@@ -185,16 +241,29 @@ public sealed partial class ReaderDataService
         int completedChapters,
         int totalChapters,
         CancellationToken cancellationToken = default) =>
-        AddReadingTimeCoreAsync(bookId, bookFileId, activeSeconds, progressPercent, completedChapters, totalChapters,
+        AddReadingTimeCoreAsync(bookId, bookFileId, activeSeconds, 0, progressPercent, completedChapters, totalChapters,
+            DateTimeOffset.UtcNow, null, cancellationToken);
+
+    public Task AddReadingTimeAsync(
+        Guid bookId,
+        Guid bookFileId,
+        long activeSeconds,
+        double progressPercent,
+        int completedChapters,
+        int totalChapters,
+        long listeningSeconds,
+        CancellationToken cancellationToken = default) =>
+        AddReadingTimeCoreAsync(bookId, bookFileId, activeSeconds, listeningSeconds, progressPercent, completedChapters, totalChapters,
             DateTimeOffset.UtcNow, null, cancellationToken);
 
     internal Task AddRecoveredReadingTimeAsync(ReadingTimeCheckpoint checkpoint, CancellationToken token) =>
-        AddReadingTimeCoreAsync(checkpoint.BookId, checkpoint.BookFileId, checkpoint.Seconds, checkpoint.ProgressPercent,
-            checkpoint.CompletedChapters, checkpoint.TotalChapters, checkpoint.RecordedAt, checkpoint, token);
+        AddReadingTimeCoreAsync(checkpoint.BookId, checkpoint.BookFileId, checkpoint.Seconds, checkpoint.ListeningSeconds,
+            checkpoint.ProgressPercent, checkpoint.CompletedChapters, checkpoint.TotalChapters, checkpoint.RecordedAt,
+            checkpoint, token);
 
-    private async Task AddReadingTimeCoreAsync(Guid bookId, Guid bookFileId, long activeSeconds, double progressPercent,
-        int completedChapters, int totalChapters, DateTimeOffset recordedAt, ReadingTimeCheckpoint? checkpoint,
-        CancellationToken cancellationToken)
+    private async Task AddReadingTimeCoreAsync(Guid bookId, Guid bookFileId, long activeSeconds, long listeningSeconds,
+        double progressPercent, int completedChapters, int totalChapters, DateTimeOffset recordedAt,
+        ReadingTimeCheckpoint? checkpoint, CancellationToken cancellationToken)
     {
         // A position-only save must refresh the dashboard even when the
         // activity clock has not accumulated another whole second. Recovery
@@ -225,15 +294,17 @@ public sealed partial class ReaderDataService
                 if (await current.ExecuteScalarAsync(cancellationToken) is string version)
                     applyMetadata = DateTimeOffset.Parse(version) <= recordedAt;
             }
+            var clampedListening = Math.Clamp(listeningSeconds, 0, Math.Max(0, activeSeconds));
             var command = connection.CreateCommand();
             command.Transaction = transaction;
             command.CommandText = """
                 INSERT INTO ReaderReadingStats (
-                    BookFileId, BookId, CumulativeSeconds, ProgressPercent, CompletedChapters, TotalChapters, UpdatedAt)
+                    BookFileId, BookId, CumulativeSeconds, ListeningSeconds, ProgressPercent, CompletedChapters, TotalChapters, UpdatedAt)
                 VALUES (
-                    $bookFileId, $bookId, $seconds, $progressPercent, $completedChapters, $totalChapters, $updatedAt)
+                    $bookFileId, $bookId, $seconds, $listening, $progressPercent, $completedChapters, $totalChapters, $updatedAt)
                 ON CONFLICT(BookFileId) DO UPDATE SET
                     CumulativeSeconds = CumulativeSeconds + $seconds,
+                    ListeningSeconds = ListeningSeconds + $listening,
                     ProgressPercent = CASE WHEN $applyMetadata=1 THEN $progressPercent ELSE ProgressPercent END,
                     CompletedChapters = CASE WHEN $applyMetadata=1 THEN $completedChapters ELSE CompletedChapters END,
                     TotalChapters = CASE WHEN $applyMetadata=1 THEN $totalChapters ELSE TotalChapters END,
@@ -242,6 +313,7 @@ public sealed partial class ReaderDataService
             command.Parameters.AddWithValue("$bookFileId", bookFileId.ToString());
             command.Parameters.AddWithValue("$bookId", bookId.ToString());
             command.Parameters.AddWithValue("$seconds", activeSeconds);
+            command.Parameters.AddWithValue("$listening", clampedListening);
             command.Parameters.AddWithValue("$progressPercent", progressPercent);
             command.Parameters.AddWithValue("$completedChapters", completedChapters);
             command.Parameters.AddWithValue("$totalChapters", totalChapters);
@@ -255,17 +327,18 @@ public sealed partial class ReaderDataService
                 session.Transaction = transaction;
                 session.CommandText = """
                     INSERT INTO ReaderReadingSessions (
-                        BookId, BookFileId, ActiveSeconds, ProgressPercent, RecordedAt)
-                    VALUES ($bookId, $bookFileId, $seconds, $progressPercent, $recordedAt);
+                        BookId, BookFileId, ActiveSeconds, ListeningSeconds, ProgressPercent, RecordedAt)
+                    VALUES ($bookId, $bookFileId, $seconds, $listening, $progressPercent, $recordedAt);
                     """;
                 session.Parameters.AddWithValue("$bookId", bookId.ToString());
                 session.Parameters.AddWithValue("$bookFileId", bookFileId.ToString());
                 session.Parameters.AddWithValue("$seconds", activeSeconds);
+                session.Parameters.AddWithValue("$listening", clampedListening);
                 session.Parameters.AddWithValue("$progressPercent", progressPercent);
                 session.Parameters.AddWithValue("$recordedAt", recordedAt.ToString("O"));
                 await session.ExecuteNonQueryAsync(cancellationToken);
                 await ReadingTimeSyncTracker.RecordReadingDayAsync(
-                    connection, transaction, bookFileId, recordedAt, activeSeconds, cancellationToken);
+                    connection, transaction, bookFileId, recordedAt, activeSeconds, cancellationToken, clampedListening);
                 await ReadingTimeSyncTracker.RecordCurrentTotalAsync(connection, transaction, bookFileId, cancellationToken);
             }
             await transaction.CommitAsync(cancellationToken);

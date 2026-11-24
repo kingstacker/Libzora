@@ -70,6 +70,8 @@ public sealed partial class TtsService : IDisposable
         catch { }
         try { _player?.Stop(); }
         catch { }
+        if (_player is ITtsExternalPlaybackObserver observer)
+            observer.ExternalPauseStateChanged -= OnExternalPauseStateChanged;
         try { _queue?.Dispose(); }
         catch { }
 

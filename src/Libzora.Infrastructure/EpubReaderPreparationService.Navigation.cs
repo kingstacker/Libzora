@@ -40,6 +40,9 @@ public sealed partial class EpubReaderPreparationService
                 var chapterIndex = candidateIndexes[resultIndex];
                 try
                 {
+                    if (!await CouldBePhysicalTocPageAsync(chapters[chapterIndex], token))
+                        return;
+
                     var document = await LoadXmlAsync(chapters[chapterIndex], token);
                     var links = GetNavigationLinks(document.Root).ToArray();
                     if (!IsPhysicalTocPage(document, links))
@@ -120,6 +123,116 @@ public sealed partial class EpubReaderPreparationService
         }
 
         return candidates.OrderBy(index => index).ToArray();
+    }
+
+    private static async Task<bool> CouldBePhysicalTocPageAsync(
+        string chapterPath,
+        CancellationToken cancellationToken)
+    {
+        if (IsPhysicalTocFileName(Path.GetFileNameWithoutExtension(chapterPath)))
+            return true;
+
+        try
+        {
+            await using var stream = new FileStream(
+                chapterPath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                81920,
+                useAsync: true);
+            using var reader = XmlReader.Create(stream, CreateSecureXmlReaderSettings());
+            var linkCount = 0;
+            var hasTocMarker = false;
+            var headingDepth = 0;
+            StringBuilder? headingText = null;
+            while (await reader.ReadAsync())
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                switch (reader.NodeType)
+                {
+                    case XmlNodeType.Element:
+                    {
+                        var localName = reader.LocalName;
+                        if (localName.Equals("a", StringComparison.OrdinalIgnoreCase)
+                            && reader.GetAttribute("href") is not null)
+                        {
+                            linkCount++;
+                        }
+                        else if (localName.Equals("nav", StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (IsTocNavigationReaderElement(reader))
+                                hasTocMarker = true;
+                        }
+                        else if (!reader.IsEmptyElement
+                            && headingDepth == 0
+                            && (localName.Equals("title", StringComparison.OrdinalIgnoreCase)
+                                || (localName.Length == 2
+                                    && (localName[0] == 'h' || localName[0] == 'H')
+                                    && localName[1] is >= '1' and <= '6')))
+                        {
+                            headingDepth = reader.Depth;
+                            headingText ??= new StringBuilder(64);
+                            headingText.Clear();
+                        }
+                        break;
+                    }
+                    case XmlNodeType.Text or XmlNodeType.CDATA or XmlNodeType.SignificantWhitespace or XmlNodeType.Whitespace:
+                    {
+                        var value = reader.Value;
+                        if (headingDepth > 0 && headingText is not null && headingText.Length < 80)
+                        {
+                            headingText.Append(value);
+                        }
+                        else if (!hasTocMarker && value.Length <= 48 && IsTocHeading(value))
+                        {
+                            hasTocMarker = true;
+                        }
+                        break;
+                    }
+                    case XmlNodeType.EndElement:
+                    {
+                        if (headingDepth > 0 && reader.Depth <= headingDepth)
+                        {
+                            if (!hasTocMarker && headingText is not null && IsTocHeading(headingText.ToString()))
+                                hasTocMarker = true;
+                            headingDepth = 0;
+                            headingText?.Clear();
+                        }
+                        break;
+                    }
+                }
+
+                if (hasTocMarker && linkCount >= 2)
+                    return true;
+            }
+            return hasTocMarker && linkCount >= 2;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            // Fall back to full LoadXmlAsync only if streaming XML failed (malformed HTML entities etc.).
+            return true;
+        }
+    }
+
+    private static bool IsTocNavigationReaderElement(XmlReader reader)
+    {
+        if (!reader.HasAttributes) return false;
+        while (reader.MoveToNextAttribute())
+        {
+            if (reader.LocalName.Equals("type", StringComparison.OrdinalIgnoreCase)
+                && HasToken(reader.Value, "toc"))
+            {
+                reader.MoveToElement();
+                return true;
+            }
+        }
+        reader.MoveToElement();
+        return false;
     }
 
     private static bool IsPhysicalTocFileName(string? value)

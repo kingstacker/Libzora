@@ -42,15 +42,44 @@ internal sealed class IOSTtsEngine : ITtsEngine
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        IReadOnlyList<TtsVoiceInfo> voices = AVSpeechSynthesisVoice.GetSpeechVoices()
+        var matching = AVSpeechSynthesisVoice.GetSpeechVoices()
+            .Where(IsSupportedLanguage)
+            .ToArray();
+        // Hide Apple's novelty/sound-effect and legacy robotic Eloquence voices
+        // unless a device somehow exposes nothing else.
+        var curated = matching.Where(voice => !IsExcludedVoice(voice)).ToArray();
+        var source = curated.Length > 0 ? curated : matching;
+
+        var deduplicated = source
             .Select(voice => new TtsVoiceInfo(
                 voice.Identifier,
                 string.IsNullOrWhiteSpace(voice.Name) ? voice.Identifier : voice.Name,
-                voice.Language ?? string.Empty))
-            .Where(voice => voice.Culture?.StartsWith("zh", StringComparison.OrdinalIgnoreCase) == true
-                || voice.Culture?.StartsWith("en", StringComparison.OrdinalIgnoreCase) == true)
-            .OrderBy(voice => voice.Culture, StringComparer.Ordinal)
+                voice.Language ?? string.Empty)
+            {
+                QualityTier = MapQualityTier(voice.Quality)
+            })
+            .GroupBy(
+                voice => (Name: voice.Name, Culture: voice.Culture ?? string.Empty))
+            .Select(group => group
+                .OrderByDescending(voice => voice.QualityTier)
+                .First())
+            .ToArray();
+
+        var chineseVoices = deduplicated
+            .Where(voice => LanguageSortRank(voice.Culture) == 0)
+            .OrderBy(voice => LocaleSortRank(voice.Culture))
+            .ThenByDescending(voice => voice.QualityTier)
+            .ThenBy(voice => voice.Name, StringComparer.Ordinal);
+
+        var englishVoices = deduplicated
+            .Where(voice => LanguageSortRank(voice.Culture) == 1)
+            .OrderByDescending(voice => voice.QualityTier)
+            .ThenBy(voice => LocaleSortRank(voice.Culture))
             .ThenBy(voice => voice.Name, StringComparer.Ordinal)
+            .Take(3);
+
+        IReadOnlyList<TtsVoiceInfo> voices = chineseVoices
+            .Concat(englishVoices)
             .ToList();
         return Task.FromResult(voices);
     }
@@ -173,40 +202,97 @@ internal sealed class IOSTtsEngine : ITtsEngine
         }
     }
 
+    private static bool IsSupportedLanguage(AVSpeechSynthesisVoice voice) =>
+        voice.Language?.StartsWith("zh", StringComparison.OrdinalIgnoreCase) == true
+        || voice.Language?.StartsWith("en", StringComparison.OrdinalIgnoreCase) == true;
+
+    private static bool IsExcludedVoice(AVSpeechSynthesisVoice voice)
+    {
+        if (OperatingSystem.IsIOSVersionAtLeast(17)
+            && voice.VoiceTraits.HasFlag(AVSpeechSynthesisVoiceTraits.IsNoveltyVoice))
+        {
+            return true;
+        }
+
+        var identifier = voice.Identifier;
+        return !string.IsNullOrEmpty(identifier)
+            && (identifier.StartsWith("com.apple.eloquence.", StringComparison.OrdinalIgnoreCase)
+                || identifier.StartsWith("com.apple.speech.synthesis.voice.", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static int LanguageSortRank(string? culture)
+    {
+        if (culture?.StartsWith("zh", StringComparison.OrdinalIgnoreCase) == true) return 0;
+        if (culture?.StartsWith("en", StringComparison.OrdinalIgnoreCase) == true) return 1;
+        return 2;
+    }
+
+    private static int LocaleSortRank(string? culture)
+    {
+        if (string.Equals(culture, "zh-CN", StringComparison.OrdinalIgnoreCase)) return 0;
+        if (string.Equals(culture, "zh-HK", StringComparison.OrdinalIgnoreCase)) return 1;
+        if (string.Equals(culture, "zh-TW", StringComparison.OrdinalIgnoreCase)) return 2;
+        if (culture?.StartsWith("zh", StringComparison.OrdinalIgnoreCase) == true) return 3;
+        if (string.Equals(culture, "en-US", StringComparison.OrdinalIgnoreCase)) return 0;
+        if (string.Equals(culture, "en-GB", StringComparison.OrdinalIgnoreCase)) return 1;
+        if (string.Equals(culture, "en-AU", StringComparison.OrdinalIgnoreCase)) return 2;
+        if (culture?.StartsWith("en", StringComparison.OrdinalIgnoreCase) == true) return 3;
+        return 4;
+    }
+
+    private static int MapQualityTier(AVSpeechSynthesisVoiceQuality quality) => (int)quality switch
+    {
+        >= 3 => 2, // Premium
+        2 => 1,    // Enhanced
+        _ => 0     // Default / Compact
+    };
+
     internal static AVSpeechSynthesisVoice? SelectVoice(string requested)
     {
-        if (!string.IsNullOrWhiteSpace(requested))
+        var all = AVSpeechSynthesisVoice.GetSpeechVoices();
+        if (!string.IsNullOrWhiteSpace(requested)
+            && !string.Equals(requested, TtsOptions.DefaultVoice, StringComparison.Ordinal))
         {
             var exact = AVSpeechSynthesisVoice.FromIdentifier(requested);
             if (exact is not null)
-            {
                 return exact;
-            }
 
             // Desktop voices are edge-tts names such as zh-CN-XiaoxiaoNeural.
-            // Their locale prefix still picks a sensible installed voice.
+            // Pick the highest-quality installed voice for the matching locale.
             var parts = requested.Split('-');
             if (parts.Length >= 2)
             {
                 var language = $"{parts[0]}-{parts[1]}";
-                var match = AVSpeechSynthesisVoice.FromLanguage(language);
-                if (match is not null)
-                {
-                    return match;
-                }
+                var bestForLocale = all
+                    .Where(v => string.Equals(v.Language, language, StringComparison.OrdinalIgnoreCase))
+                    .OrderBy(v => IsExcludedVoice(v) ? 1 : 0)
+                    .ThenByDescending(v => MapQualityTier(v.Quality))
+                    .FirstOrDefault()
+                    ?? AVSpeechSynthesisVoice.FromLanguage(language);
+                if (bestForLocale is not null)
+                    return bestForLocale;
             }
         }
 
-        return AVSpeechSynthesisVoice.FromLanguage("zh-CN")
+        return all
+            .Where(v => v.Language?.StartsWith("zh-CN", StringComparison.OrdinalIgnoreCase) == true)
+            .OrderBy(v => IsExcludedVoice(v) ? 1 : 0)
+            .ThenByDescending(v => MapQualityTier(v.Quality))
+            .FirstOrDefault()
+            ?? AVSpeechSynthesisVoice.FromLanguage("zh-CN")
             ?? AVSpeechSynthesisVoice.FromLanguage("zh-TW")
-            ?? AVSpeechSynthesisVoice.GetSpeechVoices().FirstOrDefault();
+            ?? all.FirstOrDefault();
     }
 
     internal static float MapRate(int ratePercent)
     {
         var multiplier = Math.Clamp(1f + ratePercent / 100f, 0.5f, 2f);
+        var defaultRate = AVSpeechUtterance.DefaultSpeechRate;
+        var mapped = multiplier <= 1f
+            ? defaultRate * (0.55f + 0.45f * multiplier)
+            : defaultRate + (AVSpeechUtterance.MaximumSpeechRate - defaultRate) * ((multiplier - 1f) * 0.42f);
         return Math.Clamp(
-            AVSpeechUtterance.DefaultSpeechRate * multiplier,
+            mapped,
             AVSpeechUtterance.MinimumSpeechRate,
             AVSpeechUtterance.MaximumSpeechRate);
     }

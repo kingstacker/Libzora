@@ -171,6 +171,7 @@ public partial class MainWindow
     private bool _readerTocExpandedBeforeZen = true;
     private bool _readerTocMinimalBeforeZen;
     private long _readerActiveSeconds;
+    private long _readerListeningSeconds;
     private DispatcherTimer? _readerStatsTimer;
     private int _readerTransientStatusSequence;
     private bool _readerContinuousLocked;
@@ -461,8 +462,12 @@ public partial class MainWindow
 
     private void ReaderStatsTimer_Tick(object? sender, EventArgs e)
     {
-        if (!IsActive || !ReaderRoot.IsVisible) return;
+        if (!ReaderRoot.IsVisible) return;
+        var isListening = _readerTts.State == TtsPlaybackState.Playing;
+        if (!isListening && !IsActive) return;
         _readerActiveSeconds++;
+        if (isListening)
+            _readerListeningSeconds++;
         if (_readerActiveSeconds % 30 == 0)
             _ = ObserveReadingTimeFlushAsync();
     }
@@ -482,6 +487,7 @@ public partial class MainWindow
         var file = _readerBookFile;
         if (card is null || file is null) return;
         var seconds = Interlocked.Exchange(ref _readerActiveSeconds, 0);
+        var listeningSeconds = Math.Clamp(Interlocked.Exchange(ref _readerListeningSeconds, 0), 0, Math.Max(0, seconds));
         if (seconds <= 0)
         {
             await _readerReadingTimeRecovery.InitializeAsync();
@@ -489,13 +495,16 @@ public partial class MainWindow
         }
         await _readerReadingTimeRecovery.SaveAsync(card.Book.Id, file.Id, seconds,
             CalculateReaderProgressPercent(), _readerChapterIndex,
-            _readerDocument?.Chapters.Count ?? (_readerIsPdf ? _readerPdfPages.Count : 0), CancellationToken.None);
+            _readerDocument?.Chapters.Count ?? (_readerIsPdf ? _readerPdfPages.Count : 0),
+            listeningSeconds, CancellationToken.None);
         var currentSeconds = (_readerBookReadingStats?.CumulativeSeconds ?? 0) + seconds;
+        var currentListening = (_readerBookReadingStats?.ListeningSeconds ?? 0) + listeningSeconds;
         _readerBookReadingStats = new ReaderReadingStats
         {
             BookId = card.Book.Id,
             BookFileId = file.Id,
             CumulativeSeconds = currentSeconds,
+            ListeningSeconds = currentListening,
             ProgressPercent = CalculateReaderProgressPercent(),
             UpdatedAt = DateTimeOffset.UtcNow
         };

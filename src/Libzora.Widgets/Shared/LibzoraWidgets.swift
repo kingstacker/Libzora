@@ -9,16 +9,23 @@ struct KkProvider: TimelineProvider {
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<KkEntry>) -> Void) {
-        let entry = entry()
-        let next = Calendar.current.date(byAdding: .minute, value: 20, to: Date())
-            ?? Date().addingTimeInterval(1_200)
+        let now = Date()
+        let entry = entry(at: now)
+        let calendar = Calendar.current
+        let twentyMinutes = calendar.date(byAdding: .minute, value: 20, to: now)
+            ?? now.addingTimeInterval(1_200)
+        // Also schedule an update right after midnight so seasonal/festival
+        // decorations and daily counters roll over promptly on date change.
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now))
+        let midnightRollover = tomorrow?.addingTimeInterval(2) ?? twentyMinutes
+        let next = min(twentyMinutes, midnightRollover)
         completion(Timeline(entries: [entry], policy: .after(next)))
     }
 
-    private func entry() -> KkEntry {
+    private func entry(at date: Date = Date()) -> KkEntry {
         let snapshot = KkSnapshotStore.load()
         return KkEntry(
-            date: Date(),
+            date: date,
             snapshot: snapshot,
             hasData: snapshot != nil,
             isPlaceholder: false)

@@ -5,6 +5,7 @@ public enum ReadingPeriod { Week, Month, Year }
 /// <summary>A chart bucket; yearly charts combine the daily counters by month.</summary>
 public sealed record ReadingPeriodBucket(DateOnly StartDate, DateOnly EndDate, long ActiveSeconds)
 {
+    public long ListeningSeconds { get; init; }
     public bool Contains(DateOnly date) => date >= StartDate && date <= EndDate;
 }
 
@@ -32,17 +33,30 @@ public sealed record ReadingPeriodRange(ReadingPeriod Period, DateOnly StartDate
     public IReadOnlyList<ReadingPeriodBucket> BuildBuckets(IEnumerable<ReadingDashboardDay> days, DateOnly today)
     {
         var values = days.Where(day => day.Date >= StartDate && day.Date <= EndDate && day.Date <= today)
-            .GroupBy(day => day.Date).ToDictionary(group => group.Key, group => group.Sum(day => day.ActiveSeconds));
+            .GroupBy(day => day.Date)
+            .ToDictionary(
+                group => group.Key,
+                group => (Active: group.Sum(day => day.ActiveSeconds), Listening: group.Sum(day => day.ListeningSeconds)));
         if (Period == ReadingPeriod.Year)
             return Enumerable.Range(1, 12).Select(month =>
             {
                 var start = new DateOnly(StartDate.Year, month, 1);
                 var end = new DateOnly(start.Year, month, DateTime.DaysInMonth(start.Year, month));
-                return new ReadingPeriodBucket(start, end,
-                    values.Where(day => day.Key >= start && day.Key <= end).Sum(day => day.Value));
+                var slice = values.Where(day => day.Key >= start && day.Key <= end).ToArray();
+                return new ReadingPeriodBucket(start, end, slice.Sum(day => day.Value.Active))
+                {
+                    ListeningSeconds = slice.Sum(day => day.Value.Listening)
+                };
             }).ToArray();
         return Enumerable.Range(0, EndDate.DayNumber - StartDate.DayNumber + 1)
             .Select(offset => StartDate.AddDays(offset))
-            .Select(day => new ReadingPeriodBucket(day, day, values.GetValueOrDefault(day))).ToArray();
+            .Select(day =>
+            {
+                var entry = values.GetValueOrDefault(day);
+                return new ReadingPeriodBucket(day, day, entry.Active)
+                {
+                    ListeningSeconds = entry.Listening
+                };
+            }).ToArray();
     }
 }

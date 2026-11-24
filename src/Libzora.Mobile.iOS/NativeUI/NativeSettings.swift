@@ -547,8 +547,18 @@ struct NativeSyncSettings: View {
     @State private var savedEncryptionKey = ""
     @State private var showEncryptionKeyConfirmation = false
     @State private var encryptionKeyOperation = "save"
+    @State private var showMissingEncryptionKeyPrompt = false
+    @State private var missingEncryptionKeyMessage = ""
+    @State private var pendingEncryptionKeyFocus: SyncKeyFieldFocus = .key
+    @FocusState private var focusedKeyField: SyncKeyFieldFocus?
+
+    private enum SyncKeyFieldFocus: Hashable {
+        case key
+        case confirm
+    }
 
     var body: some View {
+        ScrollViewReader { proxy in
         NativeForm {
             Section {
                 Picker(L("同步方式"), selection: $form.provider) {
@@ -559,10 +569,47 @@ struct NativeSyncSettings: View {
             .listRowBackground(Color.clear)
 
             Section {
-                Toggle(L("启用同步"), isOn: $form.enabled).tint(NativeTheme.systemSwitchTint)
+                Toggle(L("启用同步"), isOn: Binding(
+                    get: { form.enabled },
+                    set: { next in
+                        if !next {
+                            form.enabled = false
+                            return
+                        }
+                        switch NativeSyncKeyConfirmation.canEnableSync(
+                            key: form.encryptionKey,
+                            savedKey: savedEncryptionKey,
+                            confirmation: confirmEncryptionKey) {
+                        case .allow:
+                            form.enabled = true
+                        case .missingKey:
+                            form.enabled = false
+                            pendingEncryptionKeyFocus = .key
+                            missingEncryptionKeyMessage = L("开启同步前，请先在下方设置同步密钥。")
+                            showMissingEncryptionKeyPrompt = true
+                        case .unconfirmedKey:
+                            form.enabled = false
+                            pendingEncryptionKeyFocus = .confirm
+                            missingEncryptionKeyMessage = L("请先再次输入并确认一致的同步密钥，再开启同步。")
+                            showMissingEncryptionKeyPrompt = true
+                        }
+                    }
+                )).tint(NativeTheme.systemSwitchTint)
                 Toggle(L("自动同步"), isOn: $form.automaticSyncEnabled).tint(NativeTheme.systemSwitchTint)
             } footer: {
                 footerCaption(L("可使用 iCloud 云盘或自备 S3 / WebDAV 同步书籍、阅读进度和批注。"))
+            }
+            .alert(Text(L("需要设置同步密钥")), isPresented: $showMissingEncryptionKeyPrompt) {
+                Button(L("取消"), role: .cancel) { }
+                Button(L("去设置")) {
+                    let targetId = pendingEncryptionKeyFocus == .confirm
+                        ? "sync.encryptionKeyConfirm"
+                        : "sync.encryptionKey"
+                    withAnimation { proxy.scrollTo(targetId, anchor: .center) }
+                    focusedKeyField = pendingEncryptionKeyFocus
+                }
+            } message: {
+                Text(missingEncryptionKeyMessage)
             }
             customStorageSections
             Section {
@@ -610,6 +657,7 @@ struct NativeSyncSettings: View {
                      ? L("清除本机保存的同步密钥后，将无法再解密已有加密备份或云端同步数据。确定清除吗？")
                      : L("同步密钥用于加密备份和自备存储中的同步数据。请确认两次输入一致，并已妥善保存。密钥遗忘后无法找回，已有加密数据也无法恢复。"))
             }
+        }
     }
 
     @ViewBuilder private var customStorageSections: some View {
@@ -682,9 +730,13 @@ struct NativeSyncSettings: View {
         NativeInlineTextField(title: L("同步密钥（云同步与备份必填）"), text: $form.encryptionKey, secure: true,
                               identifier: "sync.encryptionKey")
             .textContentType(.oneTimeCode).textInputAutocapitalization(.never).disableAutocorrection(true)
+            .focused($focusedKeyField, equals: .key)
+            .id("sync.encryptionKey")
         NativeInlineTextField(title: L("再次输入同步密钥"), text: $confirmEncryptionKey, secure: true,
                               identifier: "sync.encryptionKeyConfirm")
             .textContentType(.oneTimeCode).textInputAutocapitalization(.never).disableAutocorrection(true)
+            .focused($focusedKeyField, equals: .confirm)
+            .id("sync.encryptionKeyConfirm")
     }
 
     private func footerCaption(_ text: String) -> some View {

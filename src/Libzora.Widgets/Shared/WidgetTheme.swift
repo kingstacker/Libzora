@@ -306,9 +306,12 @@ struct KkProgressBar: View {
 struct KkStat: View {
     let value: String
     let label: String
+    var unit: String? = nil
     var inline = false
     var alignment: HorizontalAlignment = .leading
     var valueSize: CGFloat? = nil
+    var labelSize: CGFloat = 10
+    var stackSpacing: CGFloat = 4
     var expand = false
     @Environment(\.colorScheme) private var scheme
 
@@ -323,19 +326,35 @@ struct KkStat: View {
     var body: some View {
         Group {
             if inline {
-                HStack(alignment: .firstTextBaseline, spacing: 5) {
-                    valueText.kkNumberFont(valueSize ?? 13)
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
                     labelText
+                    valueWithUnit
                 }
             } else {
-                VStack(alignment: alignment, spacing: 4) {
-                    valueText.kkNumberFont(valueSize ?? 19)
+                VStack(alignment: alignment, spacing: stackSpacing) {
+                    valueWithUnit
                     labelText
                 }
             }
         }
         .frame(maxWidth: expand ? .infinity : nil, alignment: frameAlignment)
         .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder
+    private var valueWithUnit: some View {
+        if let unit, !unit.isEmpty {
+            HStack(alignment: .firstTextBaseline, spacing: 2) {
+                valueText.kkNumberFont(valueSize ?? 19)
+                Text(unit)
+                    .kkLabelFont(max(9, labelSize - 0.5), weight: .regular)
+                    .foregroundStyle(KkTheme.secondaryInk(scheme))
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+        } else {
+            valueText.kkNumberFont(valueSize ?? (inline ? 13 : 19))
+        }
     }
 
     private var valueText: some View {
@@ -348,7 +367,7 @@ struct KkStat: View {
 
     private var labelText: some View {
         Text(label)
-            .kkLabelFont(10, weight: .regular)
+            .kkLabelFont(labelSize, weight: .regular)
             .foregroundStyle(KkTheme.secondaryInk(scheme))
             .lineLimit(1)
             .minimumScaleFactor(0.8)

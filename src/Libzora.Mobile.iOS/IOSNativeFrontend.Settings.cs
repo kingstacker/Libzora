@@ -184,6 +184,8 @@ internal sealed partial class IOSNativeFrontend
                 speech.Speed = args.GetProperty("speed").GetDouble();
                 speech.AutoAdvance = Flag(args, "autoAdvance", speech.AutoAdvance);
                 await modules.Reader.TtsSettings.SaveAsync(speech, token);
+                if (_reader is { } activeReader)
+                    await activeReader.NativeReloadSpeechSettingsAsync();
                 break;
             default: throw new InvalidOperationException(UiText.Get("未知设置操作：{0}", command));
         }

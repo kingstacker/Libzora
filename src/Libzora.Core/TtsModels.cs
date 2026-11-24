@@ -161,7 +161,11 @@ public sealed class TtsSettings
     }
 }
 
-public sealed record TtsVoiceInfo(string Id, string Name, string? Culture = null);
+public sealed record TtsVoiceInfo(string Id, string Name, string? Culture = null)
+{
+    /// <summary>0 = Standard, 1 = Enhanced, 2 = Premium.</summary>
+    public int QualityTier { get; init; }
+}
 
 /// <summary>
 /// The result of one engine request. Successful engine results normally point
@@ -261,6 +265,12 @@ public interface ITtsLiveSpeechPlayer
 {
     Task SpeakAsync(string text, TtsOptions options, CancellationToken cancellationToken = default);
     bool TryGetSpeechPosition(out int offset);
+}
+
+/// <summary>Optional notifications raised when the platform audio session pauses or resumes externally.</summary>
+public interface ITtsExternalPlaybackObserver
+{
+    event Action<bool>? ExternalPauseStateChanged;
 }
 
 /// <summary>Audio output is deliberately separate from the TTS engine.</summary>

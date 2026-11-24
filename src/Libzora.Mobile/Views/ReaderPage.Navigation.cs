@@ -35,11 +35,17 @@ public partial class ReaderPage
             _epubPath = converted.EpubPath;
         }
 
+        var savedProgress = _jump ?? await _modules.Reader.Data.GetProgressAsync(_bookFile!.Id, cancellationToken);
         var contentHash = string.IsNullOrWhiteSpace(_bookFile!.Sha256)
             ? await Hashing.Sha256Async(_epubPath, cancellationToken)
             : _bookFile.Sha256;
-        _epubDocument = await _modules.Reader.Preparation.PrepareAsync(
-            _epubPath, contentHash, cancellationToken);
+        var preferredChapter = Math.Max(0, savedProgress?.ChapterIndex ?? 0);
+        var session = await _modules.Reader.Preparation.PrepareProgressiveAsync(
+            _epubPath, contentHash, preferredChapter, cancellationToken, _lifetime.Token);
+        _epubPreparationSession = session;
+        _epubDocument = session.InitialDocument;
+        if (!session.IsComplete)
+            _ = ObserveEpubCompletionAsync(session);
         if (_epubDocument.Chapters.Count == 0)
             throw new InvalidDataException("EPUB 中没有可阅读章节。");
 
@@ -65,7 +71,6 @@ public partial class ReaderPage
         _mangaSettingsInitialized = true;
         _layout = BuildLayoutForViewport(_shell.Preferences.Current, ResolveViewportLandscape());
 
-        var savedProgress = _jump ?? await _modules.Reader.Data.GetProgressAsync(_bookFile.Id, cancellationToken);
         var restore = ResolvePosition(savedProgress);
         if (_jump is null && restore is not null)
         {
@@ -104,6 +109,7 @@ public partial class ReaderPage
         // page break at the old page's first word and leaving the preceding page empty.
         var host = new NativeReaderHost { Focusable = false, ReaderObjectsEnabled = _usesNativeFrontend };
         _readerHost = host;
+        AttachNativePresentationFrameHost();
         RefreshReaderAppearance();
         host.SetPowerSavingMode(IsPowerSavingActive);
         host.SetAppearance(new ReaderAppearanceSettings { Theme = CurrentTheme });
@@ -114,6 +120,10 @@ public partial class ReaderPage
         if (slotBounds.Width < 2 || slotBounds.Height < 2)
         {
             slotBounds = ReaderPaper.Bounds;
+        }
+        if ((slotBounds.Width < 2 || slotBounds.Height < 2) && _nativeViewportHint is { Width: >= 2, Height: >= 2 } hint)
+        {
+            slotBounds = new Rect(hint);
         }
         var slotPadding = ReaderHostSlot.Padding;
         host.SetInitialViewportSize(
@@ -157,6 +167,7 @@ public partial class ReaderPage
         UpdateEpubLabels();
         LoadingPanel.IsVisible = false;
         _ready = true;
+        RequestNativePresentationFrame();
         NotifyNativeState();
         host.CompleteLayoutInBackground();
     }
@@ -207,6 +218,7 @@ public partial class ReaderPage
 
         var host = new NativePdfReaderHost { Focusable = false };
         _readerHost = host;
+        AttachNativePresentationFrameHost();
         _mangaSettingsInitialized = false;
         RefreshReaderAppearance();
         host.SetPowerSavingMode(IsPowerSavingActive);
@@ -251,6 +263,7 @@ public partial class ReaderPage
         UpdatePdfLabels();
         LoadingPanel.IsVisible = false;
         _ready = true;
+        RequestNativePresentationFrame();
         NotifyNativeState();
     }
 
@@ -328,6 +341,14 @@ public partial class ReaderPage
         host.NavigationCompleted += handler;
         try
         {
+            if (_epubPreparationSession is { IsComplete: false } prepSession
+                && _epubDocument is { } doc
+                && target.IsFile)
+            {
+                var targetChapter = FindEpubChapter(doc, Path.GetFullPath(target.LocalPath));
+                if (targetChapter >= 0)
+                    await prepSession.EnsureChapterReadyAsync(targetChapter, cancellationToken);
+            }
             host.Navigate(
                 target,
                 _layout,
@@ -341,6 +362,38 @@ public partial class ReaderPage
         finally
         {
             host.NavigationCompleted -= handler;
+        }
+    }
+
+    private async Task ObserveEpubCompletionAsync(EpubProgressiveSession session)
+    {
+        try
+        {
+            var completed = await session.CompletionTask.ConfigureAwait(false);
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (_disposed || !ReferenceEquals(_epubPreparationSession, session))
+                    return;
+                var currentPath = _epubDocument is { } prior
+                    && _chapterIndex >= 0
+                    && _chapterIndex < prior.Chapters.Count
+                    ? Path.GetFullPath(prior.Chapters[_chapterIndex])
+                    : null;
+                _epubDocument = completed;
+                if (currentPath is not null)
+                {
+                    var remapped = FindEpubChapter(completed, currentPath);
+                    if (remapped >= 0)
+                        _chapterIndex = remapped;
+                }
+                BuildEpubToc();
+                UpdateEpubLabels();
+                NotifyNativeState();
+            }, DispatcherPriority.Background);
+        }
+        catch
+        {
+            // Cancellation or teardown is expected when closing a book before background prep ends.
         }
     }
 

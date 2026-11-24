@@ -97,7 +97,7 @@ internal sealed partial class IOSNativeFrontend
                 var range = ReadingPeriodRange.Create(period, today);
                 var dashboard = await _shell.Modules.Reader.Data.GetReadingDashboardAsync(100, token, 366, today);
                 return Data(("dashboard", dashboard), ("medals", ReadingMedalCatalog.Build(dashboard).ToArray()),
-                    ("streak", ReadingMedalCatalog.ComputeStreakDays(dashboard.DailyReading)),
+                    ("streak", Math.Max(dashboard.StreakDays, ReadingMedalCatalog.ComputeStreakDays(dashboard.DailyReading))),
                     ("period", (int)period), ("today", today.ToString("yyyy-MM-dd")),
                     ("buckets", range.BuildBuckets(dashboard.DailyReading, today).ToArray()));
             case "trash.get":

@@ -14,7 +14,7 @@ struct KkReadingTreeCanvas: View {
     var body: some View {
         Canvas { context, size in
             guard size.width > 12, size.height > 12 else { return }
-            let palette = TreePalette(scheme: scheme, isFullColor: isFullColor)
+            let palette = TreePalette(scheme: scheme, isFullColor: isFullColor, atmosphere: profile.atmosphere)
             let viewport = KkTreeSkeleton.viewport(in: size)
             let rect = viewport.frame
             let unit = viewport.unit
@@ -37,8 +37,12 @@ struct KkReadingTreeCanvas: View {
                 drawFloatingMotes(in: &context, rect: rect, groundY: groundY, unit: unit, sun: sun, palette: palette)
             }
 
-            // Draw sun (light) or crescent moon (dark) unobstructed in upper-right sky.
-            if profile.hasReadToday {
+            if profile.atmosphere.enabled {
+                drawSeasonalParticles(in: &context, rect: rect, groundY: groundY, unit: unit, sun: sun, palette: palette)
+            }
+
+            // Draw sun (light), crescent moon (dark), or Mid-Autumn full moon unobstructed in upper-right sky.
+            if profile.hasReadToday || profile.atmosphere.showsFullMoon {
                 drawCelestialBody(in: &context, sun: sun, isDark: scheme == .dark, palette: palette)
             }
         }
@@ -60,6 +64,17 @@ struct KkReadingTreeCanvas: View {
                 center: sun.center,
                 startRadius: sun.coreRadius * 0.7,
                 endRadius: sun.haloRadius))
+
+        if profile.atmosphere.showsFullMoon {
+            let fullRadius = sun.coreRadius * 1.12
+            let coreRect = CGRect(
+                x: sun.center.x - fullRadius,
+                y: sun.center.y - fullRadius,
+                width: fullRadius * 2,
+                height: fullRadius * 2)
+            context.fill(Path(ellipseIn: coreRect), with: .color(palette.fullMoonCore))
+            return
+        }
 
         switch KkTreeSkeleton.celestialKind(isDark: isDark) {
         case .sun:
@@ -215,6 +230,14 @@ struct KkReadingTreeCanvas: View {
             nodes: skeleton.canopyNodes,
             sun: sun,
             unit: unit,
+            palette: palette)
+
+        // 5. Seasonal foliage snow, festival charms, and TTS songbird companions.
+        drawTreeDecorations(
+            in: &context,
+            skeleton: skeleton,
+            unit: unit,
+            sun: sun,
             palette: palette)
     }
 
@@ -484,8 +507,8 @@ struct KkReadingTreeCanvas: View {
 
     // MARK: - Botanical Primitives
 
-    private func drawLeaf(in context: inout GraphicsContext, origin: CGPoint, angle: CGFloat,
-                          length: CGFloat, width: CGFloat, fill: Color, vein: Color?) {
+    func drawLeaf(in context: inout GraphicsContext, origin: CGPoint, angle: CGFloat,
+                  length: CGFloat, width: CGFloat, fill: Color, vein: Color?) {
         let tip = CGPoint(x: origin.x + cos(angle) * length, y: origin.y + sin(angle) * length)
         let mid = CGPoint(x: (origin.x + tip.x) * 0.5, y: (origin.y + tip.y) * 0.5)
         let perp = angle + .pi / 2
@@ -791,7 +814,7 @@ struct KkReadingTreeCanvas: View {
 
 // MARK: - Palette
 
-private struct TreePalette {
+struct TreePalette {
     let trunk: Color
     let faintInk: Color
     let groundLine: Color
@@ -819,9 +842,19 @@ private struct TreePalette {
     let heirloomBorder: Color
     let celestialHalo: Color
     let celestialCore: Color
+    let fullMoonCore: Color
     let paperHighlight: Color
+    let birdBody: Color
+    let birdWing: Color
+    let birdTail: Color
+    let birdBeak: Color
+    let soundWave: Color
+    let snowAccent: Color
+    let festiveRed: Color
+    let festiveGold: Color
+    let festiveBlue: Color
 
-    init(scheme: ColorScheme, isFullColor: Bool) {
+    init(scheme: ColorScheme, isFullColor: Bool, atmosphere: KkTreeAtmosphere = .standard) {
         if !isFullColor {
             trunk = Color.primary.opacity(0.86)
             faintInk = Color.primary.opacity(0.45)
@@ -850,18 +883,96 @@ private struct TreePalette {
             heirloomBorder = Color.primary.opacity(0.98)
             celestialHalo = scheme == .dark ? Color.primary.opacity(0.14) : Color.primary.opacity(0.12)
             celestialCore = scheme == .dark ? Color.primary.opacity(0.65) : Color.primary.opacity(0.30)
+            fullMoonCore = Color.primary.opacity(0.45)
             paperHighlight = Color.primary.opacity(0.28)
+            birdBody = Color.primary.opacity(0.76)
+            birdWing = Color.primary.opacity(0.42)
+            birdTail = Color.primary.opacity(0.65)
+            birdBeak = Color.primary.opacity(0.88)
+            soundWave = Color.primary.opacity(0.58)
+            snowAccent = Color.primary.opacity(0.35)
+            festiveRed = Color.primary.opacity(0.72)
+            festiveGold = Color.primary.opacity(0.52)
+            festiveBlue = Color.primary.opacity(0.60)
             return
         }
 
-        if scheme == .dark {
+        let isDark = scheme == .dark
+        let seasonalLeaves: (Color, Color, Color)
+        if !atmosphere.enabled {
+            seasonalLeaves = isDark
+                ? (
+                    Color(red: 0.34, green: 0.50, blue: 0.39).opacity(0.88),
+                    Color(red: 0.46, green: 0.62, blue: 0.50).opacity(0.86),
+                    Color(red: 0.59, green: 0.73, blue: 0.61).opacity(0.84)
+                )
+                : (
+                    Color(red: 0.28, green: 0.43, blue: 0.33).opacity(0.88),
+                    Color(red: 0.40, green: 0.55, blue: 0.44).opacity(0.86),
+                    Color(red: 0.54, green: 0.67, blue: 0.56).opacity(0.84)
+                )
+        } else {
+            switch atmosphere.season {
+            case .spring:
+                seasonalLeaves = isDark
+                    ? (
+                        Color(red: 0.36, green: 0.56, blue: 0.38).opacity(0.88),
+                        Color(red: 0.52, green: 0.70, blue: 0.48).opacity(0.86),
+                        Color(red: 0.69, green: 0.80, blue: 0.58).opacity(0.84)
+                    )
+                    : (
+                        Color(red: 0.31, green: 0.50, blue: 0.33).opacity(0.88),
+                        Color(red: 0.46, green: 0.65, blue: 0.44).opacity(0.86),
+                        Color(red: 0.63, green: 0.77, blue: 0.56).opacity(0.84)
+                    )
+            case .summer:
+                seasonalLeaves = isDark
+                    ? (
+                        Color(red: 0.34, green: 0.50, blue: 0.39).opacity(0.88),
+                        Color(red: 0.46, green: 0.62, blue: 0.50).opacity(0.86),
+                        Color(red: 0.59, green: 0.73, blue: 0.61).opacity(0.84)
+                    )
+                    : (
+                        Color(red: 0.28, green: 0.43, blue: 0.33).opacity(0.88),
+                        Color(red: 0.40, green: 0.55, blue: 0.44).opacity(0.86),
+                        Color(red: 0.54, green: 0.67, blue: 0.56).opacity(0.84)
+                    )
+            case .autumn:
+                seasonalLeaves = isDark
+                    ? (
+                        Color(red: 0.66, green: 0.38, blue: 0.22).opacity(0.88),
+                        Color(red: 0.82, green: 0.54, blue: 0.25).opacity(0.86),
+                        Color(red: 0.90, green: 0.71, blue: 0.34).opacity(0.84)
+                    )
+                    : (
+                        Color(red: 0.58, green: 0.31, blue: 0.16).opacity(0.88),
+                        Color(red: 0.76, green: 0.47, blue: 0.19).opacity(0.86),
+                        Color(red: 0.86, green: 0.65, blue: 0.26).opacity(0.84)
+                    )
+            case .winter:
+                seasonalLeaves = isDark
+                    ? (
+                        Color(red: 0.24, green: 0.38, blue: 0.35).opacity(0.88),
+                        Color(red: 0.34, green: 0.48, blue: 0.45).opacity(0.86),
+                        Color(red: 0.48, green: 0.60, blue: 0.58).opacity(0.84)
+                    )
+                    : (
+                        Color(red: 0.20, green: 0.33, blue: 0.31).opacity(0.88),
+                        Color(red: 0.31, green: 0.44, blue: 0.41).opacity(0.86),
+                        Color(red: 0.45, green: 0.56, blue: 0.54).opacity(0.84)
+                    )
+            }
+        }
+
+        leafDark = seasonalLeaves.0
+        leafMid = seasonalLeaves.1
+        leafLight = seasonalLeaves.2
+
+        if isDark {
             trunk = Color(red: 0.78, green: 0.76, blue: 0.71)
             faintInk = KkTheme.faintInk(scheme)
             groundLine = Color.white.opacity(0.28)
             groundWash = Color.white.opacity(0.05)
-            leafDark = Color(red: 0.34, green: 0.50, blue: 0.39).opacity(0.88)
-            leafMid = Color(red: 0.46, green: 0.62, blue: 0.50).opacity(0.86)
-            leafLight = Color(red: 0.59, green: 0.73, blue: 0.61).opacity(0.84)
             budTip = Color(red: 0.96, green: 0.72, blue: 0.72).opacity(0.98)
             blossom = Color(red: 0.98, green: 0.90, blue: 0.87).opacity(0.98)
             blossomCore = Color(red: 0.90, green: 0.65, blue: 0.36)
@@ -882,15 +993,22 @@ private struct TreePalette {
             heirloomBorder = Color(red: 0.56, green: 0.26, blue: 0.16).opacity(0.85)
             celestialHalo = Color(red: 0.84, green: 0.88, blue: 0.96).opacity(0.18)
             celestialCore = Color(red: 0.96, green: 0.94, blue: 0.84).opacity(0.90)
+            fullMoonCore = Color(red: 0.98, green: 0.93, blue: 0.74).opacity(0.94)
             paperHighlight = Color(red: 0.12, green: 0.12, blue: 0.12).opacity(0.65)
+            birdBody = Color(red: 0.44, green: 0.68, blue: 0.74)
+            birdWing = Color(red: 0.88, green: 0.83, blue: 0.71).opacity(0.82)
+            birdTail = Color(red: 0.32, green: 0.54, blue: 0.60)
+            birdBeak = Color(red: 0.95, green: 0.72, blue: 0.34)
+            soundWave = Color(red: 0.58, green: 0.80, blue: 0.82)
+            snowAccent = Color(red: 0.92, green: 0.95, blue: 0.99)
+            festiveRed = Color(red: 0.88, green: 0.30, blue: 0.24)
+            festiveGold = Color(red: 0.96, green: 0.78, blue: 0.36)
+            festiveBlue = Color(red: 0.42, green: 0.64, blue: 0.92)
         } else {
             trunk = Color(red: 0.18, green: 0.16, blue: 0.14)
             faintInk = KkTheme.faintInk(scheme)
             groundLine = Color.black.opacity(0.26)
             groundWash = Color.black.opacity(0.04)
-            leafDark = Color(red: 0.28, green: 0.43, blue: 0.33).opacity(0.88)
-            leafMid = Color(red: 0.40, green: 0.55, blue: 0.44).opacity(0.86)
-            leafLight = Color(red: 0.54, green: 0.67, blue: 0.56).opacity(0.84)
             budTip = Color(red: 0.92, green: 0.60, blue: 0.60).opacity(0.98)
             blossom = Color(red: 0.98, green: 0.88, blue: 0.85).opacity(0.98)
             blossomCore = Color(red: 0.86, green: 0.54, blue: 0.26)
@@ -911,7 +1029,17 @@ private struct TreePalette {
             heirloomBorder = Color(red: 0.49, green: 0.19, blue: 0.11).opacity(0.78)
             celestialHalo = Color(red: 0.88, green: 0.70, blue: 0.38).opacity(0.22)
             celestialCore = Color(red: 0.90, green: 0.68, blue: 0.32).opacity(0.62)
+            fullMoonCore = Color(red: 0.96, green: 0.83, blue: 0.46).opacity(0.82)
             paperHighlight = Color.white.opacity(0.55)
+            birdBody = Color(red: 0.28, green: 0.51, blue: 0.58)
+            birdWing = Color(red: 0.85, green: 0.79, blue: 0.64).opacity(0.88)
+            birdTail = Color(red: 0.21, green: 0.40, blue: 0.47)
+            birdBeak = Color(red: 0.89, green: 0.57, blue: 0.24)
+            soundWave = Color(red: 0.28, green: 0.52, blue: 0.58)
+            snowAccent = Color(red: 0.94, green: 0.96, blue: 0.99)
+            festiveRed = Color(red: 0.78, green: 0.20, blue: 0.16)
+            festiveGold = Color(red: 0.89, green: 0.66, blue: 0.22)
+            festiveBlue = Color(red: 0.20, green: 0.41, blue: 0.73)
         }
     }
 }

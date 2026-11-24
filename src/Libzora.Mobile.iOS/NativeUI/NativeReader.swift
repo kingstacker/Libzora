@@ -68,14 +68,11 @@ struct NativeReaderPage: View {
     /// PostScript name of the body font, so the reading footer matches the page.
     @State private var bodyFontName = "KingHwaOldSong"
     @State private var systemLowPowerMode = ProcessInfo.processInfo.isLowPowerModeEnabled
-    @State private var openingPageRevealed = false
-    private var hiddenPageAnimation: NativeBookOpenAnimation {
-        if store.readerPageExitAnimation.isPageAnimation { return store.readerPageExitAnimation }
-        return openingPageRevealed ? .none : openAnimation
-    }
+    @State private var acknowledgedFrameRevision: Int64?
+    @State private var readerEntryPrepared = false
+    private var entryInteractive: Bool { readerEntryPrepared || openAnimation == .cover }
 
-    @State private var openTransitionProgress: Double = 0
-    @State private var openTransitionStartedId: UUID?
+    @StateObject private var openTransitionDriver = NativeBookTransitionDriver(initialProgress: 0)
     private var activeOpenTransition: NativeBookOpenTransition? {
         guard let transition = store.openingBookTransition, transition.book.id == book.id else { return nil }
         return transition
@@ -156,7 +153,6 @@ struct NativeReaderPage: View {
             let sidebarWidth = assistantSidebarWidth(contentWidth: contentWidth)
             let readingViewportWidth = max(1, contentWidth - sidebarWidth)
             let openTransition = activeOpenTransition
-            let effectiveProgress = openTransition != nil ? openTransitionProgress : 1.0
 
             GeometryReader { fullGeometry in
                 let containerFrame = fullGeometry.frame(in: .global)
@@ -168,12 +164,13 @@ struct NativeReaderPage: View {
                     right: safeInsets.trailing + sideColumnInset + sidebarWidth,
                     bottom: safeInsets.bottom + readerBottomInset
                 )
-                ZStack {
-                    if openTransition != nil {
-                        NativeBookOpenDimmingLayer(progress: effectiveProgress)
-                    }
-
-                    ZStack(alignment: .topLeading) {
+                NativeBookOpenTransitionHost(
+                    transition: openTransition,
+                    driver: openTransitionDriver,
+                    containerFrame: containerFrame,
+                    colorScheme: readerColorScheme,
+                    paper: paper,
+                    content: ZStack(alignment: .topLeading) {
                         paper
                         ReaderSurface(controller: store.readerController)
                             .frame(width: fullGeometry.size.width, height: fullGeometry.size.height)
@@ -193,11 +190,13 @@ struct NativeReaderPage: View {
                                 .buttonStyle(.plain).accessibilityLabel(L("收起搜索结果"))
                                 .accessibilityIdentifier("reader.search.dismiss")
                         }
-                        topChromeOverlay(
-                            safeInsets: safeInsets,
-                            readingViewportWidth: readingViewportWidth,
-                            openTransition: openTransition)
-                            .zIndex(10)
+                        if entryInteractive {
+                            topChromeOverlay(
+                                safeInsets: safeInsets,
+                                readingViewportWidth: readingViewportWidth,
+                                openTransition: openTransition)
+                                .zIndex(10)
+                        }
 
                         if sidebarOpen {
                             assistantSidebarOverlay(
@@ -210,81 +209,48 @@ struct NativeReaderPage: View {
                     .frame(width: fullGeometry.size.width, height: fullGeometry.size.height)
                     .onAppear { viewportWidth = contentWidth }
                     .onChange(of: contentWidth) { viewportWidth = $0 }
-                    .task(id: surfaceInsets) {
-                        try? await store.command("reader.insets", [
+                    .task(id: "\(appearanceSessionId)|\(surfaceInsets)|\(reader.ready)|\(reader.presentationFrameRevision)") {
+                        acknowledgedFrameRevision = nil
+                        let reply: NativeReaderInsetsAcknowledgement? = try? await store.request("reader.insets", [
+                            "sessionId": appearanceSessionId,
                             "left": Double(surfaceInsets.left),
                             "top": Double(surfaceInsets.top),
                             "right": Double(surfaceInsets.right),
                             "bottom": Double(surfaceInsets.bottom)
                         ])
+                        guard !Task.isCancelled, reply?.accepted == true,
+                              session.appearanceSessionId == appearanceSessionId else { return }
+                        acknowledgedFrameRevision = reply?.revision
                     }
-                    .modifier(
-                        NativeBookOpenPageTransform(
-                            active: openTransition != nil,
-                            sourceFrame: openTransition?.sourceFrame ?? containerFrame,
-                            containerFrame: containerFrame,
-                            isCentered: openTransition?.isCentered ?? false,
-                            colorScheme: readerColorScheme,
-                            progress: effectiveProgress
-                        )
-                    )
-
-                    if let openTransition {
-                        NativeBookOpenLiveCoverLayer(
-                            transition: openTransition,
-                            containerFrame: containerFrame,
-                            progress: effectiveProgress
-                        )
-                    }
-                }
-                .frame(width: fullGeometry.size.width, height: fullGeometry.size.height)
+                )
             }
             .ignoresSafeArea()
-            .offset(x: hiddenPageAnimation == .slide ? contentWidth + safeInsets.leading + safeInsets.trailing : 0)
-            .opacity(hiddenPageAnimation == .fade ? 0 : 1)
-            .allowsHitTesting(!hiddenPageAnimation.isPageAnimation)
-            .accessibilityHidden(hiddenPageAnimation.isPageAnimation)
+            .modifier(NativeReaderEntryPresentation(store: store, session: session,
+                sessionId: appearanceSessionId, animation: openAnimation, paper: paper,
+                acknowledgedRevision: acknowledgedFrameRevision, prepared: $readerEntryPrepared))
         }
         .ignoresSafeArea(.keyboard)
-        .task(id: reader.ready || reader.error != nil) {
-            guard openAnimation.isPageAnimation, !openingPageRevealed else { return }
-            // Give UIKit time to commit the full-screen presentation. Let a slow book
-            // reveal its loading state rather than leaving the previous screen in place.
-            let delay: UInt64 = reader.ready || reader.error != nil ? 70_000_000 : 300_000_000
-            try? await Task.sleep(nanoseconds: delay)
-            guard !Task.isCancelled else { return }
-            withAnimation(.easeOut(duration: NativeBookOpenTransitionPolicy.pageTransitionDuration)) {
-                openingPageRevealed = true
-            }
-        }
-        .task(id: activeOpenTransition?.id) {
+        .task(id: "\(activeOpenTransition?.id.uuidString ?? "")|\(store.openingBookReadyId?.uuidString ?? "")|\(store.readerPresentationActive)") {
             guard let transition = activeOpenTransition else {
-                openTransitionProgress = 1
-                openTransitionStartedId = nil
+                openTransitionDriver.prepare(progress: 0)
                 return
             }
-            guard openTransitionStartedId != transition.id else { return }
-            openTransitionStartedId = transition.id
-            openTransitionProgress = 0
-            // Wait one frame so UIKit finishes the non-animated presentation
-            // and re-enables animations before kicking off the open morph.
-            try? await Task.sleep(nanoseconds: 12_000_000)
-            guard !Task.isCancelled, store.openingBookTransition?.id == transition.id else { return }
+            guard store.openingBookReadyId == transition.id, store.readerPresentationActive else {
+                return
+            }
             let duration = transition.isCentered
                 ? NativeBookOpenTransitionPolicy.openFromCenterDuration
                 : NativeBookOpenTransitionPolicy.openFromCoverDuration
-            let cleanupDelay = transition.isCentered
-                ? NativeBookOpenTransitionPolicy.openFromCenterCleanupDelay
-                : NativeBookOpenTransitionPolicy.openFromCoverCleanupDelay
-            withAnimation(.timingCurve(0.22, 1.0, 0.36, 1.0, duration: duration)) {
-                openTransitionProgress = 1
+            let transitionId = transition.id
+            openTransitionDriver.start(id: transitionId, from: 0, to: 1, duration: duration) {
+                if store.openingBookTransition?.id == transitionId {
+                    store.openingBookTransition = nil
+                }
+                if store.openingBookReadyId == transitionId {
+                    store.openingBookReadyId = nil
+                }
+                store.restoringReader = false
             }
-            try? await Task.sleep(nanoseconds: UInt64(cleanupDelay * 1_000_000_000))
-            guard !Task.isCancelled else { return }
-            if store.openingBookTransition?.id == transition.id {
-                store.openingBookTransition = nil
-            }
-            store.restoringReader = false
         }
         .font(NativeTheme.font()).foregroundStyle(NativeTheme.ink).tint(NativeTheme.ink)
         .environment(\.symbolVariants, .none)
@@ -378,7 +344,10 @@ struct NativeReaderPage: View {
             if searchComposing { pendingSearch?.cancel() }
             else { scheduleLiveSearch() }
         }
-        .onDisappear { pendingSearch?.cancel() }
+        .onDisappear {
+            pendingSearch?.cancel()
+            openTransitionDriver.cancel()
+        }
         .onChange(of: session.dialog) { value in
             guard let value else { return }
             if searching { closeSearch() }
@@ -472,7 +441,12 @@ struct NativeReaderPage: View {
                 if let toast = store.toast { NativeToast(text: toast).padding(.bottom, 12) }
                 if speechActive {
                     NativeReaderSpeechControls(state: reader.speechState, status: reader.speechStatus,
+                        speed: reader.speechSpeed,
+                        sleepMinutesRemaining: reader.speechSleepMinutesRemaining,
+                        sleepAfterChapter: reader.speechSleepAfterChapter,
                         suspended: panel != nil || showingSearchResults, expanded: $speechExpanded,
+                        setSpeed: { next in run("speechSpeed", ["speed": next]) },
+                        setSleepTimer: { mins, afterChapter in run("speechSleep", ["minutes": mins, "afterChapter": afterChapter]) },
                         settings: { panel = .speech }, pause: { run("speechPause") }, stop: { run("speechStop") })
                         .frame(maxWidth: NativeAdaptiveLayout.readerToolsMaxWidth)
                         .frame(maxWidth: .infinity)
@@ -1983,18 +1957,31 @@ struct NativeSpeechSettings: View {
             Section {
                 Picker(L("语音"), selection: $voice) {
                     Text(L("系统默认（中文）")).tag("zh-CN-XiaoxiaoNeural")
-                    ForEach(voices) { item in Text(item.name + (item.culture.map { " · " + $0 } ?? "")).tag(item.id) }
+                    if !zhVoices.isEmpty {
+                        Section(L("中文语音")) {
+                            ForEach(zhVoices) { item in
+                                Text(voiceDisplayLabel(item)).tag(item.id)
+                            }
+                        }
+                    }
+                    if !enVoices.isEmpty {
+                        Section(L("英文语音")) {
+                            ForEach(enVoices) { item in
+                                Text(voiceDisplayLabel(item)).tag(item.id)
+                            }
+                        }
+                    }
                 }
             } header: {
                 Text(L("系统语音"))
             } footer: {
-                Text(L("语音由设备提供，可以在系统设置中下载更多语音。")).font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary)
+                Text(L("优先推荐增强/高品质语音。可在系统「设置 → 辅助功能 → 朗读内容 → 语音」中下载离线高品质人声。")).font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary)
             }
             Section(L("语速")) { Text("\(speed, specifier: "%.1f")×"); Slider(value: $speed, in: 0.5...2, step: 0.1).accessibilityLabel(L("朗读语速")) }
             Section {
                 Toggle(L("自动翻到下一章或下一页"), isOn: $autoAdvance).tint(NativeTheme.systemSwitchTint)
             } footer: {
-                Text(L("设置在下次开始朗读时生效。")).font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary)
+                Text(L("保存后从下一句起立即生效，并支持锁屏/后台持续听书。")).font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary)
             }
             Section {
                 Button(L("保存")) {
@@ -2003,9 +1990,37 @@ struct NativeSpeechSettings: View {
                 }
             }
         }.disabled(!ready || busy).task {
-            do { let value: SpeechSnapshot = try await store.request("settings.speech.get"); voices = value.voices; voice = value.settings.voice; speed = value.settings.speed; autoAdvance = value.settings.autoAdvance; ready = true }
+            do {
+                let value: SpeechSnapshot = try await store.request("settings.speech.get")
+                voices = value.voices
+                voice = value.voices.contains(where: { $0.id == value.settings.voice }) ? value.settings.voice : "zh-CN-XiaoxiaoNeural"
+                speed = value.settings.speed
+                autoAdvance = value.settings.autoAdvance
+                ready = true
+            }
             catch { if !Task.isCancelled { store.failure = error.localizedDescription } }
         }
+    }
+
+    private var zhVoices: [SpeechVoice] {
+        voices.filter { ($0.culture ?? "").lowercased().hasPrefix("zh") }
+    }
+
+    private var enVoices: [SpeechVoice] {
+        voices.filter { ($0.culture ?? "").lowercased().hasPrefix("en") }
+    }
+
+    private func voiceDisplayLabel(_ item: SpeechVoice) -> String {
+        var label = item.name
+        if (item.qualityTier ?? 0) >= 2 {
+            label += " · \(L("超清"))"
+        } else if (item.qualityTier ?? 0) == 1 {
+            label += " · \(L("高品质"))"
+        }
+        if let culture = item.culture, !culture.isEmpty {
+            label += " · \(culture)"
+        }
+        return label
     }
 }
 

@@ -16,6 +16,13 @@ public sealed record NativeReaderState(
     public long NavigationRevision { get; init; }
     public bool IsManga { get; init; }
     public bool IsMangaVerticalScroll { get; init; }
+    public bool PresentationFrameReady { get; init; }
+    public long PresentationFrameRevision { get; init; }
+    public int SpeechSegmentIndex { get; init; }
+    public int SpeechSegmentCount { get; init; }
+    public double SpeechSpeed { get; init; } = 1.0;
+    public int SpeechSleepMinutesRemaining { get; init; }
+    public bool SpeechSleepAfterChapter { get; init; }
 }
 
 public sealed record NativeReaderSelectionBounds(double X, double Y, double Bottom,
@@ -80,6 +87,7 @@ public sealed record NativeReaderAiContextSnapshot(
 public partial class ReaderPage
 {
     private bool _usesNativeFrontend;
+    private Size? _nativeViewportHint;
     private bool? _nativeAppAppearanceDark;
     private int _nativeAppAppearanceRevision = -1;
     private bool _nativeChromeVisible = false;
@@ -185,6 +193,13 @@ public partial class ReaderPage
         NotifyNativeState();
     }
 
+    public void NativeSetViewportHint(double width, double height)
+    {
+        if (!double.IsFinite(width) || !double.IsFinite(height) || width < 2 || height < 2)
+            return;
+        _nativeViewportHint = new Size(width, height);
+    }
+
     public void NativeSetSurfaceInsets(Thickness insets)
     {
         var clamped = new Thickness(
@@ -202,6 +217,7 @@ public partial class ReaderPage
         }
 
         ReaderHostSlot.Padding = clamped;
+        RequestNativePresentationFrame();
     }
 
     public NativeReaderState GetNativeState()
@@ -217,8 +233,15 @@ public partial class ReaderPage
             _selection?.Text, _footnoteReturn.Count > 0)
         {
             NavigationRevision = _nativeNavigationRevision,
+            PresentationFrameReady = _nativePresentationFrameReady,
+            PresentationFrameRevision = _nativePresentationFrameRevision,
             IsManga = IsMangaMode,
             IsMangaVerticalScroll = IsMangaVerticalScroll,
+            SpeechSegmentIndex = _tts?.SegmentIndex ?? 0,
+            SpeechSegmentCount = _tts?.SegmentCount ?? 0,
+            SpeechSpeed = _speechSpeed,
+            SpeechSleepMinutesRemaining = CurrentSpeechSleepRemainingMinutes(),
+            SpeechSleepAfterChapter = _speechSleepAfterChapter,
             SelectionBounds = _selection is { X: { } x, Y: { } y } selected
                 ? new(x, y, selected.Bottom ?? y, hostWidth, hostHeight)
                 : null
@@ -354,6 +377,18 @@ public partial class ReaderPage
     }
 
     public void NativePauseSpeech() => _tts?.PauseOrResume();
+    public void NativePauseOrResumeSpeech() => _tts?.PauseOrResume();
+    public void NativePauseIfPlaying()
+    {
+        if (_tts is { State: TtsPlaybackState.Playing })
+            _tts.PauseOrResume();
+    }
+    public void NativeResumeIfPaused()
+    {
+        if (_tts is { State: TtsPlaybackState.Paused })
+            _tts.PauseOrResume();
+    }
+    public void NativeSkipSpeechSegment(int direction) => _ = _tts?.SkipSegmentAsync(direction);
     public async Task NativeStopSpeechAsync()
     {
         CancelSpeechPreparation();

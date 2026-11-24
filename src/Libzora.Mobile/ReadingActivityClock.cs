@@ -30,3 +30,39 @@ internal sealed class ReadingActivityClock(DateTimeOffset startedAt)
         _paused = false;
     }
 }
+
+/// <summary>
+/// Counts active TTS playback intervals without a foreground idle timeout so
+/// hands-free and screen-off listening sessions accrue exact playback seconds.
+/// </summary>
+internal sealed class ListeningActivityClock
+{
+    private DateTimeOffset _last;
+    private bool _playing;
+
+    public bool IsPlaying => _playing;
+
+    public long SetPlaying(bool playing, DateTimeOffset now)
+    {
+        if (playing == _playing) return 0;
+        if (playing)
+        {
+            _last = now;
+            _playing = true;
+            return 0;
+        }
+        var seconds = CountUntil(now);
+        _playing = false;
+        return seconds;
+    }
+
+    public long CountUntil(DateTimeOffset now)
+    {
+        if (!_playing) return 0;
+        var elapsed = now - _last;
+        if (elapsed.TotalSeconds < 1) return 0;
+        var whole = (long)elapsed.TotalSeconds;
+        _last = _last.AddSeconds(whole);
+        return whole;
+    }
+}

@@ -201,6 +201,7 @@ public sealed partial class ReaderDataService
                     BookFileId TEXT PRIMARY KEY,
                     BookId TEXT NOT NULL,
                     CumulativeSeconds INTEGER NOT NULL DEFAULT 0,
+                    ListeningSeconds INTEGER NOT NULL DEFAULT 0,
                     ProgressPercent REAL NOT NULL DEFAULT 0,
                     CompletedChapters INTEGER NOT NULL DEFAULT 0,
                     TotalChapters INTEGER NOT NULL DEFAULT 0,
@@ -212,6 +213,7 @@ public sealed partial class ReaderDataService
                     BookId TEXT NOT NULL,
                     BookFileId TEXT NOT NULL,
                     ActiveSeconds INTEGER NOT NULL,
+                    ListeningSeconds INTEGER NOT NULL DEFAULT 0,
                     ProgressPercent REAL NOT NULL DEFAULT 0,
                     RecordedAt TEXT NOT NULL
                 );
@@ -249,6 +251,8 @@ public sealed partial class ReaderDataService
                 CachedRecoveryContext = await ReaderRecoveryEpoch.ReadAsync(connection, syncTransaction, cancellationToken);
                 await syncTransaction.CommitAsync(cancellationToken);
             }
+
+            await EnsureListeningTimeColumnsAsync(connection, cancellationToken);
 
             _ftsAvailable = await EnsureFullTextIndexAsync(connection, cancellationToken);
         }

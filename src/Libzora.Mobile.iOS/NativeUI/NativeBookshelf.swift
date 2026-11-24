@@ -455,8 +455,7 @@ struct NativeLibraryPage: View {
         if !selection.active, query.isEmpty, filter <= 1, let id = store.continueBookId, let book = books.first(where: { $0.id == id }) {
             let key = "continue:\(book.id)"
             Button {
-                let frame = NativeBookCoverFrames.get(key)
-                store.perform { try await store.openReader(book, sourceFrame: frame, sourceKey: key) }
+                store.perform { try await store.openReader(book, source: .continueReading) }
             } label: {
                 HStack(spacing: 14) {
                     BookCover(book: book, width: 48, height: 68)
@@ -522,7 +521,7 @@ struct NativeLibraryPage: View {
         [
             NativeBookMenuItem(L("阅读"), systemImage: "book") {
                 beforeReading()
-                store.perform { try await store.openReader(book) }
+                store.perform { try await store.openReader(book, source: .library) }
             },
             NativeBookMenuItem(book.favorite ? L("取消收藏") : L("收藏"),
                                systemImage: book.favorite ? "star.slash" : "star") {
@@ -898,7 +897,7 @@ struct NativeBookShelf: View {
                                      }
                                      let key = "shelf:\(front.id)"
                                      let frame = NativeBookCoverFrames.get(key)
-                                     store.perform { try await store.openReader(front, sourceFrame: frame, sourceKey: key) }
+                                     store.perform { try await store.openReader(front, sourceFrame: frame, sourceKey: key, source: .library) }
                                  },
                                  expand: { frame in expandSeries(series.id, frame) },
                                  longPress: { frame in
@@ -923,7 +922,7 @@ struct NativeBookShelf: View {
                 return
             }
             let frame = NativeBookCoverFrames.get(key)
-            store.perform { try await store.openReader(book, sourceFrame: frame, sourceKey: key) }
+            store.perform { try await store.openReader(book, sourceFrame: frame, sourceKey: key, source: .library) }
         } label: {
             Group {
                 if store.preferences.listView {
@@ -956,7 +955,7 @@ struct NativeBookShelf: View {
                     NativeBookLink(enabled: !store.openingReader,
                                    tap: {
                                        let frame = NativeBookCoverFrames.get(key)
-                                       store.perform { try await store.openReader(book, sourceFrame: frame, sourceKey: key) }
+                                       store.perform { try await store.openReader(book, sourceFrame: frame, sourceKey: key, source: .library) }
                                    },
                                    longPress: { frame in
                         destinations.showPreview(book, source: .shelf, frame: frame, width: coverWidth,
@@ -1567,7 +1566,7 @@ struct NativeBookSeriesOverlay: View {
         let key = "seriesVolume:\(book.id)"
         let frame = NativeBookCoverFrames.get(key)
         close()
-        store.perform { try await store.openReader(book, sourceFrame: frame, sourceKey: key) }
+        store.perform { try await store.openReader(book, sourceFrame: frame, sourceKey: key, source: .library) }
     }
 }
 

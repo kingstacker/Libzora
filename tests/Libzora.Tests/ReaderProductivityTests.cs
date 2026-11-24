@@ -505,6 +505,37 @@ public sealed class ReaderProductivityTests
     }
 
     [Fact]
+    public async Task AccumulatesListeningDurationIntoTotalsAndSeparateBreakdown()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            var service = new ReaderDataService(paths);
+            await service.InitializeAsync();
+            var bookId = Guid.NewGuid();
+            var fileId = Guid.NewGuid();
+
+            await service.AddReadingTimeAsync(bookId, fileId, activeSeconds: 180, progressPercent: 20, completedChapters: 2, totalChapters: 10);
+            await service.AddReadingTimeAsync(bookId, fileId, activeSeconds: 240, progressPercent: 30, completedChapters: 3, totalChapters: 10, listeningSeconds: 240, CancellationToken.None);
+
+            var stats = await service.GetReadingStatsAsync(fileId);
+            Assert.NotNull(stats);
+            Assert.Equal(420, stats!.CumulativeSeconds);
+            Assert.Equal(240, stats.ListeningSeconds);
+
+            var dashboard = await service.GetReadingDashboardAsync(dayCount: 7);
+            Assert.Equal(420, dashboard.TotalSeconds);
+            Assert.Equal(240, dashboard.ListeningSeconds);
+            Assert.Equal(240, Assert.Single(dashboard.MostReadBooks).ListeningSeconds);
+            var todayEntry = Assert.Single(dashboard.DailyReading, day => day.Date == DateOnly.FromDateTime(DateTime.UtcNow));
+            Assert.Equal(420, todayEntry.ActiveSeconds);
+            Assert.Equal(240, todayEntry.ListeningSeconds);
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    [Fact]
     public async Task SearchesIndexedBookAndUsesLikeFallbackForShortTerms()
     {
         var root = TestHelpers.CreateTempDirectory();

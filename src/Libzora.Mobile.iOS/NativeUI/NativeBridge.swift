@@ -125,12 +125,19 @@ struct ReaderSnapshot: Decodable, Equatable {
     var error: String?
     var speechState = 0
     var speechStatus = ""
+    var speechSegmentIndex = 0
+    var speechSegmentCount = 0
+    var speechSpeed = 1.0
+    var speechSleepMinutesRemaining = 0
+    var speechSleepAfterChapter = false
     var selectedText: String?
     var selectionBounds: NativeSelectionBounds?
     var footnoteReturnVisible = false
     var navigationRevision: Int64?
     var isManga = false
     var isMangaVerticalScroll = false
+    var presentationFrameReady = false
+    var presentationFrameRevision: Int64 = 0
 }
 
 struct ReaderFootnoteAnchor: Decodable, Equatable {
@@ -239,22 +246,31 @@ final class NativeStore: ObservableObject {
     let readerController: UIViewController
     /// Only shown on an ordinary cold launch into the library (~1s), never on resume/reader-restore/widget deep-links.
     @Published var showsLaunchAnimation: Bool
+    /// Shown during cold widget deep-links so the Libzora icon stays visible while the destination loads concurrently.
+    @Published var widgetColdLaunch = false
     @Published var openingBookTransition: NativeBookOpenTransition?
+    @Published var openingBookReadyId: UUID?
+    @Published var readerEntrySnapshot: UIImage?
     var readerOpenAnimation: NativeBookOpenAnimation = .none
-    @Published var readerPageExitAnimation: NativeBookOpenAnimation = .none
-    var readerOpenSource: NativeBookOpenSource = .cover
+    var readerOpenSource: NativeBookOpenSource = .other
     @Published var closingBookTransition: NativeBookOpenTransition?
     @Published var closingBookBackdrop = false
     @Published var closingBookSnapshot: UIImage?
+    var closingTransitionWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
     var activeTab = 0
     private(set) var viewportRect: CGRect = UIScreen.main.bounds
     var lastBookOpenOrigin: (bookId: String, sourceKey: String)?
-    var readerPresentationActive = false
+    @Published var readerPresentationActive = false
+    var widgetTabTransition: NativePageSlideTransition?
+    var widgetBrandOverlayController: UIViewController?
+    var widgetBrandOverlay: UIView?
+    var widgetHandoffStartedNs: UInt64?
+    var pendingWidgetReaderSnapshot: UIImage?
     var closingReader = false
     var openingReaderBookId: String?
     var openingReaderGeneration: Int?
     var queuedReaderOpen = NativeReaderOpenQueue<NativeReaderOpenRequest>()
-    var pendingOpenSource: NativeBookOpenSource = .cover
+    var pendingOpenSource: NativeBookOpenSource = .other
     @Published var library: [LibraryBook] = [] {
         didSet { librarySeriesCache = nil }
     }
@@ -277,7 +293,15 @@ final class NativeStore: ObservableObject {
     @Published private(set) var uiLanguage = NativeLocalization.language
     @Published private(set) var uiFont = NativeTheme.useSystemFont ? 1 : 0
     @Published var continueBookId: String?
-    @Published var readerBook: LibraryBook?
+    @Published var readerPresentation: NativeReaderPresentation?
+    var readerBook: LibraryBook? {
+        get { readerPresentation?.book }
+        set {
+            readerPresentation = newValue.map {
+                NativeReaderPresentation(id: session.appearanceSessionId, book: $0, animation: readerOpenAnimation)
+            }
+        }
+    }
     @Published var openingReader = false
     /// Hides the shelf until the launch restore either presents its book or
     /// proves there is nothing to restore, so the library never flashes first.
@@ -428,11 +452,14 @@ final class NativeStore: ObservableObject {
         case "accountInvalidated": account = nil
         case "openBook", "openWidgetBook":
             if let id = event.bookId {
-                openRequestedBook(id, source: event.type == "openWidgetBook" ? .widget : .cover)
+                openRequestedBook(id, source: event.type == "openWidgetBook" ? .widget : .external)
             }
         case "openTab":
             if let tab = event.tab {
-                showsLaunchAnimation = false
+                let alreadyVisible = !preparingLibrary && libraryLoaded && activeTab == tab
+                    && readerBook == nil && !readerPresentationActive && !closingReader && !openingReader
+                guard !alreadyVisible else { return }
+                beginWidgetBrandCover()
                 // A tab link asks for the tab itself, so it must also cancel
                 // the saved reading session and any reader that is still
                 // opening. Otherwise the last book reopens over the tab.
@@ -483,7 +510,7 @@ final class NativeStore: ObservableObject {
         let snapshotFolders = folders
         let snapshotPreferences = preferences
         let snapshotContinueBookId = continueBookId
-        if libraryLoaded && !snapshotBooks.isEmpty {
+        if libraryLoaded && !snapshotBooks.isEmpty && pendingOpenBookId == nil {
             Task {
                 await NativeCoverCache.prepareLibrary(
                     books: snapshotBooks,
@@ -498,6 +525,9 @@ final class NativeStore: ObservableObject {
         } else {
             brandingDelay?.cancel()
             showsLaunchAnimation = false
+        }
+        if pendingOpenBookId == nil && requestedTab == nil {
+            dismissWidgetBrandCover()
         }
         preparingLibrary = false
         if libraryLoaded && !Task.isCancelled {

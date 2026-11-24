@@ -75,4 +75,51 @@ public sealed class ReadingPeriodTests
         }
         finally { SqliteConnection.ClearAllPools(); TestHelpers.TryDelete(root); }
     }
+
+    [Fact]
+    public async Task DashboardPreservesMultiYearTotalAndUnboundedStreak()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var paths = new AppPaths(root);
+            var service = new ReaderDataService(paths);
+            await service.InitializeAsync();
+            var book = Guid.NewGuid();
+            var file = Guid.NewGuid();
+            await service.AddReadingTimeAsync(book, file, 600, 10, 1, 10);
+
+            var endDay = new DateOnly(2027, 6, 15);
+            await using (var connection = new SqliteConnection($"Data Source={paths.Database}"))
+            {
+                await connection.OpenAsync();
+                using var clear = connection.CreateCommand();
+                clear.CommandText = "DELETE FROM S3SyncReadingDayCounters;";
+                await clear.ExecuteNonQueryAsync();
+
+                using var tx = connection.BeginTransaction();
+                using var insert = connection.CreateCommand();
+                insert.Transaction = tx;
+                insert.CommandText = """
+                    INSERT INTO S3SyncReadingDayCounters (BookFileId, ReadingDate, DeviceId, Seconds, ListeningSeconds)
+                    VALUES ($file, $date, 'test-device', 120, 0);
+                    """;
+                var dateParam = insert.Parameters.Add("$date", SqliteType.Text);
+                insert.Parameters.AddWithValue("$file", file.ToString());
+                for (var offset = 0; offset < 420; offset++)
+                {
+                    dateParam.Value = endDay.AddDays(-offset).ToString("yyyy-MM-dd");
+                    await insert.ExecuteNonQueryAsync();
+                }
+                await tx.CommitAsync();
+            }
+
+            // Even a compact 14-day dashboard window reports the true 420-day multi-year streak.
+            var shortWindow = await service.GetReadingDashboardAsync(dayCount: 14, throughDate: endDay);
+            Assert.Equal(420, shortWindow.StreakDays);
+            Assert.Equal(14, shortWindow.DailyReading.Count);
+            Assert.Equal(600, shortWindow.TotalSeconds);
+        }
+        finally { SqliteConnection.ClearAllPools(); TestHelpers.TryDelete(root); }
+    }
 }

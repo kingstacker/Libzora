@@ -103,15 +103,24 @@ public static class WidgetSnapshotPublisher
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var days = dashboard.DailyReading
             .OrderBy(day => day.Date)
-            .Select(day => new WidgetDay(day.Date.ToString("yyyy-MM-dd"), Math.Max(0, day.ActiveSeconds)))
+            .Select(day => new WidgetDay(
+                day.Date.ToString("yyyy-MM-dd"),
+                Math.Max(0, day.ActiveSeconds),
+                Math.Max(0, day.ListeningSeconds)))
             .ToArray();
         var todaySeconds = dashboard.DailyReading
             .Where(day => day.Date == today)
             .Sum(day => Math.Max(0, day.ActiveSeconds));
+        var todayListeningSeconds = dashboard.DailyReading
+            .Where(day => day.Date == today)
+            .Sum(day => Math.Max(0, day.ListeningSeconds));
         var weekStart = today.AddDays(-6);
         var weekSeconds = dashboard.DailyReading
             .Where(day => day.Date >= weekStart && day.Date <= today)
             .Sum(day => Math.Max(0, day.ActiveSeconds));
+        var weekListeningSeconds = dashboard.DailyReading
+            .Where(day => day.Date >= weekStart && day.Date <= today)
+            .Sum(day => Math.Max(0, day.ListeningSeconds));
 
         var quote = annotations.FirstOrDefault(annotation =>
             !string.IsNullOrWhiteSpace(annotation.SelectedText) || !string.IsNullOrWhiteSpace(annotation.Note));
@@ -134,14 +143,17 @@ public static class WidgetSnapshotPublisher
                 book, progress.GetValueOrDefault(book.Id), publishedCovers)).ToArray(),
             Reading: new WidgetReading(
                 TodaySeconds: todaySeconds,
-                StreakDays: ReadingMedalCatalog.ComputeStreakDays(dashboard.DailyReading),
+                StreakDays: Math.Max(dashboard.StreakDays, ReadingMedalCatalog.ComputeStreakDays(dashboard.DailyReading)),
                 WeekSeconds: weekSeconds,
                 TotalSeconds: Math.Max(0, dashboard.TotalSeconds),
                 BooksStarted: dashboard.BooksStarted,
                 BooksFinished: dashboard.BooksFinished,
                 BookmarkCount: dashboard.BookmarkCount,
                 AnnotationCount: dashboard.AnnotationCount,
-                Days: days),
+                Days: days,
+                TodayListeningSeconds: todayListeningSeconds,
+                WeekListeningSeconds: weekListeningSeconds,
+                TotalListeningSeconds: Math.Max(0, dashboard.ListeningSeconds)),
             Quote: quote is null || quoteBook is null ? null : new WidgetQuote(
                 Text: string.IsNullOrWhiteSpace(quote.SelectedText) ? quote.Note : quote.SelectedText,
                 Note: string.IsNullOrWhiteSpace(quote.Note) ? null : quote.Note,
@@ -298,9 +310,12 @@ public static class WidgetSnapshotPublisher
         int BooksFinished,
         int BookmarkCount,
         int AnnotationCount,
-        IReadOnlyList<WidgetDay> Days);
+        IReadOnlyList<WidgetDay> Days,
+        long TodayListeningSeconds,
+        long WeekListeningSeconds,
+        long TotalListeningSeconds);
 
-    private sealed record WidgetDay(string Date, long Seconds);
+    private sealed record WidgetDay(string Date, long Seconds, long ListeningSeconds);
 
     private sealed record WidgetQuote(
         string Text,

@@ -105,7 +105,7 @@ struct NativeBookDetailPage: View {
                     Button {
                         let key = "detail:\(book.id)"
                         let frame = NativeBookCoverFrames.get(key)
-                        store.perform { try await store.openReader(book, sourceFrame: frame, sourceKey: key) }
+                        store.perform { try await store.openReader(book, sourceFrame: frame, sourceKey: key, source: .library) }
                     } label: {
                         Text(book.progress > 0 ? L("继续阅读 · {0}%", String(format: "%.0f", locale: NativeLocalization.locale, book.progress)) : L("开始阅读"))
                     }.buttonStyle(NativeLiquidGlassButtonStyle()).disabled(store.openingReader).accessibilityIdentifier("book.read")
@@ -469,7 +469,7 @@ struct NativeCollectionPage: View {
                         } else {
                             NativeBookShelf(store: store, books: books, pageWidth: pageWidth) { book in
                                 var items = [
-                                    NativeBookMenuItem(L("阅读"), systemImage: "book") { store.perform { try await store.openReader(book) } },
+                                    NativeBookMenuItem(L("阅读"), systemImage: "book") { store.perform { try await store.openReader(book, source: .library) } },
                                     NativeBookMenuItem(book.favorite ? L("取消收藏") : L("收藏"),
                                                        systemImage: book.favorite ? "star.slash" : "star") {
                                         store.perform { try await store.command("book.favorite", ["bookId": book.id, "favorite": !book.favorite]); try await store.refreshLibrary() }

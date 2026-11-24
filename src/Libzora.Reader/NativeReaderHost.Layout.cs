@@ -36,7 +36,8 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
     private async Task RecomposeAsync(
         ViewportReadingAnchor? readingAnchor = null,
         bool anchorPageStart = false,
-        int? stopAfterTextOffset = null)
+        int? stopAfterTextOffset = null,
+        bool isBackgroundCompletion = false)
     {
         if (_disposed || _content is null)
         {
@@ -63,6 +64,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         _relayoutCts?.Cancel();
         using var request = new CancellationTokenSource();
         _relayoutCts = request;
+        _backgroundCompletionActive = isBackgroundCompletion && completingPartialLayout;
         var token = request.Token;
         TypesetEngine? workerEngine = null;
         IDisposable? fontUse = null;
@@ -112,7 +114,11 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         {
             workerEngine?.Dispose();
             fontUse?.Dispose();
-            if (ReferenceEquals(_relayoutCts, request)) _relayoutCts = null;
+            if (ReferenceEquals(_relayoutCts, request))
+            {
+                _relayoutCts = null;
+                _backgroundCompletionActive = false;
+            }
         }
         InvalidateSpeechTextSnapshot();
         _composePending = false;
@@ -151,6 +157,12 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
             _viewportReadingState = null;
         }
         PrefetchVisibleImages();
+
+        if (!_disposed && _presentationFrameRequest is not null)
+        {
+            _bitmapDirty = true;
+            InvalidateVisual();
+        }
 
         if (!_disposed && completingPartialLayout && _layout is { IsComplete: true })
         {
@@ -202,7 +214,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         try
         {
             await Task.Yield();
-            await RecomposeAsync();
+            await RecomposeAsync(isBackgroundCompletion: true);
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
@@ -294,6 +306,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         if (_bitmap is not null)
         {
             context.DrawImage(_bitmap, new Rect(0, 0, width, height));
+            NotifyPresentationFrameDrawn();
         }
     }
 }

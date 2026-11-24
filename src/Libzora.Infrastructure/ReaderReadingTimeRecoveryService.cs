@@ -4,7 +4,7 @@ namespace Libzora.Infrastructure;
 
 internal sealed record ReadingTimeCheckpoint(Guid Id, Guid BookId, Guid BookFileId, long Seconds,
     double ProgressPercent, int CompletedChapters, int TotalChapters, DateTimeOffset RecordedAt,
-    ReaderRecoveryContext? Context);
+    ReaderRecoveryContext? Context, long ListeningSeconds = 0);
 
 public sealed class ReaderReadingTimeRecoveryService(AppPaths paths, ReaderDataService reader)
 {
@@ -15,15 +15,20 @@ public sealed class ReaderReadingTimeRecoveryService(AppPaths paths, ReaderDataS
     private static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web);
     private bool _loaded;
 
+    public Task SaveAsync(Guid bookId, Guid fileId, long seconds, double progress, int chapters, int total,
+        CancellationToken token = default) =>
+        SaveAsync(bookId, fileId, seconds, progress, chapters, total, listeningSeconds: 0, token);
+
     public async Task SaveAsync(Guid bookId, Guid fileId, long seconds, double progress, int chapters, int total,
-        CancellationToken token = default)
+        long listeningSeconds, CancellationToken token = default)
     {
         if (seconds <= 0) return;
+        var clampedListening = Math.Clamp(listeningSeconds, 0, seconds);
         var context = reader.CachedRecoveryContext;
         try { context = await reader.GetRecoveryContextAsync(CancellationToken.None); }
         catch (Exception exception) { Log(exception); }
         var checkpoint = new ReadingTimeCheckpoint(Guid.NewGuid(), bookId, fileId, seconds, progress, chapters, total,
-            DateTimeOffset.UtcNow, context);
+            DateTimeOffset.UtcNow, context, clampedListening);
         await _gate.WaitAsync();
         try
         {

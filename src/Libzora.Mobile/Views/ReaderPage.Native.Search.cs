@@ -300,6 +300,11 @@ public partial class ReaderPage
 
                 // The current chapter was searched from the already-loaded body
                 // text, but still needs to enter the index for later searches.
+                if (!snapshot.IsComplete && _epubPreparationSession is { IsComplete: false } prepSession)
+                {
+                    document = await prepSession.CompletionTask.WaitAsync(token);
+                }
+
                 if (!snapshot.IsComplete && !snapshot.IndexedChapters.Contains(currentChapter))
                 {
                     await _modules.Reader.Content.IndexBookChaptersAsync(

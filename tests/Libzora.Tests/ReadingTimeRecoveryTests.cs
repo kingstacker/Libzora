@@ -153,6 +153,30 @@ public sealed class ReadingTimeRecoveryTests
         finally { TestHelpers.TryDelete(root); }
     }
 
+    [Fact]
+    public async Task ReplaysRecoveredListeningDurationIntoDatabase()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            var reader = new ReaderDataService(paths);
+            await reader.InitializeAsync();
+            var book = Guid.NewGuid();
+            var file = Guid.NewGuid();
+
+            await new ReaderReadingTimeRecoveryService(paths, reader)
+                .SaveAsync(book, file, seconds: 120, progress: 40, chapters: 2, total: 5, listeningSeconds: 90, new CancellationToken(true));
+
+            await new ReaderReadingTimeRecoveryService(paths, reader).InitializeAsync();
+
+            var stats = (await reader.GetReadingStatsAsync(file))!;
+            Assert.Equal(120, stats.CumulativeSeconds);
+            Assert.Equal(90, stats.ListeningSeconds);
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
     private static async Task Execute(AppPaths paths, string sql)
     {
         await using var connection = new SqliteConnection($"Data Source={paths.Database}");

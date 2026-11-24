@@ -127,6 +127,72 @@ struct NativeStateLogicTests {
               "Search cursor tracks stable hit IDs across wrapped and continued insertions")
 
         // Book open/close transition geometry, widget entry, and top-bar anti-flash policy.
+        check(NativeBookOpenTransitionPolicy.coverLeafOpacity(flipProgress: 0) == 1,
+              "The resting shelf cover remains fully opaque")
+        for step in 0...1000 {
+            let flip = Double(step) / 1000
+            let opacity = NativeBookOpenTransitionPolicy.coverLeafOpacity(flipProgress: flip)
+            check(opacity >= 0 && opacity <= 1, "Leaf opacity stays bounded")
+            if flip * 104 >= 90 {
+                check(opacity == 0, "A rear-facing leaf must not project a gray block left of its spine")
+            }
+        }
+        check(NativeBookOpenTransitionPolicy.pageBackingOpacity(progress: 0) == 0,
+              "A closed book has no residual paper backing")
+        check(NativeBookOpenTransitionPolicy.pageBackingOpacity(progress: 0.12) == 1,
+              "The paper is fully visible while the book is opening")
+        check(NativeBookOpenTransitionPolicy.dimmingOpacity(progress: 0) == 0
+                && abs(NativeBookOpenTransitionPolicy.dimmingOpacity(progress: 1) - 0.24) < 0.0001,
+              "Open and close share symmetric backdrop dimming")
+        let lightStartShadow = NativeBookOpenTransitionPolicy.flightShadow(progress: 0, isDark: false)
+        let darkStartShadow = NativeBookOpenTransitionPolicy.flightShadow(progress: 0, isDark: true)
+        let endShadow = NativeBookOpenTransitionPolicy.flightShadow(progress: 1, isDark: false)
+        check(abs(lightStartShadow.opacity - 0.12) < 0.0001
+                && abs(lightStartShadow.radius - 5.0) < 0.0001
+                && abs(lightStartShadow.y - 2.0) < 0.0001,
+              "Resting shadow at t=0 matches BookCover in light mode")
+        check(darkStartShadow.opacity == 0 && endShadow.opacity == 0,
+              "Dark mode resting shadow and full-screen endpoint shadow vanish")
+        check(NativeBookOpenTransitionPolicy.shadowBackdropInset(progress: 0) > 0
+                && NativeBookOpenTransitionPolicy.shadowBackdropInset(progress: 0.12) == 0,
+              "Shadow caster stays inset behind rounded corners at rest and settles flush once open")
+
+        check(NativeBookOpenTransitionPolicy.timingCurveValue(at: 0) == 0
+                && NativeBookOpenTransitionPolicy.timingCurveValue(at: 1) == 1,
+              "Timing curve hits exact endpoints")
+        var previousCurve = -1.0
+        for step in 0...120 {
+            let u = Double(step) / 120.0
+            let v = NativeBookOpenTransitionPolicy.timingCurveValue(at: u)
+            check(v >= previousCurve && v >= 0 && v <= 1,
+                  "Timing curve stays strictly monotonic and bounded across 60Hz/120Hz steps")
+            previousCurve = v
+        }
+        check(NativeBookOpenTransitionPolicy.timingCurveValue(at: 0.25) > 0.25,
+              "Ease-out curve advances smoothly from the opening frame")
+        check(NativeBookOpenTransitionPolicy.frameProgress(elapsed: 0, duration: 0.68, from: 0, to: 1) == 0
+                && NativeBookOpenTransitionPolicy.frameProgress(elapsed: 0.68, duration: 0.68, from: 0, to: 1) == 1
+                && NativeBookOpenTransitionPolicy.frameProgress(elapsed: 0, duration: 0.59, from: 1, to: 0) == 1
+                && NativeBookOpenTransitionPolicy.frameProgress(elapsed: 0.59, duration: 0.59, from: 1, to: 0) == 0,
+              "Open and close progress interpolations align at exact boundary timestamps")
+        check(abs(NativeBookOpenTransitionPolicy.initialFrameStep(targetTimestamp: 100.0 + 1.0 / 60.0, timestamp: 100.0) - 1.0 / 60.0) < 0.0001
+                && abs(NativeBookOpenTransitionPolicy.initialFrameStep(targetTimestamp: 100.0 + 1.0 / 120.0, timestamp: 100.0) - 1.0 / 120.0) < 0.0001
+                && abs(NativeBookOpenTransitionPolicy.initialFrameStep(targetTimestamp: 100.0 + 1.0 / 240.0, timestamp: 100.0) - 1.0 / 240.0) < 0.0001,
+              "Initial frame step adapts cleanly across 60Hz, 120Hz, and 240Hz refresh rates")
+        let rate60 = NativeBookOpenTransitionPolicy.preferredFrameRateBounds(maximumFramesPerSecond: 60)
+        let rate120 = NativeBookOpenTransitionPolicy.preferredFrameRateBounds(maximumFramesPerSecond: 120)
+        let rate240 = NativeBookOpenTransitionPolicy.preferredFrameRateBounds(maximumFramesPerSecond: 240)
+        check(rate60.minimum == 60 && rate60.maximum == 60 && rate60.preferred == 60
+                && rate120.minimum == 60 && rate120.maximum == 120 && rate120.preferred == 120
+                && rate240.minimum == 60 && rate240.maximum == 240 && rate240.preferred == 240,
+              "Display link frame rate bounds target the full supported refresh rate at 60Hz and higher")
+        check(!NativeBookOpenTransitionPolicy.shouldHideSourceCover(
+                openingSourceKey: "shelf:b1", readerPresentationActive: false, closingSourceKey: nil, forKey: "shelf:b1")
+                && NativeBookOpenTransitionPolicy.shouldHideSourceCover(
+                    openingSourceKey: "shelf:b1", readerPresentationActive: true, closingSourceKey: nil, forKey: "shelf:b1")
+                && NativeBookOpenTransitionPolicy.shouldHideSourceCover(
+                    openingSourceKey: nil, readerPresentationActive: false, closingSourceKey: "shelf:b1", forKey: "shelf:b1"),
+              "Source shelf cover stays visible until the modal transition is active and stays hidden during close")
         check(NativeBookOpenTransitionPolicy.openFromCoverMountDelay < NativeBookOpenTransitionPolicy.openFromCoverDuration
                 && NativeBookOpenTransitionPolicy.openFromCoverDuration < NativeBookOpenTransitionPolicy.openFromCoverCleanupDelay,
               "The reader mounts near the end of the 3D open and the overlay remains until the animation settles")
@@ -152,10 +218,10 @@ struct NativeStateLogicTests {
         check(!NativeBookOpenTransitionPolicy.isVisibleFrame(buriedTabBarFrame, in: viewport),
               "Cover mostly buried below the bottom tab bar is rejected")
 
-        for source in [NativeBookOpenSource.widget, .materials] {
+        for source in [NativeBookOpenSource.materials, .external, .restore, .other] {
             check(NativeBookOpenTransitionPolicy.openAnimation(
                 source: source, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: 3) == .slide,
-                "Widget and Reading Materials use the default page slide")
+                "Non-cover page entries use the configured slide")
             check(NativeBookOpenTransitionPolicy.openAnimation(
                 source: source, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: 1) == .fade,
                 "Page entry respects the fade preference")
@@ -169,11 +235,49 @@ struct NativeStateLogicTests {
                 source: source, animated: true, reduceMotion: false, powerSaving: true, pageAnimation: 3) == .none,
                 "Page entry respects reader power saving")
         }
+        for pageAnimation in [0, 1, 3] {
+            check(NativeBookOpenTransitionPolicy.openAnimation(
+                source: .widget, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: pageAnimation) == .slide,
+                "Widget navigation always uses the fast page slide, never a 3D book animation")
+            check(NativeBookOpenTransitionPolicy.closeAnimation(
+                source: .widget, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: pageAnimation) == .slide,
+                "A widget-opened book closes with a page slide, never a cover flip")
+            check(NativeBookOpenTransitionPolicy.openAnimation(
+                source: .continueReading, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: pageAnimation) == .slide,
+                "Continue-reading entry always slides in from the right")
+            check(NativeBookOpenTransitionPolicy.closeAnimation(
+                source: .continueReading, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: pageAnimation) == .slide,
+                "Closing a continue-reading entry slides back cleanly")
+        }
+        for source in [NativeBookOpenSource.materials, .external, .restore, .other] {
+            check(NativeBookOpenTransitionPolicy.closeAnimation(
+                source: source, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: 3) == .slide,
+                "Non-cover close keeps its real entry source")
+        }
         check(NativeBookOpenTransitionPolicy.openAnimation(
-            source: .cover, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: 3) == .cover,
-            "A shelf or dashboard cover still uses the book opening animation")
+            source: .widget, animated: true, reduceMotion: true, powerSaving: false, pageAnimation: 3) == .none,
+            "Widget navigation respects Reduce Motion")
+        check(NativeBookOpenTransitionPolicy.closeAnimation(
+            source: .widget, animated: true, reduceMotion: false, powerSaving: true, pageAnimation: 3) == .none,
+            "Widget exit respects power saving")
+        for source in [NativeBookOpenSource.library, .dashboard] {
+            for pageAnimation in [0, 1, 3] {
+                check(NativeBookOpenTransitionPolicy.openAnimation(
+                    source: source, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: pageAnimation) == .cover,
+                    "Library and reading-dashboard entries use the 3D book opening animation")
+                check(NativeBookOpenTransitionPolicy.closeAnimation(
+                    source: source, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: pageAnimation) == .cover,
+                    "Closing a library or reading-dashboard session uses the 3D cover animation")
+            }
+            check(NativeBookOpenTransitionPolicy.openAnimation(
+                source: source, animated: true, reduceMotion: true, powerSaving: false, pageAnimation: 3) == .none,
+                "3D book opening respects Reduce Motion")
+            check(NativeBookOpenTransitionPolicy.closeAnimation(
+                source: source, animated: true, reduceMotion: false, powerSaving: true, pageAnimation: 3) == .none,
+                "3D book closing respects power saving")
+        }
         check(NativeBookOpenTransitionPolicy.openAnimation(
-            source: .cover, animated: false, reduceMotion: false, powerSaving: false, pageAnimation: 3) == .none,
+            source: .library, animated: false, reduceMotion: false, powerSaving: false, pageAnimation: 3) == .none,
             "Restoring a reader session has no opening animation")
 
         check(NativeBookOpenTransitionPolicy.closeAnimation(
@@ -189,7 +293,7 @@ struct NativeStateLogicTests {
             source: .materials, animated: true, reduceMotion: true, powerSaving: false, pageAnimation: 3) == .none,
             "Closing a book opened from Reading Materials respects Reduce Motion")
         check(NativeBookOpenTransitionPolicy.closeAnimation(
-            source: .cover, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: 3) == .cover,
+            source: .library, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: 3) == .cover,
             "Closing a shelf book still uses the cover animation")
 
         let offscreenShelfTarget = NativeBookOpenTransitionPolicy.resolveOpenTarget(
@@ -226,7 +330,7 @@ struct NativeStateLogicTests {
             lookup: { key in key == "shelf:b1" ? visibleShelfFrame : nil }
         )
         check(closeAfterWidgetOnLibrary == .cover(frame: visibleShelfFrame, key: "shelf:b1"),
-              "Closing a widget-opened book lands on its live visible shelf cover when available")
+              "Library close geometry resolves a live shelf cover without a preferred origin")
 
         let closeSeriesFallback = NativeBookOpenTransitionPolicy.resolveCloseTarget(
             bookId: "vol2",
@@ -260,7 +364,7 @@ struct NativeStateLogicTests {
             }
         )
         check(closeAfterWidgetOffscreenShelf == .cover(frame: continueFrame, key: "continue:b12"),
-              "Closing a widget-opened book below the fold keeps the shelf at top and lands on the Continue Reading card")
+              "Library close geometry below the fold resolves the visible Continue Reading card without scrolling the shelf")
 
         let materialsFrame = CGRect(x: 20, y: 180, width: 48, height: 68)
         let materialsCloseTarget = NativeBookOpenTransitionPolicy.resolveCloseTarget(

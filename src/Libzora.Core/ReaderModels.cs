@@ -380,6 +380,7 @@ public sealed class ReaderReadingStats
     public Guid BookId { get; set; }
     public Guid BookFileId { get; set; }
     public long CumulativeSeconds { get; set; }
+    public long ListeningSeconds { get; set; }
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
     public double ProgressPercent { get; set; }
     public int CompletedChapters { get; set; }

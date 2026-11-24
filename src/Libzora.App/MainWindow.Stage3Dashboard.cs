@@ -57,15 +57,25 @@ public partial class MainWindow
             DashboardBooksStartedText.Text = T("{0} 本", dashboard.BooksStarted);
             DashboardBooksFinishedText.Text = T("{0} 本", dashboard.BooksFinished);
             DashboardTotalTimeText.Text = FormatReadingTime(dashboard.TotalSeconds);
+            ToolTip.SetTip(DashboardTotalTimeText,
+                dashboard.ListeningSeconds > 0
+                    ? T("累计听书 {0}", FormatReadingTime(dashboard.ListeningSeconds))
+                    : null);
             DashboardAverageProgressText.Text = T("平均进度 {0:0.#}%", dashboard.AverageProgress);
             DashboardBookmarksText.Text = $"{dashboard.BookmarkCount.ToString(CultureInfo.InvariantCulture)} / {dashboard.AnnotationCount.ToString(CultureInfo.InvariantCulture)}";
 
             var lastSevenDays = dashboard.DailyReading.TakeLast(7).ToArray();
             var weekSeconds = lastSevenDays.Sum(day => day.ActiveSeconds);
-            DashboardDailyAverageText.Text = weekSeconds == 0
-                ? T("近 7 天日均 —")
-                : T("近 7 天日均 {0}", FormatReadingTime((long)Math.Round(weekSeconds / 7d)));
-            DashboardStreakText.Text = T("{0} 天", ReadingMedalCatalog.ComputeStreakDays(dashboard.DailyReading));
+            var averageText = FormatReadingTime((long)Math.Round(weekSeconds / 7d));
+            DashboardDailyAverageText.Text = (weekSeconds, dashboard.ListeningSeconds) switch
+            {
+                (> 0, > 0) => T("近 7 天日均 {0} · 含听书 {1}", averageText, FormatReadingTime(dashboard.ListeningSeconds)),
+                (> 0, <= 0) => T("近 7 天日均 {0}", averageText),
+                (_, > 0) => T("累计听书 {0}", FormatReadingTime(dashboard.ListeningSeconds)),
+                _ => T("近 7 天日均 —")
+            };
+            DashboardStreakText.Text = T("{0} 天",
+                Math.Max(dashboard.StreakDays, ReadingMedalCatalog.ComputeStreakDays(dashboard.DailyReading)));
             PopulateReadingMedals(dashboard);
             DashboardStatusText.IsVisible = false;
 
@@ -97,7 +107,9 @@ public partial class MainWindow
                 .Select(item => (
                     BookTitle(item),
                     (double)item.CumulativeSeconds,
-                    FormatReadingTime(item.CumulativeSeconds))));
+                    item.ListeningSeconds > 0
+                        ? T("{0}（含听书 {1}）", FormatReadingTime(item.CumulativeSeconds), FormatReadingTime(item.ListeningSeconds))
+                        : FormatReadingTime(item.CumulativeSeconds))));
 
             var progressValues = dashboard.Books.Select(item => item.ProgressPercent).ToArray();
             PopulateDashboardBars(DashboardProgressBuckets,
@@ -145,11 +157,14 @@ public partial class MainWindow
             var timeLabel = FormatReadingTime(bucket.ActiveSeconds);
             var dateLabel = _readingDashboardPeriod == ReadingPeriod.Year
                 ? T("{0} 月", bucket.StartDate.Month) : bucket.StartDate.ToString("MM-dd", CultureInfo.InvariantCulture);
+            var detailTime = bucket.ListeningSeconds > 0
+                ? T("{0}（含听书 {1}）", timeLabel, FormatReadingTime(bucket.ListeningSeconds))
+                : timeLabel;
             DashboardDays.Add(new Stage3DashboardDayViewModel(showLabel ? dateLabel : "",
                 showLabel && bucket.ActiveSeconds > 0 ? timeLabel : "",
                 bucket.ActiveSeconds == 0 ? 4 : 10 + 170d * bucket.ActiveSeconds / maximumSeconds,
                 bucket.Contains(today) ? 1 : 0.3)
-            { DetailLabel = $"{bucket.StartDate:yyyy-MM-dd} — {bucket.EndDate:yyyy-MM-dd}: {timeLabel}" });
+            { DetailLabel = $"{bucket.StartDate:yyyy-MM-dd} — {bucket.EndDate:yyyy-MM-dd}: {detailTime}" });
         }
     }
 

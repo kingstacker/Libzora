@@ -10,7 +10,7 @@ using Libzora.Infrastructure;
 namespace Libzora;
 
 /// <summary>Virtualized PDF pages, rasterized from the original PDF at device resolution.</summary>
-public sealed partial class NativePdfReaderHost : Control, IReaderHost, IReaderPageSnapshotProvider, IReaderAppearanceHost, IPdfZoomHost, IPdfAnnotationsHost, IPdfSearchHost, IPdfThumbnailHost, IPdfAnnotationVisualHost, IReaderKeyboardHost, IReaderVisualTransitionHost, IReaderSelectionHost, IReaderResumeMarkerHost
+public sealed partial class NativePdfReaderHost : Control, IReaderHost, IReaderPageSnapshotProvider, IReaderAppearanceHost, IPdfZoomHost, IPdfAnnotationsHost, IPdfSearchHost, IPdfThumbnailHost, IPdfAnnotationVisualHost, IReaderKeyboardHost, IReaderVisualTransitionHost, IReaderSelectionHost, IReaderResumeMarkerHost, IReaderPresentationFrameHost
 {
     private sealed class CachedPage(PdfPageContent content) : IDisposable
     {

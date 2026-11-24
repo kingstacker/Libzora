@@ -3079,4 +3079,10 @@
     <x:String x:Key="Ui.Auto.250943837F4B36B8">Ctrl+B  添加或取消书签</x:String>
     <x:String x:Key="Ui.Auto.C170EBBDB0678FA9">Ctrl++ / Ctrl+- / Ctrl+0  缩放或调整字号</x:String>
     <x:String x:Key="Ui.Auto.21D0F362C79A67BA">F11  切换禅模式</x:String>
+    <x:String x:Key="Ui.Auto.AA2D9157400D1E25">近 7 天日均 {0} · 含听书 {1}</x:String>
+    <x:String x:Key="Ui.Auto.2F1D20B590B7BD2D">{0}（含听书 {1}）</x:String>
+    <x:String x:Key="Ui.Auto.D9D13D5F56DA03FE">累计听书 {0}</x:String>
+    <x:String x:Key="Ui.Auto.BB79A4C3654C8733">需要设置同步密钥</x:String>
+    <x:String x:Key="Ui.Auto.77BEF6D44D5A9BA0">开启同步前，请先在下方设置同步密钥。</x:String>
+    <x:String x:Key="Ui.Auto.02E18DCAC519CBB0">请先再次输入并确认一致的同步密钥，再开启同步。</x:String>
 </ResourceDictionary>

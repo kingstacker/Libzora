@@ -172,6 +172,127 @@ final class ReaderFootnoteTests: XCTestCase {
         checkpoint("阅读器竞态-取消后同书小组件链接仍可打开")
     }
 
+    func testMaterialsEntryWaitsForRenderingAndSlidesBackToTheSameBookmark() {
+        app.terminate()
+        app.launchArguments = ["--libzora-disable-restore", "--libzora-test-slow-reader-open"]
+        app.launchEnvironment["LIBZORA_TEST_SLOW_READER_OPEN"] = "1"
+        app.launch()
+        app.tabBars.buttons["阅读资料"].tap()
+        let filter = app.buttons["materials.filter.bookmark"]
+        XCTAssertTrue(filter.waitForExistence(timeout: 15))
+        filter.tap()
+        let entry = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'materials.entry.'")).firstMatch
+        XCTAssertTrue(entry.waitForExistence(timeout: 15))
+        entry.tap()
+        let cover = app.descendants(matching: .any)["reader.entry.cover"]
+        XCTAssertTrue(cover.waitForExistence(timeout: 5))
+        XCTAssertFalse(position.isHittable, "A mounted reader must not expose an unrendered position")
+        XCTAssertTrue(app.buttons["reader.close"].waitForExistence(timeout: 5), "Slow loading must remain cancelable")
+        checkpoint("首帧交接-资料慢加载稳定遮挡")
+        XCTAssertTrue(waitUntil(timeout: 40) { self.position.isHittable && !cover.exists })
+        let original = position.label
+        checkpoint("首帧交接-资料目标书签正文")
+        showReaderChrome()
+        app.buttons["reader.close"].tap()
+        XCTAssertTrue(waitUntil(timeout: 5) { entry.isHittable })
+        entry.tap()
+        XCTAssertTrue(waitUntil(timeout: 40) { self.position.isHittable && !cover.exists })
+        XCTAssertEqual(position.label, original)
+        checkpoint("首帧交接-资料滑入滑出后仍是目标位置")
+    }
+
+    func testLibrary3DRepeatedOpenCloseReturnsToTheActualCover() {
+        let labels = ["跨文件多段", "普通链接", "跨文件多段"]
+        checkpoint("3D收尾-真实多书封面基准")
+        for (index, label) in labels.enumerated() {
+            _ = openBook(label)
+            showReaderChrome()
+            app.buttons["reader.close"].tap()
+            let book = libraryBook(label)
+            XCTAssertTrue(waitUntil(timeout: 5) { book.isHittable && !self.position.isHittable })
+            checkpoint("3D收尾-第\(index + 1)次打开关闭后封面无灰块")
+        }
+    }
+
+    func testMaterialsEntryHonorsTheConfiguredPageAnimation() {
+        app.tabBars.buttons["阅读资料"].tap()
+        let entry = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'materials.entry.'")).firstMatch
+        XCTAssertTrue(entry.waitForExistence(timeout: 15))
+        entry.tap()
+        XCTAssertTrue(waitUntil(timeout: 40) {
+            self.position.isHittable && !self.app.descendants(matching: .any)["reader.entry.cover"].exists
+        })
+        let original = position.label
+        checkpoint("资料转场-当前页面动画设置进入正文")
+        showReaderChrome()
+        app.buttons["reader.close"].tap()
+        XCTAssertTrue(waitUntil(timeout: 5) { entry.isHittable })
+        entry.tap()
+        XCTAssertTrue(waitUntil(timeout: 40) {
+            self.position.isHittable && !self.app.descendants(matching: .any)["reader.entry.cover"].exists
+        })
+        XCTAssertEqual(position.label, original)
+        checkpoint("资料转场-当前页面动画设置保留定位")
+    }
+
+    func testMaterialsSlowOpenCanBeCanceledBeforeTheBodyIsReady() {
+        app.terminate()
+        app.launchArguments = ["--libzora-disable-restore", "--libzora-test-slow-reader-open"]
+        app.launchEnvironment["LIBZORA_TEST_SLOW_READER_OPEN"] = "1"
+        app.launch()
+        app.tabBars.buttons["阅读资料"].tap()
+        let entry = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'materials.entry.'")).firstMatch
+        XCTAssertTrue(entry.waitForExistence(timeout: 15))
+        entry.tap()
+        let close = app.buttons["reader.close"]
+        XCTAssertTrue(waitUntil(timeout: 5) { close.isHittable && !self.position.isHittable },
+                      "The stable loading cover must keep its own return button interactive")
+        close.tap()
+        XCTAssertTrue(waitUntil(timeout: 3) { entry.isHittable })
+        checkpoint("首帧交接-资料慢加载可立即取消")
+    }
+
+    func testWidgetBookSlidesInAndClosesWithoutReturningToACover() throws {
+        guard #available(iOS 16.4, *) else { throw XCTSkip("URL launch requires iOS 16.4") }
+        let book = libraryBook("跨文件多段")
+        let id = try XCTUnwrap(UUID(uuidString: String(book.identifier.dropFirst("book.".count))))
+        checkpoint("小组件转场-真实多书封面起点")
+        app.open(try XCTUnwrap(URL(string: "libzora://read/\(id.uuidString)")))
+        XCTAssertTrue(waitUntil(timeout: 40) { self.position.isHittable && !self.app.descendants(matching: .any)["reader.entry.cover"].exists })
+        checkpoint("小组件转场-继续阅读直接到正文")
+        showReaderChrome()
+        app.buttons["reader.close"].tap()
+        XCTAssertTrue(waitUntil(timeout: 5) { book.isHittable })
+        XCTAssertFalse(position.isHittable)
+        checkpoint("小组件转场-普通滑出返回原页面")
+    }
+
+    func testWidgetDashboardSlidesFromAReaderAndDoesNotReopenIt() throws {
+        guard #available(iOS 16.4, *) else { throw XCTSkip("URL launch requires iOS 16.4") }
+        _ = openBook("跨文件多段")
+        app.open(try XCTUnwrap(URL(string: "libzora://dashboard")))
+        let dashboard = app.staticTexts["page.dashboard"]
+        XCTAssertTrue(waitUntil(timeout: 10) { dashboard.isHittable && !self.position.isHittable })
+        checkpoint("小组件转场-阅读之树和阅读数据进入对应页")
+        app.open(try XCTUnwrap(URL(string: "libzora://dashboard")))
+        XCTAssertTrue(dashboard.isHittable, "Same-page widget navigation must not hide or reset the dashboard")
+        XCTAssertFalse(position.isHittable)
+        checkpoint("小组件转场-同页不重复播放")
+    }
+
+    func testWidgetColdLaunchShowsTheRequestedBookRatherThanTheShelf() throws {
+        guard #available(iOS 16.4, *) else { throw XCTSkip("URL launch requires iOS 16.4") }
+        let book = libraryBook("跨文件多段")
+        let id = try XCTUnwrap(UUID(uuidString: String(book.identifier.dropFirst("book.".count))))
+        app.terminate()
+        app.open(try XCTUnwrap(URL(string: "libzora://read/\(id.uuidString)")))
+        XCTAssertTrue(waitUntil(timeout: 40) { self.position.isHittable && !self.app.descendants(matching: .any)["reader.entry.cover"].exists })
+        XCTAssertFalse(app.scrollViews["library.ready"].isHittable)
+        showReaderChrome()
+        XCTAssertTrue(app.otherElements["reader.topToolbar"].staticTexts["脚注回归·跨文件多段"].isHittable)
+        checkpoint("小组件转场-冷启动直接到目标正文")
+    }
+
     private func libraryBook(_ label: String) -> XCUIElement {
         app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'book.' AND label CONTAINS %@", "脚注回归·" + label)).firstMatch
     }

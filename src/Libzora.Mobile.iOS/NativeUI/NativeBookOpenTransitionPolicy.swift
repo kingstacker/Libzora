@@ -32,9 +32,14 @@ enum NativeBookTransitionTarget: Equatable {
 }
 
 enum NativeBookOpenSource {
-    case cover
+    case library
+    case continueReading
     case widget
     case materials
+    case dashboard
+    case external
+    case restore
+    case other
 }
 
 enum NativeBookOpenAnimation: Equatable {
@@ -67,6 +72,92 @@ enum NativeBookOpenTransitionPolicy {
     static let readerLoadingChromeGraceSeconds: Double = 0.25
     static let pageTransitionDuration: Double = 0.24
 
+    /// Hide the leaf before the -104° hinge crosses 90°. A partially visible
+    /// rear face projects left of the spine as a flat gray slab.
+    static func coverLeafOpacity(flipProgress: Double) -> Double {
+        let t = min(max(flipProgress, 0), 1)
+        return min(1, max(0, (0.82 - t) / 0.18))
+    }
+
+    /// At the shelf endpoint only the actual cover may remain, not a shaded
+    /// rectangular paper backing underneath it.
+    static func pageBackingOpacity(progress: Double) -> Double {
+        min(1, max(0, progress / 0.12))
+    }
+
+    static func dimmingOpacity(progress: Double) -> Double {
+        0.24 * min(max(progress, 0), 1)
+    }
+
+    static func flightShadow(progress: Double, isDark: Bool) -> (opacity: Double, radius: Double, y: Double) {
+        let t = min(max(progress, 0), 1)
+        let flightArc = (t <= 0 || t >= 1) ? 0.0 : sin(t * .pi)
+        let restingOpacity = isDark ? 0.0 : 0.12
+        return (
+            opacity: restingOpacity * (1.0 - t) + 0.22 * flightArc,
+            radius: 5.0 * (1.0 - t) + 20.0 * flightArc,
+            y: 2.0 * (1.0 - t) + 10.0 * flightArc
+        )
+    }
+
+    static func shadowBackdropInset(progress: Double) -> CGFloat {
+        let t = min(max(progress, 0), 1)
+        return 1.5 * CGFloat(max(0.0, 1.0 - t / 0.12))
+    }
+
+    /// Evaluates the cubic Bezier timing curve `(0.22, 1.0, 0.36, 1.0)` so
+    /// CADisplayLink-driven open and close transitions share the exact curve at
+    /// 60Hz, 120Hz, and any higher display refresh rate.
+    static func timingCurveValue(at fraction: Double) -> Double {
+        let x = min(max(fraction, 0), 1)
+        if x <= 0 { return 0 }
+        if x >= 1 { return 1 }
+        let p1x = 0.22
+        let p2x = 0.36
+        let cx = 3.0 * p1x
+        let bx = 3.0 * (p2x - p1x) - cx
+        let ax = 1.0 - cx - bx
+
+        var s = x
+        for _ in 0..<6 {
+            let currentX = ((ax * s + bx) * s + cx) * s - x
+            let derivative = (3.0 * ax * s + 2.0 * bx) * s + cx
+            if abs(currentX) < 1e-7 { break }
+            if abs(derivative) < 1e-6 { break }
+            s = min(max(s - currentX / derivative, 0), 1)
+        }
+        // P1.y = 1.0, P2.y = 1.0 => cy = 3, by = -3, ay = 1
+        let y = ((1.0 * s - 3.0) * s + 3.0) * s * s
+        return min(max(y, 0), 1)
+    }
+
+    static func frameProgress(elapsed: Double, duration: Double, from: Double, to: Double) -> Double {
+        let u = duration > 0 ? min(max(elapsed / duration, 0), 1) : 1
+        let eased = timingCurveValue(at: u)
+        return from + (to - from) * eased
+    }
+
+    static func initialFrameStep(targetTimestamp: Double, timestamp: Double) -> Double {
+        let delta = targetTimestamp - timestamp
+        guard delta.isFinite, delta > 0 else { return 1.0 / 120.0 }
+        return min(max(delta, 0.001), 1.0 / 30.0)
+    }
+
+    static func preferredFrameRateBounds(maximumFramesPerSecond: Double) -> (minimum: Float, maximum: Float, preferred: Float) {
+        let safeMax = Float(max(1.0, maximumFramesPerSecond.isFinite ? maximumFramesPerSecond : 60.0))
+        let safeMin = min(Float(60.0), safeMax)
+        return (minimum: safeMin, maximum: safeMax, preferred: safeMax)
+    }
+
+    static func shouldHideSourceCover(
+        openingSourceKey: String?,
+        readerPresentationActive: Bool,
+        closingSourceKey: String?,
+        forKey key: String
+    ) -> Bool {
+        (openingSourceKey == key && readerPresentationActive) || closingSourceKey == key
+    }
+
     static func openAnimation(
         source: NativeBookOpenSource,
         animated: Bool,
@@ -75,7 +166,8 @@ enum NativeBookOpenTransitionPolicy {
         pageAnimation: Int
     ) -> NativeBookOpenAnimation {
         guard animated, !reduceMotion, !powerSaving else { return .none }
-        if source == .cover { return .cover }
+        if source == .library || source == .dashboard { return .cover }
+        if source == .widget || source == .continueReading { return .slide }
         switch pageAnimation {
         case 0: return .none
         case 1: return .fade
@@ -91,7 +183,7 @@ enum NativeBookOpenTransitionPolicy {
         pageAnimation: Int
     ) -> NativeBookOpenAnimation {
         openAnimation(
-            source: source == .materials ? .materials : .cover,
+            source: source,
             animated: animated,
             reduceMotion: reduceMotion,
             powerSaving: powerSaving,

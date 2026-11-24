@@ -103,6 +103,8 @@ public sealed partial class TtsService : IDisposable
             ?? throw new ArgumentNullException(nameof(documentAccessor));
         _advanceChapterAsync = advanceChapterAsync;
         _prefetchDocumentAccessor = prefetchDocumentAccessor;
+        if (_player is ITtsExternalPlaybackObserver observer)
+            observer.ExternalPauseStateChanged += OnExternalPauseStateChanged;
     }
 
     public event EventHandler<TtsStateChangedEventArgs>? StateChanged;

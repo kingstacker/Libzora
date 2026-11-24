@@ -85,6 +85,33 @@ public sealed partial class SettingsTests
         Assert.Equal(SyncProvider.ICloud, (await scope.Sync.LoadSettingsAsync()).Settings.Provider);
     });
 
+    [Fact]
+    public Task EnablingSyncWithoutConfirmedEncryptionKeyStaysOffAndPromptsUser() => Run(async () =>
+    {
+        await using var scope = await TestWindow.Create();
+        scope.Call("SystemS3SyncNavigationButton_Click", null, new RoutedEventArgs());
+
+        var enabledSwitch = scope.Get<ToggleSwitch>("S3SyncEnabledCheck");
+        enabledSwitch.IsChecked = true;
+        Assert.False(enabledSwitch.IsChecked);
+        Assert.True(scope.Get<Control>("MessageOverlay").IsVisible);
+        scope.Call("MessageSecondaryButton_Click", null, new RoutedEventArgs());
+        await Render();
+        Assert.True(scope.Get<TextBox>("S3EncryptionKeyBox").IsEffectivelyVisible);
+
+        // Entering an unconfirmed new key still prompts for confirmation first.
+        scope.Get<TextBox>("S3EncryptionKeyBox").Text = "new-sync-key";
+        enabledSwitch.IsChecked = true;
+        Assert.False(enabledSwitch.IsChecked);
+        Assert.True(scope.Get<Control>("MessageOverlay").IsVisible);
+        scope.Call("MessageOkButton_Click", null, new RoutedEventArgs());
+
+        // Matching confirmation unlocks enabling sync.
+        scope.Get<TextBox>("S3EncryptionKeyConfirmBox").Text = "new-sync-key";
+        enabledSwitch.IsChecked = true;
+        Assert.True(enabledSwitch.IsChecked);
+    });
+
     private static SyncProviderRegistry AppleProviders() => SyncProviderRegistry.CreateDefault().Register(new UiICloudFactory());
 
     // No iCloud/network operation is started by these presentation tests.

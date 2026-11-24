@@ -130,6 +130,7 @@ public partial class MainWindow
         _readerTocExpandedBeforeZen = true;
         _readerTocMinimalBeforeZen = false;
         _readerActiveSeconds = 0;
+        _readerListeningSeconds = 0;
         _readerBookReadingStats = null;
         if (_readerBookFile is { } statsFile)
             _ = LoadReaderBookReadingStatsAsync(statsFile.Id, cancellationToken);

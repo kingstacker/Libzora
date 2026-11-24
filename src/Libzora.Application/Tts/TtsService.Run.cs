@@ -75,7 +75,9 @@ public sealed partial class TtsService : IDisposable
                     SetCurrentSegment(index, segments.Count, generation);
                     var segment = segments[index];
                     var navigationVersion = Volatile.Read(ref _navigationVersion);
-                    var options = BuildOptions(settings);
+                    TtsSettings activeSettings;
+                    lock (_gate) activeSettings = _settings;
+                    var options = BuildOptions(activeSettings);
                     var item = new TtsQueueItem(
                         document.BookKey ?? document.Key,
                         document.ChapterKey ?? document.Key,
@@ -208,7 +210,9 @@ public sealed partial class TtsService : IDisposable
                     if (selection is not null) break;
                     continue;
                 }
-                if (!settings.AutoAdvance || _advanceChapterAsync is null) break;
+                bool autoAdvance;
+                lock (_gate) autoAdvance = _settings.AutoAdvance;
+                if (!autoAdvance || _advanceChapterAsync is null) break;
 
                 SetState(
                     TtsPlaybackState.AdvancingChapter,

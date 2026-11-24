@@ -203,6 +203,27 @@ public sealed partial class ReaderDataService
         }
     }
 
+    private static async Task EnsureListeningTimeColumnsAsync(
+        SqliteConnection connection,
+        CancellationToken cancellationToken)
+    {
+        foreach (var table in new[] { "ReaderReadingStats", "ReaderReadingSessions", "S3SyncReadingDayCounters" })
+        {
+            using var inspect = connection.CreateCommand();
+            inspect.CommandText = $"PRAGMA table_info({table});";
+            var hasListening = false;
+            await using (var reader = await inspect.ExecuteReaderAsync(cancellationToken))
+            {
+                while (await reader.ReadAsync(cancellationToken))
+                    hasListening |= string.Equals(reader.GetString(1), "ListeningSeconds", StringComparison.OrdinalIgnoreCase);
+            }
+            if (hasListening) continue;
+            using var alter = connection.CreateCommand();
+            alter.CommandText = $"ALTER TABLE {table} ADD COLUMN ListeningSeconds INTEGER NOT NULL DEFAULT 0;";
+            await alter.ExecuteNonQueryAsync(cancellationToken);
+        }
+    }
+
     public async Task<ReaderLayoutSettings?> GetLayoutSettingsAsync(
         Guid bookFileId,
         CancellationToken cancellationToken = default)

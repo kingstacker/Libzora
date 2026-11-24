@@ -1092,6 +1092,99 @@ public sealed class TtsTests
         public void Dispose() => Stop();
     }
 
+    [Fact]
+    public async Task ExternalAudioInterruptionSyncsPausedAndResumedStates()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var cache = new TtsCacheManager(Path.Combine(root, "cache"));
+            var player = new InterruptibleLivePlayer();
+            var states = new List<TtsPlaybackState>();
+            var doc = new ReaderTtsDocument("book:0", new string('句', 300) + "。" + new string('段', 300) + "。", 0,
+                (_, _) => Task.CompletedTask, () => { });
+            using var service = new TtsService(
+                new DummyEngine(),
+                cache,
+                player,
+                () => doc);
+            service.StateChanged += (_, args) => states.Add(args.State);
+
+            var run = service.StartAsync(new TtsSettings());
+            await player.Speaking.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+            player.SimulateExternalPause(true);
+            Assert.Equal(TtsPlaybackState.Paused, service.State);
+
+            player.SimulateExternalPause(false);
+            Assert.Equal(TtsPlaybackState.Playing, service.State);
+
+            service.UpdateSettings(new TtsSettings { Speed = 1.5 });
+            player.ReleaseSentence();
+            await run.WaitAsync(TimeSpan.FromSeconds(5));
+            await player.SecondSentenceDone.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+            Assert.Equal(50, player.LastRatePercent);
+            Assert.Contains(TtsPlaybackState.Paused, states);
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
+    private sealed class DummyEngine : ITtsEngine
+    {
+        public string Id => TtsSettings.DefaultProvider;
+        public bool IsAvailable => true;
+        public Task<TtsAvailability> CheckAvailabilityAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(new TtsAvailability(true, "OK"));
+        public Task<IReadOnlyList<TtsVoiceInfo>> GetVoicesAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<TtsVoiceInfo>>([]);
+        public Task<TtsResult> SynthesizeAsync(string text, TtsOptions options, CancellationToken cancellationToken = default) =>
+            Task.FromResult(TtsResult.Failure("Not used for live player"));
+        public void Dispose() { }
+    }
+
+    private sealed class InterruptibleLivePlayer : ITtsAudioPlayer, ITtsLiveSpeechPlayer, ITtsExternalPlaybackObserver
+    {
+        private TaskCompletionSource _gate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _sentenceCalls;
+        public TaskCompletionSource Speaking { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource SecondSentenceDone { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public int LastRatePercent { get; private set; }
+        public bool IsAvailable => true;
+        public string? UnavailableReason => null;
+        public bool IsPaused { get; private set; }
+        public event Action<bool>? ExternalPauseStateChanged;
+
+        public async Task SpeakAsync(string text, TtsOptions options, CancellationToken cancellationToken = default)
+        {
+            LastRatePercent = options.RatePercent;
+            var call = Interlocked.Increment(ref _sentenceCalls);
+            if (call == 1)
+            {
+                Speaking.TrySetResult();
+                await _gate.Task.WaitAsync(cancellationToken);
+            }
+            else if (call >= 2)
+            {
+                SecondSentenceDone.TrySetResult();
+            }
+        }
+
+        public void SimulateExternalPause(bool paused)
+        {
+            IsPaused = paused;
+            ExternalPauseStateChanged?.Invoke(paused);
+        }
+
+        public void ReleaseSentence() => _gate.TrySetResult();
+        public bool TryGetSpeechPosition(out int offset) { offset = 0; return false; }
+        public Task PlayAsync(string audioPath, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public void Pause() => IsPaused = true;
+        public void Resume() => IsPaused = false;
+        public void Stop() => _gate.TrySetCanceled();
+        public void Dispose() => Stop();
+    }
+
     private sealed class ClockPlayer : ITtsAudioPlayer, ITtsPlaybackClock
     {
         private readonly TaskCompletionSource _finished = new(TaskCreationOptions.RunContinuationsAsynchronously);

@@ -516,9 +516,15 @@ struct NativeReadingDashboard: View {
                         Text(L("累计阅读")).font(NativeTheme.font(13)).foregroundStyle(mutedText)
                         HStack(alignment: .firstTextBaseline, spacing: 6) {
                             Text(durationValue(value.dashboard.totalSeconds)).font(NativeTheme.font(48, relativeTo: .largeTitle))
+                                .lineLimit(1).minimumScaleFactor(0.6)
                             Text(value.dashboard.totalSeconds < 3600 ? L("分钟") : L("小时")).font(NativeTheme.font(16)).foregroundStyle(secondaryText)
                         }
-                        Text(L("连续阅读 {0} 天", value.streak)).font(NativeTheme.font(13)).foregroundStyle(mutedText)
+                        if let listening = value.dashboard.listeningSeconds, listening > 0 {
+                            Text(L("连续阅读 {0} 天 · 含听书 {1}", value.streak, readingDuration(listening)))
+                                .font(NativeTheme.font(13)).foregroundStyle(mutedText)
+                        } else {
+                            Text(L("连续阅读 {0} 天", value.streak)).font(NativeTheme.font(13)).foregroundStyle(mutedText)
+                        }
                     }
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10),
                         count: NativeAdaptiveLayout.dashboardColumns(pageWidth: width)), spacing: 10) {
@@ -538,7 +544,7 @@ struct NativeReadingDashboard: View {
                                     Button {
                                         let frame = NativeBookCoverFrames.get(coverKey)
                                         store.perform {
-                                            try await store.openReader(book, sourceFrame: frame, sourceKey: coverKey)
+                                            try await store.openReader(book, sourceFrame: frame, sourceKey: coverKey, source: .dashboard)
                                         }
                                     } label: {
                                         VStack(alignment: .leading, spacing: 6) {
@@ -604,7 +610,7 @@ struct NativeReadingDashboard: View {
     private func statistic(_ name: String, _ value: String, detail: String = "") -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(name).font(NativeTheme.font(12.5, relativeTo: .caption)).foregroundStyle(NativeTheme.muted)
-            Text(value).font(NativeTheme.font(24, relativeTo: .title2))
+            Text(value).font(NativeTheme.font(24, relativeTo: .title2)).lineLimit(1).minimumScaleFactor(0.7)
             if !detail.isEmpty { Text(detail).font(NativeTheme.font(11.5, relativeTo: .caption2)).foregroundStyle(NativeTheme.muted) }
         }.frame(maxWidth: .infinity, minHeight: 70, alignment: .topLeading).padding(16)
             .background(NativeTheme.sunk, in: RoundedRectangle(cornerRadius: 18))
@@ -648,7 +654,7 @@ struct NativeReadingDashboard: View {
             Button {
                 let frame = NativeBookCoverFrames.get(coverKey)
                 store.perform {
-                    try await store.openReader(book, sourceFrame: frame, sourceKey: coverKey)
+                    try await store.openReader(book, sourceFrame: frame, sourceKey: coverKey, source: .dashboard)
                 }
             } label: {
                 HStack(spacing: 14) {
@@ -658,7 +664,18 @@ struct NativeReadingDashboard: View {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
                             Text(book.title).font(NativeTheme.font(14)).lineLimit(1); Spacer()
-                            Text(detail).font(NativeTheme.font(12.5, relativeTo: .caption)).foregroundStyle(mutedText)
+                            if let listening = item.listeningSeconds, listening > 0 {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "headphones")
+                                        .font(.system(size: 11, weight: .regular))
+                                    Text(detail)
+                                }
+                                .font(NativeTheme.font(12.5, relativeTo: .caption))
+                                .foregroundStyle(mutedText)
+                                .accessibilityLabel(L("{0}，含听书 {1}", detail, readingDuration(listening)))
+                            } else {
+                                Text(detail).font(NativeTheme.font(12.5, relativeTo: .caption)).foregroundStyle(mutedText)
+                            }
                         }
                         NativeThinProgress(value: Double(item.cumulativeSeconds), total: Double(dashboard?.mostReadBooks.map(\.cumulativeSeconds).max() ?? 1), height: 4)
                     }

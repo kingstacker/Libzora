@@ -199,22 +199,127 @@ private struct NativeBookInsetRoundedRect: Shape {
     }
 }
 
-/// GPU-only AnimatableModifier that scales, clips, shadows and positions the
-/// live `NativeReaderPage` body during the cover-open animation while keeping
-/// the underlying Avalonia Skia surface at constant full-screen bounds and
+/// Frame-synchronized CADisplayLink animator for 3D book open and close
+/// transitions. Targets the display's maximum supported refresh rate (60Hz,
+/// 120Hz ProMotion, or higher) and waits one commit interval after reaching
+/// the endpoint so the terminal frame is displayed before overlay teardown.
+@MainActor
+final class NativeBookTransitionDriver: NSObject, ObservableObject {
+    private final class DisplayLinkProxy: NSObject {
+        weak var owner: NativeBookTransitionDriver?
+        init(owner: NativeBookTransitionDriver) { self.owner = owner }
+        @objc func tick(_ link: CADisplayLink) {
+            MainActor.assumeIsolated {
+                guard let owner else {
+                    link.invalidate()
+                    return
+                }
+                owner.tick(link)
+            }
+        }
+    }
+
+    @Published private(set) var progress: Double
+    private var link: CADisplayLink?
+    private var activeToken: UUID?
+    private var startTimestamp: CFTimeInterval?
+    private var duration: Double = 0
+    private var fromValue: Double = 0
+    private var toValue: Double = 1
+    private var awaitingTerminalCommit = false
+    private var onComplete: (() -> Void)?
+
+    init(initialProgress: Double = 0) {
+        self.progress = initialProgress
+        super.init()
+    }
+
+    func prepare(progress value: Double) {
+        cancel()
+        progress = value
+    }
+
+    func start(
+        id: UUID,
+        from: Double,
+        to: Double,
+        duration: Double,
+        onComplete: @escaping () -> Void
+    ) {
+        guard activeToken != id else { return }
+        cancel()
+        activeToken = id
+        fromValue = from
+        toValue = to
+        progress = from
+        self.duration = max(0.001, duration)
+        startTimestamp = nil
+        awaitingTerminalCommit = false
+        self.onComplete = onComplete
+
+        let proxy = DisplayLinkProxy(owner: self)
+        let displayLink = CADisplayLink(target: proxy, selector: #selector(DisplayLinkProxy.tick(_:)))
+        if #available(iOS 15.0, *) {
+            let bounds = NativeBookOpenTransitionPolicy.preferredFrameRateBounds(
+                maximumFramesPerSecond: Double(UIScreen.main.maximumFramesPerSecond)
+            )
+            displayLink.preferredFrameRateRange = CAFrameRateRange(
+                minimum: bounds.minimum,
+                maximum: bounds.maximum,
+                preferred: bounds.preferred
+            )
+        }
+        link = displayLink
+        displayLink.add(to: .main, forMode: .common)
+    }
+
+    func cancel() {
+        link?.invalidate()
+        link = nil
+        activeToken = nil
+        startTimestamp = nil
+        awaitingTerminalCommit = false
+        onComplete = nil
+    }
+
+    private func tick(_ displayLink: CADisplayLink) {
+        if awaitingTerminalCommit {
+            let completion = onComplete
+            cancel()
+            completion?()
+            return
+        }
+        if startTimestamp == nil {
+            let step = NativeBookOpenTransitionPolicy.initialFrameStep(
+                targetTimestamp: displayLink.targetTimestamp,
+                timestamp: displayLink.timestamp
+            )
+            startTimestamp = displayLink.targetTimestamp - step
+        }
+        let elapsed = displayLink.targetTimestamp - (startTimestamp ?? displayLink.targetTimestamp)
+        progress = NativeBookOpenTransitionPolicy.frameProgress(
+            elapsed: elapsed,
+            duration: duration,
+            from: fromValue,
+            to: toValue
+        )
+        if elapsed >= duration {
+            progress = toValue
+            awaitingTerminalCommit = true
+        }
+    }
+}
+
+/// GPU-only modifier that scales, clips and positions the live
+/// `NativeReaderPage` body during the cover-open animation while keeping the
+/// underlying Avalonia Skia surface at constant full-screen bounds and
 /// unchanged SwiftUI view identity (zero reflow, zero remount flash).
-struct NativeBookOpenPageTransform: AnimatableModifier {
+struct NativeBookOpenPageTransform: ViewModifier {
     let active: Bool
     let sourceFrame: CGRect
     let containerFrame: CGRect
     let isCentered: Bool
-    let colorScheme: ColorScheme
-    var progress: Double
-
-    var animatableData: Double {
-        get { progress }
-        set { progress = newValue }
-    }
+    let progress: Double
 
     func body(content: Content) -> some View {
         let targetW = max(1, containerFrame.width)
@@ -236,40 +341,19 @@ struct NativeBookOpenPageTransform: AnimatableModifier {
         let cardScale = (active && isCentered) ? lerp(0.88, 1.0, smoothReveal) : 1.0
         let cardOpacity = (active && isCentered) ? smoothReveal : 1.0
         let cornerRadius = active ? lerp(6.0, 0.0, t) : 0.0
-        let flipT = active ? min(max((t - 0.06) / 0.86, 0), 1) : 1.0
-        let pageShadowOpacity = active ? 0.22 * (1.0 - flipT) : 0.0
-        let flightArc = active ? sin(t * .pi) : 0.0
-
-        let restingShadowOpacity = colorScheme == .dark ? 0.0 : 0.12
-        let shadowOpacity = active ? (restingShadowOpacity * (1.0 - t) + 0.22 * flightArc) : 0.0
-        let shadowRadius = active ? (5.0 * (1.0 - t) + 20.0 * flightArc) : 0.0
-        let shadowY = active ? (2.0 * (1.0 - t) + 10.0 * flightArc) : 0.0
 
         let visW = curW * cardScale
         let visH = curH * cardScale
         // Keep aspect ratio locked (uniform scale) so body text never looks squashed during expand.
         let uniformScale = active ? max(0.01, visW / targetW) : 1.0
-        let pageRevealOpacity = active ? min(1.0, max(0.0, t / 0.14)) : 1.0
+        let pageRevealOpacity = active ? NativeBookOpenTransitionPolicy.pageBackingOpacity(progress: t) : 1.0
         let clipRect = active
             ? CGRect(x: (targetW - visW) * 0.5, y: (targetH - visH) * 0.5, width: visW, height: visH)
             : .zero
 
         content
-            .overlay(alignment: .leading) {
-                LinearGradient(
-                    colors: [
-                        Color.black.opacity(pageShadowOpacity),
-                        Color.black.opacity(pageShadowOpacity * 0.35),
-                        Color.clear
-                    ],
-                    startPoint: .leading,
-                    endPoint: UnitPoint(x: max(0.18, 0.72 * (1.0 - flipT * 0.65)), y: 0.5)
-                )
-                .allowsHitTesting(false)
-            }
             .scaleEffect(uniformScale, anchor: .center)
             .clipShape(NativeBookInsetRoundedRect(rect: clipRect, cornerRadius: cornerRadius))
-            .shadow(color: .black.opacity(shadowOpacity), radius: shadowRadius, x: 0, y: shadowY)
             .opacity(cardOpacity * pageRevealOpacity)
             .offset(x: cx - targetW * 0.5, y: cy - targetH * 0.5)
     }
@@ -279,18 +363,64 @@ struct NativeBookOpenPageTransform: AnimatableModifier {
     }
 }
 
-/// Dimming backdrop and 3D-hinging hardcover leaf rendered directly over the
-/// live `NativeReaderPage` during book open so body text renders concurrently
-/// beneath the turning cover instead of waiting for the flip to end.
-struct NativeBookOpenLiveCoverLayer: View, Animatable {
+/// Lightweight card shadow rendered behind the book page/cover so resting
+/// `BookCover` shadows match seamlessly at `t = 0` without forcing an offscreen
+/// shadow rasterization pass over the live reader surface or 3D cover leaf.
+private struct NativeBookOpenCardShadowLayer: View {
+    let sourceFrame: CGRect
+    let containerFrame: CGRect
+    let isCentered: Bool
+    let colorScheme: ColorScheme
+    let paper: Color
+    let progress: Double
+
+    var body: some View {
+        let targetW = max(1, containerFrame.width)
+        let targetH = max(1, containerFrame.height)
+        let localSource = CGRect(
+            x: sourceFrame.minX - containerFrame.minX,
+            y: sourceFrame.minY - containerFrame.minY,
+            width: max(28, sourceFrame.width),
+            height: max(38, sourceFrame.height)
+        )
+        let t = min(max(progress, 0), 1)
+        let curW = lerp(localSource.width, targetW, t)
+        let curH = lerp(localSource.height, targetH, t)
+        let cx = lerp(localSource.midX, targetW / 2, t)
+        let cy = lerp(localSource.midY, targetH / 2, t)
+
+        let rawReveal = isCentered ? min(1.0, t / 0.18) : 1.0
+        let smoothReveal = rawReveal * rawReveal * (3.0 - 2.0 * rawReveal)
+        let cardScale = isCentered ? lerp(0.88, 1.0, smoothReveal) : 1.0
+        let cardOpacity = isCentered ? smoothReveal : 1.0
+        let cornerRadius = lerp(6.0, 0.0, t)
+        let inset = NativeBookOpenTransitionPolicy.shadowBackdropInset(progress: t)
+        let shadow = NativeBookOpenTransitionPolicy.flightShadow(progress: t, isDark: colorScheme == .dark)
+
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(paper)
+            .frame(width: max(1, curW - inset), height: max(1, curH - inset))
+            .shadow(color: .black.opacity(shadow.opacity), radius: shadow.radius, x: 0, y: shadow.y)
+            .scaleEffect(cardScale, anchor: .center)
+            .opacity(cardOpacity)
+            .position(x: cx, y: cy)
+            .frame(width: targetW, height: targetH)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+
+    private func lerp(_ a: CGFloat, _ b: CGFloat, _ t: Double) -> CGFloat {
+        a + (b - a) * CGFloat(t)
+    }
+}
+
+/// 3D-hinging hardcover leaf rendered directly over the live `NativeReaderPage`
+/// during book open so body text renders concurrently beneath the turning cover
+/// instead of waiting for the flip to end.
+struct NativeBookOpenLiveCoverLayer: View {
     let transition: NativeBookOpenTransition
     let containerFrame: CGRect
-    var progress: Double
-
-    var animatableData: Double {
-        get { progress }
-        set { progress = newValue }
-    }
+    let progress: Double
 
     var body: some View {
         let targetW = max(1, containerFrame.width)
@@ -315,7 +445,7 @@ struct NativeBookOpenLiveCoverLayer: View, Animatable {
 
         let flipT = min(max((t - 0.06) / 0.86, 0), 1)
         let angle = -104.0 * flipT
-        let coverOpacity = flipT < 0.72 ? 1.0 : max(0, 1.0 - (flipT - 0.72) / 0.22)
+        let coverOpacity = NativeBookOpenTransitionPolicy.coverLeafOpacity(flipProgress: flipT)
         let coverShading = 0.26 * sin(min(1, flipT / 0.85) * .pi * 0.5)
 
         Group {
@@ -334,19 +464,6 @@ struct NativeBookOpenLiveCoverLayer: View, Animatable {
         }
         .frame(width: curW, height: curH)
         .clipped()
-        .overlay(alignment: .leading) {
-            LinearGradient(
-                colors: [
-                    Color.black.opacity(0.18),
-                    Color.white.opacity(0.14),
-                    Color.black.opacity(0.08),
-                    Color.clear
-                ],
-                startPoint: .leading,
-                endPoint: .trailing
-            )
-            .frame(width: max(8, curW * 0.045))
-        }
         .overlay {
             Color.black.opacity(coverShading)
         }
@@ -373,41 +490,80 @@ struct NativeBookOpenLiveCoverLayer: View, Animatable {
 }
 
 /// Dimming wash behind the expanding book page during the live open transition.
-struct NativeBookOpenDimmingLayer: View, Animatable {
-    var progress: Double
-
-    var animatableData: Double {
-        get { progress }
-        set { progress = newValue }
-    }
+struct NativeBookOpenDimmingLayer: View {
+    let progress: Double
 
     var body: some View {
         Color.black
-            .opacity(0.26 * min(max(progress, 0), 1))
+            .opacity(NativeBookOpenTransitionPolicy.dimmingOpacity(progress: progress))
             .ignoresSafeArea()
             .allowsHitTesting(false)
             .accessibilityHidden(true)
     }
 }
 
-/// Single-progress book flip scene shared by close (1 → 0) and fallback open.
+/// Isolates high-frequency `CADisplayLink` progress updates from `NativeReaderPage.body`
+/// so the reader view hierarchy never re-evaluates at 60/120Hz during the open morph.
+struct NativeBookOpenTransitionHost<Content: View>: View {
+    let transition: NativeBookOpenTransition?
+    @ObservedObject var driver: NativeBookTransitionDriver
+    let containerFrame: CGRect
+    let colorScheme: ColorScheme
+    let paper: Color
+    let content: Content
+
+    var body: some View {
+        let active = transition != nil
+        let effectiveProgress = active ? driver.progress : 1.0
+        ZStack {
+            if let transition {
+                NativeBookOpenDimmingLayer(progress: effectiveProgress)
+                NativeBookOpenCardShadowLayer(
+                    sourceFrame: transition.sourceFrame,
+                    containerFrame: containerFrame,
+                    isCentered: transition.isCentered,
+                    colorScheme: colorScheme,
+                    paper: paper,
+                    progress: effectiveProgress
+                )
+            }
+
+            content
+                .modifier(
+                    NativeBookOpenPageTransform(
+                        active: active,
+                        sourceFrame: transition?.sourceFrame ?? containerFrame,
+                        containerFrame: containerFrame,
+                        isCentered: transition?.isCentered ?? false,
+                        progress: effectiveProgress
+                    )
+                )
+
+            if let transition {
+                NativeBookOpenLiveCoverLayer(
+                    transition: transition,
+                    containerFrame: containerFrame,
+                    progress: effectiveProgress
+                )
+            }
+        }
+        .frame(width: max(1, containerFrame.width), height: max(1, containerFrame.height))
+    }
+}
+
+/// Single-progress book flip scene used by the 3D close animation (`1 → 0`).
 /// Uses a pre-resolved cover image and interpolates the frame size directly so
 /// the cover scales smoothly with zero aspect-ratio jump or placeholder flash.
-private struct NativeBookFlipScene: View, Animatable {
+private struct NativeBookFlipScene: View {
     let book: LibraryBook
     let coverImage: UIImage?
     let pageSnapshot: UIImage?
     let sourceFrame: CGRect
     let isCentered: Bool
     let paper: Color
-    var progress: Double
+    let progress: Double
 
     @Environment(\.colorScheme) private var colorScheme
-
-    var animatableData: Double {
-        get { progress }
-        set { progress = newValue }
-    }
 
     var body: some View {
         GeometryReader { proxy in
@@ -427,8 +583,8 @@ private struct NativeBookFlipScene: View, Animatable {
             let cx = lerp(localSource.midX, targetW / 2, t)
             let cy = lerp(localSource.midY, targetH / 2, t)
 
-            // Centered transitions (widget launch or off-screen fallback) softly
-            // materialize/dissolve near t = 0 so the cover never pops into thin air.
+            // Centered transitions (off-screen fallback) softly dissolve near
+            // t = 0 so the cover never pops into thin air.
             let rawReveal = isCentered ? min(1.0, t / 0.18) : 1.0
             let smoothReveal = rawReveal * rawReveal * (3.0 - 2.0 * rawReveal)
             let cardScale = isCentered ? lerp(0.88, 1.0, smoothReveal) : 1.0
@@ -440,23 +596,23 @@ private struct NativeBookFlipScene: View, Animatable {
             // Reverse the full 3D spine flip (-104°) from captured reader page into resting shelf cover.
             let flipT = min(max((t - 0.06) / 0.86, 0), 1)
             let angle = -104.0 * flipT
-            let coverOpacity = flipT < 0.72 ? 1.0 : max(0, 1.0 - (flipT - 0.72) / 0.22)
+            let coverOpacity = NativeBookOpenTransitionPolicy.coverLeafOpacity(flipProgress: flipT)
             let coverShading = 0.26 * sin(min(1, flipT / 0.85) * .pi * 0.5)
-            let pageShadowOpacity = 0.22 * (1.0 - flipT)
-            let flightArc = sin(t * .pi)
-
-            // Match BookCover's exact resting shadow at t = 0 so handoff never flickers.
-            let restingShadowOpacity = colorScheme == .dark ? 0.0 : 0.12
-            let shadowOpacity = restingShadowOpacity * (1.0 - t) + 0.22 * flightArc
-            let shadowRadius = 5.0 * (1.0 - t) + 20.0 * flightArc
-            let shadowY = 2.0 * (1.0 - t) + 10.0 * flightArc
+            let shadowInset = NativeBookOpenTransitionPolicy.shadowBackdropInset(progress: t)
+            let shadow = NativeBookOpenTransitionPolicy.flightShadow(progress: t, isDark: colorScheme == .dark)
 
             ZStack {
                 // Softly dim the underlying screen as the book shrinks back to the shelf.
                 Color.black
-                    .opacity(0.22 * t)
+                    .opacity(NativeBookOpenTransitionPolicy.dimmingOpacity(progress: t))
 
                 ZStack {
+                    // Dedicated resting/flight shadow caster behind the 3D cover leaf.
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .fill(paper)
+                        .frame(width: max(1, curW - shadowInset), height: max(1, curH - shadowInset))
+                        .shadow(color: .black.opacity(shadow.opacity), radius: shadow.radius, x: 0, y: shadow.y)
+
                     // Captured reader page (or paper fallback) crossfading into the cover.
                     ZStack(alignment: .leading) {
                         paper
@@ -468,24 +624,10 @@ private struct NativeBookFlipScene: View, Animatable {
                                 .clipped()
                                 .opacity(min(1.0, t / 0.65))
                         }
-                        LinearGradient(
-                            colors: [
-                                Color.black.opacity(pageShadowOpacity),
-                                Color.black.opacity(pageShadowOpacity * 0.35),
-                                Color.clear
-                            ],
-                            startPoint: .leading,
-                            endPoint: UnitPoint(x: max(0.18, 0.72 * (1.0 - flipT * 0.65)), y: 0.5)
-                        )
                     }
                     .frame(width: curW, height: curH)
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                    .shadow(
-                        color: .black.opacity(shadowOpacity),
-                        radius: shadowRadius,
-                        x: 0,
-                        y: shadowY
-                    )
+                    .opacity(NativeBookOpenTransitionPolicy.pageBackingOpacity(progress: t))
 
                     // Front hardcover leaf settling cleanly onto the shelf frame.
                     Group {
@@ -504,19 +646,6 @@ private struct NativeBookFlipScene: View, Animatable {
                     }
                     .frame(width: curW, height: curH)
                     .clipped()
-                    .overlay(alignment: .leading) {
-                        LinearGradient(
-                            colors: [
-                                Color.black.opacity(0.18),
-                                Color.white.opacity(0.14),
-                                Color.black.opacity(0.08),
-                                Color.clear
-                            ],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                        .frame(width: max(8, curW * 0.045))
-                    }
                     .overlay {
                         Color.black.opacity(coverShading)
                     }
@@ -547,58 +676,6 @@ private struct NativeBookFlipScene: View, Animatable {
     }
 }
 
-/// Played over `NativeShell` while the live shelf (or widget launch backdrop) remains visible beneath.
-struct NativeBookOpenOverlay: View {
-    let transition: NativeBookOpenTransition
-    let paper: Color
-    let onReachedFullScreen: () -> Void
-    let onFinished: () -> Void
-
-    @State private var progress: Double = 0
-    @State private var presented = false
-
-    var body: some View {
-        NativeBookFlipScene(
-            book: transition.book,
-            coverImage: transition.coverImage,
-            pageSnapshot: nil,
-            sourceFrame: transition.sourceFrame,
-            isCentered: transition.isCentered,
-            paper: paper,
-            progress: progress
-        )
-        .task(id: transition.id) {
-            progress = 0
-            presented = false
-            let duration = transition.isCentered
-                ? NativeBookOpenTransitionPolicy.openFromCenterDuration
-                : NativeBookOpenTransitionPolicy.openFromCoverDuration
-            let mountDelay = transition.isCentered
-                ? NativeBookOpenTransitionPolicy.openFromCenterMountDelay
-                : NativeBookOpenTransitionPolicy.openFromCoverMountDelay
-            let cleanupDelay = transition.isCentered
-                ? NativeBookOpenTransitionPolicy.openFromCenterCleanupDelay
-                : NativeBookOpenTransitionPolicy.openFromCoverCleanupDelay
-
-            withAnimation(.timingCurve(0.22, 1.0, 0.36, 1.0, duration: duration)) {
-                progress = 1
-            }
-
-            try? await Task.sleep(nanoseconds: UInt64(mountDelay * 1_000_000_000))
-            guard !Task.isCancelled else { return }
-            if !presented {
-                presented = true
-                onReachedFullScreen()
-            }
-
-            let remaining = max(0.02, cleanupDelay - mountDelay)
-            try? await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000))
-            guard !Task.isCancelled else { return }
-            onFinished()
-        }
-    }
-}
-
 /// Reverse cover-shut overlay played over `NativeShell` when returning from the reader.
 /// Lands pixel-identically on the shelf cover before handing off in a single frame
 /// (no fade-to-empty-hole flicker).
@@ -607,7 +684,7 @@ struct NativeBookCloseOverlay: View {
     let paper: Color
     let onFinished: () -> Void
 
-    @State private var progress: Double = 1
+    @StateObject private var driver = NativeBookTransitionDriver(initialProgress: 1)
 
     var body: some View {
         NativeBookFlipScene(
@@ -617,24 +694,23 @@ struct NativeBookCloseOverlay: View {
             sourceFrame: transition.sourceFrame,
             isCentered: transition.isCentered,
             paper: paper,
-            progress: progress
+            progress: driver.progress
         )
-        .task(id: transition.id) {
-            progress = 1
-            let duration = transition.isCentered
-                ? NativeBookOpenTransitionPolicy.closeToCenterDuration
-                : NativeBookOpenTransitionPolicy.closeToCoverDuration
-            let cleanupDelay = transition.isCentered
-                ? NativeBookOpenTransitionPolicy.closeToCenterCleanupDelay
-                : NativeBookOpenTransitionPolicy.closeToCoverCleanupDelay
-
-            withAnimation(.timingCurve(0.22, 1.0, 0.36, 1.0, duration: duration)) {
-                progress = 0
-            }
-
-            try? await Task.sleep(nanoseconds: UInt64(cleanupDelay * 1_000_000_000))
-            guard !Task.isCancelled else { return }
-            onFinished()
+        .onAppear {
+            start(for: transition)
         }
+        .onChange(of: transition.id) { _ in
+            start(for: transition)
+        }
+        .onDisappear {
+            driver.cancel()
+        }
+    }
+
+    private func start(for current: NativeBookOpenTransition) {
+        let duration = current.isCentered
+            ? NativeBookOpenTransitionPolicy.closeToCenterDuration
+            : NativeBookOpenTransitionPolicy.closeToCoverDuration
+        driver.start(id: current.id, from: 1, to: 0, duration: duration, onComplete: onFinished)
     }
 }

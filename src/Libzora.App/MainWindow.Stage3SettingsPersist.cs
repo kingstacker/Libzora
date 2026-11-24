@@ -291,15 +291,18 @@ public partial class MainWindow
         }
     }
 
-    private void OpenSyncEncryptionKeySettings()
+    private void OpenSyncEncryptionKeySettings() => OpenSyncEncryptionKeySettings(focusConfirmation: false);
+
+    private void OpenSyncEncryptionKeySettings(bool focusConfirmation)
     {
         OpenSettingsExpander("Data", SettingsS3Expander);
         SettingsS3AdvancedExpander.IsExpanded = true;
+        var target = focusConfirmation ? S3EncryptionKeyConfirmBox : S3EncryptionKeyBox;
         Dispatcher.UIThread.Post(() =>
         {
-            if (!S3EncryptionKeyBox.IsEffectivelyVisible) return;
-            S3EncryptionKeyBox.BringIntoView();
-            S3EncryptionKeyBox.Focus();
+            if (!target.IsEffectivelyVisible) return;
+            target.BringIntoView();
+            target.Focus();
         }, DispatcherPriority.Loaded);
     }
 }

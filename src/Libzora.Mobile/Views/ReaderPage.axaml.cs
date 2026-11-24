@@ -42,6 +42,7 @@ public partial class ReaderPage : UserControl
     private readonly DispatcherTimer _longPress = new() { Interval = LongPressDelay };
     private IReaderHost? _readerHost;
     private EpubReaderDocument? _epubDocument;
+    private EpubProgressiveSession? _epubPreparationSession;
     private BookFile? _bookFile;
     private string? _epubPath;
     private int _chapterIndex;
@@ -54,7 +55,14 @@ public partial class ReaderPage : UserControl
     private ReaderLayoutSettings _layout;
     private DateTimeOffset _lastProgressSave = DateTimeOffset.MinValue;
     private readonly ReadingActivityClock _activityClock = new(DateTimeOffset.UtcNow);
+    private readonly ListeningActivityClock _listeningClock = new();
+    private bool _isReaderForeground = true;
     private long _unsavedSeconds;
+    private long _unsavedListeningSeconds;
+
+    public string BookTitle => _book.Title;
+    public string BookAuthors => _book.Authors;
+    public string? BookCoverPath => _book.CoverPath;
     private ReaderProgressRow? _lastSavedProgress;
     private ReaderSyncedPositionMarker? _activeSyncedMarker;
     private double _syncedMarkerScrollOrigin;

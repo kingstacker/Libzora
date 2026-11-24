@@ -1314,6 +1314,87 @@ public sealed class EpubReaderTests
         finally { TestHelpers.TryDelete(root); }
     }
 
+    [Fact]
+    public async Task PrepareProgressiveOpensTargetChapterImmediatelyThenCompletesCache()
+    {
+        var root = TestHelpers.CreateTempDirectory();
+        try
+        {
+            var epub = Path.Combine(root, "book.epub");
+            using (var archive = ZipFile.Open(epub, ZipArchiveMode.Create))
+            {
+                TestHelpers.AddZipEntry(archive, "META-INF/container.xml", """
+                    <?xml version="1.0" encoding="utf-8"?>
+                    <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+                      <rootfiles>
+                        <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml" />
+                      </rootfiles>
+                    </container>
+                    """);
+                TestHelpers.AddZipEntry(archive, "OEBPS/content.opf", """
+                    <?xml version="1.0" encoding="utf-8"?>
+                    <package version="2.0" xmlns="http://www.idpf.org/2007/opf">
+                      <metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>渐进测试</dc:title></metadata>
+                      <manifest>
+                        <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml" />
+                        <item id="css" href="style.css" media-type="text/css" />
+                        <item id="c0" href="ch0.xhtml" media-type="application/xhtml+xml" />
+                        <item id="c1" href="ch1.xhtml" media-type="application/xhtml+xml" />
+                        <item id="c2" href="ch2.xhtml" media-type="application/xhtml+xml" />
+                        <item id="c3" href="ch3.xhtml" media-type="application/xhtml+xml" />
+                      </manifest>
+                      <spine toc="ncx">
+                        <itemref idref="c0" /><itemref idref="c1" /><itemref idref="c2" /><itemref idref="c3" />
+                      </spine>
+                    </package>
+                    """);
+                TestHelpers.AddZipEntry(archive, "OEBPS/toc.ncx", """
+                    <?xml version="1.0" encoding="utf-8"?>
+                    <ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
+                      <navMap>
+                        <navPoint id="n0" playOrder="1"><navLabel><text>序章</text></navLabel><content src="ch0.xhtml" /></navPoint>
+                        <navPoint id="n1" playOrder="2"><navLabel><text>第一章</text></navLabel><content src="ch1.xhtml" /></navPoint>
+                        <navPoint id="n2" playOrder="3"><navLabel><text>第二章</text></navLabel><content src="ch2.xhtml" /></navPoint>
+                        <navPoint id="n3" playOrder="4"><navLabel><text>第三章</text></navLabel><content src="ch3.xhtml" /></navPoint>
+                      </navMap>
+                    </ncx>
+                    """);
+                TestHelpers.AddZipEntry(archive, "OEBPS/style.css", "body { margin: 0; }");
+                for (var i = 0; i < 4; i++)
+                {
+                    TestHelpers.AddZipEntry(archive, $"OEBPS/ch{i}.xhtml", $"""
+                        <?xml version="1.0" encoding="utf-8"?>
+                        <html xmlns="http://www.w3.org/1999/xhtml"><head><meta charset="utf-8" /><title>Chapter {i}</title><link rel="stylesheet" href="style.css" /></head><body><p>章节内容 {i}</p></body></html>
+                        """);
+                }
+            }
+
+            var paths = new AppPaths(Path.Combine(root, "app"));
+            paths.EnsureDirectories();
+            var service = new EpubReaderPreparationService(paths);
+            var hash = new string('e', 64);
+
+            await using var session = await service.PrepareProgressiveAsync(epub, hash, preferredChapterIndex: 2);
+            Assert.Equal(4, session.InitialDocument.Chapters.Count);
+            Assert.True(File.Exists(session.InitialDocument.Chapters[2]));
+            Assert.Contains("data-libzora-vertical-inline-prepared=\"71\"", await File.ReadAllTextAsync(session.InitialDocument.Chapters[2]));
+
+            await session.EnsureChapterReadyAsync(3);
+            Assert.True(File.Exists(session.InitialDocument.Chapters[3]));
+
+            var completed = await session.CompletionTask;
+            Assert.Equal(4, completed.Chapters.Count);
+            Assert.Equal("第二章", completed.ChapterTitles[2]);
+            Assert.All(completed.Chapters, path => Assert.True(File.Exists(path)));
+
+            // Second open hits the durable completed index cache directly.
+            await using var cachedSession = await service.PrepareProgressiveAsync(epub, hash, preferredChapterIndex: 0);
+            Assert.True(cachedSession.IsComplete);
+            Assert.Equal(completed.Chapters, cachedSession.InitialDocument.Chapters);
+        }
+        finally { TestHelpers.TryDelete(root); }
+    }
+
     private static int FindEndOfCentralDirectory(byte[] bytes)
     {
         for (var index = bytes.Length - 22; index >= 0; index--)

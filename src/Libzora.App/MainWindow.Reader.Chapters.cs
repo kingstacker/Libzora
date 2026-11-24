@@ -193,18 +193,21 @@ public partial class MainWindow
     {
         const long paceLearningSeconds = 120;
         const double paceLearningProgress = 1;
-        var totalSeconds = (_readerBookReadingStats?.CumulativeSeconds ?? 0) + _readerActiveSeconds;
+        var stats = _readerBookReadingStats;
+        var totalSeconds = (stats?.CumulativeSeconds ?? 0) + _readerActiveSeconds;
         var progress = Math.Clamp(CalculateReaderProgressPercent(), 0, 100);
         if (totalSeconds < paceLearningSeconds
-            || _readerBookReadingStats is null
-            || !double.IsFinite(_readerBookReadingStats.ProgressPercent)
-            || _readerBookReadingStats.ProgressPercent < paceLearningProgress)
+            || stats is null
+            || !double.IsFinite(stats.ProgressPercent)
+            || stats.ProgressPercent < paceLearningProgress)
         {
             return T("阅读速度估计中");
         }
 
-        var measured = Math.Clamp(_readerBookReadingStats.ProgressPercent, paceLearningProgress, 100);
-        var secondsPerPercent = _readerBookReadingStats.CumulativeSeconds / measured;
+        var visualSeconds = Math.Max(0, stats.CumulativeSeconds - stats.ListeningSeconds);
+        var paceSeconds = visualSeconds >= paceLearningSeconds ? visualSeconds : stats.CumulativeSeconds;
+        var measured = Math.Clamp(stats.ProgressPercent, paceLearningProgress, 100);
+        var secondsPerPercent = paceSeconds / measured;
         var seconds = secondsPerPercent * Math.Max(0, 100 - progress);
         return T("剩余约 {0}", ReaderReadingTimeEstimate.FormatDuration(seconds));
     }

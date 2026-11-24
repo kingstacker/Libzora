@@ -144,8 +144,12 @@ public partial class ReadingDataPage : UserControl
         TotalUnitText.Text = unit;
         var weekSeconds = dashboard.DailyReading.TakeLast(7).Sum(day => day.ActiveSeconds);
         var average = weekSeconds == 0 ? "—" : MobileFormat.ReadingTime((long)Math.Round(weekSeconds / 7d));
+        var listening = dashboard.ListeningSeconds > 0
+            ? $" · 含听书 {MobileFormat.ReadingTime(dashboard.ListeningSeconds)}"
+            : string.Empty;
+        var streak = Math.Max(dashboard.StreakDays, ReadingMedalCatalog.ComputeStreakDays(dashboard.DailyReading));
         HeroDetailText.Text =
-            $"近 7 天日均 {average} · 连续阅读 {ReadingMedalCatalog.ComputeStreakDays(dashboard.DailyReading)} 天";
+            $"近 7 天日均 {average} · 连续阅读 {streak} 天{listening}";
 
         BooksStartedText.Text = $"{dashboard.BooksStarted} 本";
         AverageProgressText.Text = $"平均进度 {dashboard.AverageProgress:0.#}%";

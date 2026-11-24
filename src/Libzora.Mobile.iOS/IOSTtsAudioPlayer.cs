@@ -9,12 +9,14 @@ namespace Libzora.iOSHead;
 /// read-aloud service owns queueing and prefetch; this adapter only mirrors
 /// the Android player's contract (pause, resume, stop, cancellation).
 /// </summary>
-internal sealed class IOSTtsAudioPlayer : ITtsAudioPlayer, ITtsPlaybackClock, ITtsLiveSpeechPlayer
+internal sealed class IOSTtsAudioPlayer : ITtsAudioPlayer, ITtsPlaybackClock, ITtsLiveSpeechPlayer, ITtsExternalPlaybackObserver
 {
     private readonly object _gate = new();
+    private static bool _audioSessionActive;
     private AVAudioPlayer? _player;
     private TaskCompletionSource? _finished;
     private NSObject? _interruptionObserver;
+    private NSObject? _routeChangeObserver;
     private readonly AVSpeechSynthesizer _liveSpeech = new();
     private AVSpeechUtterance? _liveUtterance;
     private TaskCompletionSource? _liveFinished;
@@ -22,6 +24,8 @@ internal sealed class IOSTtsAudioPlayer : ITtsAudioPlayer, ITtsPlaybackClock, IT
     private bool _resumeAfterInterruption;
     private AVSpeechUtterance? _pendingUtterance;
     private bool _pauseLiveOnStart;
+
+    public event Action<bool>? ExternalPauseStateChanged;
 
     public IOSTtsAudioPlayer()
     {
@@ -174,11 +178,30 @@ internal sealed class IOSTtsAudioPlayer : ITtsAudioPlayer, ITtsPlaybackClock, IT
 
     private void PrepareAudioSession()
     {
-        // Keep speech audible with the silent switch on while mixing other audio.
-        var session = AVAudioSession.SharedInstance();
-        session.SetCategory(AVAudioSessionCategory.Playback, AVAudioSessionCategoryOptions.MixWithOthers);
-        session.SetActive(true);
+        // Configure SpokenAudio Playback once per active session so sentence-to-sentence
+        // transitions do not incur redundant CoreAudio IPC roundtrips.
+        if (!Volatile.Read(ref _audioSessionActive))
+        {
+            var session = AVAudioSession.SharedInstance();
+            session.SetCategory(AVAudioSessionCategory.Playback, AVAudioSessionMode.SpokenAudio, (AVAudioSessionCategoryOptions)0, out _);
+            session.SetActive(true);
+            Volatile.Write(ref _audioSessionActive, true);
+        }
         _interruptionObserver ??= AVAudioSession.Notifications.ObserveInterruption(OnInterruption);
+        _routeChangeObserver ??= AVAudioSession.Notifications.ObserveRouteChange(OnRouteChange);
+    }
+
+    public static void DeactivateSessionIfIdle()
+    {
+        try
+        {
+            Volatile.Write(ref _audioSessionActive, false);
+            AVAudioSession.SharedInstance().SetActive(false, AVAudioSessionSetActiveOptions.NotifyOthersOnDeactivation);
+        }
+        catch
+        {
+            // Best-effort deactivation; ignore transient audio session errors.
+        }
     }
 
     public async Task PlayAsync(string audioPath, CancellationToken cancellationToken = default)
@@ -313,15 +336,19 @@ internal sealed class IOSTtsAudioPlayer : ITtsAudioPlayer, ITtsPlaybackClock, IT
     {
         if (e.InterruptionType == AVAudioSessionInterruptionType.Began)
         {
+            var pausedNow = false;
             lock (_gate)
             {
                 _resumeAfterInterruption = !IsPaused && (_player is not null || _liveUtterance is not null);
                 if (_resumeAfterInterruption)
                 {
                     if (_liveUtterance is not null) _liveSpeech.PauseSpeaking(AVSpeechBoundary.Immediate);
+                    if (_player is { Playing: true } player) player.Pause();
                     IsPaused = true;
+                    pausedNow = true;
                 }
             }
+            if (pausedNow) ExternalPauseStateChanged?.Invoke(true);
             return;
         }
 
@@ -335,10 +362,30 @@ internal sealed class IOSTtsAudioPlayer : ITtsAudioPlayer, ITtsPlaybackClock, IT
             }
             if (resume)
             {
-                AVAudioSession.SharedInstance().SetActive(true);
+                Volatile.Write(ref _audioSessionActive, false);
+                PrepareAudioSession();
                 Resume();
+                if (!IsPaused) ExternalPauseStateChanged?.Invoke(false);
+            }
+            else
+            {
+                Volatile.Write(ref _audioSessionActive, false);
             }
         }
+    }
+
+    private void OnRouteChange(object? sender, AVAudioSessionRouteChangeEventArgs e)
+    {
+        if (e.Reason != AVAudioSessionRouteChangeReason.OldDeviceUnavailable)
+            return;
+        bool wasActive;
+        lock (_gate)
+        {
+            wasActive = !IsPaused && (_player is not null || _liveUtterance is not null || _pendingUtterance is not null);
+        }
+        if (!wasActive) return;
+        Pause();
+        if (IsPaused) ExternalPauseStateChanged?.Invoke(true);
     }
 
     public void Dispose()
@@ -346,6 +393,8 @@ internal sealed class IOSTtsAudioPlayer : ITtsAudioPlayer, ITtsPlaybackClock, IT
         Stop();
         _interruptionObserver?.Dispose();
         _interruptionObserver = null;
+        _routeChangeObserver?.Dispose();
+        _routeChangeObserver = null;
         _liveSpeech.Dispose();
     }
 }

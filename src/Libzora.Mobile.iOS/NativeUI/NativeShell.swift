@@ -8,6 +8,7 @@ struct NativeShell: View {
     @ObservedObject private var previewCenter = NativeBookPreviewCenter.shared
     @ObservedObject private var seriesCenter = NativeBookSeriesCenter.shared
     @State private var selectedTab = 0
+    @State private var widgetNavigationTask: Task<Void, Never>?
     @State private var systemLowPowerMode = ProcessInfo.processInfo.isLowPowerModeEnabled
     @Environment(\.colorScheme) private var systemColorScheme
     private var appColorScheme: ColorScheme {
@@ -55,6 +56,7 @@ struct NativeShell: View {
             .accessibilityHidden(showingLaunch || (activeSeries != nil && seriesCenter.isVisible))
             .onAppear {
                 store.activeTab = selectedTab
+                store.keepWidgetBrandOverlayOnTop()
             }
             .task { await store.prepareLaunch(viewport: geometry.size) }
             .onChange(of: selectedTab) { tab in
@@ -81,12 +83,13 @@ struct NativeShell: View {
         .font(NativeTheme.font()).foregroundStyle(NativeTheme.ink).tint(NativeTheme.ink)
         .environment(\.symbolVariants, .none)
         .background(NativeAmbientBackground()).preferredColorScheme(store.preferences.colorScheme)
-        .fullScreenCover(item: $store.readerBook, onDismiss: store.readerPresentationDismissed) { book in
-            NativeReaderPage(store: store, session: store.session, book: book,
-                             appColorScheme: appColorScheme, appearanceSessionId: store.session.appearanceSessionId,
-                             openAnimation: store.readerOpenAnimation)
+        .fullScreenCover(item: $store.readerPresentation, onDismiss: store.readerPresentationDismissed) { presentation in
+            NativeReaderPage(store: store, session: store.session, book: presentation.book,
+                             appColorScheme: appColorScheme, appearanceSessionId: presentation.id,
+                             openAnimation: presentation.animation)
+                .id(presentation.id)
                 .modifier(NativeClearFullScreenBackground())
-                .onAppear { store.readerPresentationAppeared(for: book.id) }
+                .onAppear { store.readerPresentationAppeared(for: presentation.id) }
         }
         .sheet(item: $store.txtReview) { review in NativeTxtReview(store: store, review: review) }
         .modifier(NativeFeedback(store: store, active: store.readerBook == nil))
@@ -102,9 +105,13 @@ struct NativeShell: View {
             store.ambient.fallbackColors = colors
         }
         .onReceive(store.$requestedTab) { tab in
-            guard let tab else { return }
-            selectedTab = tab
-            store.requestedTab = nil
+            if tab != nil { showRequestedTabIfPossible() }
+        }
+        .onReceive(store.$preparingLibrary) { preparing in
+            if !preparing { showRequestedTabIfPossible() }
+        }
+        .onReceive(store.$readerPresentationActive) { active in
+            if !active { showRequestedTabIfPossible() }
         }
         .onReceive(NotificationCenter.default.publisher(for: .NSProcessInfoPowerStateDidChange)
             .receive(on: DispatchQueue.main)) { _ in
@@ -127,11 +134,13 @@ struct NativeShell: View {
                 VStack(spacing: 18) { ProgressView(); Text(store.busyMessage).foregroundStyle(.secondary) }
                     .frame(maxWidth: .infinity, maxHeight: .infinity).background(.regularMaterial)
             } else if showingLaunch {
-                if store.showsLaunchAnimation {
+                if store.widgetColdLaunch {
+                    NativeWidgetLaunchBrandView()
+                } else if store.showsLaunchAnimation {
                     NativeLaunchPage()
                         .transition(.opacity)
                 } else {
-                    NativeTheme.page
+                    readerPaper
                         .ignoresSafeArea()
                         .accessibilityElement(children: .contain)
                         .accessibilityIdentifier("launch.screen")
@@ -154,11 +163,17 @@ struct NativeShell: View {
             }
         }
         .overlay {
+            if (store.pendingOpenBookId != nil || (store.openingReader && store.readerOpenAnimation != .cover)),
+               store.pendingOpenSource == .widget,
+               let snapshot = store.readerEntrySnapshot {
+                Image(uiImage: snapshot).resizable().scaledToFill()
+                    .ignoresSafeArea().allowsHitTesting(false).accessibilityHidden(true)
+            }
+        }
+        .overlay {
             if let transition = store.closingBookTransition {
                 NativeBookCloseOverlay(transition: transition, paper: readerPaper) {
-                    if store.closingBookTransition?.id == transition.id {
-                        store.closingBookTransition = nil
-                    }
+                    store.finishClosingBookTransition(id: transition.id)
                 }
             } else if store.closingBookBackdrop {
                 ZStack {
@@ -179,6 +194,90 @@ struct NativeShell: View {
         .environment(\.locale, Locale(identifier: store.uiLanguage))
         .environment(\.nativeUiFont, store.uiFont)
     }
+
+    private func showRequestedTabIfPossible() {
+        widgetNavigationTask?.cancel()
+        widgetNavigationTask = Task { @MainActor in
+            // @Published delivers before its stored value changes.
+            await Task.yield()
+            guard store.requestedTab != nil, !store.preparingLibrary, !store.closingReader,
+                  store.readerBook == nil, !store.readerPresentationActive else { return }
+            // Switch the tab quietly under the Libzora icon overlay while the destination loads.
+            if let tab = store.requestedTab {
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) { selectedTab = tab }
+            }
+            await store.waitForMinimumWidgetBrandHold()
+            guard !Task.isCancelled, store.requestedTab != nil,
+                  !store.preparingLibrary, !store.closingReader,
+                  store.readerBook == nil, !store.readerPresentationActive else {
+                store.dismissWidgetBrandCover()
+                return
+            }
+            store.requestedTab = nil
+            let handoff = store.createWidgetBrandSlideTransition()
+            store.dismissWidgetBrandCover()
+            await NativeDisplayFrame.waitForCommit()
+            guard !Task.isCancelled else {
+                handoff?.finish(); return
+            }
+            await handoff?.show(store.navigationWindow?.rootViewController?.view, animation: .slide,
+                                duration: NativeReaderPresentationPolicy.widgetTransitionDuration)
+        }
+    }
+}
+
+struct NativeWidgetLaunchBrandView: View {
+    var showProgress = false
+    @Environment(\.locale) private var uiLocale
+    @Environment(\.nativeUiFont) private var uiFont
+
+    private static let appIconImage: UIImage? = {
+        if let icons = Bundle.main.infoDictionary?["CFBundleIcons"] as? [String: Any],
+           let primary = icons["CFBundlePrimaryIcon"] as? [String: Any],
+           let files = primary["CFBundleIconFiles"] as? [String] {
+            for name in files.reversed() {
+                if let image = UIImage(named: name) { return image }
+            }
+        }
+        return UIImage(named: "Libzora60x60")
+    }()
+
+    var body: some View {
+        let _ = uiLocale
+        let _ = uiFont
+
+        VStack(spacing: 16) {
+            Spacer()
+            if let icon = Self.appIconImage {
+                Image(uiImage: icon)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 82, height: 82)
+                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .stroke(NativeTheme.ink.opacity(0.08), lineWidth: 0.5)
+                    )
+                    .shadow(color: .black.opacity(0.08), radius: 14, y: 6)
+            }
+            Text("Libzora")
+                .font(NativeTheme.font(24, relativeTo: .title2))
+                .tracking(2.5)
+                .foregroundStyle(NativeTheme.ink)
+                .accessibilityIdentifier("launch.brand")
+            if showProgress {
+                ProgressView()
+                    .padding(.top, 4)
+            }
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(NativeTheme.page.ignoresSafeArea())
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("launch.screen")
+    }
 }
 
 private struct NativeLaunchPage: View {
@@ -186,6 +285,10 @@ private struct NativeLaunchPage: View {
     @Environment(\.nativeUiFont) private var uiFont
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var revealed = false
+
+    private var isEnglish: Bool {
+        uiLocale.identifier.lowercased().hasPrefix("en")
+    }
 
     var body: some View {
         let _ = uiLocale
@@ -195,11 +298,15 @@ private struct NativeLaunchPage: View {
             Spacer()
             VStack(spacing: 20) {
                 Text("Libzora")
-                    .font(NativeTheme.font(34, relativeTo: .largeTitle)).tracking(4)
+                    .font(NativeTheme.font(34, relativeTo: .largeTitle)).tracking(isEnglish ? 3.5 : 4)
                     .accessibilityIdentifier("launch.brand")
                 Text(L("为学日益，为道日损。"))
-                    .font(NativeTheme.font(22, relativeTo: .title2))
-                    .tracking(1.5).lineLimit(1).minimumScaleFactor(0.65)
+                    .font(NativeTheme.font(isEnglish ? 19 : 22, relativeTo: .title2))
+                    .tracking(isEnglish ? 0.4 : 1.5)
+                    .lineSpacing(isEnglish ? 6 : 0)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(isEnglish ? 2 : 1)
+                    .minimumScaleFactor(isEnglish ? 0.8 : 0.65)
                     .accessibilityIdentifier("launch.slogan")
             }
             .foregroundStyle(NativeTheme.ink)
@@ -388,7 +495,7 @@ struct BookCover: View {
             else { ZStack { NativeTheme.sunk; Text(String(book.title.prefix(1))).font(NativeTheme.font(width * 0.27)).foregroundStyle(NativeTheme.muted) } }
         }
         .frame(width: width, height: height ?? width * 1.45)
-        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         .shadow(color: .black.opacity(scheme == .dark ? 0 : 0.12), radius: 5, y: 2)
         .accessibilityHidden(true)
         .task(id: "\(book.coverPath ?? ""):\(book.updatedAt):\(width)") {

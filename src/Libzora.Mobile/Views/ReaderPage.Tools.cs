@@ -25,6 +25,10 @@ public partial class ReaderPage
     private bool _speechPreparing;
     private bool _speechExpanded;
     private int _speechDockVersion;
+    private double _speechSpeed = 1.0;
+    private CancellationTokenSource? _speechSleepCts;
+    private DateTimeOffset? _speechSleepEndsAt;
+    private bool _speechSleepAfterChapter;
     private IReadOnlyList<PdfPageText>? _pdfText;
     private string? _lastSearch;
     private bool _pinching;
@@ -215,6 +219,7 @@ public partial class ReaderPage
             var settings = await _modules.Reader.TtsSettings.LoadAsync(token);
             token.ThrowIfCancellationRequested();
             if (_disposed) return;
+            _speechSpeed = settings.Speed;
             // Engine construction binds platform speech services and can throw.
             _tts ??= CreateSpeech(createEngine(), createPlayer());
             SetChromeVisible(false);
@@ -337,6 +342,12 @@ public partial class ReaderPage
 
     private async Task<bool> AdvanceForSpeechAsync()
     {
+        if (_speechSleepAfterChapter)
+        {
+            ClearSpeechSleepTimer();
+            _shell.ShowToast(UiText.Get("本章播完，已停止朗读"));
+            return false;
+        }
         if (_isPdf)
         {
             if (_pdfPage >= _pdfPageCount) return false;
@@ -356,11 +367,35 @@ public partial class ReaderPage
     private void PresentSpeech(TtsStateChangedEventArgs e)
     {
         if (_disposed) return;
+        var now = DateTimeOffset.UtcNow;
+        var isPlaying = e.State == TtsPlaybackState.Playing;
+        var listeningDelta = _listeningClock.SetPlaying(isPlaying, now);
+        if (listeningDelta > 0) Interlocked.Add(ref _unsavedListeningSeconds, listeningDelta);
+        if (isPlaying)
+        {
+            // Avoid double-counting foreground visual reading while listening.
+            Interlocked.Add(ref _unsavedSeconds, _activityClock.Pause(now));
+            if (_epubPreparationSession is { IsComplete: false } prepSession
+                && _epubDocument is { } doc
+                && !_isPdf
+                && e.SegmentCount > 0
+                && e.SegmentIndex >= Math.Max(1, e.SegmentCount - 2)
+                && _chapterIndex + 1 < doc.Chapters.Count)
+            {
+                _ = prepSession.EnsureChapterReadyAsync(_chapterIndex + 1, _lifetime.Token);
+            }
+        }
+        else if (_isReaderForeground)
+        {
+            _activityClock.Resume(now);
+        }
+
         var active = e.State is not (TtsPlaybackState.Stopped or TtsPlaybackState.Error);
         if (!active)
         {
             _speechDockVersion++;
             _speechExpanded = false;
+            ClearSpeechSleepTimer();
         }
         SpeechBar.IsVisible = !_usesNativeFrontend && active && _speechExpanded;
         SpeechDock.IsVisible = !_usesNativeFrontend && active && !_speechExpanded;
@@ -373,6 +408,10 @@ public partial class ReaderPage
         if (e.State == TtsPlaybackState.Error && !string.IsNullOrWhiteSpace(e.Message))
             _shell.ShowToast(UiText.Get("朗读失败：{0}", UiText.Localize(e.Message)));
         NotifyNativeState();
+        if (e.State is TtsPlaybackState.Paused or TtsPlaybackState.Stopped or TtsPlaybackState.Error)
+            _ = SaveProgressSoonAsync(force: true);
+        else if (isPlaying)
+            _ = SaveProgressSoonAsync(force: false);
     }
 
     private void RefreshSpeechUiText(TtsPlaybackState state, int segmentIndex, int segmentCount)
@@ -443,6 +482,108 @@ public partial class ReaderPage
     }
 
     private void OnSpeechStopClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => _ = NativeStopSpeechAsync();
+
+    private int CurrentSpeechSleepRemainingMinutes()
+    {
+        if (_speechSleepEndsAt is not { } endsAt) return 0;
+        var remaining = endsAt - DateTimeOffset.UtcNow;
+        if (remaining <= TimeSpan.Zero) return 0;
+        return Math.Max(1, (int)Math.Ceiling(remaining.TotalMinutes));
+    }
+
+    private void ClearSpeechSleepTimer()
+    {
+        var previous = _speechSleepCts;
+        _speechSleepCts = null;
+        _speechSleepEndsAt = null;
+        _speechSleepAfterChapter = false;
+        try { previous?.Cancel(); }
+        catch { }
+        previous?.Dispose();
+    }
+
+    public async Task NativeSetSpeechSpeedAsync(double speed)
+    {
+        if (_disposed) return;
+        var clamped = double.IsFinite(speed) ? Math.Clamp(Math.Round(speed, 1), 0.5, 2.0) : 1.0;
+        var settings = await _modules.Reader.TtsSettings.LoadAsync(_lifetime.Token);
+        settings.Speed = clamped;
+        await _modules.Reader.TtsSettings.SaveAsync(settings, _lifetime.Token);
+        _speechSpeed = settings.Speed;
+        _tts?.UpdateSettings(settings);
+        NotifyNativeState();
+    }
+
+    public Task NativeSetSpeechSleepTimerAsync(int minutes, bool afterChapter)
+    {
+        if (_disposed) return Task.CompletedTask;
+        ClearSpeechSleepTimer();
+
+        if (afterChapter)
+        {
+            _speechSleepAfterChapter = true;
+            _shell.ShowToast(UiText.Get("将在播完本章后停止朗读"));
+            NotifyNativeState();
+            return Task.CompletedTask;
+        }
+
+        if (minutes <= 0)
+        {
+            _shell.ShowToast(UiText.Get("已关闭睡眠定时"));
+            NotifyNativeState();
+            return Task.CompletedTask;
+        }
+
+        var clamped = Math.Clamp(minutes, 1, 240);
+        _speechSleepEndsAt = DateTimeOffset.UtcNow.AddMinutes(clamped);
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+        _speechSleepCts = cts;
+        _ = RunSpeechSleepTimerAsync(cts.Token);
+        _shell.ShowToast(UiText.Get("{0} 分钟后停止朗读", clamped));
+        NotifyNativeState();
+        return Task.CompletedTask;
+    }
+
+    public async Task NativeReloadSpeechSettingsAsync()
+    {
+        if (_disposed) return;
+        var settings = await _modules.Reader.TtsSettings.LoadAsync(_lifetime.Token);
+        _speechSpeed = settings.Speed;
+        _tts?.UpdateSettings(settings);
+        NotifyNativeState();
+    }
+
+    private async Task RunSpeechSleepTimerAsync(CancellationToken token)
+    {
+        try
+        {
+            while (!token.IsCancellationRequested && _speechSleepEndsAt is { } endsAt)
+            {
+                var remaining = endsAt - DateTimeOffset.UtcNow;
+                if (remaining <= TimeSpan.Zero)
+                {
+                    await Dispatcher.UIThread.InvokeAsync(async () =>
+                    {
+                        if (_disposed || token.IsCancellationRequested) return;
+                        ClearSpeechSleepTimer();
+                        _shell.ShowToast(UiText.Get("定时时间到，已停止朗读"));
+                        await NativeStopSpeechAsync();
+                    });
+                    return;
+                }
+
+                var step = remaining > TimeSpan.FromMinutes(1)
+                    ? TimeSpan.FromSeconds(30)
+                    : remaining;
+                await Task.Delay(step, token);
+                if (!_disposed && !token.IsCancellationRequested && _speechSleepEndsAt is not null)
+                    Dispatcher.UIThread.Post(NotifyNativeState);
+            }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+        }
+    }
 
     // ---------- AI and translation
 

@@ -534,13 +534,21 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
             _relayoutTimer!.Stop();
             if (!_disposed && _content is not null && !_composePending)
             {
-                await (RelayoutTask = RecomposeAsync());
+                var wasPartial = _layout is { IsComplete: false };
+                var stopAfter = wasPartial
+                    ? ResolveInitialComposeStop(_content, _loadedFootnoteFragment, _viewportReadingAnchor ?? _pendingReadingAnchor, null)
+                    : null;
+                await (RelayoutTask = RecomposeAsync(stopAfterTextOffset: stopAfter));
                 if (_disposed || _composePending) return;
                 ApplyPendingPosition();
                 _pageIndex = Math.Clamp(_pageIndex, 0, Math.Max(0, PageCount - 1));
                 _bitmapDirty = true;
                 InvalidateVisual();
                 EmitScroll(layoutAdjusted: true);
+                if (wasPartial)
+                {
+                    CompleteLayoutInBackground();
+                }
             }
         });
         _relayoutTimer.Stop();

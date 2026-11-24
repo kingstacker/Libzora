@@ -63,17 +63,23 @@ public partial class ReaderPage
             CancelInteractiveDragImmediate();
             CancelActiveTransition();
             CancelSpeechPreparation();
+            ClearSpeechSleepTimer();
             _tts?.Dispose();
             _shell.Services.SystemBars?.SetEdgeGesturesCaptured(false);
             _shell.ClearPaperSystemBars();
+            var now = DateTimeOffset.UtcNow;
+            Interlocked.Add(ref _unsavedListeningSeconds, _listeningClock.SetPlaying(false, now));
             _ = SaveAndSyncOnExitAsync();
             StopReadingStatsTimer();
             _bookPageCountCancellation?.Cancel();
             NativeCancelSearch();
             _lifetime.Cancel();
+            _ = _epubPreparationSession?.DisposeAsync().AsTask();
             if (_readerHost is not null)
             {
                 _readerHost.WebMessageReceived -= OnReaderWebMessage;
+                if (_readerHost is IReaderPresentationFrameHost frameHost)
+                    frameHost.PresentationFrameRendered -= OnNativePresentationFrameRendered;
                 if (_readerHost is NativeReaderHost epub)
                 {
                     epub.LayoutCompleted -= OnReaderLayoutCompleted;
@@ -98,14 +104,19 @@ public partial class ReaderPage
 
     public Task PauseAsync()
     {
-        Interlocked.Add(ref _unsavedSeconds, _activityClock.Pause(DateTimeOffset.UtcNow));
+        var now = DateTimeOffset.UtcNow;
+        _isReaderForeground = false;
+        Interlocked.Add(ref _unsavedSeconds, _activityClock.Pause(now));
+        Interlocked.Add(ref _unsavedListeningSeconds, _listeningClock.CountUntil(now));
         return SaveProgressSoonAsync(force: true);
     }
 
     public void Resume()
     {
+        _isReaderForeground = true;
         ResetTouches();
-        _activityClock.Resume(DateTimeOffset.UtcNow);
+        if (!_listeningClock.IsPlaying)
+            _activityClock.Resume(DateTimeOffset.UtcNow);
     }
 
     private sealed record ReaderSelection(

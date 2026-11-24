@@ -168,6 +168,19 @@ struct NativeLibraryLogicTests {
                   "\(operation) does not persist the encryption key")
         }
 
+        check(NativeSyncKeyConfirmation.canEnableSync(key: "", savedKey: "", confirmation: "") == .missingKey,
+              "Enabling sync with empty key requires setting key")
+        check(NativeSyncKeyConfirmation.canEnableSync(key: "   ", savedKey: "old", confirmation: "") == .missingKey,
+              "Enabling sync after clearing key requires setting key")
+        check(NativeSyncKeyConfirmation.canEnableSync(key: "new", savedKey: "", confirmation: "") == .unconfirmedKey,
+              "Enabling sync with unconfirmed new key prompts for confirmation")
+        check(NativeSyncKeyConfirmation.canEnableSync(key: "new", savedKey: "old", confirmation: "diff") == .unconfirmedKey,
+              "Enabling sync with mismatched key confirmation prompts for confirmation")
+        check(NativeSyncKeyConfirmation.canEnableSync(key: "new", savedKey: "", confirmation: "new") == .allow,
+              "Enabling sync succeeds once new key matches confirmation")
+        check(NativeSyncKeyConfirmation.canEnableSync(key: "saved", savedKey: "saved", confirmation: "") == .allow,
+              "Enabling sync succeeds when key is already saved")
+
         // Batch book selection policy.
         let toggled = NativeLibraryBatchPolicy.toggle("b1", in: [])
         check(toggled == ["b1"], "Toggling an unselected book adds it")

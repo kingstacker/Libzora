@@ -133,6 +133,11 @@ public sealed partial class EpubReaderPreparationService
                     while (reader.MoveToNextAttribute())
                     {
                         var attrName = reader.LocalName;
+                        if (localName.Equals("meta", StringComparison.OrdinalIgnoreCase)
+                            && attrName.Equals("http-equiv", StringComparison.OrdinalIgnoreCase))
+                        {
+                            return false;
+                        }
                         if (attrName.StartsWith("on", StringComparison.OrdinalIgnoreCase)
                             || attrName.StartsWith("data-", StringComparison.OrdinalIgnoreCase)
                             || attrName.Equals("background", StringComparison.OrdinalIgnoreCase)
@@ -186,7 +191,6 @@ public sealed partial class EpubReaderPreparationService
         || localName.Equals("embed", StringComparison.OrdinalIgnoreCase)
         || localName.Equals("applet", StringComparison.OrdinalIgnoreCase)
         || localName.Equals("base", StringComparison.OrdinalIgnoreCase)
-        || localName.Equals("meta", StringComparison.OrdinalIgnoreCase)
         || localName.Equals("style", StringComparison.OrdinalIgnoreCase)
         || localName.Equals("img", StringComparison.OrdinalIgnoreCase)
         || localName.Equals("source", StringComparison.OrdinalIgnoreCase)

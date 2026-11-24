@@ -37,7 +37,8 @@ public partial class ReaderPage
         if (!force && now - _lastProgressSave < minSaveInterval) return true;
         _lastProgressSave = now;
 
-        long seconds = 0;
+        long readingSeconds = 0;
+        long listeningSeconds = 0;
         try
         {
             var token = force ? CancellationToken.None : _lifetime.Token;
@@ -64,20 +65,25 @@ public partial class ReaderPage
             }
 
             // The dashboard, library grid and continue card read reading stats.
-            seconds = Interlocked.Exchange(ref _unsavedSeconds, 0);
+            readingSeconds = Interlocked.Exchange(ref _unsavedSeconds, 0);
+            listeningSeconds = Interlocked.Exchange(ref _unsavedListeningSeconds, 0);
+            var totalSeconds = readingSeconds + listeningSeconds;
             var chapters = _isPdf ? _pdfPageCount : _epubDocument?.Chapters.Count ?? 0;
             await _modules.Reader.Data.AddReadingTimeAsync(
-                _book.Id, _bookFile.Id, seconds, progress.ProgressPercent, progress.ChapterIndex, chapters, token);
+                _book.Id, _bookFile.Id, totalSeconds, progress.ProgressPercent, progress.ChapterIndex, chapters,
+                listeningSeconds, token);
             return true;
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
         {
-            Interlocked.Add(ref _unsavedSeconds, seconds);
+            Interlocked.Add(ref _unsavedSeconds, readingSeconds);
+            Interlocked.Add(ref _unsavedListeningSeconds, listeningSeconds);
             return false;
         }
         catch
         {
-            Interlocked.Add(ref _unsavedSeconds, seconds);
+            Interlocked.Add(ref _unsavedSeconds, readingSeconds);
+            Interlocked.Add(ref _unsavedListeningSeconds, listeningSeconds);
             // Progress is best-effort; a transient database error must not
             // close the reading surface.
             return false;
@@ -88,6 +94,7 @@ public partial class ReaderPage
     private void CountReadingTime(DateTimeOffset now)
     {
         Interlocked.Add(ref _unsavedSeconds, _activityClock.CountUntil(now));
+        Interlocked.Add(ref _unsavedListeningSeconds, _listeningClock.CountUntil(now));
     }
 
     private void ShowError(Func<string> message)

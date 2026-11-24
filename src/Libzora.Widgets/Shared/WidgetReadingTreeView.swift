@@ -8,7 +8,9 @@ struct KkReadingTreeWidgetView: View {
     @Environment(\.widgetRenderingMode) private var renderingMode
 
     private var snapshot: KkSnapshot { entry.snapshot ?? KkSnapshot.sample(isChinese: isChinese) }
-    private var profile: KkReadingTreeProfile { KkReadingTreeProfile(snapshot: snapshot) }
+    private var profile: KkReadingTreeProfile {
+        KkReadingTreeProfile(snapshot: snapshot, date: entry.date, isPreview: entry.isPlaceholder || !entry.hasData)
+    }
     private var isFullColor: Bool { renderingMode == .fullColor }
     private var isChinese: Bool { KkFormat.isChinese }
 
@@ -59,36 +61,33 @@ struct KkReadingTreeWidgetView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding(.vertical, -3)
 
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    Text(profile.stageTitle(isChinese: isChinese))
-                        .kkTitleFont(13.5)
-                        .foregroundStyle(KkTheme.ink(scheme))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-                    Spacer(minLength: 4)
-                    if profile.booksFinished > 0 {
-                        HStack(spacing: 3) {
-                            Circle()
-                                .fill(isFullColor ? KkTheme.treeFruitAccent(scheme) : Color.primary.opacity(0.8))
-                                .frame(width: 5, height: 5)
-                            Text("\(profile.booksFinished)")
-                                .kkLabelFont(9.5, weight: .semibold)
-                                .foregroundStyle(KkTheme.secondaryInk(scheme))
-                                .monospacedDigit()
-                                .lineLimit(1)
-                        }
-                        .fixedSize(horizontal: true, vertical: false)
-                    } else {
-                        Text(KkFormat.compactHours(profile.totalSeconds, isChinese: isChinese))
-                            .kkLabelFont(9.5, weight: .regular)
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(profile.stageTitle(isChinese: isChinese))
+                    .kkTitleFont(13.5)
+                    .foregroundStyle(KkTheme.ink(scheme))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                Spacer(minLength: 4)
+                if profile.booksFinished > 0 {
+                    HStack(spacing: 3) {
+                        Circle()
+                            .fill(isFullColor ? KkTheme.treeFruitAccent(scheme) : Color.primary.opacity(0.8))
+                            .frame(width: 5, height: 5)
+                        Text("\(profile.booksFinished)")
+                            .kkLabelFont(9.5, weight: .semibold)
                             .foregroundStyle(KkTheme.secondaryInk(scheme))
                             .monospacedDigit()
                             .lineLimit(1)
-                            .fixedSize(horizontal: true, vertical: false)
                     }
+                    .fixedSize(horizontal: true, vertical: false)
+                } else {
+                    Text(KkFormat.compactHours(profile.totalSeconds, isChinese: isChinese))
+                        .kkLabelFont(9.5, weight: .regular)
+                        .foregroundStyle(KkTheme.secondaryInk(scheme))
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
                 }
-                KkProgressBar(progress: profile.stageProgress * 100, height: 2.5)
             }
         }
         .padding(.horizontal, 13)
@@ -137,30 +136,34 @@ struct KkReadingTreeWidgetView: View {
                     .frame(height: 0.5)
                     .accessibilityHidden(true)
 
-                HStack(spacing: 0) {
+                let totalParts = KkFormat.compactHoursParts(profile.totalSeconds, isChinese: isChinese)
+                HStack(alignment: .top, spacing: 0) {
                     KkStat(
-                        value: KkFormat.compactHours(profile.totalSeconds, isChinese: isChinese),
+                        value: totalParts.value,
                         label: isChinese ? "累计" : "Total",
-                        inline: false,
+                        unit: totalParts.unit,
                         alignment: .leading,
-                        valueSize: 13.5)
-                    .layoutPriority(1)
-                    Spacer(minLength: 6)
+                        valueSize: 13.5,
+                        labelSize: 9.5,
+                        stackSpacing: 2)
+                    Spacer(minLength: 4)
                     KkStat(
-                        value: "\(profile.booksFinished)",
-                        label: isChinese ? "读完" : "Books",
-                        inline: false,
+                        value: KkFormat.compactCount(profile.booksFinished, isChinese: isChinese),
+                        label: isChinese ? "已读完" : "Books",
                         alignment: .center,
-                        valueSize: 13.5)
-                    Spacer(minLength: 6)
+                        valueSize: 13.5,
+                        labelSize: 9.5,
+                        stackSpacing: 2)
+                    Spacer(minLength: 4)
                     KkStat(
-                        value: "\(profile.annotationCount)",
+                        value: KkFormat.compactCount(profile.annotationCount, isChinese: isChinese),
                         label: isChinese ? "批注" : "Notes",
-                        inline: false,
-                        alignment: .center,
-                        valueSize: 13.5)
+                        alignment: .trailing,
+                        valueSize: 13.5,
+                        labelSize: 9.5,
+                        stackSpacing: 2)
                 }
-                .padding(.top, 7)
+                .padding(.top, 8)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }

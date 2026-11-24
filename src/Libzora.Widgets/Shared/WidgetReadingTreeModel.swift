@@ -103,6 +103,115 @@ struct KkTreeAccent: Equatable {
     let hasDriftingPetal: Bool
 }
 
+/// Seasonal palette mode for the Reading Tree widget, rendered purely with
+/// vector colors and shapes (no image assets).
+enum KkTreeSeason: Equatable, CaseIterable {
+    case spring
+    case summer
+    case autumn
+    case winter
+
+    static func resolve(for date: Date, calendar: Calendar = Calendar(identifier: .gregorian)) -> KkTreeSeason {
+        let month = calendar.component(.month, from: date)
+        switch month {
+        case 3, 4, 5: return .spring
+        case 6, 7, 8: return .summer
+        case 9, 10, 11: return .autumn
+        default: return .winter
+        }
+    }
+}
+
+/// Calendar festival decorations layered subtly onto the Reading Tree canvas,
+/// covering major Chinese and US holidays using pure vector shapes.
+enum KkTreeFestival: Equatable {
+    case none
+    case newYear
+    case valentinesDay
+    case springFestival
+    case lanternFestival
+    case qingming
+    case dragonBoat
+    case independenceDay
+    case qixi
+    case midAutumn
+    case nationalDay
+    case doubleNinth
+    case halloween
+    case thanksgiving
+    case christmas
+
+    static func resolve(
+        for date: Date,
+        gregorian: Calendar = Calendar(identifier: .gregorian),
+        chinese: Calendar = Calendar(identifier: .chinese)
+    ) -> KkTreeFestival {
+        let gYear = gregorian.component(.year, from: date)
+        let gMonth = gregorian.component(.month, from: date)
+        let gDay = gregorian.component(.day, from: date)
+        if gMonth == 12 && (24...26).contains(gDay) { return .christmas }
+
+        let lMonth = chinese.component(.month, from: date)
+        let lDay = chinese.component(.day, from: date)
+        let isLeapMonth = chinese.dateComponents([.month], from: date).isLeapMonth ?? false
+        if !isLeapMonth {
+            if lMonth == 1 && (1...7).contains(lDay) { return .springFestival }
+            if lMonth == 12 && lDay >= 29 { return .springFestival }
+            if lMonth == 1 && lDay == 15 { return .lanternFestival }
+            if lMonth == 5 && lDay == 5 { return .dragonBoat }
+            if lMonth == 7 && lDay == 7 { return .qixi }
+            if lMonth == 8 && lDay == 15 { return .midAutumn }
+            if lMonth == 9 && lDay == 9 { return .doubleNinth }
+        }
+
+        if gMonth == 1 && (1...3).contains(gDay) { return .newYear }
+        if gMonth == 2 && gDay == 14 { return .valentinesDay }
+        if gMonth == 4 && gDay == qingmingDay(year: gYear) { return .qingming }
+        if gMonth == 7 && gDay == 4 { return .independenceDay }
+        if gMonth == 10 && (1...3).contains(gDay) { return .nationalDay }
+        if gMonth == 10 && gDay == 31 { return .halloween }
+        if gMonth == 11
+            && gregorian.component(.weekday, from: date) == 5
+            && gregorian.component(.weekdayOrdinal, from: date) == 4 {
+            return .thanksgiving
+        }
+        return .none
+    }
+
+    private static func qingmingDay(year: Int) -> Int {
+        // Astronomical Qingming solar term date formula valid across 2000–2099 (Apr 4 or 5).
+        let y = max(0, year % 100)
+        return Int(Double(y) * 0.2422 + 4.81) - max(0, y - 1) / 4
+    }
+}
+
+struct KkTreeAtmosphere: Equatable {
+    let season: KkTreeSeason
+    let festival: KkTreeFestival
+    let enabled: Bool
+
+    static let standard = KkTreeAtmosphere(season: .summer, festival: .none, enabled: false)
+
+    static func resolve(for date: Date, enabled: Bool = true) -> KkTreeAtmosphere {
+        guard enabled else {
+            return KkTreeAtmosphere(season: .summer, festival: .none, enabled: false)
+        }
+        return KkTreeAtmosphere(
+            season: KkTreeSeason.resolve(for: date),
+            festival: KkTreeFestival.resolve(for: date),
+            enabled: true
+        )
+    }
+
+    var showsWinterSnow: Bool {
+        enabled && (season == .winter || festival == .christmas)
+    }
+
+    var showsFullMoon: Bool {
+        enabled && festival == .midAutumn
+    }
+}
+
 /// Pure view-model derived from cumulative reading stats so both the widget
 /// canvas and unit tests share exact growth calculations.
 struct KkReadingTreeProfile: Equatable {
@@ -116,9 +225,12 @@ struct KkReadingTreeProfile: Equatable {
     let remainingSecondsToNext: Int64?
     let totalSeconds: Int64
     let todaySeconds: Int64
+    let totalListeningSeconds: Int64
+    let todayListeningSeconds: Int64
     let streakDays: Int
     let booksFinished: Int
     let annotationCount: Int
+    let atmosphere: KkTreeAtmosphere
 
     /// Visible fruits rendered on the tree, one per finished book up to the cap.
     let renderedFruits: Int
@@ -130,6 +242,12 @@ struct KkReadingTreeProfile: Equatable {
     let accents: [KkTreeAccent]
 
     var hasReadToday: Bool { todaySeconds > 0 }
+    var hasListenedToday: Bool { todayListeningSeconds > 0 }
+    var hasListeningHistory: Bool { totalListeningSeconds > 0 }
+    var listeningBirdCount: Int {
+        guard stage.rawValue >= KkTreeStage.seedling.rawValue, totalListeningSeconds > 0 else { return 0 }
+        return totalListeningSeconds >= 36_000 ? 2 : 1
+    }
     var isThriving: Bool { streakDays >= 3 }
     var nextStage: KkTreeStage? { stage.next }
 
@@ -139,10 +257,15 @@ struct KkReadingTreeProfile: Equatable {
         streakDays: Int,
         booksFinished: Int,
         annotationCount: Int,
-        activeBookProgresses: [Double] = []
+        activeBookProgresses: [Double] = [],
+        totalListeningSeconds: Int64 = 0,
+        todayListeningSeconds: Int64 = 0,
+        atmosphere: KkTreeAtmosphere = .standard
     ) {
         let safeTotal = max(0, totalSeconds)
         let safeToday = max(0, todaySeconds)
+        let safeTotalListening = max(0, totalListeningSeconds)
+        let safeTodayListening = max(0, todayListeningSeconds)
         let safeStreak = max(0, streakDays)
         let safeFinished = max(0, booksFinished)
         let safeAnnotations = max(0, annotationCount)
@@ -151,9 +274,12 @@ struct KkReadingTreeProfile: Equatable {
         self.stage = resolvedStage
         self.totalSeconds = safeTotal
         self.todaySeconds = safeToday
+        self.totalListeningSeconds = safeTotalListening
+        self.todayListeningSeconds = safeTodayListening
         self.streakDays = safeStreak
         self.booksFinished = safeFinished
         self.annotationCount = safeAnnotations
+        self.atmosphere = atmosphere
 
         if let next = resolvedStage.next {
             let floor = resolvedStage.minimumSeconds
@@ -257,21 +383,38 @@ struct KkReadingTreeProfile: Equatable {
         self.accents = builtAccents
     }
 
-    init(reading: KkReading, activeBookProgresses: [Double] = []) {
+    init(reading: KkReading, activeBookProgresses: [Double] = [], atmosphere: KkTreeAtmosphere = .standard) {
         self.init(
             totalSeconds: reading.totalSeconds,
             todaySeconds: reading.todaySeconds,
             streakDays: reading.streakDays,
             booksFinished: reading.booksFinished,
             annotationCount: reading.annotationCount,
-            activeBookProgresses: activeBookProgresses)
+            activeBookProgresses: activeBookProgresses,
+            totalListeningSeconds: reading.safeTotalListeningSeconds,
+            todayListeningSeconds: reading.safeTodayListeningSeconds,
+            atmosphere: atmosphere)
     }
 
-    init(snapshot: KkSnapshot) {
+    init(snapshot: KkSnapshot, date: Date = Date(), isPreview: Bool = false) {
         let books = snapshot.continueBooks ?? (snapshot.continueReading.map { [$0] } ?? [])
+        let atmosphere = KkTreeAtmosphere.resolve(for: date)
+        let todaySec = isPreview
+            ? snapshot.reading.todaySeconds
+            : KkFormat.effectiveTodaySeconds(reading: snapshot.reading, generatedAt: snapshot.generatedAt, on: date)
+        let streak = isPreview
+            ? snapshot.reading.streakDays
+            : KkFormat.effectiveStreakDays(reading: snapshot.reading, generatedAt: snapshot.generatedAt, on: date)
         self.init(
-            reading: snapshot.reading,
-            activeBookProgresses: books.map(\.progress))
+            totalSeconds: snapshot.reading.totalSeconds,
+            todaySeconds: todaySec,
+            streakDays: streak,
+            booksFinished: snapshot.reading.booksFinished,
+            annotationCount: snapshot.reading.annotationCount,
+            activeBookProgresses: books.map(\.progress),
+            totalListeningSeconds: snapshot.reading.safeTotalListeningSeconds,
+            todayListeningSeconds: todaySec > 0 ? snapshot.reading.safeTodayListeningSeconds : 0,
+            atmosphere: atmosphere)
     }
 
     func stageTitle(isChinese: Bool = KkFormat.isChinese) -> String {

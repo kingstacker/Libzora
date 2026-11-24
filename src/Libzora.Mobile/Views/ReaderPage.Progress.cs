@@ -61,13 +61,18 @@ public partial class ReaderPage
     {
         EnsureReadingStatsLoaded();
         var progress = Math.Clamp(_overallProgress * 100, 0, 100);
-        if (_readingStats is not { CumulativeSeconds: >= PaceLearningSeconds } stats
+        if (_readingStats is not { } stats
             || !double.IsFinite(stats.ProgressPercent)
             || stats.ProgressPercent < PaceLearningProgress)
             return UiText.Get("阅读速度估计中");
 
+        var visualSeconds = Math.Max(0, stats.CumulativeSeconds - stats.ListeningSeconds);
+        var paceSeconds = visualSeconds >= PaceLearningSeconds ? visualSeconds : stats.CumulativeSeconds;
+        if (paceSeconds < PaceLearningSeconds)
+            return UiText.Get("阅读速度估计中");
+
         var measured = Math.Clamp(stats.ProgressPercent, PaceLearningProgress, 100);
-        var secondsPerPercent = stats.CumulativeSeconds / measured;
+        var secondsPerPercent = paceSeconds / measured;
         var seconds = secondsPerPercent * Math.Max(0, 100 - progress);
         return UiText.Get("剩余约 {0}", ReaderReadingTimeEstimate.FormatDuration(seconds));
     }

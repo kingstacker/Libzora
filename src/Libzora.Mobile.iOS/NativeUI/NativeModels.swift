@@ -263,14 +263,21 @@ struct DashboardBook: Decodable, Identifiable {
     let title: String
     let progressPercent: Double
     let cumulativeSeconds: Int64
+    let listeningSeconds: Int64?
     let isInLibrary: Bool
     var id: String { bookId }
 }
-struct ReadingDay: Decodable, Identifiable { let date: String; let activeSeconds: Int64; var id: String { date } }
+struct ReadingDay: Decodable, Identifiable {
+    let date: String
+    let activeSeconds: Int64
+    let listeningSeconds: Int64?
+    var id: String { date }
+}
 struct ReadingDashboard: Decodable {
     let booksStarted: Int
     let booksFinished: Int
     let totalSeconds: Int64
+    let listeningSeconds: Int64?
     let averageProgress: Double
     let bookmarkCount: Int
     let annotationCount: Int
@@ -305,7 +312,12 @@ struct ReaderDialog: Decodable, Equatable {
     let underlineStyle: String?; let color: String?
 }
 struct ReaderMedia: Decodable, Identifiable, Equatable { let id: String; let kind: String; let title: String; let path: String }
-struct SpeechVoice: Decodable, Identifiable { let id: String; let name: String; let culture: String? }
+struct SpeechVoice: Decodable, Identifiable {
+    let id: String
+    let name: String
+    let culture: String?
+    let qualityTier: Int?
+}
 struct SpeechForm: Decodable { var voice: String; var speed: Double; var autoAdvance: Bool }
 struct SpeechSnapshot: Decodable { let settings: SpeechForm; let voices: [SpeechVoice] }
 struct DictionaryRecord: Decodable, Identifiable { let id: String; let name: String; let entryCount: Int; let enabled: Bool; let sourceFormat: String? }

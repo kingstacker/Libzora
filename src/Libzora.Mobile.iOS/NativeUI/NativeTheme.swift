@@ -578,9 +578,17 @@ struct NativeGlassToolbarButtonStyle: ButtonStyle {
 }
 
 struct NativeHideTabBar: ViewModifier {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
     @ViewBuilder func body(content: Content) -> some View {
-        if #available(iOS 16.0, *) { content.toolbar(.hidden, for: .tabBar) }
-        else { content }
+        // On iPadOS 26+, the TabView bar sits in the top safe area; hiding it
+        // on pushed detail pages collapses ScrollView top insets underneath
+        // and makes the shelf bounce on pop. Only hide bottom bars on compact.
+        if #available(iOS 16.0, *), horizontalSizeClass != .regular {
+            content.toolbar(.hidden, for: .tabBar)
+        } else {
+            content
+        }
     }
 }
 

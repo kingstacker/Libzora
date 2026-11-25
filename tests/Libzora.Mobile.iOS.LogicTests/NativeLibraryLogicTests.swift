@@ -118,6 +118,12 @@ struct NativeLibraryLogicTests {
               "Tablet typography sheets expose more controls")
         check(NativeAdaptiveLayout.readerSettingsHeight(maxHeight: 800, isPdf: false, isTablet: false) == 336,
               "Phone typography detents stay unchanged")
+        check(NativeAdaptiveLayout.assistantSidebarWidth(contentWidth: 1180) == 420,
+              "Default iPad AI sidebar keeps its balanced width")
+        check(NativeAdaptiveLayout.assistantSidebarWidth(contentWidth: 1180, preferredWidth: 160) == 280,
+              "AI sidebar width clamps at the readable minimum")
+        check(NativeAdaptiveLayout.assistantSidebarWidth(contentWidth: 1180, preferredWidth: 800) == 600,
+              "AI sidebar width leaves room for the reading surface")
     }
 
     static func main() {
@@ -215,6 +221,69 @@ struct NativeLibraryLogicTests {
               "Pruning drops IDs no longer in the library")
         check(NativeLibraryBatchPolicy.selectedCount(in: ["b1", "b2", "b3"], from: ["b1", "b3"]) == 2,
               "Series selection count matches selected member volumes")
+
+        // Interactive scroll-driven library masthead & mask policy.
+        var chrome = NativeLibraryScrollChromePolicy()
+        chrome.updateBounds(contentHeight: 2000, viewportHeight: 800)
+        chrome.updateMastheadHeight(64)
+
+        // Scrolling down from top keeps floating masthead hidden while fading in status-bar glass.
+        chrome.update(clampedOffset: 24)
+        check(chrome.mastheadProgress == 0, "Scrolling down from top keeps floating masthead hidden")
+        check(chrome.glassOpacity > 0 && chrome.glassOpacity < 1, "Glass opacity ramps during initial scroll")
+        chrome.update(clampedOffset: 300)
+        check(chrome.mastheadProgress == 0 && chrome.glassOpacity == 1,
+              "Deep downward scroll keeps floating masthead hidden and glass fully opaque")
+
+        // Dragging back up reveals masthead and mask 1:1 with scroll distance.
+        chrome.update(clampedOffset: 268) // -32pt => 50%
+        check(abs(chrome.mastheadProgress - 0.5) < 0.001,
+              "32pt upward scroll reveals half of a 64pt masthead (got \(chrome.mastheadProgress))")
+        chrome.update(clampedOffset: 236) // -32pt => 100%
+        check(abs(chrome.mastheadProgress - 1.0) < 0.001,
+              "64pt upward scroll fully reveals the masthead")
+
+        // Reversing downward hides masthead and mask 1:1 with scroll distance.
+        chrome.update(clampedOffset: 252) // +16pt => 75%
+        check(abs(chrome.mastheadProgress - 0.75) < 0.001,
+              "16pt downward scroll hides 25% of the masthead (got \(chrome.mastheadProgress))")
+        chrome.update(clampedOffset: 300) // +48pt => 0%
+        check(chrome.mastheadProgress == 0,
+              "64pt total downward scroll hides the masthead completely")
+
+        // Returning from bottom overscroll must not reveal the masthead.
+        chrome.update(clampedOffset: 1200)
+        chrome.update(clampedOffset: 1350) // clamped to maximumOffset 1200
+        chrome.update(clampedOffset: 1200)
+        check(chrome.mastheadProgress == 0,
+              "Bottom overscroll rubber-band does not trigger masthead reveal")
+
+        // Reaching the very top hands off cleanly to the inline header with zero glass.
+        chrome.update(clampedOffset: 300)
+        chrome.update(clampedOffset: 200) // fully revealed
+        check(chrome.mastheadProgress == 1, "Upward scroll reveals floating masthead before reaching top")
+        chrome.update(clampedOffset: 20)
+        check(chrome.mastheadProgress >= 1 - 20.0 / 64.0,
+              "Top-zone invariant prevents inline header pop-in while floating masthead is active")
+        chrome.update(clampedOffset: 0)
+        check(chrome.mastheadProgress == 0 && chrome.glassOpacity == 0,
+              "Returning to offset 0 resets floating masthead and glass for seamless inline handoff")
+
+        // Idle settle completes partial reveals/hides without snapping prematurely while scrolling.
+        chrome.update(clampedOffset: 300)
+        chrome.update(clampedOffset: 280) // -20pt => 0.3125
+        check(chrome.settleTarget() == 0 && chrome.mastheadProgress == 0,
+              "Idle settle below 50% hides the masthead")
+        chrome.update(clampedOffset: 240) // -40pt => 0.625
+        check(chrome.settleTarget() == 1 && chrome.mastheadProgress == 1,
+              "Idle settle at or above 50% completes the reveal")
+
+        check(!NativeAdaptiveLayout.isWideBookDetail(viewportSize: CGSize(width: 820, height: 1180)),
+              "Portrait iPad uses the stacked phone-style book detail layout instead of an empty two-column split")
+        check(NativeAdaptiveLayout.isWideBookDetail(viewportSize: CGSize(width: 1180, height: 820)),
+              "Landscape iPad keeps the two-column book detail layout")
+        check(!NativeAdaptiveLayout.isWideBookDetail(viewportSize: CGSize(width: 759, height: 390)),
+              "Wide breakpoint applies only at or above 760pt width in landscape")
 
         print("Passed \(assertions) iOS adaptive-layout, library and sync-key logic assertions.")
     }

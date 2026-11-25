@@ -88,6 +88,7 @@ public partial class ReaderPage
 {
     private bool _usesNativeFrontend;
     private Size? _nativeViewportHint;
+    private double _nativeViewportLeft;
     private bool? _nativeAppAppearanceDark;
     private int _nativeAppAppearanceRevision = -1;
     private bool _nativeChromeVisible = false;
@@ -200,8 +201,13 @@ public partial class ReaderPage
         _nativeViewportHint = new Size(width, height);
     }
 
-    public void NativeSetSurfaceInsets(Thickness insets, double? viewportWidth = null, double? viewportHeight = null)
+    public void NativeSetSurfaceInsets(Thickness insets, double? viewportWidth = null, double? viewportHeight = null,
+        double? viewportLeft = null)
     {
+        if (viewportLeft is { } left && double.IsFinite(left) && left >= 0)
+        {
+            _nativeViewportLeft = left;
+        }
         var viewportChanged = false;
         if (viewportWidth is { } width && viewportHeight is { } height
             && double.IsFinite(width) && double.IsFinite(height) && width >= 2 && height >= 2)
@@ -373,6 +379,25 @@ public partial class ReaderPage
     }
 
     public Task NativeToggleSpeechAsync(CancellationToken cancellationToken = default) => ToggleListeningAsync(cancellationToken);
+
+    public string NativeGetSpeechLanguage()
+    {
+        var sample = string.Empty;
+        if (BuildSpeechDocument() is { } doc && !string.IsNullOrWhiteSpace(doc.Text))
+        {
+            var start = Math.Clamp(doc.StartOffset, 0, doc.Text.Length);
+            sample = start < doc.Text.Length ? doc.Text[start..] : doc.Text;
+        }
+        if (string.IsNullOrWhiteSpace(sample))
+        {
+            sample = (_readerHost as NativeReaderHost)?.BodyText;
+        }
+        if (string.IsNullOrWhiteSpace(sample))
+        {
+            sample = _book.Title;
+        }
+        return TtsSelectionVoicePolicy.DetectDominantLanguage(sample);
+    }
     public async Task NativeSpeakSelectionAsync(CancellationToken cancellationToken = default)
     {
         if (_disposed) return;

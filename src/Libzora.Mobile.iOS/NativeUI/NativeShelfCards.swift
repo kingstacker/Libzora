@@ -121,7 +121,7 @@ struct NativeBookShelf: View {
                 destinations.showPreview(front, source: .seriesStack, frame: frame, width: coverWidth,
                                          store: store, actions: actions(front))
             })
-                .disabled(store.openingReader)
+                .allowsHitTesting(!store.openingReader)
         }
     }
 
@@ -165,7 +165,7 @@ struct NativeBookShelf: View {
                         }
                 }
             }
-        }.buttonStyle(.plain).disabled(store.openingReader)
+        }.buttonStyle(.plain).allowsHitTesting(!store.openingReader)
             .overlay {
                 if !selectionMode {
                     NativeBookLink(enabled: !store.openingReader,

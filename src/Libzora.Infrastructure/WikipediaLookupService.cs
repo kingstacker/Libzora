@@ -28,22 +28,35 @@ public sealed class WikipediaLookupService
         var query = NormalizeQuery(term);
         if (query.Length == 0 || query.Length > MaximumQueryLength) return null;
 
-        var primaryLanguage = preferredLanguage.StartsWith("zh", StringComparison.OrdinalIgnoreCase)
-            ? "zh"
-            : "en";
-        var fallbackLanguage = primaryLanguage == "zh" ? "en" : "zh";
+        var primaryLanguage = ResolveEdition(preferredLanguage);
+        var fallbackLanguage = primaryLanguage == "en" ? "zh" : "en";
 
-        var article = await LookupInLanguageAsync(query, primaryLanguage, cancellationToken)
+        var article = await LookupInLanguageAsync(query, primaryLanguage, preferredLanguage, cancellationToken)
             .ConfigureAwait(false);
         if (article is not null) return article;
 
-        return await LookupInLanguageAsync(query, fallbackLanguage, cancellationToken)
+        return await LookupInLanguageAsync(query, fallbackLanguage, preferredLanguage, cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    private static string ResolveEdition(string preferredLanguage)
+    {
+        var code = (preferredLanguage ?? string.Empty).Trim().Replace('_', '-').ToLowerInvariant();
+        if (code.StartsWith("zh", StringComparison.Ordinal)) return "zh";
+        if (code.StartsWith("ja", StringComparison.Ordinal)) return "ja";
+        if (code.StartsWith("de", StringComparison.Ordinal)) return "de";
+        if (code.StartsWith("fr", StringComparison.Ordinal)) return "fr";
+        if (code.StartsWith("ko", StringComparison.Ordinal)) return "ko";
+        if (code.StartsWith("es", StringComparison.Ordinal)) return "es";
+        if (code.StartsWith("it", StringComparison.Ordinal)) return "it";
+        if (code.StartsWith("pt", StringComparison.Ordinal)) return "pt";
+        return "en";
     }
 
     private async Task<WikipediaArticle?> LookupInLanguageAsync(
         string query,
         string language,
+        string preferredLanguage,
         CancellationToken cancellationToken)
     {
         var parameters = new Dictionary<string, string>
@@ -60,7 +73,12 @@ public sealed class WikipediaLookupService
             ["inprop"] = "url"
         };
         if (language == "zh")
-            parameters["variant"] = "zh-cn";
+        {
+            var code = (preferredLanguage ?? string.Empty).Trim().Replace('_', '-').ToLowerInvariant();
+            var isHant = code.Contains("hant", StringComparison.Ordinal)
+                || code is "zh-tw" or "zh-hk" or "zh-mo";
+            parameters["variant"] = isHant ? "zh-hant" : "zh-cn";
+        }
 
         var queryString = string.Join(
             "&",

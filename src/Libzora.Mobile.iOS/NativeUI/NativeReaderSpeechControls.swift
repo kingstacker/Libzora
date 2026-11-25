@@ -23,6 +23,7 @@ struct NativeReaderSpeechControls: View {
     // inactive even while the reader is visible, so use UIKit's lifecycle.
     @State private var appActive = UIApplication.shared.applicationState == .active
     @State private var interaction = 0
+    @State private var showingSleepMenu = false
 
     private static let quickSpeeds: [Double] = [0.8, 1.0, 1.2, 1.5, 1.8, 2.0]
 
@@ -33,7 +34,7 @@ struct NativeReaderSpeechControls: View {
 
     private var dockRequest: DockRequest {
         DockRequest(interaction: interaction,
-                    armed: expanded && !suspended && appActive)
+                    armed: expanded && !suspended && !showingSleepMenu && appActive)
     }
 
     var body: some View {
@@ -112,15 +113,9 @@ struct NativeReaderSpeechControls: View {
             }
             .accessibilityLabel(L("切换朗读倍速"))
             .accessibilityIdentifier("reader.speech.speed")
-            Menu {
-                Button(L("15 分钟")) { interaction += 1; setSleepTimer(15, false) }
-                Button(L("30 分钟")) { interaction += 1; setSleepTimer(30, false) }
-                Button(L("60 分钟")) { interaction += 1; setSleepTimer(60, false) }
-                Button(L("播完本章")) { interaction += 1; setSleepTimer(0, true) }
-                if sleepAfterChapter || sleepMinutesRemaining > 0 {
-                    Divider()
-                    Button(L("关闭定时"), role: .destructive) { interaction += 1; setSleepTimer(0, false) }
-                }
+            Button {
+                interaction += 1
+                showingSleepMenu = true
             } label: {
                 HStack(spacing: 2) {
                     Image(systemName: "moon.zzz")
@@ -135,6 +130,17 @@ struct NativeReaderSpeechControls: View {
                 .frame(minWidth: 36, minHeight: 44)
                 .contentShape(Rectangle())
             }
+            .modifier(NativeSpeechSleepPicker(
+                isPresented: $showingSleepMenu,
+                sleepAfterChapter: sleepAfterChapter,
+                sleepMinutesRemaining: sleepMinutesRemaining,
+                select: { minutes, afterChapter in
+                    interaction += 1
+                    showingSleepMenu = false
+                    setSleepTimer(minutes, afterChapter)
+                },
+                onDismiss: { interaction += 1 }
+            ))
             .accessibilityLabel(L("睡眠定时"))
             .accessibilityIdentifier("reader.speech.sleep")
             Button {
@@ -189,8 +195,7 @@ struct NativeReaderSpeechControls: View {
             interaction += 1
             expanded = true
         } label: {
-            Image(systemName: state == 3 ? "pause.fill" : "headphones")
-                .font(.system(size: 18, weight: .regular))
+            dockIcon
                 .frame(width: 44, height: 48)
                 .contentShape(Rectangle())
         }
@@ -199,6 +204,92 @@ struct NativeReaderSpeechControls: View {
         .accessibilityLabel(L("展开朗读控制"))
         .accessibilityValue(status)
         .accessibilityIdentifier("reader.speech.dock")
+    }
+
+    @ViewBuilder
+    private var dockIcon: some View {
+        let icon = Image(systemName: state == 3 ? "pause.circle" : "waveform")
+            .font(.system(size: 18, weight: .regular))
+            .opacity(state == 3 ? 0.72 : 1)
+        if #available(iOS 17.0, *), !reduceMotion, state != 3 {
+            icon.symbolEffect(.variableColor.iterative.dimInactiveLayers, options: .repeating)
+        } else {
+            icon
+        }
+    }
+}
+
+private struct NativeSpeechSleepPicker: ViewModifier {
+    @Binding var isPresented: Bool
+    let sleepAfterChapter: Bool
+    let sleepMinutesRemaining: Int
+    let select: (Int, Bool) -> Void
+    let onDismiss: () -> Void
+
+    func body(content: Content) -> some View {
+        if #available(iOS 16.4, *) {
+            content
+                .popover(isPresented: $isPresented, arrowEdge: .bottom) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        sleepRow(L("15 分钟"), active: false) { select(15, false) }
+                        sleepRow(L("30 分钟"), active: false) { select(30, false) }
+                        sleepRow(L("60 分钟"), active: false) { select(60, false) }
+                        sleepRow(L("播完本章"), active: sleepAfterChapter) { select(0, true) }
+                        if sleepAfterChapter || sleepMinutesRemaining > 0 {
+                            Divider()
+                            Button(role: .destructive) { select(0, false) } label: {
+                                Text(L("关闭定时"))
+                                    .font(NativeTheme.font(15))
+                                    .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
+                                    .padding(.horizontal, 16)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(Color.red)
+                        }
+                    }
+                    .padding(.vertical, 6)
+                    .frame(minWidth: 168)
+                    .presentationCompactAdaptation(.popover)
+                }
+                .onChange(of: isPresented) { open in
+                    if !open { onDismiss() }
+                }
+        } else {
+            content
+                .confirmationDialog(L("睡眠定时"), isPresented: $isPresented, titleVisibility: .visible) {
+                    Button(L("15 分钟")) { select(15, false) }
+                    Button(L("30 分钟")) { select(30, false) }
+                    Button(L("60 分钟")) { select(60, false) }
+                    Button(L("播完本章")) { select(0, true) }
+                    if sleepAfterChapter || sleepMinutesRemaining > 0 {
+                        Button(L("关闭定时"), role: .destructive) { select(0, false) }
+                    }
+                }
+                .onChange(of: isPresented) { open in
+                    if !open { onDismiss() }
+                }
+        }
+    }
+
+    private func sleepRow(_ title: String, active: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Text(title)
+                    .font(NativeTheme.font(15))
+                    .foregroundStyle(NativeTheme.ink)
+                Spacer(minLength: 8)
+                if active {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(NativeTheme.ink)
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
+            .padding(.horizontal, 16)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 

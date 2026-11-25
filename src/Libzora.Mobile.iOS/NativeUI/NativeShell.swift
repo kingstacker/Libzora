@@ -52,9 +52,9 @@ struct NativeShell: View {
                 NavigationView { NativeLibraryPage(store: store, isActive: selectedTab == 0) }.navigationViewStyle(.stack)
                     .tabItem { NativeTabLabel(title: L("书库"), symbol: "book") }.tag(0)
                 NavigationView { NativeMaterials(store: store) }.navigationViewStyle(.stack)
-                    .tabItem { NativeTabLabel(title: L("阅读资料"), symbol: "note.text") }.tag(1)
+                    .tabItem { NativeTabLabel(title: L("资料"), symbol: "note.text") }.tag(1)
                 NavigationView { NativeReadingDashboard(store: store) }.navigationViewStyle(.stack)
-                    .tabItem { NativeTabLabel(title: L("阅读数据"), symbol: "chart.bar") }.tag(2)
+                    .tabItem { NativeTabLabel(title: L("统计"), symbol: "chart.bar") }.tag(2)
                 NavigationView { NativeProfilePage(store: store) }.navigationViewStyle(.stack)
                     .tabItem { NativeTabLabel(title: L("我的"), symbol: "person") }.tag(3)
             }
@@ -70,7 +70,11 @@ struct NativeShell: View {
             .accessibilityHidden(showingLaunch || showingWelcome || (activeSeries != nil && seriesCenter.isVisible))
             .onAppear {
                 store.activeTab = selectedTab
+                store.updateSafeInsets(geometry.safeAreaInsets)
                 store.keepWidgetBrandOverlayOnTop()
+            }
+            .onChange(of: geometry.safeAreaInsets) { updated in
+                store.updateSafeInsets(updated)
             }
             .task { await store.prepareLaunch(viewport: geometry.size) }
             .onChange(of: selectedTab) { tab in

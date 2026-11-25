@@ -429,7 +429,7 @@ public partial class ReaderPage
 
         if (_interactiveDrag is { } drag)
         {
-            var width = Math.Max(1, ReaderPaper.Bounds.Width);
+            var (_, width) = ResolveTapViewport();
             var progress = (_interactiveDragVisualDirection >= 0 ? -dx : dx) / width;
             drag.Update(progress);
         }
@@ -569,7 +569,8 @@ public partial class ReaderPage
 
             // The host reports link, annotation and figure hits after this
             // tunnel handler, but only a gesture that stayed a tap reaches it.
-            var ratio = end.X / Math.Max(1, ReaderPaper.Bounds.Width);
+            var (viewportLeft, viewportWidth) = ResolveTapViewport();
+            var ratio = MobileReaderPagingPolicy.TapRatio(end.X, viewportLeft, viewportWidth);
             if ((_isPdf || IsMangaMode) && !IsChromeVisible)
             {
                 _lastPdfTapAt = now;
@@ -671,6 +672,18 @@ public partial class ReaderPage
         if (_readerHost is not NativeReaderHost host) return;
         var nextZoom = host.MangaZoom > 1.05 ? 1.0 : 2.0;
         host.SetMangaZoom(nextZoom, anchor);
+    }
+
+    private (double Left, double Width) ResolveTapViewport()
+    {
+        var fallbackWidth = Math.Max(1, ReaderPaper.Bounds.Width);
+        if (_usesNativeFrontend && _nativeViewportHint is { Width: >= 2 } hint)
+        {
+            var left = Math.Clamp(_nativeViewportLeft, 0, Math.Max(0, fallbackWidth - 2));
+            var width = Math.Clamp(hint.Width, 2, Math.Max(2, fallbackWidth - left));
+            return (left, width);
+        }
+        return (0, fallbackWidth);
     }
 
     private static void ConsumeSurfaceRelease(PointerReleasedEventArgs e)

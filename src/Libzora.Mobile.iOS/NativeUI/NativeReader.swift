@@ -41,6 +41,7 @@ struct NativeReaderPage: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var panel: ReaderPanel?
+    @State private var assistantOpen = false
     @State private var dialog: ReaderDialog?
     @State private var noteRequest: ReaderNoteRequest?
     @State private var dictionaryTerm: String?
@@ -129,6 +130,11 @@ struct NativeReaderPage: View {
     // windows dock it as a side rail beside the reading surface.
     @State private var viewportWidth: CGFloat = 0
     @State private var viewportHeight: CGFloat = 0
+    @State private var cachedTopInsetByOrientation: [Bool: CGFloat] = [:]
+    @AppStorage("libzora.assistantSidebarWidth") private var savedAssistantSidebarWidth: Double = 0
+    @State private var assistantSidebarDragWidth: CGFloat?
+    @State private var assistantSidebarDragOrigin: CGFloat?
+    @State private var assistantInputFocused = false
     private var docksAssistantSidebar: Bool {
         horizontalSizeClass == .regular && viewportWidth >= 760
     }
@@ -146,30 +152,95 @@ struct NativeReaderPage: View {
     private var sheetPanel: Binding<ReaderPanel?> {
         Binding(
             get: {
-                if (panel == .assistant && docksAssistantSidebar) || (panel == .typography && usesTypographyPopover) {
-                    return nil
+                if let panel, !(panel == .typography && usesTypographyPopover) {
+                    return panel
                 }
-                return panel
+                if assistantOpen && !docksAssistantSidebar {
+                    return .assistant
+                }
+                return nil
             },
-            set: { panel = $0 })
+            set: { updated in
+                if updated == nil {
+                    if let panel, !(panel == .typography && usesTypographyPopover) {
+                        self.panel = nil
+                    } else if assistantOpen && !docksAssistantSidebar {
+                        assistantOpen = false
+                    }
+                } else if updated == .assistant {
+                    assistantOpen = true
+                } else {
+                    panel = updated
+                }
+            })
     }
 
     private func isSidebarOpen(contentWidth: CGFloat) -> Bool {
-        panel == .assistant && horizontalSizeClass == .regular && contentWidth >= 760
+        assistantOpen && horizontalSizeClass == .regular && contentWidth >= 760
     }
 
-    private func assistantSidebarWidth(contentWidth: CGFloat) -> CGFloat {
-        isSidebarOpen(contentWidth: contentWidth) ? min(420, max(320, contentWidth * 0.36)) : 0
+    private func assistantSidebarWidth(contentWidth: CGFloat, preferredWidth: CGFloat? = nil) -> CGFloat {
+        guard isSidebarOpen(contentWidth: contentWidth) else { return 0 }
+        let saved = savedAssistantSidebarWidth > 0 ? CGFloat(savedAssistantSidebarWidth) : nil
+        return NativeAdaptiveLayout.assistantSidebarWidth(contentWidth: contentWidth, preferredWidth: preferredWidth ?? saved)
+    }
+
+    private func resolvedSafeInsets(isLandscape: Bool) -> EdgeInsets {
+        let base = store.windowSafeAreaInsets
+        let live: EdgeInsets
+        if let window = store.readerController.viewIfLoaded?.window
+            ?? store.rootViewController?.viewIfLoaded?.window {
+            let ui = window.safeAreaInsets
+            let isRTL = UIView.userInterfaceLayoutDirection(for: window.semanticContentAttribute) == .rightToLeft
+            live = EdgeInsets(
+                top: ui.top,
+                leading: isRTL ? ui.right : ui.left,
+                bottom: ui.bottom,
+                trailing: isRTL ? ui.left : ui.right
+            )
+        } else {
+            live = base
+        }
+        let fallbackTop: CGFloat
+        if isLandscape && horizontalSizeClass != .regular {
+            fallbackTop = 0
+        } else {
+            fallbackTop = max(
+                cachedTopInsetByOrientation[isLandscape] ?? 0,
+                isLandscape ? 0 : store.readerInitialTopSafeInset,
+                base.top,
+                horizontalSizeClass == .regular ? 24 : 0
+            )
+        }
+        return EdgeInsets(
+            top: live.top > 0 ? live.top : fallbackTop,
+            leading: live.leading > 0 ? live.leading : base.leading,
+            bottom: live.bottom > 0 ? live.bottom : base.bottom,
+            trailing: live.trailing > 0 ? live.trailing : base.trailing
+        )
     }
 
     var body: some View {
-        GeometryReader { safeGeometry in
-            let safeInsets = safeGeometry.safeAreaInsets
-            let contentWidth = max(1, safeGeometry.size.width)
+        GeometryReader { fullGeometry in
+            let rawContainerFrame = fullGeometry.frame(in: .global)
+            let containerFrame = (rawContainerFrame.width > 1 && rawContainerFrame.height > 1)
+                ? rawContainerFrame
+                : store.viewportRect
+            let fullSize = containerFrame.size
+            let isLandscape = fullSize.width > fullSize.height
+            let safeInsets = resolvedSafeInsets(isLandscape: isLandscape)
+            let contentWidth = max(1, fullSize.width - safeInsets.leading - safeInsets.trailing)
+            let safeHeight = max(1, fullSize.height - safeInsets.top - safeInsets.bottom)
             let sidebarOpen = isSidebarOpen(contentWidth: contentWidth)
-            let sidebarWidth = assistantSidebarWidth(contentWidth: contentWidth)
-            let readingViewportWidth = max(1, contentWidth - sidebarWidth)
-            let readingViewportHeight = max(1, safeGeometry.size.height - readerBottomInset)
+            let layoutSidebarWidth = assistantSidebarWidth(contentWidth: contentWidth)
+            let sidebarWidth = assistantSidebarWidth(contentWidth: contentWidth, preferredWidth: assistantSidebarDragWidth)
+            let readingViewportWidth = max(1, contentWidth - layoutSidebarWidth)
+            let openTransition = activeOpenTransition
+            let bodyInset = min(64, max(16, store.preferences.readerBodyPadding))
+            let surfaceTopInset: CGFloat = horizontalSizeClass == .regular
+                ? max(0, 24 - CGFloat(bodyInset))
+                : max(safeInsets.top, isLandscape ? 0 : (cachedTopInsetByOrientation[false] ?? store.readerInitialTopSafeInset))
+            let readingViewportHeight = max(1, fullSize.height - surfaceTopInset - safeInsets.bottom - readerBottomInset)
             let isLandscapeSpread = NativeAdaptiveLayout.isLandscapeSpread(
                 viewportSize: CGSize(width: readingViewportWidth, height: readingViewportHeight),
                 isPdf: reader.isPdf,
@@ -177,106 +248,116 @@ struct NativeReaderPage: View {
                 verticalWriting: store.preferences.readerVerticalWriting,
                 twoPageInLandscape: store.preferences.readerTwoPageInLandscape
             )
-            let openTransition = activeOpenTransition
+            let readingWidth = NativeAdaptiveLayout.readerWidth(
+                viewportWidth: readingViewportWidth,
+                isPdf: reader.isPdf || reader.isManga,
+                isTwoPage: isLandscapeSpread
+            )
+            let sideColumnInset = max(0, (readingViewportWidth - readingWidth) / 2)
+            let surfaceInsets = ReaderSurfaceInsets(
+                left: safeInsets.leading + sideColumnInset,
+                top: surfaceTopInset,
+                right: safeInsets.trailing + sideColumnInset + layoutSidebarWidth,
+                bottom: safeInsets.bottom + readerBottomInset
+            )
+            NativeBookOpenTransitionHost(
+                transition: openTransition,
+                driver: openTransitionDriver,
+                containerFrame: containerFrame,
+                colorScheme: readerColorScheme,
+                paper: paper,
+                content: ZStack(alignment: .topLeading) {
+                    paper
+                    ReaderSurface(controller: store.readerController)
+                        .frame(width: fullSize.width, height: fullSize.height)
+                        .overlay { ambientOverlay(size: fullSize) }
+                        .allowsHitTesting(openTransition == nil && !showingSearchResults && !jumpingToSearch)
+                    readerContent()
+                        .frame(width: readingWidth)
+                        .frame(width: readingViewportWidth)
+                        .frame(maxHeight: .infinity)
+                        .padding(.top, safeInsets.top)
+                        .padding(.bottom, safeInsets.bottom)
+                        .padding(.leading, safeInsets.leading)
+                        .allowsHitTesting(openTransition == nil && !showingSearchResults && !jumpingToSearch)
+                        .accessibilityHidden(showingSearchResults)
+                    if showingSearchResults {
+                        Button(action: dismissSearchResults) { Color.black.opacity(0.08) }
+                            .buttonStyle(.plain).accessibilityLabel(L("收起搜索结果"))
+                            .accessibilityIdentifier("reader.search.dismiss")
+                    }
+                    if entryInteractive {
+                        topChromeOverlay(
+                            safeInsets: safeInsets,
+                            readingViewportWidth: readingViewportWidth,
+                            openTransition: openTransition)
+                            .zIndex(10)
+                        bottomChromeOverlay(
+                            safeInsets: safeInsets,
+                            readingViewportWidth: readingViewportWidth,
+                            openTransition: openTransition)
+                            .zIndex(10)
+                        floatingModalOverlay(
+                            safeInsets: safeInsets,
+                            readingViewportWidth: readingViewportWidth)
+                            .zIndex(15)
+                    }
 
-            GeometryReader { fullGeometry in
-                let containerFrame = fullGeometry.frame(in: .global)
-                let readingWidth = NativeAdaptiveLayout.readerWidth(
-                    viewportWidth: readingViewportWidth,
-                    isPdf: reader.isPdf || reader.isManga,
-                    isTwoPage: isLandscapeSpread
-                )
-                let sideColumnInset = max(0, (readingViewportWidth - readingWidth) / 2)
-                let surfaceInsets = ReaderSurfaceInsets(
-                    left: safeInsets.leading + sideColumnInset,
-                    top: safeInsets.top,
-                    right: safeInsets.trailing + sideColumnInset + sidebarWidth,
-                    bottom: safeInsets.bottom + readerBottomInset
-                )
-                NativeBookOpenTransitionHost(
-                    transition: openTransition,
-                    driver: openTransitionDriver,
-                    containerFrame: containerFrame,
-                    colorScheme: readerColorScheme,
-                    paper: paper,
-                    content: ZStack(alignment: .topLeading) {
-                        paper
-                        ReaderSurface(controller: store.readerController)
-                            .frame(width: fullGeometry.size.width, height: fullGeometry.size.height)
-                            .overlay { ambientOverlay(size: fullGeometry.size) }
-                            .allowsHitTesting(openTransition == nil && !showingSearchResults && !jumpingToSearch)
-                        readerContent()
-                            .frame(width: readingWidth)
-                            .frame(width: readingViewportWidth)
-                            .frame(maxHeight: .infinity)
-                            .padding(.top, safeInsets.top)
-                            .padding(.bottom, safeInsets.bottom)
-                            .padding(.leading, safeInsets.leading)
-                            .allowsHitTesting(openTransition == nil && !showingSearchResults && !jumpingToSearch)
-                            .accessibilityHidden(showingSearchResults)
-                        if showingSearchResults {
-                            Button(action: dismissSearchResults) { Color.black.opacity(0.08) }
-                                .buttonStyle(.plain).accessibilityLabel(L("收起搜索结果"))
-                                .accessibilityIdentifier("reader.search.dismiss")
-                        }
-                        if entryInteractive {
-                            topChromeOverlay(
-                                safeInsets: safeInsets,
-                                readingViewportWidth: readingViewportWidth,
-                                openTransition: openTransition)
-                                .zIndex(10)
-                            bottomChromeOverlay(
-                                safeInsets: safeInsets,
-                                readingViewportWidth: readingViewportWidth,
-                                openTransition: openTransition)
-                                .zIndex(10)
-                            floatingModalOverlay(
-                                safeInsets: safeInsets,
-                                readingViewportWidth: readingViewportWidth)
-                                .zIndex(15)
-                        }
-
-                        if sidebarOpen {
-                            assistantSidebarOverlay(
-                                sidebarWidth: sidebarWidth,
-                                safeInsets: safeInsets,
-                                fullSize: fullGeometry.size)
-                                .zIndex(20)
-                        }
+                    if sidebarOpen {
+                        let sidebarTopInset = max(
+                            safeInsets.top,
+                            cachedTopInsetByOrientation[isLandscape]
+                                ?? cachedTopInsetByOrientation[!isLandscape]
+                                ?? store.readerInitialTopSafeInset,
+                            24
+                        )
+                        assistantSidebarOverlay(
+                            contentWidth: contentWidth,
+                            sidebarWidth: sidebarWidth,
+                            topInset: sidebarTopInset,
+                            safeInsets: safeInsets,
+                            fullSize: fullSize)
+                            .zIndex(20)
                     }
-                    .frame(width: fullGeometry.size.width, height: fullGeometry.size.height)
-                    .background { readerKeyboardShortcuts }
-                    .onAppear {
-                        viewportWidth = contentWidth
-                        viewportHeight = safeGeometry.size.height
+                }
+                .frame(width: fullSize.width, height: fullSize.height)
+                .background { readerKeyboardShortcuts }
+                .onAppear {
+                    viewportWidth = contentWidth
+                    viewportHeight = safeHeight
+                    if safeInsets.top > 0 {
+                        cachedTopInsetByOrientation[isLandscape] = safeInsets.top
                     }
-                    .onChange(of: safeGeometry.size) { size in
-                        viewportWidth = max(1, size.width)
-                        viewportHeight = size.height
+                }
+                .onChange(of: fullGeometry.size) { _ in
+                    viewportWidth = contentWidth
+                    viewportHeight = safeHeight
+                    if safeInsets.top > 0 {
+                        cachedTopInsetByOrientation[isLandscape] = safeInsets.top
                     }
-                    .task(id: "\(appearanceSessionId)|\(surfaceInsets)|\(Int(readingViewportWidth.rounded()))x\(Int(readingViewportHeight.rounded()))|\(reader.ready)|\(reader.presentationFrameRevision)") {
-                        acknowledgedFrameRevision = nil
-                        let reply: NativeReaderInsetsAcknowledgement? = try? await store.request("reader.insets", [
-                            "sessionId": appearanceSessionId,
-                            "left": Double(surfaceInsets.left),
-                            "top": Double(surfaceInsets.top),
-                            "right": Double(surfaceInsets.right),
-                            "bottom": Double(surfaceInsets.bottom),
-                            "viewportWidth": Double(readingViewportWidth),
-                            "viewportHeight": Double(readingViewportHeight)
-                        ])
-                        guard !Task.isCancelled, reply?.accepted == true,
-                              session.appearanceSessionId == appearanceSessionId else { return }
-                        acknowledgedFrameRevision = reply?.revision
-                    }
-                )
-            }
-            .ignoresSafeArea()
+                }
+                .task(id: "\(appearanceSessionId)|\(surfaceInsets)|\(Int(readingViewportWidth.rounded()))x\(Int(readingViewportHeight.rounded()))|\(reader.ready)|\(reader.presentationFrameRevision)") {
+                    acknowledgedFrameRevision = nil
+                    let reply: NativeReaderInsetsAcknowledgement? = try? await store.request("reader.insets", [
+                        "sessionId": appearanceSessionId,
+                        "left": Double(surfaceInsets.left),
+                        "top": Double(surfaceInsets.top),
+                        "right": Double(surfaceInsets.right),
+                        "bottom": Double(surfaceInsets.bottom),
+                        "viewportLeft": Double(safeInsets.leading),
+                        "viewportWidth": Double(readingViewportWidth),
+                        "viewportHeight": Double(readingViewportHeight)
+                    ])
+                    guard !Task.isCancelled, reply?.accepted == true,
+                          session.appearanceSessionId == appearanceSessionId else { return }
+                    acknowledgedFrameRevision = reply?.revision
+                }
+            )
             .modifier(NativeReaderEntryPresentation(store: store, session: session,
                 sessionId: appearanceSessionId, animation: openAnimation, paper: paper,
                 acknowledgedRevision: acknowledgedFrameRevision, prepared: $readerEntryPrepared))
         }
-        .ignoresSafeArea(.keyboard)
+        .ignoresSafeArea()
         .task(id: "\(activeOpenTransition?.id.uuidString ?? "")|\(store.openingBookReadyId?.uuidString ?? "")|\(store.readerPresentationActive)") {
             guard let transition = activeOpenTransition else {
                 openTransitionDriver.prepare(progress: 0)
@@ -301,6 +382,12 @@ struct NativeReaderPage: View {
         }
         .font(NativeTheme.font()).foregroundStyle(NativeTheme.ink).tint(NativeTheme.ink)
         .environment(\.symbolVariants, .none)
+        .statusBarHidden(
+            NativeBookOpenTransitionPolicy.shouldHideReaderStatusBar(
+                chromeVisible: reader.chromeVisible,
+                hasOpenTransition: activeOpenTransition != nil
+            )
+        )
         .preferredColorScheme(readerColorScheme)
         .interactiveDismissDisabled(true)
         .sheet(item: sheetPanel) { panel in
@@ -575,6 +662,7 @@ struct NativeReaderPage: View {
             NativeReaderMediaViewer(media: media) { session.media = nil }
         }
         .onChange(of: panel) { _ in dismissFootnote() }
+        .onChange(of: assistantOpen) { _ in dismissFootnote() }
         .onChange(of: showingSearchResults) { _ in dismissFootnote() }
         .onChange(of: reader.selectedText) { _ in dismissFootnote() }
         .onChange(of: reader.position) { _ in dismissFootnote() }
@@ -789,7 +877,7 @@ struct NativeReaderPage: View {
                 tool(L("目录"), "list.bullet", identifier: "reader.目录") { panel = .toc }
                 tool(reader.speechState == 0 || reader.speechState == 4 ? L("听书") : L("停止"), "headphones",
                      identifier: reader.speechState == 0 || reader.speechState == 4 ? "reader.听书" : "reader.停止") { run("speech") }
-                tool("AI", "sparkles", identifier: "reader.AI") { selectedText = ""; panel = .assistant }
+                tool("AI", "sparkles", identifier: "reader.AI") { openAssistant(with: "") }
                 tool(reader.isPdf ? L("显示") : L("排版"), "Aa", identifier: reader.isPdf ? "reader.显示" : "reader.排版") { panel = .typography }
                     .popover(isPresented: typographyPopover, arrowEdge: .bottom) {
                         NativeTypographyPanel(
@@ -840,7 +928,7 @@ struct NativeReaderPage: View {
                 selectedText = text
                 dictionaryTerm = text
             }
-            selectionAction("AI", "sparkles", identifier: "reader.AI", xOffset: 0.33) { selectedText = text; panel = .assistant }
+            selectionAction("AI", "sparkles", identifier: "reader.AI", xOffset: 0.33) { openAssistant(with: text) }
             selectionAction(L("翻译"), "character.bubble", identifier: "reader.翻译", xOffset: 0.25) { selectedText = text; panel = .translation }
             selectionAction(L("朗读"), "speaker.wave.2", identifier: "reader.朗读", xOffset: 0.17) { run("selectionSpeech") }
         }
@@ -946,7 +1034,7 @@ struct NativeReaderPage: View {
             initialSelection: selectedText,
             isSidebar: false,
             onJumpToSource: jumpToAiSource,
-            onClose: { self.panel = nil })
+            onClose: { assistantOpen = false })
         case .translation: NativeTranslation(store: store, text: selectedText)
         case .info: ScrollView { Text(dialog?.text ?? "").textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).padding(24) }
         }
@@ -1076,7 +1164,7 @@ struct NativeReaderPage: View {
                         speed: reader.speechSpeed,
                         sleepMinutesRemaining: reader.speechSleepMinutesRemaining,
                         sleepAfterChapter: reader.speechSleepAfterChapter,
-                        suspended: panel != nil || showingSearchResults, expanded: $speechExpanded,
+                        suspended: panel != nil || showingSearchResults || (assistantOpen && !docksAssistantSidebar), expanded: $speechExpanded,
                         setSpeed: { next in run("speechSpeed", ["speed": next]) },
                         setSleepTimer: { mins, afterChapter in run("speechSleep", ["minutes": mins, "afterChapter": afterChapter]) },
                         settings: { panel = .speech }, pause: { run("speechPause") }, stop: { run("speechStop") })
@@ -1144,41 +1232,95 @@ struct NativeReaderPage: View {
     }
 
     private func assistantSidebarOverlay(
+        contentWidth: CGFloat,
         sidebarWidth: CGFloat,
+        topInset: CGFloat,
         safeInsets: EdgeInsets,
         fullSize: CGSize
     ) -> some View {
         let usesAmbient = store.preferences.readerThemeFollowsAppearance && store.preferences.colorfulMode
+        let resizing = assistantSidebarDragWidth != nil
+        let assistantKeyboardInset = assistantInputFocused ? keyboardHeight : 0
         return HStack(spacing: 0) {
             Spacer(minLength: 0)
-            HStack(spacing: 0) {
-                Rectangle()
-                    .fill(NativeTheme.divider)
-                    .frame(width: 0.5)
-                NativeAssistant(
-                    store: store,
-                    chat: session.aiChat(for: book.id),
-                    book: book,
-                    initialSelection: selectedText,
-                    isSidebar: true,
-                    backgroundColor: .clear,
-                    onJumpToSource: jumpToAiSource,
-                    onClose: { panel = nil })
+            ZStack(alignment: .leading) {
+                HStack(spacing: 0) {
+                    Rectangle()
+                        .fill(resizing ? NativeTheme.ink.opacity(0.35) : NativeTheme.divider)
+                        .frame(width: resizing ? 1.5 : 0.5)
+                    NativeAssistant(
+                        store: store,
+                        chat: session.aiChat(for: book.id),
+                        book: book,
+                        initialSelection: selectedText,
+                        isSidebar: true,
+                        backgroundColor: .clear,
+                        onJumpToSource: jumpToAiSource,
+                        onClose: { assistantOpen = false },
+                        onInputFocusChanged: { assistantInputFocused = $0 })
+                }
+                .frame(width: sidebarWidth)
+                .padding(.top, topInset)
+                .padding(.bottom, safeInsets.bottom + assistantKeyboardInset)
+                .padding(.trailing, safeInsets.trailing)
+                .background {
+                    NativeReaderPaperBackground(
+                        paper: paper,
+                        usesAmbient: usesAmbient,
+                        ambientOpacity: appColorScheme == .dark ? 0.14 : 0.10)
+                }
+                .contentShape(Rectangle())
+                .animation(.easeOut(duration: 0.22), value: assistantKeyboardInset)
+                .font(NativeTheme.font()).foregroundStyle(NativeTheme.ink).tint(NativeTheme.ink)
+                .preferredColorScheme(readerColorScheme)
+
+                assistantResizeHandle(contentWidth: contentWidth, currentWidth: sidebarWidth)
             }
-            .frame(width: sidebarWidth)
-            .padding(.top, safeInsets.top)
-            .padding(.bottom, safeInsets.bottom)
-            .padding(.trailing, safeInsets.trailing)
-            .background {
-                NativeReaderPaperBackground(
-                    paper: paper,
-                    usesAmbient: usesAmbient,
-                    ambientOpacity: appColorScheme == .dark ? 0.14 : 0.10)
-            }
-            .font(NativeTheme.font()).foregroundStyle(NativeTheme.ink).tint(NativeTheme.ink)
-            .preferredColorScheme(readerColorScheme)
         }
         .frame(width: fullSize.width, height: fullSize.height)
+    }
+
+    private func assistantResizeHandle(contentWidth: CGFloat, currentWidth: CGFloat) -> some View {
+        let resizing = assistantSidebarDragWidth != nil
+        return ZStack(alignment: .leading) {
+            Capsule()
+                .fill(resizing ? NativeTheme.ink.opacity(0.55) : NativeTheme.muted.opacity(0.35))
+                .frame(width: 3.5, height: 34)
+                .padding(.leading, 3.5)
+        }
+        .frame(width: 16)
+        .frame(maxHeight: .infinity)
+        .contentShape(Rectangle())
+        .accessibilityLabel(L("调整 AI 助手宽度"))
+        .accessibilityIdentifier("reader.assistant.resizeHandle")
+        .onTapGesture(count: 2) {
+            assistantSidebarDragOrigin = nil
+            assistantSidebarDragWidth = nil
+            savedAssistantSidebarWidth = 0
+        }
+        .gesture(
+            DragGesture(minimumDistance: 2, coordinateSpace: .global)
+                .onChanged { value in
+                    if assistantSidebarDragOrigin == nil {
+                        assistantSidebarDragOrigin = currentWidth
+                    }
+                    let origin = assistantSidebarDragOrigin ?? currentWidth
+                    assistantSidebarDragWidth = NativeAdaptiveLayout.assistantSidebarWidth(
+                        contentWidth: contentWidth,
+                        preferredWidth: origin - value.translation.width
+                    )
+                }
+                .onEnded { value in
+                    let origin = assistantSidebarDragOrigin ?? currentWidth
+                    let resolved = NativeAdaptiveLayout.assistantSidebarWidth(
+                        contentWidth: contentWidth,
+                        preferredWidth: origin - value.translation.width
+                    )
+                    assistantSidebarDragOrigin = nil
+                    assistantSidebarDragWidth = nil
+                    savedAssistantSidebarWidth = Double(resolved)
+                }
+        )
     }
 
     private var keyboardPagingReversed: Bool {
@@ -1189,7 +1331,7 @@ struct NativeReaderPage: View {
     private var keyboardPagingEnabled: Bool {
         reader.ready && !closing && !searching && !showingSearchResults
             && noteRequest == nil && dictionaryTerm == nil && session.media == nil
-            && (panel == nil || (panel == .assistant && docksAssistantSidebar))
+            && panel == nil && !assistantInputFocused && (!assistantOpen || docksAssistantSidebar)
     }
 
     @ViewBuilder
@@ -1226,6 +1368,7 @@ struct NativeReaderPage: View {
     private func handleEscapeShortcut() {
         if searching || showingSearchResults { closeSearch(); return }
         if panel != nil { panel = nil; return }
+        if assistantOpen { assistantOpen = false; return }
         if session.footnote != nil { dismissFootnote(); return }
         if reader.selectedText != nil { run("clearSelection"); return }
         closing = true
@@ -1234,7 +1377,7 @@ struct NativeReaderPage: View {
 
     private func jumpToAiSource(_ source: AiSource) {
         if !docksAssistantSidebar {
-            panel = nil
+            assistantOpen = false
         }
         store.perform {
             let _: AiJumpResult = try await store.request("reader.aiJump", [
@@ -1243,6 +1386,18 @@ struct NativeReaderPage: View {
                 "offset": source.offset,
                 "pdfPage": source.pdfPage
             ])
+        }
+    }
+
+    private func openAssistant(with selection: String) {
+        selectedText = selection
+        if reader.chromeVisible {
+            store.perform {
+                try? await store.command("reader.hideChrome")
+                assistantOpen = true
+            }
+        } else {
+            assistantOpen = true
         }
     }
 
@@ -2117,6 +2272,7 @@ struct NativeSpeechSettings: View {
     let close: () -> Void
     @State private var voices: [SpeechVoice] = []
     @State private var voice = "zh-CN-XiaoxiaoNeural"
+    @State private var detectedLanguage = "zh"
     @State private var speed = 1.0
     @State private var autoAdvance = true
     @State private var ready = false
@@ -2125,7 +2281,7 @@ struct NativeSpeechSettings: View {
         NativeForm {
             Section {
                 Picker(L("语音"), selection: $voice) {
-                    Text(L("系统默认（中文）")).tag("zh-CN-XiaoxiaoNeural")
+                    Text(detectedLanguage == "en" ? L("系统默认（英文）") : L("系统默认（中文）")).tag("zh-CN-XiaoxiaoNeural")
                     if !zhVoices.isEmpty {
                         Section(L("中文语音")) {
                             ForEach(zhVoices) { item in
@@ -2162,6 +2318,7 @@ struct NativeSpeechSettings: View {
             do {
                 let value: SpeechSnapshot = try await store.request("settings.speech.get")
                 voices = value.voices
+                detectedLanguage = value.detectedLanguage ?? "zh"
                 voice = value.voices.contains(where: { $0.id == value.settings.voice }) ? value.settings.voice : "zh-CN-XiaoxiaoNeural"
                 speed = value.settings.speed
                 autoAdvance = value.settings.autoAdvance

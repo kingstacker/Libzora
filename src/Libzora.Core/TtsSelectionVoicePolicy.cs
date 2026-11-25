@@ -31,4 +31,24 @@ public static class TtsSelectionVoicePolicy
         return preferredVoice?.StartsWith("zh-CN-", StringComparison.OrdinalIgnoreCase) == true
             ? preferredVoice : TtsOptions.DefaultVoice;
     }
+
+    /// <summary>Detects whether body or chapter text is predominantly English or Chinese.</summary>
+    public static string DetectDominantLanguage(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return "zh";
+        var cjk = 0;
+        var latin = 0;
+        var sampled = 0;
+        foreach (var rune in text.EnumerateRunes())
+        {
+            if (rune.Value is >= 0x3400 and <= 0x9FFF or >= 0x20000 and <= 0x323AF)
+                cjk++;
+            else if (rune.Value is >= 'A' and <= 'Z' or >= 'a' and <= 'z')
+                latin++;
+            if (++sampled >= 2000) break;
+        }
+
+        if (latin == 0) return "zh";
+        return cjk == 0 || latin > cjk * 4 ? "en" : "zh";
+    }
 }

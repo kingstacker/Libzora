@@ -256,12 +256,14 @@ final class NativeStore: ObservableObject {
     @Published var readerEntrySnapshot: UIImage?
     var readerOpenAnimation: NativeBookOpenAnimation = .none
     var readerOpenSource: NativeBookOpenSource = .other
+    var readerInitialTopSafeInset: CGFloat = 0
     @Published var closingBookTransition: NativeBookOpenTransition?
     @Published var closingBookBackdrop = false
     @Published var closingBookSnapshot: UIImage?
     var closingTransitionWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
     var activeTab = 0
     private(set) var viewportRect: CGRect = UIScreen.main.bounds
+    private(set) var windowSafeAreaInsets = EdgeInsets()
     var lastBookOpenOrigin: (bookId: String, sourceKey: String)?
     @Published var readerPresentationActive = false
     var widgetTabTransition: NativePageSlideTransition?
@@ -718,6 +720,10 @@ final class NativeStore: ObservableObject {
         guard rect.width > 120, rect.height > 160,
               rect.origin.x.isFinite, rect.origin.y.isFinite else { return }
         viewportRect = rect
+    }
+
+    func updateSafeInsets(_ insets: EdgeInsets) {
+        windowSafeAreaInsets = insets
     }
 
     func perform(_ work: @escaping @MainActor () async throws -> Void) {

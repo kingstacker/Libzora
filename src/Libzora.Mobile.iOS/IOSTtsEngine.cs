@@ -103,7 +103,7 @@ internal sealed class IOSTtsEngine : ITtsEngine
         {
             var utterance = new AVSpeechUtterance(text)
             {
-                Voice = SelectVoice(options.Voice),
+                Voice = SelectVoice(options.Voice, text),
                 Rate = MapRate(options.RatePercent),
                 PitchMultiplier = Math.Clamp(1f + options.PitchHz / 100f, 0.5f, 2f),
                 Volume = Math.Clamp((options.VolumePercent + 100) / 100f, 0f, 1f),
@@ -247,7 +247,7 @@ internal sealed class IOSTtsEngine : ITtsEngine
         _ => 0     // Default / Compact
     };
 
-    internal static AVSpeechSynthesisVoice? SelectVoice(string requested)
+    internal static AVSpeechSynthesisVoice? SelectVoice(string requested, string? text = null)
     {
         var all = AVSpeechSynthesisVoice.GetSpeechVoices();
         if (!string.IsNullOrWhiteSpace(requested)
@@ -272,6 +272,19 @@ internal sealed class IOSTtsEngine : ITtsEngine
                 if (bestForLocale is not null)
                     return bestForLocale;
             }
+        }
+
+        if (string.Equals(TtsSelectionVoicePolicy.DetectDominantLanguage(text), "en", StringComparison.Ordinal))
+        {
+            return all
+                .Where(v => v.Language?.StartsWith("en", StringComparison.OrdinalIgnoreCase) == true)
+                .OrderBy(v => IsExcludedVoice(v) ? 1 : 0)
+                .ThenBy(v => v.Language?.StartsWith("en-US", StringComparison.OrdinalIgnoreCase) == true ? 0 : 1)
+                .ThenByDescending(v => MapQualityTier(v.Quality))
+                .FirstOrDefault()
+                ?? AVSpeechSynthesisVoice.FromLanguage("en-US")
+                ?? AVSpeechSynthesisVoice.FromLanguage("en-GB")
+                ?? all.FirstOrDefault();
         }
 
         return all

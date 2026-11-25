@@ -224,10 +224,10 @@ final class NativeFrontendTests: XCTestCase {
     }
 
     func testNativeTabsAndNavigation() {
-        for (name, identifier) in [("阅读资料", "page.materials"), ("阅读数据", "page.dashboard"), ("我的", "page.profile")] {
+        for (name, identifier, capture) in [("资料", "page.materials", "阅读资料"), ("统计", "page.dashboard", "阅读数据"), ("我的", "page.profile", "我的")] {
             app.tabBars.buttons[name].tap()
             XCTAssertTrue(app.staticTexts[identifier].waitForExistence(timeout: 15))
-            attachScreenshot(name)
+            attachScreenshot(capture)
         }
         app.tabBars.buttons["书库"].tap()
         showLibrary()
@@ -467,9 +467,9 @@ final class NativeFrontendTests: XCTestCase {
         app.tabBars.buttons["书库"].tap()
         showLibrary()
         attachScreenshot("炫彩滚动-顶部")
-        app.tabBars.buttons["阅读资料"].tap()
+        app.tabBars.buttons["资料"].tap()
         XCTAssertTrue(app.staticTexts["page.materials"].waitForExistence(timeout: 15))
-        app.tabBars.buttons["阅读数据"].tap()
+        app.tabBars.buttons["统计"].tap()
         XCTAssertTrue(app.staticTexts["page.dashboard"].waitForExistence(timeout: 15))
         app.tabBars.buttons["书库"].tap()
         app.swipeUp()
@@ -483,8 +483,8 @@ final class NativeFrontendTests: XCTestCase {
         // Every tab inherits the new visible-cover palette after scrolling,
         // while the background field positions remain fixed.
         for (tab, page, capture) in [
-            ("阅读资料", "page.materials", "炫彩滚动后-阅读资料"),
-            ("阅读数据", "page.dashboard", "炫彩滚动后-阅读数据")
+            ("资料", "page.materials", "炫彩滚动后-阅读资料"),
+            ("统计", "page.dashboard", "炫彩滚动后-阅读数据")
         ] {
             app.tabBars.buttons[tab].tap()
             XCTAssertTrue(app.staticTexts[page].waitForExistence(timeout: 15))
@@ -507,10 +507,10 @@ final class NativeFrontendTests: XCTestCase {
         app.tabBars.buttons["书库"].tap()
         showLibrary(true)
         attachScreenshot("炫彩-收藏夹")
-        app.tabBars.buttons["阅读资料"].tap()
+        app.tabBars.buttons["资料"].tap()
         XCTAssertTrue(app.staticTexts["page.materials"].waitForExistence(timeout: 15))
         attachScreenshot("炫彩-阅读资料")
-        app.tabBars.buttons["阅读数据"].tap()
+        app.tabBars.buttons["统计"].tap()
         XCTAssertTrue(app.staticTexts["page.dashboard"].waitForExistence(timeout: 15))
         attachScreenshot("炫彩-阅读数据")
         // The dark wash must keep the same even coverage without turning the
@@ -526,10 +526,10 @@ final class NativeFrontendTests: XCTestCase {
         app.tabBars.buttons["书库"].tap()
         showLibrary(true)
         attachScreenshot("炫彩-深色-收藏夹")
-        app.tabBars.buttons["阅读资料"].tap()
+        app.tabBars.buttons["资料"].tap()
         XCTAssertTrue(app.staticTexts["page.materials"].waitForExistence(timeout: 15))
         attachScreenshot("炫彩-深色-阅读资料")
-        app.tabBars.buttons["阅读数据"].tap()
+        app.tabBars.buttons["统计"].tap()
         XCTAssertTrue(app.staticTexts["page.dashboard"].waitForExistence(timeout: 15))
         attachScreenshot("炫彩-深色-阅读数据")
         app.tabBars.buttons["我的"].tap()
@@ -711,7 +711,7 @@ final class NativeFrontendTests: XCTestCase {
     }
 
     func testReadingCalendarPeriodPicker() {
-        app.tabBars.buttons["阅读数据"].tap()
+        app.tabBars.buttons["统计"].tap()
         let picker = app.segmentedControls["dashboard.period"]
         XCTAssertTrue(picker.waitForExistence(timeout: 20))
         XCTAssertFalse(picker.buttons["14 天"].exists)
@@ -723,7 +723,7 @@ final class NativeFrontendTests: XCTestCase {
     }
 
     func testReadingMedalsShowCatalogArtwork() {
-        app.tabBars.buttons["阅读数据"].tap()
+        app.tabBars.buttons["统计"].tap()
         XCTAssertTrue(app.segmentedControls["dashboard.period"].waitForExistence(timeout: 20))
         let showAll = app.buttons["全部"]
         reveal(showAll)
@@ -2211,7 +2211,7 @@ final class NativeFrontendTests: XCTestCase {
     /// The materials tab was loaded before the reader added the highlight, and an
     /// EPUB highlight shows its date instead of a file path inside the book.
     func testNewHighlightAppearsInMaterialsWithReadableLocation() throws {
-        app.tabBars.buttons["阅读资料"].tap()
+        app.tabBars.buttons["资料"].tap()
         XCTAssertTrue(app.staticTexts["page.materials"].waitForExistence(timeout: 15))
         app.tabBars.buttons["书库"].tap()
         try openBook(containing: "Native UI EPUB")
@@ -2234,7 +2234,7 @@ final class NativeFrontendTests: XCTestCase {
         XCTAssertTrue(app.buttons["book.back"].waitForExistence(timeout: 15))
         app.buttons["book.back"].tap()
 
-        app.tabBars.buttons["阅读资料"].tap()
+        app.tabBars.buttons["资料"].tap()
         let book = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'materials.book.' AND label CONTAINS 'Native UI EPUB'")).firstMatch
         XCTAssertTrue(book.waitForExistence(timeout: 15), app.debugDescription)
         let formatter = DateFormatter()
@@ -2282,7 +2282,7 @@ final class NativeFrontendTests: XCTestCase {
     }
 
     func testMaterialsBookAndBookmarkOpenAndCloseReader() throws {
-        app.tabBars.buttons["阅读资料"].tap()
+        app.tabBars.buttons["资料"].tap()
         let bookmarks = app.segmentedControls["materials.filter"].buttons["书签"]
         XCTAssertTrue(bookmarks.waitForExistence(timeout: 15))
         bookmarks.tap()
@@ -2336,7 +2336,7 @@ final class NativeFrontendTests: XCTestCase {
         XCTAssertTrue(app.buttons["book.back"].waitForExistence(timeout: 15))
         app.buttons["book.back"].tap()
 
-        app.tabBars.buttons["阅读资料"].tap()
+        app.tabBars.buttons["资料"].tap()
         let entries = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'materials.entry.'"))
         XCTAssertTrue(waitUntil(timeout: 15) { entries.count >= 2 }, "Expected at least two material entries.\n\(app.debugDescription)")
 

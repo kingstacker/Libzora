@@ -236,6 +236,7 @@ struct NativeAssistant: View {
     var backgroundColor: Color = NativeTheme.page
     var onJumpToSource: (AiSource) -> Void
     var onClose: () -> Void
+    var onInputFocusChanged: (Bool) -> Void = { _ in }
 
     @State private var activeSelection: String
     @State private var expandedReasoningIds: Set<UUID> = []
@@ -245,6 +246,7 @@ struct NativeAssistant: View {
     @State private var sharePayload: NativeSharePayload?
     @State private var copiedMessageId: UUID?
     @State private var nearBottom = true
+    @FocusState private var inputFocused: Bool
 
     init(
         store: NativeStore,
@@ -254,7 +256,8 @@ struct NativeAssistant: View {
         isSidebar: Bool = false,
         backgroundColor: Color = NativeTheme.page,
         onJumpToSource: @escaping (AiSource) -> Void,
-        onClose: @escaping () -> Void
+        onClose: @escaping () -> Void,
+        onInputFocusChanged: @escaping (Bool) -> Void = { _ in }
     ) {
         self.store = store
         self.chat = chat
@@ -264,6 +267,7 @@ struct NativeAssistant: View {
         self.backgroundColor = backgroundColor
         self.onJumpToSource = onJumpToSource
         self.onClose = onClose
+        self.onInputFocusChanged = onInputFocusChanged
         _activeSelection = State(initialValue: initialSelection)
     }
 
@@ -305,6 +309,11 @@ struct NativeAssistant: View {
                         }
                         .onChange(of: chat.messages.count) { _ in
                             scrollToBottom(proxy)
+                        }
+                        .onChange(of: geometry.size.height) { _ in
+                            if nearBottom && !chat.messages.isEmpty {
+                                scrollToBottom(proxy)
+                            }
                         }
                         if !nearBottom && !chat.messages.isEmpty {
                             Button {
@@ -354,6 +363,8 @@ struct NativeAssistant: View {
         .onChange(of: initialSelection) { updated in
             if !updated.isEmpty { activeSelection = updated }
         }
+        .onChange(of: inputFocused) { onInputFocusChanged($0) }
+        .onDisappear { onInputFocusChanged(false) }
         .sheet(item: $previewSource) { source in
             NativeAiSourceSheet(source: source) {
                 previewSource = nil
@@ -400,7 +411,8 @@ struct NativeAssistant: View {
                     Image(systemName: "trash")
                         .font(.system(size: 14, weight: .regular))
                         .foregroundStyle(chat.busy ? NativeTheme.faint : NativeTheme.secondary)
-                        .frame(width: 28, height: 28)
+                        .frame(width: 36, height: 36)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .disabled(chat.busy)
@@ -411,14 +423,16 @@ struct NativeAssistant: View {
                 Image(systemName: "xmark")
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(NativeTheme.secondary)
-                    .frame(width: 28, height: 28)
+                    .frame(width: 36, height: 36)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel(L("关闭"))
             .accessibilityIdentifier("reader.assistant.close")
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.leading, 14)
+        .padding(.trailing, 8)
+        .padding(.vertical, 6)
     }
 
     private var reasoningMenuButton: some View {
@@ -473,6 +487,9 @@ struct NativeAssistant: View {
                     .font(NativeTheme.font(13, relativeTo: .footnote))
                     .fontWeight(.semibold)
                     .foregroundStyle(Color(uiColor: .systemBlue))
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 4)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("reader.assistant.openSettings")
@@ -800,18 +817,21 @@ struct NativeAssistant: View {
 
     @ViewBuilder
     private var questionInputField: some View {
-        if #available(iOS 16.0, *) {
-            TextField(L("输入问题"), text: $chat.draftQuestion, axis: .vertical)
-                .font(NativeTheme.font(16))
-                .lineLimit(1...5)
-                .submitLabel(.send)
-                .onSubmit(send)
-        } else {
-            TextField(L("输入问题"), text: $chat.draftQuestion)
-                .font(NativeTheme.font(16))
-                .submitLabel(.send)
-                .onSubmit(send)
+        Group {
+            if #available(iOS 16.0, *) {
+                TextField(L("输入问题"), text: $chat.draftQuestion, axis: .vertical)
+                    .font(NativeTheme.font(16))
+                    .lineLimit(1...5)
+                    .submitLabel(.send)
+                    .onSubmit(send)
+            } else {
+                TextField(L("输入问题"), text: $chat.draftQuestion)
+                    .font(NativeTheme.font(16))
+                    .submitLabel(.send)
+                    .onSubmit(send)
+            }
         }
+        .focused($inputFocused)
     }
 
     private func promptChip(_ title: String, symbol: String, action: @escaping () -> Void) -> some View {

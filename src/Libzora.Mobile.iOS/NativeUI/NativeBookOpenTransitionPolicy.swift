@@ -341,6 +341,16 @@ enum NativeBookOpenTransitionPolicy {
         return !ready && (hasError || loadingChromeVisible)
     }
 
+    /// Keeps the status bar untouched while a transparent 3D cover-open
+    /// transition is active over the library, preventing the underlying shelf
+    /// or full-screen host from shifting vertically at t = 0.
+    static func shouldHideReaderStatusBar(
+        chromeVisible: Bool,
+        hasOpenTransition: Bool
+    ) -> Bool {
+        !chromeVisible && !hasOpenTransition
+    }
+
     private static func libraryCandidateKeys(bookId: String, seriesFrontBookId: String?) -> [String] {
         var keys = ["shelf:\(bookId)"]
         if let frontId = seriesFrontBookId, frontId != bookId {

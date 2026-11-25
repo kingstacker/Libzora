@@ -16,6 +16,15 @@ struct NativeMaterials: View {
         var records: [MaterialRecord]
     }
     private func matches(_ item: MaterialRecord) -> Bool { filter == "all" || item.kind == filter }
+    private var emptyState: (title: String, subtitle: String) {
+        switch filter {
+        case "highlight": return (L("还没有划线"), L("阅读时添加的划线会汇集在这里"))
+        case "note": return (L("还没有笔记"), L("阅读时写下的笔记会汇集在这里"))
+        case "bookmark": return (L("还没有书签"), L("阅读时添加的书签会汇集在这里"))
+        case "reflection": return (L("还没有思考"), L("为书籍写下的思考会汇集在这里"))
+        default: return (L("还没有阅读资料"), L("划线、笔记、书签与思考会汇集在这里"))
+        }
+    }
     /// One pass over the entries. They arrive newest first, so the order in
     /// which books first appear also sorts the books by their latest entry.
     private var groups: [BookGroup] {
@@ -58,7 +67,7 @@ struct NativeMaterials: View {
                     Text(L("划线")).tag("highlight")
                     Text(L("笔记")).tag("note")
                     Text(L("书签")).tag("bookmark")
-                    Text(L("读后思考")).tag("reflection")
+                    Text(L("思考")).tag("reflection")
                 }
                 .pickerStyle(.segmented)
                 .frame(maxWidth: NativeAdaptiveLayout.libraryFilterMaxWidth)
@@ -71,10 +80,11 @@ struct NativeMaterials: View {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     if loading { ProgressView(L("正在读取阅读资料…")).frame(maxWidth: .infinity).padding(.top, 96) }
                     if !loading && count == 0 {
+                        let empty = emptyState
                         VStack(spacing: 6) {
                             Image(systemName: "note.text").font(.system(size: 34, weight: .ultraLight)).foregroundStyle(mutedText)
-                            Text(L("还没有阅读资料")).font(NativeTheme.font(17)).padding(.top, 8)
-                            Text(L("书签、划线、笔记与读后思考会汇集在这里")).font(NativeTheme.font(13)).foregroundStyle(mutedText)
+                            Text(empty.title).font(NativeTheme.font(17)).padding(.top, 8)
+                            Text(empty.subtitle).font(NativeTheme.font(13)).foregroundStyle(mutedText)
                         }.frame(maxWidth: .infinity).padding(.top, 96)
                     }
                     ForEach(groups) { group in
@@ -106,7 +116,7 @@ struct NativeMaterials: View {
                                         .font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(mutedText)
                                 }.frame(maxWidth: .infinity, alignment: .leading)
                             }.padding(.vertical, 12).contentShape(Rectangle())
-                        }.id(id).buttonStyle(.plain).disabled(store.openingReader).accessibilityIdentifier("materials.book.\(id)")
+                        }.id(id).buttonStyle(.plain).allowsHitTesting(!store.openingReader).accessibilityIdentifier("materials.book.\(id)")
 
                         VStack(spacing: 6) {
                             ForEach(records) { item in
@@ -308,7 +318,7 @@ struct NativeReadingDashboard: View {
                                                 Text("\(item.progressPercent, specifier: "%.0f")%").font(NativeTheme.font(11, relativeTo: .caption2)).foregroundStyle(mutedText)
                                             }
                                         }.frame(width: 96).contentShape(Rectangle())
-                                    }.buttonStyle(.plain).disabled(store.openingReader)
+                                    }.buttonStyle(.plain).allowsHitTesting(!store.openingReader)
                                         .accessibilityIdentifier("dashboard.recent.\(book.id)")
                                 }
                             }
@@ -446,7 +456,7 @@ struct NativeReadingDashboard: View {
                         }
                     }
                 }.contentShape(Rectangle())
-            }.buttonStyle(.plain).disabled(store.openingReader)
+            }.buttonStyle(.plain).allowsHitTesting(!store.openingReader)
                 .accessibilityLabel(listeningSeconds > 0
                     ? "\(book.title)，\(L("{0}，含听书 {1}", detail, readingDuration(listeningSeconds)))"
                     : "\(book.title)，\(detail)")

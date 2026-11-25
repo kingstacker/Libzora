@@ -108,7 +108,7 @@ final class ReaderFootnoteTests: XCTestCase {
         app.launchArguments = ["--libzora-disable-restore", "--libzora-test-slow-reader-close"]
         app.launchEnvironment["LIBZORA_TEST_SLOW_READER_CLOSE"] = "1"
         app.launch()
-        let materialsTab = app.tabBars.buttons["阅读资料"]
+        let materialsTab = app.tabBars.buttons["资料"]
         XCTAssertTrue(materialsTab.waitForExistence(timeout: 15))
         materialsTab.tap()
         let filter = app.segmentedControls["materials.filter"].buttons["书签"]
@@ -177,7 +177,7 @@ final class ReaderFootnoteTests: XCTestCase {
         app.launchArguments = ["--libzora-disable-restore", "--libzora-test-slow-reader-open"]
         app.launchEnvironment["LIBZORA_TEST_SLOW_READER_OPEN"] = "1"
         app.launch()
-        app.tabBars.buttons["阅读资料"].tap()
+        app.tabBars.buttons["资料"].tap()
         let filter = app.segmentedControls["materials.filter"].buttons["书签"]
         XCTAssertTrue(filter.waitForExistence(timeout: 15))
         filter.tap()
@@ -215,7 +215,7 @@ final class ReaderFootnoteTests: XCTestCase {
     }
 
     func testMaterialsEntryHonorsTheConfiguredPageAnimation() {
-        app.tabBars.buttons["阅读资料"].tap()
+        app.tabBars.buttons["资料"].tap()
         let entry = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'materials.entry.'")).firstMatch
         XCTAssertTrue(entry.waitForExistence(timeout: 15))
         entry.tap()
@@ -240,7 +240,7 @@ final class ReaderFootnoteTests: XCTestCase {
         app.launchArguments = ["--libzora-disable-restore", "--libzora-test-slow-reader-open"]
         app.launchEnvironment["LIBZORA_TEST_SLOW_READER_OPEN"] = "1"
         app.launch()
-        app.tabBars.buttons["阅读资料"].tap()
+        app.tabBars.buttons["资料"].tap()
         let entry = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'materials.entry.'")).firstMatch
         XCTAssertTrue(entry.waitForExistence(timeout: 15))
         entry.tap()

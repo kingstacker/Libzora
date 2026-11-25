@@ -169,7 +169,14 @@ public partial class MaterialsPage : UserControl
         SummaryText.Text = $"共 {_entries.Count} 条";
         ExportButton.IsEnabled = !_exporting && visible.Count > 0;
         EmptyState.IsVisible = visible.Count == 0;
-        EmptyTitle.Text = _entries.Count == 0 ? "还没有阅读资料" : "这一类还没有内容";
+        (EmptyTitle.Text, EmptySubtitle.Text) = _filter switch
+        {
+            MaterialKind.Highlight => ("还没有划线", "阅读时添加的划线会汇集在这里"),
+            MaterialKind.Note => ("还没有笔记", "阅读时写下的笔记会汇集在这里"),
+            MaterialKind.Bookmark => ("还没有书签", "阅读时添加的书签会汇集在这里"),
+            MaterialKind.Reflection => ("还没有思考", "为书籍写下的思考会汇集在这里"),
+            _ => ("还没有阅读资料", "划线、笔记、书签与思考会汇集在这里")
+        };
     }
 
     private void OnBookClick(object? sender, RoutedEventArgs e)

@@ -20,12 +20,14 @@ public static class UiText
 
     public static bool IsEnglish => CurrentLanguage.Equals("en-US", StringComparison.Ordinal);
 
+    public static bool IsChinese => CurrentLanguage.StartsWith("zh", StringComparison.OrdinalIgnoreCase);
+
     public static event EventHandler? LanguageChanged;
 
     /// <summary>
     /// Returns the closest supported UI language for the current operating
-    /// system. Libzora currently ships Simplified Chinese and English; other
-    /// system languages fall back to English.
+    /// system. Desktop ships Simplified Chinese and English; other system
+    /// languages fall back to English.
     /// </summary>
     public static string DetectSystemLanguage()
     {
@@ -35,11 +37,11 @@ public static class UiText
             : "en-US";
     }
 
-    public static void Configure(Func<string, string?> resolver, string? language = null)
+    public static void Configure(Func<string, string?> resolver, string? language = null, bool normalize = true)
     {
         ArgumentNullException.ThrowIfNull(resolver);
         _resolver = resolver;
-        SetLanguage(language ?? DetectSystemLanguage());
+        SetLanguage(language ?? DetectSystemLanguage(), normalize);
     }
 
     public static string NormalizeLanguage(string? language)
@@ -52,12 +54,14 @@ public static class UiText
         return DetectSystemLanguage();
     }
 
-    public static void SetLanguage(string? language)
+    public static void SetLanguage(string? language, bool normalize = true)
     {
-        var normalized = NormalizeLanguage(language);
-        var changed = !string.Equals(CurrentLanguage, normalized, StringComparison.Ordinal);
-        CurrentLanguage = normalized;
-        _culture = CultureInfo.GetCultureInfo(normalized);
+        var resolved = normalize
+            ? NormalizeLanguage(language)
+            : (string.IsNullOrWhiteSpace(language) ? DetectSystemLanguage() : language.Trim());
+        var changed = !string.Equals(CurrentLanguage, resolved, StringComparison.Ordinal);
+        CurrentLanguage = resolved;
+        _culture = CultureInfo.GetCultureInfo(resolved);
         if (changed)
             LanguageChanged?.Invoke(null, EventArgs.Empty);
     }

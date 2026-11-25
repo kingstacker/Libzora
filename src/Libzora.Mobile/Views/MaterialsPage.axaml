@@ -19,7 +19,7 @@
         <Button Name="FilterHighlights" Classes="chip" Content="划线" Click="OnFilterClick" />
         <Button Name="FilterNotes" Classes="chip" Content="笔记" Click="OnFilterClick" />
         <Button Name="FilterBookmarks" Classes="chip" Content="书签" Click="OnFilterClick" />
-        <Button Name="FilterReflections" Classes="chip" Content="读后思考" Click="OnFilterClick" />
+        <Button Name="FilterReflections" Classes="chip" Content="思考" Click="OnFilterClick" />
       </StackPanel>
     </ScrollViewer>
 
@@ -96,7 +96,7 @@
                       HorizontalAlignment="Center" Foreground="{DynamicResource TextMutedBrush}" />
           <TextBlock Name="EmptyTitle" Classes="title" Text="还没有阅读资料"
                      HorizontalAlignment="Center" Margin="0,8,0,0" />
-          <TextBlock Classes="muted" Text="书签、划线、笔记与读后思考会汇集在这里"
+          <TextBlock Name="EmptySubtitle" Classes="muted" Text="划线、笔记、书签与思考会汇集在这里"
                      HorizontalAlignment="Center" />
         </StackPanel>
       </StackPanel>

@@ -40,7 +40,6 @@ struct NativeLibraryPage: View {
         return filterResult
     }
     private var filterPending: Bool { advancedFilter.count > 0 && currentFilterResult == nil }
-    private var floatingMasthead: Bool { scrollState.showMasthead }
     private var books: [LibraryBook] {
         if filterPending { return [] }
         let matchingIDs = currentFilterResult?.ids
@@ -61,20 +60,25 @@ struct NativeLibraryPage: View {
     var body: some View {
         GeometryReader { geometry in
             let pageWidth = NativeAdaptiveLayout.pageWidth(viewportWidth: geometry.size.width)
-            let floatingExitOffset = -(geometry.safeAreaInsets.top + mastheadHeight + 64)
             ScrollView {
                 VStack(spacing: 0) {
                     NativeLibraryScrollReader(state: scrollState)
-                    masthead(floating: false)
-                        .opacity(floatingMasthead ? 0 : 1)
-                        .accessibilityHidden(floatingMasthead)
-                        .background {
-                            GeometryReader { proxy in
-                                Color.clear
-                                    .onAppear { mastheadHeight = proxy.size.height }
-                                    .onChange(of: proxy.size.height) { mastheadHeight = $0 }
-                            }
+                    NativeLibraryInlineMastheadHost(chrome: scrollState.chrome) {
+                        masthead(floating: false)
+                    }
+                    .background {
+                        GeometryReader { proxy in
+                            Color.clear
+                                .onAppear {
+                                    mastheadHeight = proxy.size.height
+                                    scrollState.updateMastheadHeight(proxy.size.height)
+                                }
+                                .onChange(of: proxy.size.height) { height in
+                                    mastheadHeight = height
+                                    scrollState.updateMastheadHeight(height)
+                                }
                         }
+                    }
                     if !store.libraryLoaded, let error = store.libraryLoadError { libraryFailure(error) }
                     else if store.preferences.collectionsView { foldersView(width: pageWidth) }
                     else { booksView(width: pageWidth) }
@@ -94,6 +98,7 @@ struct NativeLibraryPage: View {
                     }
                 }
             }.refreshable { await refresh() }
+                .modifier(NativeLibraryScrollPhaseObserver(state: scrollState))
                 .accessibilityIdentifier(store.libraryLoaded ? "library.ready" : "library.loading")
                 .coordinateSpace(name: NativeLibraryScrollState.space)
                 .onAppear {
@@ -108,24 +113,21 @@ struct NativeLibraryPage: View {
                     updateVisibleAmbientRegions(offset: scrollState.offset)
                 }
                 .overlay(alignment: .top) {
-                    masthead(floating: true)
-                        .frame(width: pageWidth)
-                        .frame(maxWidth: .infinity)
-                        .background {
-                            NativeMastheadGlass(glass: scrollState.glass, colors: nil)
-                                .padding(.bottom, -64)
-                                .ignoresSafeArea(edges: .top)
-                        }
-                        .opacity(floatingMasthead ? 1 : 0)
-                        .offset(y: floatingMasthead ? 0 : floatingExitOffset)
-                        .allowsHitTesting(floatingMasthead)
-                        .accessibilityHidden(!floatingMasthead)
-                        .zIndex(1)
+                    NativeLibraryFloatingMastheadHost(chrome: scrollState.chrome, slideDistance: mastheadHeight) {
+                        masthead(floating: true)
+                            .frame(width: pageWidth)
+                            .frame(maxWidth: .infinity)
+                            .background {
+                                NativeMastheadGlass(chrome: scrollState.chrome, colors: nil)
+                                    .padding(.bottom, -64)
+                                    .ignoresSafeArea(edges: .top)
+                            }
+                    }
+                    .zIndex(1)
                 }
         }.background(NativeAmbientBackground()).navigationBarHidden(true)
         .overlay(alignment: .top) {
-            NativeLibraryStatusBarGlass(scroll: scrollState)
-                .opacity(floatingMasthead ? 0 : 1)
+            NativeLibraryStatusBarGlass(chrome: scrollState.chrome)
         }
         .overlay(alignment: .bottom) {
             if selection.active && !store.preferences.collectionsView {
@@ -394,7 +396,7 @@ struct NativeLibraryPage: View {
         // Filtering and sorting the whole library is the costly part of a render.
         let books = self.books
         return VStack(alignment: .leading, spacing: 0) {
-            filters.padding(.horizontal, -12).padding(.bottom, 12)
+            filters.padding(.trailing, -12).padding(.bottom, 12)
             continueCard(books: books)
             if filterPending {
                 ProgressView(L("正在筛选书籍…")).frame(maxWidth: .infinity).padding(.top, 96)
@@ -430,7 +432,7 @@ struct NativeLibraryPage: View {
                         .id("\(filter)|\(query)|\(advancedFilter.count)|\(advancedFilter.readingStatus ?? "")|\(store.preferences.sort)|\(store.preferences.listView)|\(store.preferences.stackBookSeries)")
                 }
             }
-        }.padding(.horizontal, NativeAdaptiveLayout.pageInset).padding(.top, 8).padding(.bottom, selection.active ? 92 : 28)
+        }.padding(.horizontal, NativeAdaptiveLayout.pageInset).padding(.top, 2).padding(.bottom, selection.active ? 92 : 28)
     }
 
     private func libraryFailure(_ message: String) -> some View {
@@ -485,7 +487,7 @@ struct NativeLibraryPage: View {
                         }
                     }
                 }.frame(height: 68).contentShape(Rectangle())
-            }.buttonStyle(.plain).disabled(store.openingReader).accessibilityIdentifier("library.continue")
+            }.buttonStyle(.plain).allowsHitTesting(!store.openingReader).accessibilityIdentifier("library.continue")
                 .padding(.top, 4).padding(.bottom, 20)
         }
     }

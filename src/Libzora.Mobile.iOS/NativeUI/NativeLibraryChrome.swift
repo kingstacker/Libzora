@@ -13,48 +13,32 @@ struct NativeAmbientCoverRegion: Equatable {
     let visibility: Double
 }
 
-final class NativeLibraryGlassState: ObservableObject {
-    @Published fileprivate(set) var opacity: Double = 0
+/// Narrow observable state observed only by the lightweight header/glass overlays
+/// so per-frame scroll tracking never re-evaluates the library grid.
+final class NativeLibraryChromeState: ObservableObject {
+    @Published fileprivate(set) var glassOpacity: Double = 0
+    @Published fileprivate(set) var mastheadProgress: CGFloat = 0
 }
 
-/// Tracks the scroll direction to reveal the shelf actions on a downward drag.
+/// Tracks scroll offset so the floating masthead and its fade mask follow
+/// finger movement 1:1 when appearing and hiding.
 final class NativeLibraryScrollState: ObservableObject {
     static let space = "library.scroll"
-    let glass = NativeLibraryGlassState()
-    @Published private(set) var showMasthead = false
-    private(set) var offset: CGFloat = 0
+    let chrome = NativeLibraryChromeState()
+    var offset: CGFloat { policy.offset }
     var onScrollBucketChanged: ((CGFloat) -> Void)?
+    private var policy = NativeLibraryScrollChromePolicy()
     private var anchor: CGFloat?
-    private var directionAnchor: CGFloat = 0
-    private var maximumOffset: CGFloat = 0
-    private var lastValue: CGFloat?
-    private var lastSample = ProcessInfo.processInfo.systemUptime
-    private var scrollSpeed: CGFloat = 0
     private var lastAmbientBucket = -1
 
-    /// Finish the masthead transition in the time it takes the shelf to cover
-    /// its height, so a flick snaps in and a slow drag eases with the finger.
-    private var mastheadDuration: TimeInterval {
-        min(0.26, max(0.05, 64 / Double(max(abs(scrollSpeed), 160))))
+    func updateMastheadHeight(_ height: CGFloat) {
+        policy.updateMastheadHeight(height)
+        publishChrome(animated: false)
     }
 
     func updateBounds(contentHeight: CGFloat, viewportHeight: CGFloat) {
-        guard contentHeight.isFinite, viewportHeight.isFinite, viewportHeight > 0 else { return }
-        maximumOffset = max(0, contentHeight - viewportHeight)
-        directionAnchor = min(directionAnchor, maximumOffset)
-        if offset > maximumOffset {
-            offset = maximumOffset
-            showMasthead = false
-            updateGlassOpacity()
-        }
-    }
-
-    private func updateGlassOpacity() {
-        let clamped = min(1, max(0, offset / 48))
-        let quantized = (clamped * 25).rounded() / 25
-        if abs(quantized - glass.opacity) >= 0.03 {
-            glass.opacity = quantized
-        }
+        policy.updateBounds(contentHeight: contentHeight, viewportHeight: viewportHeight)
+        publishChrome(animated: false)
     }
 
     func update(top: CGFloat) {
@@ -63,43 +47,41 @@ final class NativeLibraryScrollState: ObservableObject {
         guard let anchor else { return }
         // Rubber-band motion beyond either edge is not a scroll reversal.
         // In particular, returning from bottom overscroll must not reveal the header.
-        let value = min(maximumOffset, max(0, anchor - top))
-        let now = ProcessInfo.processInfo.systemUptime
-        if let lastValue, now > lastSample {
-            let elapsed = now - lastSample
-            let delta = value - lastValue
-            if elapsed < 0.12 {
-                let instantaneous = delta / CGFloat(elapsed)
-                scrollSpeed = scrollSpeed == 0 ? instantaneous : (scrollSpeed * 0.35 + instantaneous * 0.65)
-            } else if abs(delta) > 8 {
-                // A pause ends the old gesture, but a large initial jump already indicates a fast flick.
-                scrollSpeed = delta / 0.016
-            } else {
-                scrollSpeed = 0
-            }
-        }
-        lastValue = value
-        lastSample = now
-        if abs(value - offset) > 0.5 {
-            if value <= 0.5 {
-                // Both headers have identical geometry here, so handing back to
-                // the inline header does not make its controls jump or vanish.
-                if showMasthead { showMasthead = false }
-                directionAnchor = value
-            } else if value > directionAnchor + 12 {
-                if showMasthead { withAnimation(.easeOut(duration: mastheadDuration)) { showMasthead = false } }
-                directionAnchor = value
-            } else if value < directionAnchor - 12 {
-                if value >= 64 && !showMasthead { withAnimation(.easeOut(duration: mastheadDuration)) { showMasthead = true } }
-                directionAnchor = value
-            }
-            offset = value
-            updateGlassOpacity()
-            let bucket = Int(max(0, value) / 64)
+        let value = anchor - top
+        let previousOffset = policy.offset
+        policy.update(clampedOffset: value)
+        publishChrome(animated: false)
+
+        if abs(policy.offset - previousOffset) > 0.25 {
+            let bucket = Int(max(0, policy.offset) / 64)
             if bucket != lastAmbientBucket {
                 lastAmbientBucket = bucket
-                onScrollBucketChanged?(value)
+                onScrollBucketChanged?(policy.offset)
             }
+        }
+    }
+
+    /// Gently settles a partially revealed header once scrolling comes to a complete stop.
+    func settleIfIdle() {
+        guard policy.settleTarget() != nil else { return }
+        publishChrome(animated: true)
+    }
+
+    private func publishChrome(animated: Bool) {
+        let opacityChanged = abs(policy.glassOpacity - chrome.glassOpacity) > 0.001
+            || ((policy.glassOpacity == 0 || policy.glassOpacity == 1) && policy.glassOpacity != chrome.glassOpacity)
+        let progressChanged = abs(policy.mastheadProgress - chrome.mastheadProgress) > 0.001
+            || ((policy.mastheadProgress == 0 || policy.mastheadProgress == 1) && policy.mastheadProgress != chrome.mastheadProgress)
+        guard opacityChanged || progressChanged else { return }
+
+        let apply = {
+            if opacityChanged { self.chrome.glassOpacity = self.policy.glassOpacity }
+            if progressChanged { self.chrome.mastheadProgress = self.policy.mastheadProgress }
+        }
+        if animated {
+            withAnimation(.easeOut(duration: 0.16)) { apply() }
+        } else {
+            apply()
         }
     }
 }
@@ -117,8 +99,52 @@ struct NativeLibraryScrollReader: View {
     }
 }
 
+struct NativeLibraryScrollPhaseObserver: ViewModifier {
+    let state: NativeLibraryScrollState
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.onScrollPhaseChange { _, newPhase in
+                if newPhase == .idle {
+                    state.settleIfIdle()
+                }
+            }
+        } else {
+            content
+        }
+    }
+}
+
+struct NativeLibraryInlineMastheadHost<Content: View>: View {
+    @ObservedObject var chrome: NativeLibraryChromeState
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        let floatingActive = chrome.mastheadProgress > 0
+        content()
+            .opacity(floatingActive ? 0 : 1)
+            .allowsHitTesting(!floatingActive)
+            .accessibilityHidden(floatingActive)
+    }
+}
+
+struct NativeLibraryFloatingMastheadHost<Content: View>: View {
+    @ObservedObject var chrome: NativeLibraryChromeState
+    let slideDistance: CGFloat
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        let progress = chrome.mastheadProgress
+        let travel = max(1, slideDistance)
+        content()
+            .opacity(Double(progress))
+            .offset(y: -(1 - progress) * travel)
+            .allowsHitTesting(progress > 0.35)
+            .accessibilityHidden(progress <= 0)
+    }
+}
+
 struct NativeMastheadGlass: View {
-    @ObservedObject var glass: NativeLibraryGlassState
+    @ObservedObject var chrome: NativeLibraryChromeState
     let colors: [NativeAmbientColor]?
     @EnvironmentObject private var store: NativeStore
     var body: some View {
@@ -141,21 +167,14 @@ struct NativeMastheadGlass: View {
                     .init(color: .clear, location: 1)
                 ], startPoint: .top, endPoint: .bottom)
             }
-            .opacity(glass.opacity)
+            .opacity(chrome.glassOpacity)
     }
 }
 
 struct NativeLibraryStatusBarGlass: View {
-    @ObservedObject var scroll: NativeLibraryScrollState
+    @ObservedObject var chrome: NativeLibraryChromeState
     var body: some View {
-        NativeLibraryStatusBarGlassBody(glass: scroll.glass)
+        NativeStatusBarGlass()
+            .opacity(chrome.glassOpacity * (1 - Double(chrome.mastheadProgress)))
     }
 }
-
-struct NativeLibraryStatusBarGlassBody: View {
-    @ObservedObject var glass: NativeLibraryGlassState
-    var body: some View {
-        NativeStatusBarGlass().opacity(glass.opacity)
-    }
-}
-

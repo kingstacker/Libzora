@@ -12,7 +12,13 @@ public static class ReadingMedalCatalog
 {
     public static List<ReadingMedal> Build(ReadingDashboard dashboard)
     {
-        string L(string chinese, string english) => UiText.IsEnglish ? english : chinese;
+        string L(string chinese, string english)
+        {
+            if (UiText.CurrentLanguage.Equals("zh-CN", StringComparison.Ordinal)) return chinese;
+            var translated = UiText.Get(chinese);
+            if (!string.Equals(translated, chinese, StringComparison.Ordinal)) return translated;
+            return UiText.IsChinese ? chinese : english;
+        }
         var medals = new (string Name, string Rule, long Value, long Target, string Icon)[]
         {
             (L("初见书页", "First pages"), L("累计阅读 1 小时", "Read for 1 hour"), dashboard.TotalSeconds, 3600,
@@ -61,9 +67,22 @@ public static class ReadingMedalCatalog
             string chineseRule, string englishRule, long multiplier, string[] icons)
         {
             for (var i = 0; i < targets.Length; i++)
-                medals.Add((L(names[i], englishNames[i]),
-                    L(string.Format(chineseRule, targets[i]), string.Format(englishRule, targets[i])),
-                    value, targets[i] * multiplier, icons[i]));
+            {
+                var fallbackChinese = string.Format(chineseRule, targets[i]);
+                string rule;
+                if (UiText.CurrentLanguage.Equals("zh-CN", StringComparison.Ordinal))
+                {
+                    rule = fallbackChinese;
+                }
+                else
+                {
+                    var translated = UiText.Get(chineseRule, targets[i]);
+                    rule = !string.Equals(translated, fallbackChinese, StringComparison.Ordinal)
+                        ? translated
+                        : (UiText.IsChinese ? fallbackChinese : string.Format(englishRule, targets[i]));
+                }
+                medals.Add((L(names[i], englishNames[i]), rule, value, targets[i] * multiplier, icons[i]));
+            }
         }
         AddMilestones(dashboard.TotalSeconds, [2, 75, 300, 500, 2000],
             ["两时清欢", "静读流年", "三百晨昏", "五百灯火", "岁月书航"],

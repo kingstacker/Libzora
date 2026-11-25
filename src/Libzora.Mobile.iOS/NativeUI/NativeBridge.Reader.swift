@@ -451,6 +451,7 @@ extension NativeStore {
         guard let window = navigationWindow,
               window.bounds.width > 10, window.bounds.height > 10 else { return nil }
         let safe = window.safeAreaInsets
+        readerInitialTopSafeInset = safe.top
         let contentWidth = max(1, window.bounds.width - safe.left - safe.right)
         let formats = book.formats
         let isPdfOnly = formats.localizedCaseInsensitiveContains("PDF")
@@ -463,7 +464,9 @@ extension NativeStore {
         let bodyInset = min(64, max(16, preferences.readerBodyPadding))
         let extraFooter: CGFloat = isPdfOnly ? (footerVisible ? 24 : 0)
             : (preferences.mangaMode || !footerVisible ? 0 : max(0, 24 - CGFloat(bodyInset)))
-        let contentHeight = max(1, window.bounds.height - safe.top - safe.bottom - extraFooter)
+        let isRegularWidth = window.traitCollection.horizontalSizeClass == .regular
+        let topInset: CGFloat = isRegularWidth ? max(0, 24 - CGFloat(bodyInset)) : safe.top
+        let contentHeight = max(1, window.bounds.height - topInset - safe.bottom - extraFooter)
         let isTwoPage = NativeAdaptiveLayout.isLandscapeSpread(
             viewportSize: CGSize(width: contentWidth, height: contentHeight),
             isPdf: isPdfOnly,
@@ -479,9 +482,10 @@ extension NativeStore {
         let sideColumnInset = max(0, (contentWidth - readingWidth) / 2)
         return [
             "left": Double(safe.left + sideColumnInset),
-            "top": Double(safe.top),
+            "top": Double(topInset),
             "right": Double(safe.right + sideColumnInset),
             "bottom": Double(safe.bottom + extraFooter),
+            "viewportLeft": Double(safe.left),
             "viewportWidth": Double(contentWidth),
             "viewportHeight": Double(contentHeight)
         ]

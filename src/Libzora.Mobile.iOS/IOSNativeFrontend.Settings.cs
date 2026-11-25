@@ -209,9 +209,11 @@ internal sealed partial class IOSNativeFrontend
                 await modules.Integrations.KindleEmailSettings.SaveAsync(KindleEmailSettings.Normalize(email), token);
                 break;
             case "settings.speech.get":
+                var detectedLanguage = _reader?.NativeGetSpeechLanguage() ?? "zh";
                 using (var engine = _shell.Services.CreateTtsEngine?.Invoke())
                     return Data(("settings", await modules.Reader.TtsSettings.LoadAsync(token)),
-                        ("voices", engine is null ? Array.Empty<TtsVoiceInfo>() : (await engine.GetVoicesAsync(token)).ToArray()));
+                        ("voices", engine is null ? Array.Empty<TtsVoiceInfo>() : (await engine.GetVoicesAsync(token)).ToArray()),
+                        ("detectedLanguage", detectedLanguage));
             case "settings.speech.save":
                 var speech = await modules.Reader.TtsSettings.LoadAsync(token);
                 speech.Voice = Text(args, "voice", speech.Voice);

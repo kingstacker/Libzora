@@ -79,9 +79,12 @@ internal sealed partial class IOSNativeFrontend
                     UiText.Get("所选正文将发送至 {0} 进行翻译，可能产生服务费用。请勿发送无权提供的个人信息或保密内容。", ai.Destination), UiText.Get("同意并翻译")))
                     return Data(("text", UiText.Get("已取消翻译")));
                 session.Token.ThrowIfCancellationRequested();
+                var targetLanguage = UiText.CurrentLanguage is "zh-CN" or "en-US"
+                    ? (chinese * 3 > text.Length ? "en" : "zh-CN")
+                    : UiText.CurrentLanguage;
                 var translated = await _shell.Modules.Ai.Translation.TranslateAsync(text,
                     ReaderTranslationProvider.Ai,
-                    chinese * 3 > text.Length ? "en" : "zh-CN", ai, session.Token);
+                    targetLanguage, ai, session.Token);
                 return Data(("text", translated));
             }
         }
@@ -128,6 +131,7 @@ internal sealed partial class IOSNativeFrontend
                     args.TryGetProperty("searchId", out var searchId) ? searchId.GetString() : null, session.Token)));
                 case "reader.searchClearHighlight": reader.NativeClearSearchHighlight(); break;
                 case "reader.showChrome": reader.SetChromeVisible(true); break;
+                case "reader.hideChrome": reader.SetChromeVisible(false); break;
                 case "reader.speechPause": reader.NativePauseSpeech(); break;
                 case "reader.speechStop": await reader.NativeStopSpeechAsync(); break;
                 case "reader.speechSkip": reader.NativeSkipSpeechSegment(Number(args, "direction", 1)); break;

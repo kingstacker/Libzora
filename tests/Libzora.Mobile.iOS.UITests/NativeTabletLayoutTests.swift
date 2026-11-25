@@ -97,7 +97,7 @@ final class NativeTabletLayoutTests: XCTestCase {
 
         rotate(.portrait)
         XCTAssertTrue(read.exists && read.isHittable, "Rotation must not pop the book detail page.")
-        if window.frame.width < 760 {
+        if window.frame.width < 760 || window.frame.width < window.frame.height {
             XCTAssertGreaterThanOrEqual(information.frame.minY, header.frame.maxY - 1)
         } else {
             XCTAssertLessThanOrEqual(header.frame.maxX, information.frame.minX + 1)
@@ -168,16 +168,16 @@ final class NativeTabletLayoutTests: XCTestCase {
             XCTAssertEqual(grid.maxX, window.frame.maxX - 24, accuracy: 2)
             checkpoint("页边界-\(direction)-书库")
 
-            for (tab, identifier) in [("阅读资料", "page.materials"), ("阅读数据", "page.dashboard"), ("我的", "page.profile")] {
+            for (tab, identifier) in [("资料", "page.materials"), ("统计", "page.dashboard"), ("我的", "page.profile")] {
                 selectTab(tab)
                 let heading = app.staticTexts[identifier]
                 XCTAssertTrue(heading.waitForExistence(timeout: 15))
                 XCTAssertEqual(heading.frame.minX, reference.minX, accuracy: 1, "\(tab) shares the shelf's leading edge.")
                 XCTAssertEqual(heading.frame.minY, reference.minY, accuracy: 1, "\(tab) shares the shelf's top position.")
                 XCTAssertEqual(heading.frame.height, reference.height, accuracy: 1, "\(tab) shares the shelf's title row height.")
-                XCTAssertEqual(heading.frame.width / CGFloat(tab.count), reference.width / 2, accuracy: 1,
+                XCTAssertEqual(heading.frame.width / CGFloat(heading.label.count), reference.width / 2, accuracy: 1,
                                "Chinese page titles share the same font size, not just a nominal font token.")
-                if tab == "阅读资料" {
+                if tab == "资料" {
                     let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'materials.book.'")).firstMatch
                     if row.waitForExistence(timeout: 10) { assertShelfEdges(row, reference: grid) }
                 } else if tab == "我的" {
@@ -203,7 +203,7 @@ final class NativeTabletLayoutTests: XCTestCase {
 
     func testReadingDataPagesUseShelfBoundaries() {
         rotate(.landscapeLeft)
-        selectTab("阅读数据")
+        selectTab("统计")
         let dashboard = element("dashboard.content")
         XCTAssertTrue(dashboard.waitForExistence(timeout: 20))
         let started = app.staticTexts["已开始"]
@@ -220,7 +220,7 @@ final class NativeTabletLayoutTests: XCTestCase {
             XCTAssertEqual(label.frame.minY, started.frame.minY, accuracy: 3,
                            "All four statistic cards should share one wide row.")
         }
-        selectTab("阅读资料")
+        selectTab("资料")
         let materials = element("materials.content")
         XCTAssertTrue(materials.waitForExistence(timeout: 20))
         XCTAssertGreaterThanOrEqual(materials.frame.minX, window.frame.minX)
@@ -247,6 +247,26 @@ final class NativeTabletLayoutTests: XCTestCase {
         checkpoint("iPad-PDF-横屏")
         app.buttons["reader.close"].tap()
         XCTAssertTrue(app.buttons["library.display"].waitForExistence(timeout: 10))
+    }
+
+    func testAssistantSidebarClosesFromHeaderButton() {
+        rotate(.landscapeLeft)
+        selectLayout("网格视图", identifier: "books.grid")
+        let book = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'book.'")).firstMatch
+        XCTAssertTrue(book.waitForExistence(timeout: 15))
+        book.tap()
+        revealReaderControls()
+        let aiButton = app.buttons["reader.AI"]
+        XCTAssertTrue(aiButton.waitForExistence(timeout: 10))
+        aiButton.tap()
+        let closeSidebar = app.buttons["reader.assistant.close"]
+        XCTAssertTrue(closeSidebar.waitForExistence(timeout: 10))
+        XCTAssertTrue(waitUntil(timeout: 5) { !self.element("reader.toolbar").exists },
+                      "Opening AI assistant must collapse the reader toolbar first.")
+        XCTAssertTrue(closeSidebar.isHittable)
+        closeSidebar.tap()
+        XCTAssertTrue(waitUntil(timeout: 10) { !closeSidebar.exists },
+                      "Tapping the AI sidebar close button must dismiss the docked iPad assistant.")
     }
 
     private var window: XCUIElement { app.windows.firstMatch }

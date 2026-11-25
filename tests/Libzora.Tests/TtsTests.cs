@@ -260,6 +260,14 @@ public sealed class TtsTests
         => Assert.Contains(expected, TtsService.GetPreviewText(voice, culture));
 
     [Theory]
+    [InlineData("In Walden, Henry David Thoreau writes about simple living.", "en")]
+    [InlineData("这是中文正文内容，偶尔夹杂 PDF 或 AI 词汇。", "zh")]
+    [InlineData("", "zh")]
+    [InlineData(null, "zh")]
+    public void DominantLanguageDetectionDistinguishesEnglishAndChineseBooks(string? text, string expected)
+        => Assert.Equal(expected, TtsSelectionVoicePolicy.DetectDominantLanguage(text));
+
+    [Theory]
     [InlineData("word")]
     [InlineData("Only this sentence.")]
     [InlineData("只读这句话。")]

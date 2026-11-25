@@ -26,4 +26,15 @@ public sealed class ReaderPagingPolicyTests
         Assert.Equal(logical, MobileReaderPagingPolicy.SwipeDirection(dx, vertical, pdf));
         Assert.Equal(visual, MobileReaderPagingPolicy.VisualDirection(logical, vertical, pdf));
     }
+
+    [Theory]
+    [InlineData(650, 0, 760, 1)]
+    [InlineData(420, 0, 760, 0)]
+    [InlineData(150, 0, 760, -1)]
+    [InlineData(800, 59, 800, 1)]
+    public void TapUsesVisibleViewportWhenAssistantSidebarNarrowsPage(double x, double left, double width, int expected)
+    {
+        var ratio = MobileReaderPagingPolicy.TapRatio(x, left, width);
+        Assert.Equal(expected, MobileReaderPagingPolicy.TapDirection(ratio, verticalWriting: false));
+    }
 }

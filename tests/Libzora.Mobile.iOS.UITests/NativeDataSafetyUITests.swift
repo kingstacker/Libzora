@@ -82,8 +82,8 @@ final class NativeDataSafetyUITests: XCTestCase {
     func testMaterialsDeleteCancellationAndFailureKeepTheRecord() {
         _ = createReflection()
         relaunch()
-        app.tabBars.buttons["阅读资料"].tap()
-        app.segmentedControls["materials.filter"].buttons["读后思考"].tap()
+        app.tabBars.buttons["资料"].tap()
+        app.segmentedControls["materials.filter"].buttons["思考"].tap()
         var entry = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'materials.entry.'")).firstMatch
         XCTAssertTrue(entry.waitForExistence(timeout: 15))
         let id = entry.identifier
@@ -92,8 +92,8 @@ final class NativeDataSafetyUITests: XCTestCase {
         XCTAssertTrue(cancel.waitForExistence(timeout: 10)); cancel.tap()
         XCTAssertTrue(wait { self.app.buttons[id].isEnabled })
         relaunch(extra: ["--libzora-test-material-delete-failure"])
-        app.tabBars.buttons["阅读资料"].tap()
-        app.segmentedControls["materials.filter"].buttons["读后思考"].tap()
+        app.tabBars.buttons["资料"].tap()
+        app.segmentedControls["materials.filter"].buttons["思考"].tap()
         entry = app.buttons[id]
         XCTAssertTrue(entry.waitForExistence(timeout: 15))
         revealDelete(entry)

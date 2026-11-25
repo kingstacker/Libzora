@@ -330,7 +330,7 @@ struct NativeBookSeriesOverlay: View {
                                         .opacity(lifted ? 0 : 1)
                                 }
                                 .buttonStyle(.plain)
-                                .disabled(store.openingReader)
+                                .allowsHitTesting(!store.openingReader)
                                 .overlay {
                                     NativeBookLink(enabled: !store.openingReader, tap: { open(book) },
                                                    longPress: { frame in preview(book, frame, coverWidth) })

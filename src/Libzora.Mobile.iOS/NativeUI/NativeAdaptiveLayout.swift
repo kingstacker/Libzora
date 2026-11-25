@@ -65,8 +65,12 @@ enum NativeAdaptiveLayout {
         verticalWriting: Bool,
         twoPageInLandscape: Bool
     ) -> Bool {
-        guard !isPdf, !isManga, !verticalWriting, twoPageInLandscape,
-              viewportSize.width.isFinite, viewportSize.height.isFinite,
+        guard !isPdf, !isManga, !verticalWriting, twoPageInLandscape else { return false }
+        return isWideBookDetail(viewportSize: viewportSize)
+    }
+
+    static func isWideBookDetail(viewportSize: CGSize) -> Bool {
+        guard viewportSize.width.isFinite, viewportSize.height.isFinite,
               viewportSize.width >= 760, viewportSize.height > 0 else { return false }
         return viewportSize.width > viewportSize.height
     }
@@ -116,6 +120,15 @@ enum NativeAdaptiveLayout {
     static func readerSettingsHeight(maxHeight: CGFloat, isPdf: Bool, isTablet: Bool) -> CGFloat {
         if isTablet { return min(isPdf ? 400 : 420, maxHeight * 0.65) }
         return min(isPdf ? 340 : 340, maxHeight * 0.42)
+    }
+
+    static func assistantSidebarWidth(contentWidth: CGFloat, preferredWidth: CGFloat? = nil) -> CGFloat {
+        let width = finiteWidth(contentWidth)
+        let minimum: CGFloat = 280
+        let maximum = max(minimum, min(600, width * 0.60))
+        let fallback = min(420, max(320, width * 0.36))
+        let target = preferredWidth.flatMap { $0.isFinite && $0 > 0 ? $0 : nil } ?? fallback
+        return min(maximum, max(minimum, target))
     }
 
     private static func finiteWidth(_ width: CGFloat) -> CGFloat {

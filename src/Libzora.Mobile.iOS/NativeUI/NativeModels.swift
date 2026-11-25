@@ -319,7 +319,7 @@ struct SpeechVoice: Decodable, Identifiable {
     let qualityTier: Int?
 }
 struct SpeechForm: Decodable { var voice: String; var speed: Double; var autoAdvance: Bool }
-struct SpeechSnapshot: Decodable { let settings: SpeechForm; let voices: [SpeechVoice] }
+struct SpeechSnapshot: Decodable { let settings: SpeechForm; let voices: [SpeechVoice]; let detectedLanguage: String? }
 struct DictionaryRecord: Decodable, Identifiable { let id: String; let name: String; let entryCount: Int; let enabled: Bool; let sourceFormat: String? }
 struct DictionaryEntry: Decodable { let term: String; let definition: String; let dictionaryName: String }
 struct DictionaryLookupPayload: Decodable { let entries: [DictionaryEntry]; let renderedHtml: String?; let entryCount: Int? }

@@ -197,7 +197,7 @@ Large services are split by responsibility so one change opens one file:
 - `src/Libzora.Mobile.iOS/NativeUI/NativePreferenceEdits.swift` — field-level
   optimistic preference writes, rollback baselines, widget-link and filter policies.
 - `NativeUI/NativeLegalDocument.swift` — settings navigation to the bundled user agreement and privacy policy.
-- `NativeLibraryChrome.swift`, `NativeShelfCards.swift`, `NativeBookSeriesShelf.swift` — bookshelf scroll chrome, shared cards/navigation, and series panels split from the top-level library page.
+- `NativeLibraryChrome.swift`, `NativeLibraryScrollChromePolicy.swift`, `NativeShelfCards.swift`, `NativeBookSeriesShelf.swift` — bookshelf scroll chrome, interactive masthead/mask scroll policy, shared cards/navigation, and series panels split from the top-level library page.
 - `NativeTrash.swift`, `NativeSwipeDeleteCard.swift`, `NativeDataSafetyPolicy.swift` — independent restore hit targets, acknowledged/confirmed deletion, and portable editing/onboarding policies.
 - `NativeBookActions.swift`, `IOSNativeFrontend.BookFiles.cs`, `MobileBookFileExport.cs` — explicit reading statuses, exact/recent file selection, and byte-preserving temporary book exports.
 - `NativeSyncSettings.swift`, `IOSNativeFrontend.Import.cs` — native sync form and serialized book/TXT imports, including optional rule previews.

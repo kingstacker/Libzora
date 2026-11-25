@@ -63,7 +63,8 @@ struct NativeBookDetailPage: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let wide = geometry.size.width >= 760
+            let wide = NativeAdaptiveLayout.isWideBookDetail(viewportSize: geometry.size)
+            let coverWidth: CGFloat = geometry.size.width >= 700 ? 168 : 148
             VStack(spacing: 0) {
                 HStack(spacing: 0) {
                     Button { dismiss() } label: {
@@ -96,9 +97,11 @@ struct NativeBookDetailPage: View {
                                 }
                             } else {
                                 VStack(alignment: .leading, spacing: 0) {
-                                    bookHeader(book, coverWidth: 148)
+                                    bookHeader(book, coverWidth: coverWidth)
                                     bookInformation(book, wide: false)
                                 }
+                                .frame(maxWidth: 640)
+                                .frame(maxWidth: .infinity)
                             }
                         }
                         .padding(.horizontal, NativeAdaptiveLayout.pageInset)

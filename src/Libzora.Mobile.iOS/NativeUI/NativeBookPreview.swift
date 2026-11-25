@@ -249,6 +249,7 @@ private struct NativeBookPreviewMenu: View {
                             if let systemImage = item.systemImage {
                                 Image(systemName: systemImage)
                                     .font(.system(size: 16, weight: .regular))
+                                    .frame(width: 24, alignment: .center)
                                     .accessibilityHidden(true)
                             }
                         }

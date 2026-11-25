@@ -488,6 +488,15 @@ struct NativeStateLogicTests {
         check(NativeBookOpenTransitionPolicy.shouldShowReaderTopBar(
                   chromeVisible: true, ready: true, searching: false, hasError: false, loadingChromeVisible: false),
               "Tapping the page reveals the top toolbar normally once ready")
+        check(!NativeBookOpenTransitionPolicy.shouldHideReaderStatusBar(
+                  chromeVisible: false, hasOpenTransition: true),
+              "Status bar remains unchanged during an active 3D cover-open transition so safe-area layout cannot shift")
+        check(NativeBookOpenTransitionPolicy.shouldHideReaderStatusBar(
+                  chromeVisible: false, hasOpenTransition: false),
+              "Status bar hides once the 3D cover-open transition completes")
+        check(!NativeBookOpenTransitionPolicy.shouldHideReaderStatusBar(
+                  chromeVisible: true, hasOpenTransition: false),
+              "Status bar stays visible whenever reader chrome is visible")
 
         // Swipe-to-delete policy for reading materials.
         let phoneWidth: CGFloat = 342

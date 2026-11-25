@@ -11,32 +11,65 @@ namespace Libzora.Mobile.Localization;
 /// </summary>
 public static class MobileUiTextCatalog
 {
-    private static readonly FrozenDictionary<string, string> English = Load();
+    private static readonly FrozenDictionary<string, FrozenDictionary<string, string>> Catalogs = Load();
 
-    public static string? Translate(string source) => English.GetValueOrDefault(source);
+    public static string? Translate(string source) => Translate(source, MobileUiLanguageService.English);
 
-    private static FrozenDictionary<string, string> Load()
+    public static string? Translate(string source, string language)
+    {
+        if (string.Equals(language, MobileUiLanguageService.Chinese, StringComparison.Ordinal))
+            return null;
+        if (Catalogs.TryGetValue(language, out var catalog) && catalog.TryGetValue(source, out var value))
+            return value;
+        return Catalogs.TryGetValue(MobileUiLanguageService.English, out var english)
+            ? english.GetValueOrDefault(source)
+            : null;
+    }
+
+    private static FrozenDictionary<string, FrozenDictionary<string, string>> Load()
     {
         var assembly = typeof(MobileUiTextCatalog).Assembly;
         const string prefix = "Libzora.Mobile.Localization.";
         var chinese = ReadShared("zh-CN");
         var english = ReadShared("en-US");
-        var translations = new Dictionary<string, string>(StringComparer.Ordinal);
+        var sharedEnglish = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var (key, source) in chinese.OrderBy(entry => entry.Key, StringComparer.Ordinal))
-            if (english.TryGetValue(key, out var translated)) translations.TryAdd(source, translated);
+            if (english.TryGetValue(key, out var translated)) sharedEnglish.TryAdd(source, translated);
 
-        foreach (var name in assembly.GetManifestResourceNames()
-                     .Where(name => name.StartsWith(prefix, StringComparison.Ordinal)
-                         && name.EndsWith(".en-US.json", StringComparison.Ordinal))
-                     .Order(StringComparer.Ordinal))
+        var perLanguage = new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal)
         {
+            [MobileUiLanguageService.English] = new Dictionary<string, string>(sharedEnglish, StringComparer.Ordinal)
+        };
+
+        var resourceNames = assembly.GetManifestResourceNames()
+            .Where(name => name.StartsWith(prefix, StringComparison.Ordinal)
+                && name.EndsWith(".json", StringComparison.Ordinal))
+            .Order(StringComparer.Ordinal);
+
+        foreach (var name in resourceNames)
+        {
+            var matchedLanguage = MobileUiLanguageService.SupportedLanguages
+                .FirstOrDefault(lang => !string.Equals(lang, MobileUiLanguageService.Chinese, StringComparison.Ordinal)
+                    && name.EndsWith("." + lang + ".json", StringComparison.Ordinal));
+            if (matchedLanguage is null) continue;
+
+            if (!perLanguage.TryGetValue(matchedLanguage, out var translations))
+            {
+                translations = new Dictionary<string, string>(StringComparer.Ordinal);
+                perLanguage[matchedLanguage] = translations;
+            }
+
             using var stream = assembly.GetManifestResourceStream(name)
                 ?? throw new InvalidOperationException($"Missing mobile UI resource: {name}");
             using var document = JsonDocument.Parse(stream);
             foreach (var entry in document.RootElement.EnumerateObject())
                 if (entry.Value.GetString() is { Length: > 0 } value) translations[entry.Name] = value;
         }
-        return translations.ToFrozenDictionary(StringComparer.Ordinal);
+
+        return perLanguage.ToFrozenDictionary(
+            pair => pair.Key,
+            pair => pair.Value.ToFrozenDictionary(StringComparer.Ordinal),
+            StringComparer.Ordinal);
 
         Dictionary<string, string> ReadShared(string language)
         {

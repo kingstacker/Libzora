@@ -172,7 +172,7 @@ struct NativeSeriesVolumeTile: View {
                 }
         }
         .buttonStyle(.plain)
-        .disabled(store.openingReader)
+        .allowsHitTesting(!store.openingReader)
         .overlay {
             if !selection.active {
                 NativeBookLink(enabled: !store.openingReader, tap: open, longPress: preview)

@@ -29,7 +29,7 @@ public static class LegalDocuments
             LegalDocumentKind.PrivacyPolicy => "privacy",
             _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null),
         };
-        var language = (isEnglish ?? UiText.IsEnglish) ? "en" : "zh";
+        var language = (isEnglish ?? !UiText.IsChinese) ? "en" : "zh";
         using var stream = typeof(LegalDocuments).Assembly.GetManifestResourceStream($"Libzora.Legal.{page}.html")
             ?? throw new InvalidOperationException($"Missing bundled legal page: {page}.");
         var html = new HtmlDocument();

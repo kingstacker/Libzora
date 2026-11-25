@@ -35,6 +35,9 @@ internal sealed record NativeReflectionCitation(
     DateTimeOffset UpdatedAt,
     string DisplayText);
 
+internal sealed record NativeBookFile(Guid Id, string Name, string Format, string Size, bool Readable, bool Local);
+internal sealed record NativeBookFilesSnapshot(NativeBookFile[] Files, Guid? PreferredFileId);
+
 internal sealed record ReaderFontOption(
     string Key,
     string Name,
@@ -102,6 +105,7 @@ internal sealed record NativeAiInfo(
 [JsonSerializable(typeof(NativeReaderSearchBatch))]
 [JsonSerializable(typeof(NativeMaterial[]))]
 [JsonSerializable(typeof(NativeBookReflection))]
+[JsonSerializable(typeof(NativeBookFilesSnapshot))]
 [JsonSerializable(typeof(NativeReflectionCitation))]
 [JsonSerializable(typeof(NativeReflectionCitation[]))]
 [JsonSerializable(typeof(BookCollection))]

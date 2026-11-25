@@ -40,8 +40,7 @@ struct NativeShell: View {
             && !store.restartRequired
             && !store.dataBusy
             && store.libraryLoaded
-            && !store.preferences.onboardingAccepted
-            && !ProcessInfo.processInfo.arguments.contains("--libzora-skip-onboarding")
+            && !store.canOpenReader
     }
 
     var body: some View {
@@ -60,6 +59,13 @@ struct NativeShell: View {
                     .tabItem { NativeTabLabel(title: L("我的"), symbol: "person") }.tag(3)
             }
             .opacity(showingLaunch ? 0 : 1)
+            .offset(x: showingWelcome && !UIAccessibility.isReduceMotionEnabled ? geometry.size.width : 0)
+            .animation(
+                showingWelcome || UIAccessibility.isReduceMotionEnabled
+                    ? nil
+                    : .timingCurve(0.22, 1, 0.36, 1, duration: 0.34),
+                value: showingWelcome
+            )
             .allowsHitTesting(!showingLaunch && !showingWelcome)
             .accessibilityHidden(showingLaunch || showingWelcome || (activeSeries != nil && seriesCenter.isVisible))
             .onAppear {
@@ -99,7 +105,10 @@ struct NativeShell: View {
                 .modifier(NativeClearFullScreenBackground())
                 .onAppear { store.readerPresentationAppeared(for: presentation.id) }
         }
-        .sheet(item: $store.txtReview) { review in NativeTxtReview(store: store, review: review) }
+        .sheet(item: $store.txtReview, onDismiss: store.txtReviewDismissed) { review in
+            NativeTxtReview(store: store, review: review).id(review.id)
+                .onAppear { store.txtPresentationActive = true }
+        }
         .modifier(NativeFeedback(store: store, active: store.readerBook == nil))
         .disabled(store.restartRequired || store.dataBusy)
         .task(id: ambientKey) {
@@ -161,11 +170,20 @@ struct NativeShell: View {
                 }
             } else if showingWelcome {
                 NativeWelcomeView(store: store)
-                    .transition(.opacity)
+                    .transition(
+                        UIAccessibility.isReduceMotionEnabled
+                            ? .opacity
+                            : .asymmetric(insertion: .opacity, removal: .move(edge: .leading))
+                    )
             }
         }
         .animation(store.showsLaunchAnimation && !store.restoringReader ? .easeOut(duration: 0.2) : nil, value: showingLaunch)
-        .animation(.easeOut(duration: 0.22), value: showingWelcome)
+        .animation(
+            showingWelcome
+                ? .easeOut(duration: 0.22)
+                : .timingCurve(0.22, 1, 0.36, 1, duration: 0.34),
+            value: showingWelcome
+        )
         .overlay {
             if let (request, series) = activeSeries {
                 NativeBookSeriesOverlay(series: series, sourceFrame: request.sourceFrame,

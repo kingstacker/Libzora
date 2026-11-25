@@ -13,6 +13,11 @@ internal static class IOSWidgetPaths
 {
     internal static string Resolve(AppPaths paths)
     {
+#if DEBUG
+        // Synthetic safety fixtures must never overwrite the user's shared widget snapshot.
+        if (NSBundle.MainBundle.BundleIdentifier == "com.kingstacker.libzora.iossafetycheck")
+            return Path.Combine(paths.Root, "widgets");
+#endif
         try
         {
             var container = NSFileManager.DefaultManager.GetContainerUrl(

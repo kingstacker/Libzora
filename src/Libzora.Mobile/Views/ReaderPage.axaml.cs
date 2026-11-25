@@ -39,6 +39,7 @@ public partial class ReaderPage : UserControl
     private readonly List<ReaderBookmark> _bookmarks = [];
     private readonly List<ReaderAnnotation> _annotations = [];
     private readonly ReaderProgressRow? _jump;
+    private readonly Guid? _preferredFileId;
     private readonly DispatcherTimer _longPress = new() { Interval = LongPressDelay };
     private IReaderHost? _readerHost;
     private EpubReaderDocument? _epubDocument;
@@ -116,10 +117,12 @@ public partial class ReaderPage : UserControl
     }
 
     /// <param name="jump">Opens at this location instead of the saved progress.</param>
-    public ReaderPage(Book book, ApplicationModules modules, MobileShell shell, ReaderProgressRow? jump = null)
+    public ReaderPage(Book book, ApplicationModules modules, MobileShell shell, ReaderProgressRow? jump = null,
+        Guid? preferredFileId = null)
     {
         _book = book;
         _jump = jump;
+        _preferredFileId = preferredFileId;
         _modules = modules;
         _shell = shell;
         _layout = BuildLayout(shell.Preferences.Current);
@@ -255,7 +258,7 @@ public partial class ReaderPage : UserControl
                 ShowError(() => UiText.Get("这条阅读位置不属于当前书籍。"));
                 return;
             }
-            _bookFile = ChooseReadableFile(_book, _jump?.BookFileId);
+            _bookFile = ChooseReadableFile(_book, _jump?.BookFileId ?? _preferredFileId);
             if (_bookFile is null)
             {
                 ShowError(() => UiText.Get("这本书没有可读取的 EPUB 或 PDF 文件。"));

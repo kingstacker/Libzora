@@ -13,6 +13,7 @@ struct NativeBookReflectionEditor: View {
     @State private var selection = NSRange(location: 0, length: 0)
     @State private var loading = true
     @State private var busy = false
+    @State private var editState = NativeReflectionEditState()
     @State private var mode = 0
     @State private var hasExisting = false
     @State private var showingCitations = false
@@ -32,6 +33,13 @@ struct NativeBookReflectionEditor: View {
                 if loading {
                     ProgressView(L("正在读取读后思考…"))
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if !editState.loaded {
+                    VStack(spacing: 16) {
+                        Text(error ?? L("操作失败")).foregroundStyle(NativeTheme.secondary)
+                        Button(L("重试")) { Task { await load() } }
+                            .buttonStyle(NativeLiquidGlassButtonStyle())
+                            .accessibilityIdentifier("reflection.retry")
+                    }.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack(alignment: .firstTextBaseline, spacing: 10) {
@@ -53,7 +61,7 @@ struct NativeBookReflectionEditor: View {
                         .accessibilityIdentifier("reflection.mode")
 
                         if mode == 0 {
-                            formattingToolbar
+                            formattingToolbar.disabled(busy)
                         }
                     }
                     .padding(.horizontal, 20)
@@ -75,8 +83,10 @@ struct NativeBookReflectionEditor: View {
                             NativeReflectionTextView(
                                 text: $content,
                                 selection: $selection,
-                                useSystemFont: store.preferences.uiFont == 1
+                                useSystemFont: store.preferences.uiFont == 1,
+                                editable: editState.canEdit && !busy
                             )
+                            .disabled(busy)
                             .accessibilityIdentifier("reflection.editor")
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -129,7 +139,7 @@ struct NativeBookReflectionEditor: View {
                         .accessibilityLabel(L("更多操作"))
                     }
                     Button(L("保存")) { saveReflection() }
-                        .disabled(busy || loading)
+                        .disabled(busy || loading || !editState.canEdit)
                         .accessibilityIdentifier("reflection.save")
                 }
             }
@@ -335,31 +345,40 @@ struct NativeBookReflectionEditor: View {
     }
 
     private func load() async {
+        guard !busy else { return }
         loading = true
+        editState.beginLoad()
         error = nil
         defer { loading = false }
         do {
-            let record: BookReflectionRecord = try await store.request("reflection.get", ["bookId": bookId])
+            let record: BookReflectionRecord = try await store.request("reflection.get", ["bookId": bookId, "editor": true])
+            try Task.checkCancellation()
             content = record.content
             hasExisting = record.hasContent
             selection = NSRange(location: (content as NSString).length, length: 0)
+            editState.finishLoad(succeeded: true)
         } catch {
+            editState.finishLoad(succeeded: false)
             if !Task.isCancelled { self.error = error.localizedDescription }
         }
     }
 
     private func saveReflection() {
+        guard !busy, editState.beginWrite() else { return }
         busy = true
+        let submittedContent = content
         error = nil
         Task {
-            defer { busy = false }
+            defer { busy = false; editState.finishWrite() }
             do {
                 let saved: BookReflectionRecord = try await store.request(
                     "reflection.save",
-                    ["bookId": bookId, "content": content]
+                    ["bookId": bookId, "content": submittedContent]
                 )
                 onSaved?(saved)
-                dismiss()
+                hasExisting = saved.hasContent
+                // Also protect the small interval before UIKit applies the disabled state.
+                if content == submittedContent { dismiss() }
             } catch {
                 self.error = error.localizedDescription
             }
@@ -367,12 +386,14 @@ struct NativeBookReflectionEditor: View {
     }
 
     private func deleteReflection() {
+        guard !busy, editState.beginWrite() else { return }
         busy = true
         error = nil
         Task {
-            defer { busy = false }
+            defer { busy = false; editState.finishWrite() }
             do {
-                try await store.command("reflection.delete", ["bookId": bookId])
+                let result: NativeDeletionResult = try await store.request("reflection.delete", ["bookId": bookId])
+                guard result.deleted else { return }
                 onSaved?(nil)
                 dismiss()
             } catch {
@@ -387,6 +408,7 @@ private struct NativeReflectionTextView: UIViewRepresentable {
     @Binding var text: String
     @Binding var selection: NSRange
     let useSystemFont: Bool
+    let editable: Bool
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 
@@ -406,6 +428,8 @@ private struct NativeReflectionTextView: UIViewRepresentable {
     func updateUIView(_ view: UITextView, context: Context) {
         let _ = uiFont
         context.coordinator.parent = self
+        view.isEditable = editable
+        if !editable, view.isFirstResponder { view.resignFirstResponder() }
         let targetFont = NativeTheme.uiKitFont(15, useSystem: useSystemFont)
         if view.font != targetFont {
             view.font = targetFont

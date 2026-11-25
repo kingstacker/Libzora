@@ -33,7 +33,9 @@ public partial class WelcomeOverlay : UserControl
         Feature1Title.Text = UiText.Get("精排离线阅读");
         Feature1Detail.Text = UiText.Get("支持 EPUB、PDF、漫画等常见电子书格式，专注舒适排版与沉浸阅读体验。");
         Feature2Title.Text = UiText.Get("批注、统计与同步");
-        Feature2Detail.Text = UiText.Get("统一管理划线笔记、读后思考与阅读数据，支持自备 S3 / WebDAV 端到端加密同步。");
+        Feature2Detail.Text = UiText.Get(OperatingSystem.IsIOS() || OperatingSystem.IsMacOS()
+            ? "统一管理划线笔记、读后思考与阅读数据，支持 iCloud 与自备 S3 / WebDAV 端到端加密同步。"
+            : "统一管理划线笔记、读后思考与阅读数据，支持自备 S3 / WebDAV 端到端加密同步。");
         Feature3Title.Text = UiText.Get("隐私优先");
         Feature3Detail.Text = UiText.Get("书库与同步密钥仅保存在你的设备中，无广告、无第三方追踪，离线即可使用。");
         AgreeText.Text = UiText.Get("我已阅读并同意《用户协议》和《隐私政策》");
@@ -48,7 +50,7 @@ public partial class WelcomeOverlay : UserControl
     {
         var agreed = AgreeCheckBox.IsChecked == true;
         AcceptButton.IsEnabled = agreed;
-        ConsentHintText.IsVisible = !agreed;
+        ConsentHintText.Opacity = agreed ? 0 : 1;
     }
 
     private void OnTermsClick(object? sender, RoutedEventArgs e) =>

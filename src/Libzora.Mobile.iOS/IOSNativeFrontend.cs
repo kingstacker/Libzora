@@ -173,6 +173,14 @@ internal sealed partial class IOSNativeFrontend
     {
         switch (url.Host.ToLowerInvariant())
         {
+#if DEBUG
+            case "test-txt-import" when NSBundle.MainBundle.BundleIdentifier == "com.kingstacker.libzora.iossafetycheck":
+                var fixtureDirectory = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+                var fixtures = new[] { "TXT规则样例.txt", "TXT确认样例.txt" }
+                    .Select(name => Path.Combine(fixtureDirectory, name)).Where(File.Exists).ToArray();
+                if (fixtures.Length > 0) _ = ImportExternalFilesAsync(fixtures);
+                break;
+#endif
             case "read":
                 var id = url.AbsolutePath.Trim('/');
                 if (Guid.TryParse(id, out var bookId))
@@ -335,11 +343,11 @@ internal sealed partial class IOSNativeFrontend
             case "reader.fontDownload":
                 return await InstallReaderFontAsync(Text(args, "id"), token);
             case "preferences.save":
-                var preferences = Read(args.GetProperty("preferences"), _shell.Preferences.Current, IOSNativeJsonContext.Default.MobilePreferences);
                 await _readerGate.WaitAsync(token);
                 try
                 {
                     var previous = _shell.Preferences.Current;
+                    var preferences = Read(args.GetProperty("preferences"), previous, IOSNativeJsonContext.Default.MobilePreferences);
                     _shell.Preferences.UpdateAndSave(_ => NormalizePreferences(preferences));
                     _shell.UiLanguage?.Refresh();
                     _shell.ApplyThemeMode();
@@ -358,6 +366,7 @@ internal sealed partial class IOSNativeFrontend
                 finally { _readerGate.Release(); }
                 return _shell.Preferences.Current;
             case "reader.open":
+                RequireOnboardingAcceptance();
                 _readerCancellation?.Cancel();
                 await _readerGate.WaitAsync(token);
                 try
@@ -367,9 +376,10 @@ internal sealed partial class IOSNativeFrontend
                         ?? throw new InvalidOperationException(UiText.Get("书籍已不存在。"));
                     var jump = args.TryGetProperty("location", out var location)
                         ? location.Deserialize(IOSNativeJsonContext.Default.ReaderProgressRow) : null;
+                    var preferredFileId = await ResolveReaderFileAsync(book, args, jump, token);
                     _readerCancellation = new CancellationTokenSource();
                     _readerSessionId = Text(args, "sessionId");
-                    _reader = new ReaderPage(book, _shell.Modules, _shell, jump);
+                    _reader = new ReaderPage(book, _shell.Modules, _shell, jump, preferredFileId);
                     var sessionId = _readerSessionId;
                     _reader.NativeStateChanged += state =>
                     {
@@ -480,6 +490,15 @@ internal sealed partial class IOSNativeFrontend
         }
     }
 
+    private void RequireOnboardingAcceptance()
+    {
+#if DEBUG
+        if (NSProcessInfo.ProcessInfo.Arguments.Contains("--libzora-skip-onboarding")) return;
+#endif
+        if (!_shell.Preferences.Current.OnboardingAccepted)
+            throw new InvalidOperationException(UiText.Get("请先阅读并同意用户协议与隐私政策。"));
+    }
+
     private async Task CloseReaderAsync()
     {
         _nowPlaying.Clear();
@@ -506,7 +525,11 @@ internal sealed partial class IOSNativeFrontend
         var dashboard = await _shell.Modules.Reader.Data.GetReadingDashboardAsync(dayCount: 1, cancellationToken: token);
         var progress = dashboard.Books.GroupBy(item => item.BookId)
             .ToDictionary(group => group.Key, group => group.Max(item => item.ProgressPercent));
-        var continueBookId = dashboard.Books.Where(item => item.IsInLibrary && item.ProgressPercent < 99.5)
+        var readingStates = books.ToDictionary(book => book.Id, book => book.ReadingStatus);
+        var continueBookId = dashboard.Books.Where(item => item.IsInLibrary && item.ProgressPercent < 99.5
+                && readingStates.GetValueOrDefault(item.BookId) != LibraryReadingStatus.Finished
+                && !(readingStates.GetValueOrDefault(item.BookId) == LibraryReadingStatus.Unread
+                    && _shell.Preferences.Current.HasManualReadingStatus(item.BookId, LibraryReadingStatus.Unread)))
             .OrderByDescending(item => item.UpdatedAt).Select(item => (Guid?)item.BookId).FirstOrDefault();
         IReadOnlyDictionary<Guid, BookSyncStatus>? syncStatuses = null;
         if (_shell.Preferences.Current.ShowBookSyncStatus)
@@ -554,6 +577,7 @@ internal sealed partial class IOSNativeFrontend
         ("coverPath", string.IsNullOrWhiteSpace(book.CoverPath) ? null
             : Path.IsPathRooted(book.CoverPath) ? book.CoverPath : Path.Combine(_shell.Modules.Paths.Data, book.CoverPath)),
         ("progress", progress), ("favorite", book.IsFavorite), ("readingStatus", (int)book.ReadingStatus),
+        ("readingStatusExplicit", _shell.Preferences.Current.HasManualReadingStatus(book.Id, book.ReadingStatus)),
         ("syncStatus", syncStatus is { } status ? (int?)status : null),
         ("collectionIds", book.CollectionIds.ToArray()), ("updatedAt", book.UpdatedAt), ("createdAt", book.CreatedAt),
         ("description", book.Description), ("series", book.Series),
@@ -562,78 +586,6 @@ internal sealed partial class IOSNativeFrontend
         ("publisher", book.Publisher),
         ("publishDate", book.PublishDate), ("isbn", book.Isbn), ("pageCount", book.PageCount),
         ("binding", book.Binding), ("tags", book.Tags), ("category", book.Category), ("onlineRating", book.OnlineRating));
-
-    private async Task ImportBooksAsync(CancellationToken token)
-    {
-        var files = await _shell.Services.ImportSource.PickFilesAsync(token);
-        try
-        {
-            await ImportFileBatchAsync(files, fromExternalOpen: false, token);
-        }
-        finally { _shell.Services.ImportSource.ReleaseFiles(files); }
-    }
-
-    private async Task ImportExternalFilesAsync(IReadOnlyList<string> files)
-    {
-        try
-        {
-            await ImportFileBatchAsync(files, fromExternalOpen: true, CancellationToken.None);
-        }
-        catch (Exception exception)
-        {
-            _shell.ShowToast(UiText.Localize(exception.Message));
-        }
-        finally { IOSFileImportSource.DeleteFiles(files); }
-    }
-
-    private async Task ImportFileBatchAsync(IReadOnlyList<string> files, bool fromExternalOpen, CancellationToken token)
-    {
-        if (files.Count == 0) return;
-        if (fromExternalOpen && files.All(path => Path.GetExtension(path).Equals(".mdx", StringComparison.OrdinalIgnoreCase)))
-        {
-            await DictionaryGate.WaitAsync(token);
-            try
-            {
-                var imported = await ImportDictionaryFilesAsync(_shell.Modules.Library.Dictionary, files, token);
-                if (imported.Count == 1)
-                    _shell.ShowToast(UiText.Get("已导入词典：{0}", imported[0]));
-                else if (imported.Count > 1)
-                    _shell.ShowToast(UiText.Get("已导入 {0} 本词典", imported.Count));
-            }
-            finally { DictionaryGate.Release(); }
-            return;
-        }
-        var supported = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            { ".epub", ".pdf", ".mobi", ".azw3", ".txt" };
-        if (files.Any(path => !supported.Contains(Path.GetExtension(path))))
-            throw new InvalidOperationException(UiText.Get("请选择 EPUB、PDF、MOBI、AZW3 或 TXT 文件。"));
-        // TXT files are imported directly with automatic encoding, heading and
-        // volume detection so TOC chapters are ready to read without an extra confirmation gate.
-        var rules = files
-            .Where(path => Path.GetExtension(path).Equals(".txt", StringComparison.OrdinalIgnoreCase))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(path => path, _ => TxtImportRules.Default, StringComparer.OrdinalIgnoreCase);
-        using var operation = BeginOperation();
-        await _shell.Modules.Library.Books.InitializeAsync(token);
-        var result = await Task.Run(() => _shell.Modules.Library.Books.ImportAsync(files,
-            cancellationToken: token, txtImportRules: rules,
-            conflictResolver: conflict => ChooseImportConflictAsync(conflict, token)), token);
-        _shell.ShowToast(result.FailureCount > 0
-            ? UiText.Get("已导入 {0} 本，{1} 个文件失败", result.AddedCount, result.FailureCount)
-            : result.AddedCount == 0 ? UiText.Get("所选书籍已在书库中") : UiText.Get("已导入 {0} 本", result.AddedCount));
-        if (fromExternalOpen)
-        {
-            Publish(Data(("type", "libraryChanged")));
-            if (result.Items.FirstOrDefault(item => item.Succeeded && item.BookId is not null)?.BookId is { } bookId
-                && files.Count == 1)
-                Publish(Data(("type", "openBook"), ("bookId", bookId.ToString())));
-        }
-        // Successful items are already committed. A partial failure must
-        // not abort the native button's subsequent library refresh.
-        if (IOSNativeBookLibraryPolicy.ImportFailedCompletely(result)
-            && result.Items.FirstOrDefault(item => !item.Succeeded) is { } failed)
-            throw new InvalidOperationException(failed.Message);
-    }
 
     private async Task<ImportConflictResolution> ChooseImportConflictAsync(ImportBookConflict conflict, CancellationToken token)
     {
@@ -733,6 +685,8 @@ internal sealed partial class IOSNativeFrontend
         ReaderBodyPadding = double.IsFinite(value.ReaderBodyPadding) ? Math.Clamp(value.ReaderBodyPadding, 16, 64) : 24,
         ReaderHighlightStyle = MobilePreferences.NormalizeReaderHighlightStyle(value.ReaderHighlightStyle),
         ReaderHighlightColor = MobilePreferences.NormalizeReaderHighlightColor(value.ReaderHighlightColor),
+        PreviewTxtImport = value.PreviewTxtImport,
+        ManualBookReadingStatuses = MobilePreferences.NormalizeManualReadingStatuses(value.ManualBookReadingStatuses),
         OnboardingAccepted = value.OnboardingAccepted
     };
 

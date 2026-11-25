@@ -8,7 +8,7 @@ struct NativeMaterials: View {
     @State private var loading = true
     @State private var exporting = false
     @State private var openedEntryId: String?
-    @State private var pendingDeletionIds: Set<String> = []
+    @State private var pendingDeletes = NativePendingMaterialDeletes()
     @State private var editingReflection: (bookId: String, title: String)?
     private var mutedText: Color { store.preferences.colorfulMode ? NativeTheme.mutedOnColorful : NativeTheme.muted }
     private struct BookGroup: Identifiable {
@@ -53,17 +53,20 @@ struct NativeMaterials: View {
                     } label: { Text(L("导出")).font(NativeTheme.font(14)).frame(width: 44, height: 44) }
                         .disabled(exporting || count == 0).accessibilityLabel(L("导出阅读资料"))
                 }.modifier(NativePageMasthead())
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        filterChip(L("全部"), tag: "all")
-                        filterChip(L("划线"), tag: "highlight")
-                        filterChip(L("笔记"), tag: "note")
-                        filterChip(L("书签"), tag: "bookmark")
-                        filterChip(L("读后思考"), tag: "reflection")
-                    }
-                    .padding(.horizontal, 12)
+                Picker(L("筛选"), selection: $filter) {
+                    Text(L("全部")).tag("all")
+                    Text(L("划线")).tag("highlight")
+                    Text(L("笔记")).tag("note")
+                    Text(L("书签")).tag("bookmark")
+                    Text(L("读后思考")).tag("reflection")
                 }
-                .padding(.top, 8).padding(.bottom, 8)
+                .pickerStyle(.segmented)
+                .frame(maxWidth: NativeAdaptiveLayout.libraryFilterMaxWidth)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, NativeAdaptiveLayout.pageInset)
+                .padding(.top, 8)
+                .padding(.bottom, 8)
+                .accessibilityIdentifier("materials.filter")
                 .onChange(of: filter) { _ in openedEntryId = nil }
                 LazyVStack(alignment: .leading, spacing: 0) {
                     if loading { ProgressView(L("正在读取阅读资料…")).frame(maxWidth: .infinity).padding(.top, 96) }
@@ -150,28 +153,14 @@ struct NativeMaterials: View {
             }
     }
 
-    private func filterChip(_ title: String, tag: String) -> some View {
-        let selected = filter == tag
-        return Button {
-            filter = tag
-        } label: {
-            Text(title)
-                .font(NativeTheme.font(13.5, relativeTo: .subheadline).weight(selected ? .medium : .regular))
-                .foregroundStyle(selected ? NativeTheme.ink : mutedText)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(selected ? NativeTheme.sunk : Color.clear, in: Capsule())
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(selected ? .isSelected : [])
-        .accessibilityIdentifier("materials.filter.\(tag)")
-    }
-
     private func materialEntry(_ item: MaterialRecord, book: LibraryBook?, coverKey: String) -> some View {
-        NativeSwipeMaterialCard(
-            item: item,
+        NativeSwipeDeleteCard(
+            itemId: item.id,
             openedEntryId: $openedEntryId,
             disabled: store.openingReader,
+            cardIdentifier: "materials.entry.\(item.id)",
+            deleteIdentifier: "materials.delete.\(item.id)",
+            cornerRadius: 10,
             onOpen: {
                 if item.kind == "reflection" {
                     editingReflection = (item.bookId, book?.title ?? item.bookTitle)
@@ -186,7 +175,7 @@ struct NativeMaterials: View {
                     }
                 } else { store.showToast(L("这本书已不在书库中")) }
             },
-            onDelete: { delete(item) }
+            onDelete: { await delete(item) }
         ) {
             HStack(alignment: .top, spacing: 10) {
                 if let accent = NativeHighlightPalette.accentColor(style: item.underlineStyle, hex: item.highlightColor) {
@@ -214,20 +203,19 @@ struct NativeMaterials: View {
         }
     }
 
-    private func delete(_ item: MaterialRecord) {
-        if openedEntryId == item.id { openedEntryId = nil }
-        pendingDeletionIds.insert(item.id)
-        withAnimation(.easeInOut(duration: 0.22)) {
-            entries.removeAll { $0.id == item.id }
-        }
-        store.perform {
-            defer { pendingDeletionIds.remove(item.id) }
-            do {
-                try await store.command("materials.delete", ["id": item.id, "kind": item.kind])
-            } catch {
-                _ = await load()
-                throw error
-            }
+    private func delete(_ item: MaterialRecord) async {
+        guard pendingDeletes.begin(item.id) else { return }
+        defer { pendingDeletes.finish(item.id) }
+        do {
+            let result: NativeDeletionResult = try await store.request("materials.delete", ["id": item.id, "kind": item.kind])
+            guard result.deleted else { return }
+            withAnimation(.easeInOut(duration: 0.22)) { entries.removeAll { $0.id == item.id } }
+            if openedEntryId == item.id { openedEntryId = nil }
+        } catch {
+            // End filtering before refreshing; a failed delete still exists in the database.
+            pendingDeletes.finish(item.id)
+            _ = await load()
+            if !Task.isCancelled { store.failure = error.localizedDescription }
         }
     }
 
@@ -236,7 +224,9 @@ struct NativeMaterials: View {
         defer { loading = false }
         do {
             let loaded: [MaterialRecord] = try await store.request("materials.get")
-            let visible = loaded.filter { !pendingDeletionIds.contains($0.id) }
+            let visible = loaded.filter { item in
+                !pendingDeletes.includes(item.id) || entries.contains(where: { $0.id == item.id })
+            }
             guard visible != entries else { return false }
             entries = visible
             return true
@@ -249,245 +239,6 @@ struct NativeMaterials: View {
     private func export(_ markdown: Bool) {
         exporting = true; let ids = entries.filter(matches).map(\.id)
         store.perform { defer { exporting = false }; try await store.command("materials.export", ["ids": ids, "markdown": markdown]) }
-    }
-}
-
-private struct NativeSwipeMaterialCard<Label: View>: View {
-    let item: MaterialRecord
-    @Binding var openedEntryId: String?
-    let disabled: Bool
-    let onOpen: () -> Void
-    let onDelete: () -> Void
-    @ViewBuilder let label: () -> Label
-
-    @State private var dragOffset: CGFloat = 0
-    @State private var dragStartOffset: CGFloat = 0
-    @State private var isDragging = false
-    @State private var isDeleting = false
-    @State private var fullSwipeArmed = false
-    @State private var cardWidth: CGFloat = 0
-
-    var body: some View {
-        Button {
-            handleCardTap()
-        } label: {
-            label()
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(disabled || isDeleting)
-        .accessibilityIdentifier("materials.entry.\(item.id)")
-        .accessibilityAction(named: L("删除")) { performDelete() }
-        .overlay {
-            NativeMaterialSwipeOverlay(
-                enabled: !disabled && !isDeleting,
-                isOpen: dragOffset < -NativeSwipeDeletePolicy.actionWidth * 0.5,
-                onTap: { handleCardTap() },
-                onDragStart: {
-                    isDragging = true
-                    dragStartOffset = dragOffset
-                    if openedEntryId != item.id { openedEntryId = item.id }
-                },
-                onDragChange: { translationX in
-                    let next = NativeSwipeDeletePolicy.clampedDragOffset(
-                        startOffset: dragStartOffset,
-                        translationX: translationX,
-                        cardWidth: cardWidth
-                    )
-                    let armed = NativeSwipeDeletePolicy.isPastFullSwipeThreshold(offset: next, cardWidth: cardWidth)
-                    if armed != fullSwipeArmed {
-                        UIImpactFeedbackGenerator(style: armed ? .medium : .light).impactOccurred()
-                        fullSwipeArmed = armed
-                    }
-                    dragOffset = next
-                },
-                onDragEnd: { velocityX, cancelled in
-                    isDragging = false
-                    if cancelled {
-                        let target: CGFloat = dragStartOffset < -NativeSwipeDeletePolicy.actionWidth * 0.5
-                            ? -NativeSwipeDeletePolicy.actionWidth : 0
-                        fullSwipeArmed = false
-                        if target == 0, openedEntryId == item.id { openedEntryId = nil }
-                        withAnimation(.interactiveSpring(response: 0.28, dampingFraction: 0.86)) { dragOffset = target }
-                        return
-                    }
-                    switch NativeSwipeDeletePolicy.decideReleaseOutcome(
-                        startOffset: dragStartOffset,
-                        currentOffset: dragOffset,
-                        velocityX: velocityX,
-                        cardWidth: cardWidth
-                    ) {
-                    case .delete:
-                        performDelete()
-                    case .open:
-                        openedEntryId = item.id
-                        fullSwipeArmed = false
-                        withAnimation(.interactiveSpring(response: 0.28, dampingFraction: 0.86)) {
-                            dragOffset = -NativeSwipeDeletePolicy.actionWidth
-                        }
-                    case .closed:
-                        if openedEntryId == item.id { openedEntryId = nil }
-                        fullSwipeArmed = false
-                        withAnimation(.interactiveSpring(response: 0.28, dampingFraction: 0.86)) {
-                            dragOffset = 0
-                        }
-                    }
-                }
-            )
-        }
-        .offset(x: dragOffset)
-        .background {
-            GeometryReader { proxy in
-                Color.clear
-                    .onAppear { cardWidth = proxy.size.width }
-                    .onChange(of: proxy.size.width) { cardWidth = $0 }
-            }
-        }
-        .background(alignment: .trailing) {
-            if dragOffset < 0 || isDeleting {
-                ZStack(alignment: .trailing) {
-                    Color(uiColor: .systemRed)
-                    Button(role: .destructive) {
-                        performDelete()
-                    } label: {
-                        VStack(spacing: 4) {
-                            Image(systemName: "trash")
-                                .font(.system(size: 16, weight: .semibold))
-                            Text(L("删除"))
-                                .font(NativeTheme.font(12, relativeTo: .caption))
-                        }
-                        .foregroundStyle(.white)
-                        .frame(
-                            width: fullSwipeArmed ? max(NativeSwipeDeletePolicy.actionWidth, -dragOffset) : NativeSwipeDeletePolicy.actionWidth,
-                            alignment: fullSwipeArmed ? .leading : .center
-                        )
-                        .padding(.leading, fullSwipeArmed ? 24 : 0)
-                        .frame(maxHeight: .infinity)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(isDeleting)
-                    .accessibilityLabel(L("删除"))
-                    .accessibilityIdentifier("materials.delete.\(item.id)")
-                }
-            }
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .onChange(of: openedEntryId) { activeId in
-            guard activeId != item.id, !isDragging, !isDeleting, dragOffset != 0 else { return }
-            fullSwipeArmed = false
-            withAnimation(.interactiveSpring(response: 0.28, dampingFraction: 0.86)) {
-                dragOffset = 0
-            }
-        }
-    }
-
-    private func handleCardTap() {
-        guard !isDeleting else { return }
-        if dragOffset < 0 || openedEntryId != nil {
-            fullSwipeArmed = false
-            openedEntryId = nil
-            withAnimation(.interactiveSpring(response: 0.28, dampingFraction: 0.86)) {
-                dragOffset = 0
-            }
-            return
-        }
-        onOpen()
-    }
-
-    private func performDelete() {
-        guard !isDeleting else { return }
-        isDeleting = true
-        fullSwipeArmed = true
-        let travel = -max(cardWidth, 400)
-        withAnimation(.easeIn(duration: 0.16)) {
-            dragOffset = travel
-        }
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 160_000_000)
-            onDelete()
-        }
-    }
-}
-
-private struct NativeMaterialSwipeOverlay: UIViewRepresentable {
-    let enabled: Bool
-    let isOpen: Bool
-    let onTap: () -> Void
-    let onDragStart: () -> Void
-    let onDragChange: (CGFloat) -> Void
-    let onDragEnd: (CGFloat, Bool) -> Void
-
-    func makeUIView(context: Context) -> NativeMaterialSwipeView { NativeMaterialSwipeView() }
-
-    func updateUIView(_ view: NativeMaterialSwipeView, context: Context) {
-        view.isEnabled = enabled
-        view.isOpen = isOpen
-        view.onTap = onTap
-        view.onDragStart = onDragStart
-        view.onDragChange = onDragChange
-        view.onDragEnd = onDragEnd
-    }
-}
-
-private final class NativeMaterialSwipeView: UIControl, UIGestureRecognizerDelegate {
-    var isOpen = false
-    var onTap: (() -> Void)?
-    var onDragStart: (() -> Void)?
-    var onDragChange: ((CGFloat) -> Void)?
-    var onDragEnd: ((CGFloat, Bool) -> Void)?
-    private lazy var pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        // Keep the SwiftUI Button as the sole accessibility element for the entry.
-        isAccessibilityElement = false
-        backgroundColor = .clear
-        addTarget(self, action: #selector(handleTap), for: .touchUpInside)
-        pan.delegate = self
-        pan.cancelsTouchesInView = true
-        addGestureRecognizer(pan)
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    @objc private func handleTap() {
-        onTap?()
-    }
-
-    @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
-        let space = window ?? superview ?? self
-        switch gesture.state {
-        case .began:
-            onDragStart?()
-        case .changed:
-            onDragChange?(gesture.translation(in: space).x)
-        case .ended:
-            onDragEnd?(gesture.velocity(in: space).x, false)
-        case .cancelled, .failed:
-            onDragEnd?(0, true)
-        default:
-            break
-        }
-    }
-
-    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        guard gestureRecognizer === pan else { return true }
-        guard isEnabled else { return false }
-        let space = window ?? superview ?? self
-        let velocity = pan.velocity(in: space)
-        let translation = pan.translation(in: space)
-        let dx = abs(velocity.x) > 1 || abs(velocity.y) > 1 ? velocity.x : translation.x
-        let dy = abs(velocity.x) > 1 || abs(velocity.y) > 1 ? velocity.y : translation.y
-        guard abs(dx) > abs(dy) * 1.2 else { return false }
-        return isOpen || dx < 0
-    }
-
-    func gestureRecognizer(
-        _ gestureRecognizer: UIGestureRecognizer,
-        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
-    ) -> Bool {
-        false
     }
 }
 
@@ -649,6 +400,12 @@ struct NativeReadingDashboard: View {
         return yearly ? String(bucket.startDate.prefix(7)) : bucket.startDate
     }
     @ViewBuilder private func dashboardBook(_ item: DashboardBook, detail: String) -> some View {
+        let totalSeconds = max(0, item.cumulativeSeconds)
+        let listeningSeconds = min(totalSeconds, max(0, item.listeningSeconds ?? 0))
+        let visualSeconds = max(0, totalSeconds - listeningSeconds)
+        let maxTotal = Double(dashboard?.mostReadBooks.map(\.cumulativeSeconds).max() ?? 1)
+        let listeningColor = Color(uiColor: .systemBlue).opacity(0.75)
+
         if let book = store.library.first(where: { $0.id == item.bookId }) {
             let coverKey = "dashboardMostRead:\(book.id)"
             Button {
@@ -661,28 +418,58 @@ struct NativeReadingDashboard: View {
                     BookCover(book: book, width: 38, height: 54)
                         .trackBookOpenFrame(key: coverKey)
                         .opacity(store.isBookCoverHidden(forKey: coverKey) ? 0 : 1)
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 7) {
                         HStack {
-                            Text(book.title).font(NativeTheme.font(14)).lineLimit(1); Spacer()
-                            if let listening = item.listeningSeconds, listening > 0 {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "headphones")
-                                        .font(.system(size: 11, weight: .regular))
-                                    Text(detail)
-                                }
+                            Text(book.title).font(NativeTheme.font(14)).lineLimit(1)
+                            Spacer()
+                            Text(detail)
                                 .font(NativeTheme.font(12.5, relativeTo: .caption))
                                 .foregroundStyle(mutedText)
-                                .accessibilityLabel(L("{0}，含听书 {1}", detail, readingDuration(listening)))
-                            } else {
-                                Text(detail).font(NativeTheme.font(12.5, relativeTo: .caption)).foregroundStyle(mutedText)
-                            }
                         }
-                        NativeThinProgress(value: Double(item.cumulativeSeconds), total: Double(dashboard?.mostReadBooks.map(\.cumulativeSeconds).max() ?? 1), height: 4)
+                        if listeningSeconds > 0 {
+                            NativeSplitReadingProgress(
+                                reading: Double(visualSeconds),
+                                listening: Double(listeningSeconds),
+                                total: maxTotal,
+                                listeningColor: listeningColor
+                            )
+                            HStack(spacing: 12) {
+                                if visualSeconds > 0 {
+                                    durationLegend(color: NativeTheme.ink, text: L("阅读 {0}", readingDuration(visualSeconds)))
+                                }
+                                durationLegend(color: listeningColor, text: L("听书 {0}", readingDuration(listeningSeconds)))
+                            }
+                            .font(NativeTheme.font(11.5, relativeTo: .caption2))
+                            .foregroundStyle(mutedText)
+                        } else {
+                            NativeThinProgress(value: Double(totalSeconds), total: maxTotal, height: 4)
+                        }
                     }
                 }.contentShape(Rectangle())
             }.buttonStyle(.plain).disabled(store.openingReader)
+                .accessibilityLabel(listeningSeconds > 0
+                    ? "\(book.title)，\(L("{0}，含听书 {1}", detail, readingDuration(listeningSeconds)))"
+                    : "\(book.title)，\(detail)")
                 .accessibilityIdentifier("dashboard.mostRead.\(book.id)")
-        } else { VStack(alignment: .leading, spacing: 8) { Text(item.title + L("（已移出书库）")); Text(detail).font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(secondaryText) } }
+        } else {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(item.title + L("（已移出书库）"))
+                Text(listeningSeconds > 0
+                    ? L("{0}，含听书 {1}", detail, readingDuration(listeningSeconds))
+                    : detail)
+                    .font(NativeTheme.font(12, relativeTo: .caption))
+                    .foregroundStyle(secondaryText)
+            }
+        }
+    }
+
+    private func durationLegend(color: Color, text: String) -> some View {
+        HStack(spacing: 5) {
+            Circle()
+                .fill(color)
+                .frame(width: 6, height: 6)
+            Text(text)
+        }
     }
     private func progressDistribution(_ books: [DashboardBook]) -> some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -708,6 +495,36 @@ struct NativeReadingDashboard: View {
 }
 
 /// Draw the same catalog artwork and clockwise progress reveal as the desktop.
+private struct NativeSplitReadingProgress: View {
+    let reading: Double
+    let listening: Double
+    let total: Double
+    let listeningColor: Color
+
+    var body: some View {
+        GeometryReader { geometry in
+            let safeTotal = max(1, total)
+            let readingWidth = geometry.size.width * min(1, max(0, reading / safeTotal))
+            let combinedWidth = geometry.size.width * min(1, max(0, (reading + listening) / safeTotal))
+            let listeningWidth = max(0, combinedWidth - readingWidth)
+            ZStack(alignment: .leading) {
+                NativeTheme.strong
+                HStack(spacing: 0) {
+                    if readingWidth > 0 {
+                        NativeTheme.ink.frame(width: readingWidth)
+                    }
+                    if listeningWidth > 0 {
+                        listeningColor.frame(width: listeningWidth)
+                    }
+                }
+            }
+            .clipShape(Capsule())
+        }
+        .frame(height: 4)
+        .accessibilityHidden(true)
+    }
+}
+
 private struct NativeMedalEmblem: View {
     let icon: String
     let fraction: Double

@@ -27,6 +27,13 @@ internal sealed partial class IOSNativeFrontend
         await _shell.EnsureReaderDataAsync();
         switch (command)
         {
+            case "book.files":
+                return await GetBookFilesAsync(args, token);
+            case "book.export":
+                return await ExportBookFileAsync(args, token);
+            case "book.readingStatus":
+                await SetBookReadingStatusAsync(args, token);
+                break;
             case "book.favorite":
                 var favoriteBook = await GetBookAsync(args, token);
                 favoriteBook.IsFavorite = Flag(args, "favorite");
@@ -77,15 +84,13 @@ internal sealed partial class IOSNativeFrontend
                 await ExportMaterialsAsync(args, token);
                 break;
             case "materials.delete":
-                await DeleteMaterialAsync(args, token);
-                break;
+                return await DeleteMaterialAsync(args, token);
             case "reflection.get":
                 return await GetBookReflectionAsync(args, token);
             case "reflection.save":
                 return await SaveBookReflectionAsync(args, token);
             case "reflection.delete":
-                await DeleteBookReflectionAsync(args, token);
-                break;
+                return await DeleteBookReflectionAsync(args, token);
             case "reflection.citations":
                 return await GetReflectionCitationsAsync(args, token);
             case "reflection.pickImage":
@@ -111,6 +116,21 @@ internal sealed partial class IOSNativeFrontend
                 if (await ConfirmAsync(UiText.Get("永久删除"), UiText.Get("永久删除后无法从回收站恢复。"), UiText.Get("永久删除")))
                     await library.PurgeTrashItemAsync(Id(args, "id"), token);
                 break;
+            case "trash.empty":
+            {
+                var trashItems = await library.GetTrashItemsAsync(token);
+                if (trashItems.Count == 0) break;
+                if (await ConfirmAsync(
+                    UiText.Get("清空回收站"),
+                    UiText.Get("回收站中的 {0} 个项目将被永久删除，之后无法恢复。继续吗？", trashItems.Count),
+                    UiText.Get("全部永久删除")))
+                {
+                    foreach (var item in trashItems)
+                        await library.PurgeTrashItemAsync(item.Id, token);
+                    _shell.ShowToast(UiText.Get("已清空回收站，共永久清理 {0} 项。", trashItems.Count));
+                }
+                break;
+            }
             default: throw new InvalidOperationException(UiText.Get("未知书库操作：{0}", command));
         }
         return Data();
@@ -311,8 +331,12 @@ internal sealed partial class IOSNativeFrontend
             _shell.ShowToast(UiText.Get("已分享 {0} 条阅读资料", entries.Length));
     }
 
-    private async Task DeleteMaterialAsync(JsonElement args, CancellationToken token)
+    private async Task<object> DeleteMaterialAsync(JsonElement args, CancellationToken token)
     {
+        if (!await ConfirmAsync(UiText.Get("删除阅读资料"),
+            UiText.Get("删除后无法恢复，确定删除这条阅读资料吗？"), UiText.Get("删除")))
+            return Data(("deleted", false));
+        token.ThrowIfCancellationRequested();
         var key = Text(args, "id");
         var kind = _materials.TryGetValue(key, out var cached)
             ? cached.Kind
@@ -327,7 +351,7 @@ internal sealed partial class IOSNativeFrontend
                 throw new InvalidOperationException(UiText.Get("未知阅读资料类型。"));
             await _shell.Modules.Reader.Reflections.DeleteAsync(bookId, token);
             _materials.Remove(key);
-            return;
+            return Data(("deleted", true));
         }
         if (!Guid.TryParse(key, out var id))
             throw new InvalidOperationException(UiText.Get("未知阅读资料类型。"));
@@ -339,6 +363,7 @@ internal sealed partial class IOSNativeFrontend
         else
             throw new InvalidOperationException(UiText.Get("未知阅读资料类型。"));
         _materials.Remove(key);
+        return Data(("deleted", true));
     }
 
     private async Task<NativeBookReflection> GetBookReflectionAsync(JsonElement args, CancellationToken token)
@@ -359,11 +384,15 @@ internal sealed partial class IOSNativeFrontend
         return ToNativeReflection(bookId, saved);
     }
 
-    private async Task DeleteBookReflectionAsync(JsonElement args, CancellationToken token)
+    private async Task<object> DeleteBookReflectionAsync(JsonElement args, CancellationToken token)
     {
         var bookId = Id(args, "bookId");
+        if (!await ConfirmAsync(UiText.Get("删除读后思考"),
+            UiText.Get("删除后无法恢复，确定删除这篇读后思考吗？"), UiText.Get("删除")))
+            return Data(("deleted", false));
         await _shell.Modules.Reader.Reflections.DeleteAsync(bookId, token);
         _shell.ShowToast(UiText.Get("读后思考已清空。"));
+        return Data(("deleted", true));
     }
 
     private async Task<NativeReflectionCitation[]> GetReflectionCitationsAsync(JsonElement args, CancellationToken token)
@@ -456,23 +485,19 @@ internal sealed partial class IOSNativeFrontend
         }
     }
 
-    private async Task<TxtImportRules?> ChooseTxtRulesAsync(string path, CancellationToken token)
-    {
-        var id = ++_promptId;
-        var decision = new TaskCompletionSource<TxtImportRules?>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _txtImports.Add(id, (path, decision));
-        Publish(Data(("type", "txtImport"), ("txtImport", Data(("id", id), ("name", Path.GetFileName(path))))));
-        try { return await decision.Task.WaitAsync(token); }
-        finally { _txtImports.Remove(id); }
-    }
-
     private async Task<object> DispatchTxtAsync(string command, JsonElement args, CancellationToken token)
     {
         var id = args.GetProperty("id").GetInt64();
         if (!_txtImports.TryGetValue(id, out var pending)) return Data();
         if (command == "txt.cancel") { pending.Decision.TrySetResult(null); return Data(); }
         var rules = Read(args.GetProperty("rules"), TxtImportRules.Default, IOSNativeJsonContext.Default.TxtImportRules);
-        if (command == "txt.complete") { pending.Decision.TrySetResult(rules); return Data(); }
+        if (command == "txt.complete")
+        {
+            // Revalidate the submitted snapshot, not a possibly superseded native preview.
+            await TxtToEpubService.PreviewAsync(pending.Path, rules, 0, 1, token);
+            pending.Decision.TrySetResult(rules);
+            return Data();
+        }
         var preview = await TxtToEpubService.PreviewAsync(pending.Path, rules, Number(args, "page"), 20, token);
         return Data(("chapterCount", preview.ChapterCount), ("detectedEncoding", preview.DetectedEncoding.ToString()),
             ("chapters", preview.Chapters.ToArray()), ("hasPreviousPage", preview.HasPreviousPage), ("hasNextPage", preview.HasNextPage));

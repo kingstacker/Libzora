@@ -83,12 +83,15 @@ def make_epub(path, title, body, notes, image):
 
 
 def main():
+    global BUNDLE
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--app", required=True, type=Path)
     parser.add_argument("--simulator", required=True)
     parser.add_argument("--covers-from", type=Path, default=Path(__file__).resolve().parents[2] / "公版书")
     parser.add_argument("--page-animation", type=int, choices=(0, 1, 3), default=0)
+    parser.add_argument("--bundle-id", default=BUNDLE, help="Optional independent fixture bundle identifier")
     args = parser.parse_args()
+    BUNDLE = args.bundle_id
     source = args.app.resolve(strict=True)
     info = plistlib.loads((source / "Info.plist").read_bytes())
     if not (source / info["CFBundleExecutable"]).is_file():

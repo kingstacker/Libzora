@@ -119,7 +119,9 @@ Swift 与 C# 通过同一进程内的 C ABI 传递 JSON 请求、结果和状态
 ## 已接入的页面和操作
 
 - 书库：网格/列表、搜索、筛选、排序、继续阅读、文件导入和 TXT 规则预览。
-- 书籍：详情、编辑信息/封面、修改书名、收藏、加入收藏夹、回收站和发送到 Kindle。
+- 书籍：详情、编辑信息/封面、修改书名、收藏、加入收藏夹、手动阅读状态、选择阅读格式、导出原书、回收站和发送到 Kindle。
+  普通轻点仍直接阅读；有多个格式时继续最近阅读的有效文件，批注跳转始终使用批注所属文件。
+  书库设置可开启“导入 TXT 时预览并调整规则”，默认关闭，关闭时继续自动识别导入。
 - 收藏夹：创建、重命名、添加/移出书籍、清空、合并和解散。
 - 阅读资料与统计：书签/划线/笔记、按位置打开、导出、阅读时长、每日数据和勋章。
 - 我的：外观、S3/WebDAV 同步、参数导入/导出、AI、邮箱、备份、回收站、词典、关于和问题反馈。
@@ -298,6 +300,18 @@ iCloud 同步默认启用编译支持，真机 profile 还须包含
 容器、签名和双设备验证步骤见 [iCloud 同步](icloud-sync.md)。
 
 ## 回归测试
+
+数据安全和书籍操作使用独立的 `com.kingstacker.libzora.iossafetycheck`，不会清空已有预览书库：
+
+```bash
+python3 -I tests/Libzora.Mobile.iOS.UITests/prepare-ios-safety-preview.py --app "$APP" --simulator "$SIMULATOR_ID"
+python3 -I tests/Libzora.Mobile.iOS.UITests/run-tests.py --simulator "$SIMULATOR_ID" --results /tmp/libzora-ios-safety-results \
+  --suite NativeDataSafetyUITests --only testRestoreButtonRespondsToOrdinaryTouch \
+  --only testFailedReflectionLoadCannotOverwriteAndCanRetry --only testMaterialsDeleteCancellationAndFailureKeepTheRecord \
+  --only testManualStatusAndBookFileActionsAreConnected --only testTxtRulesPreviewAndCancellation
+```
+
+故障注入和 TXT 夹具链接仅用于 Debug 隔离测试；Release 不提供这些入口。
 
 共享移动端测试包括原生 JSON 字段/枚举、设置默认值、精确阅读位置，以及打开失败时
 不显示 Avalonia 控件、不覆盖已有进度的检查：

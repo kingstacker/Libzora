@@ -2283,7 +2283,7 @@ final class NativeFrontendTests: XCTestCase {
 
     func testMaterialsBookAndBookmarkOpenAndCloseReader() throws {
         app.tabBars.buttons["阅读资料"].tap()
-        let bookmarks = app.buttons["materials.filter.bookmark"]
+        let bookmarks = app.segmentedControls["materials.filter"].buttons["书签"]
         XCTAssertTrue(bookmarks.waitForExistence(timeout: 15))
         bookmarks.tap()
 
@@ -2350,6 +2350,9 @@ final class NativeFrontendTests: XCTestCase {
         XCTAssertTrue(deleteButton.waitForExistence(timeout: 5), "Partial left swipe must reveal the delete button.")
         attachScreenshot("阅读资料左滑显示删除")
         deleteButton.tap()
+        let confirmMaterialDelete = app.alerts.buttons["删除"]
+        XCTAssertTrue(confirmMaterialDelete.waitForExistence(timeout: 10))
+        confirmMaterialDelete.tap()
         XCTAssertTrue(waitUntil(timeout: 10) {
             !self.app.buttons["materials.entry.\(firstId)"].exists && entries.count == initialCount - 1
         }, "Tapping the revealed delete button must remove the entry.")
@@ -2362,6 +2365,8 @@ final class NativeFrontendTests: XCTestCase {
         XCTAssertTrue(app.buttons["materials.delete.\(secondId)"].waitForExistence(timeout: 5))
         second.coordinate(withNormalizedOffset: CGVector(dx: 0.65, dy: 0.5))
             .press(forDuration: 0.02, thenDragTo: second.coordinate(withNormalizedOffset: CGVector(dx: 0.10, dy: 0.5)))
+        XCTAssertTrue(confirmMaterialDelete.waitForExistence(timeout: 10))
+        confirmMaterialDelete.tap()
         XCTAssertTrue(waitUntil(timeout: 10) {
             !self.app.buttons["materials.entry.\(secondId)"].exists && entries.count == initialCount - 2
         }, "Swiping further left must directly delete the entry.")

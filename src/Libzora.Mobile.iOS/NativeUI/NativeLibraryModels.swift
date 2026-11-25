@@ -28,4 +28,16 @@ struct LibraryBook: Decodable, Identifiable, Equatable {
     let tags: String
     let category: String
     let onlineRating: Double?
+    var readingStatusExplicit: Bool?
+}
+
+enum NativeBookReadingStatus {
+    static func value(_ book: LibraryBook) -> Int {
+        if book.readingStatusExplicit == true || book.readingStatus == 1 || book.readingStatus == 2 {
+            return min(2, max(0, book.readingStatus))
+        }
+        if book.progress >= 99.5 { return 2 }
+        if book.progress > 0 { return 1 }
+        return 0
+    }
 }

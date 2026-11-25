@@ -24,6 +24,7 @@ struct NativeLegalDocumentPage: View {
 
     @ObservedObject var store: NativeStore
     let kind: Kind
+    var onLoaded: (() -> Void)? = nil
     @State private var document: NativeLegalDocument?
     @State private var failed = false
 
@@ -77,6 +78,7 @@ struct NativeLegalDocumentPage: View {
                 let loaded: NativeLegalDocument = try await store.request("settings.legal.get", ["kind": kind.rawValue])
                 guard !Task.isCancelled else { return }
                 document = loaded
+                onLoaded?()
             } catch {
                 guard !Task.isCancelled else { return }
                 document = nil

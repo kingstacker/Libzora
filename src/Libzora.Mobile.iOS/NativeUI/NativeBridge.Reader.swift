@@ -16,6 +16,7 @@ struct NativeReaderOpenRequest {
     let sourceFrame: CGRect?
     let sourceKey: String?
     let source: NativeBookOpenSource
+    let bookFileId: String?
 }
 
 @MainActor
@@ -41,7 +42,7 @@ extension NativeStore {
             libraryLoaded: libraryLoaded,
             restoringReader: restoringReader
         )
-        if source == .widget && useBrandCover {
+        if canOpenReader && source == .widget && useBrandCover {
             beginWidgetBrandCover()
             pendingWidgetReaderSnapshot = nil
             restoringReader = true
@@ -88,7 +89,9 @@ extension NativeStore {
     }
 
     func openPendingReaderIfNeeded() {
+        guard canOpenReader else { restoringReader = false; return }
         guard let bookId = pendingOpenBookId, libraryLoaded, !preparingLibrary,
+              txtReview == nil, !txtPresentationActive,
               !openingReader, !closingReader, !restartRequired else { return }
         if pendingOpenSource == .widget && !widgetColdLaunch && widgetEntrySnapshotCover == nil {
             beginWidgetEntrySnapshotCover()
@@ -148,8 +151,9 @@ extension NativeStore {
 
     /// Ordinary cover/material taps retain their full location and animation
     /// intent while the old reader or its modal presentation is still closing.
-    private func openQueuedReaderIfNeeded() {
-        guard queuedReaderOpen.pending != nil, !openingReader, !closingReader, !restartRequired else { return }
+    func openQueuedReaderIfNeeded() {
+        guard canOpenReader, txtReview == nil, !txtPresentationActive,
+              queuedReaderOpen.pending != nil, !openingReader, !closingReader, !restartRequired else { return }
         if readerBook != nil {
             let revision = queuedReaderOpen.revision
             perform {
@@ -166,12 +170,14 @@ extension NativeStore {
                   let request = self.queuedReaderOpen.take(revision: revision) else { return }
             try await self.openReader(request.book, location: request.location, animated: request.animated,
                                       sourceFrame: request.sourceFrame, sourceKey: request.sourceKey,
-                                      source: request.source)
+                                      source: request.source, bookFileId: request.bookFileId)
         }
     }
 
     func restorePendingReaderIfNeeded() {
+        guard canOpenReader else { restoringReader = false; return }
         guard let bookId = pendingReaderRestore,
+              txtReview == nil, !txtPresentationActive,
               readerBook == nil, !openingReader, !restartRequired,
               pendingOpenBookId == nil else { return }
         guard !library.isEmpty else {
@@ -268,18 +274,25 @@ extension NativeStore {
 
     func openReader(_ book: LibraryBook, location: [String: Any]? = nil,
                     animated: Bool = true, sourceFrame: CGRect? = nil,
-                    sourceKey: String? = nil, source: NativeBookOpenSource = .other) async throws {
+                    sourceKey: String? = nil, source: NativeBookOpenSource = .other,
+                    bookFileId: String? = nil) async throws {
+        guard canOpenReader && txtReview == nil && !txtPresentationActive else {
+            queuedReaderOpen.enqueue(NativeReaderOpenRequest(book: book, location: location, animated: animated,
+                sourceFrame: sourceFrame, sourceKey: sourceKey, source: source, bookFileId: bookFileId))
+            restoringReader = false
+            return
+        }
         if openingReader || closingReader || readerPresentationActive || readerBook != nil {
             if NativeReaderOpenPolicy.isDuplicate(
                 bookId: book.id, openingBookId: openingReaderBookId, openingGeneration: openingReaderGeneration,
                 currentGeneration: readerOpenGeneration, readerBookId: readerBook?.id,
                 closing: closingReader, hasPending: pendingOpenBookId != nil || queuedReaderOpen.pending != nil
-            ), location == nil { return }
+            ), location == nil && bookFileId == nil { return }
             pendingReaderRestore = nil
             pendingOpenBookId = nil
             queuedReaderOpen.enqueue(NativeReaderOpenRequest(
                 book: book, location: location, animated: animated, sourceFrame: sourceFrame,
-                sourceKey: sourceKey, source: source))
+                sourceKey: sourceKey, source: source, bookFileId: bookFileId))
             if openingReader { readerOpenGeneration += 1 }
             openQueuedReaderIfNeeded()
             return
@@ -309,6 +322,7 @@ extension NativeStore {
         session.appearanceColorScheme = nil
         var args: [String: Any] = ["bookId": book.id, "sessionId": session.appearanceSessionId]
         if let location { args["location"] = location }
+        if let bookFileId { args["bookFileId"] = bookFileId }
         if let initialInsets = estimatedInitialSurfaceInsets(for: book) {
             args["insets"] = initialInsets
         }

@@ -69,6 +69,7 @@ def main() -> int:
         # Review regressions need the fictional AI/dictionary/PDF-zoom fixture
         # described in the class doc comment; select them with --only.
         command.append("-skip-testing:NativeFrontendUITests/NativeReviewRegressionTests")
+        command.append("-skip-testing:NativeFrontendUITests/NativeDataSafetyUITests")
         # Upgrade setup deliberately uses another preview installation and is
         # run separately after the host has installed the legacy then native UI.
         command.append("-skip-testing:NativeFrontendUITests/NativeFrontendTests/testLegacyUpgradePreservesLibraryAndPreferences")

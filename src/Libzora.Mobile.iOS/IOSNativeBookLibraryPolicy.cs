@@ -37,6 +37,18 @@ internal static class IOSNativeBookLibraryPolicy
         !conflict.ExistingBook.Files.Any(file => string.Equals(
             file.Format.Trim().TrimStart('.'), conflict.Format.Trim().TrimStart('.'), StringComparison.OrdinalIgnoreCase));
 
+    internal static bool IsReadable(BookFile file) =>
+        file.Format.Trim().TrimStart('.').ToLowerInvariant() is "epub" or "pdf" or "azw3" or "mobi" or "txt";
+
+    internal static BookFile? MostRecentlyReadFile(Book book, IEnumerable<ReaderProgressRow> positions) =>
+        positions.Where(position => position.BookId == book.Id)
+            .OrderByDescending(position => position.UpdatedAt)
+            .Select(position => book.Files.FirstOrDefault(file => file.Id == position.BookFileId
+                && file.BookId == book.Id && IsReadable(file))).FirstOrDefault(file => file is not null);
+
+    internal static string ExportFileName(string title, BookFile file) =>
+        BookFileNamePolicy.CreateRenamedFileName(Path.GetFileName(file.RelativePath), title);
+
     internal static bool ImportFailedCompletely(ImportBatchResult result) =>
         result.FailureCount > 0 && result.SuccessCount == 0;
 

@@ -51,3 +51,9 @@ xcrun --sdk macosx swiftc -swift-version 5 -parse-as-library \
   "$root/tests/Libzora.Mobile.iOS.LogicTests/NativeMarkdownLogicTests.swift" \
   -o "$output/native-markdown-tests"
 "$output/native-markdown-tests"
+
+xcrun --sdk macosx swiftc -swift-version 5 -parse-as-library \
+  "$root/src/Libzora.Mobile.iOS/NativeUI/NativeDataSafetyPolicy.swift" \
+  "$root/tests/Libzora.Mobile.iOS.LogicTests/NativeDataSafetyLogicTests.swift" \
+  -o "$output/native-data-safety-tests"
+"$output/native-data-safety-tests"

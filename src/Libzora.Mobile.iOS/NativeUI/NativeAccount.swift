@@ -185,6 +185,19 @@ struct NativeAccountPage: View {
             }
         } footer: {
             VStack(alignment: .leading, spacing: 6) {
+                if resetMode || !register {
+                    Button {
+                        if resetMode { cancelReset() } else { beginReset() }
+                    } label: {
+                        Text(resetMode ? L("返回登录") : L("忘记密码？"))
+                            .font(NativeTheme.font(12.5, relativeTo: .caption))
+                            .foregroundStyle(NativeTheme.secondary)
+                            .padding(.vertical, 2)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier(resetMode ? "account.reset.cancel" : "account.forgot")
+                }
                 if loading || busy {
                     ProgressView().controlSize(.small)
                 }
@@ -193,23 +206,7 @@ struct NativeAccountPage: View {
                         .accessibilityIdentifier("account.status")
                 }
             }
-        }
-        if resetMode || !register {
-            Section {
-                if resetMode {
-                    Button { cancelReset() } label: {
-                        centeredActionLabel(L("返回登录"), tint: NativeTheme.secondary, weight: .regular)
-                    }
-                    .accessibilityIdentifier("account.reset.cancel")
-                } else {
-                    Button { beginReset() } label: {
-                        centeredActionLabel(L("忘记密码？"), tint: NativeTheme.secondary, weight: .regular)
-                    }
-                    .accessibilityIdentifier("account.forgot")
-                }
-            }
-            .listRowBackground(Color.clear)
-            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -407,17 +404,22 @@ struct NativeAccountPage: View {
 
     @ViewBuilder private var appleSignInSection: some View {
         Section {
-            NativeAppleSignInButton(
-                type: register ? .continue : .signIn,
-                style: colorScheme == .dark ? .white : .black,
-                cornerRadius: 10
-            ) {
+            Button {
                 signInWithApple()
+            } label: {
+                HStack(spacing: 7) {
+                    Spacer(minLength: 0)
+                    Image(systemName: "apple.logo")
+                        .font(.system(size: 15, weight: .semibold))
+                    Text(L("通过 Apple 登录"))
+                        .font(NativeTheme.font().weight(.semibold))
+                    Spacer(minLength: 0)
+                }
+                .foregroundStyle(NativeTheme.ink)
+                .frame(minHeight: 26)
+                .contentShape(Rectangle())
             }
-            .id("\(register)-\(colorScheme == .dark)")
-            .frame(height: 44)
-            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-            .listRowBackground(Color.clear)
+            .buttonStyle(.plain)
             .accessibilityLabel(L("通过 Apple 登录"))
             .accessibilityIdentifier("account.apple.signin")
         } footer: {

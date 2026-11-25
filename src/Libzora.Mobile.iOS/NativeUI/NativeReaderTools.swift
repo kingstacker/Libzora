@@ -619,7 +619,11 @@ struct NativeTxtReview: View {
                     ToolbarItem(placement: .cancellationAction) { Button(L("取消")) { dismiss() }.disabled(busy) }
                     ToolbarItem(placement: .confirmationAction) { Button(L("导入")) {
                         busy = true
-                        store.perform { defer { busy = false }; try await store.command("txt.complete", ["id": review.id, "rules": try requestObject(rules)]); finished = true; store.txtReview = nil; dismiss() }
+                        store.perform {
+                            defer { busy = false }
+                            try await store.command("txt.complete", ["id": review.id, "rules": try requestObject(rules)])
+                            finished = true
+                        }
                     }.disabled(busy || preview == nil) }
                 }
                 .task(id: revision) {

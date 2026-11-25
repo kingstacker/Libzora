@@ -111,7 +111,7 @@ final class ReaderFootnoteTests: XCTestCase {
         let materialsTab = app.tabBars.buttons["阅读资料"]
         XCTAssertTrue(materialsTab.waitForExistence(timeout: 15))
         materialsTab.tap()
-        let filter = app.buttons["materials.filter.bookmark"]
+        let filter = app.segmentedControls["materials.filter"].buttons["书签"]
         XCTAssertTrue(filter.waitForExistence(timeout: 10))
         filter.tap()
         let entry = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'materials.entry.'")).firstMatch
@@ -178,7 +178,7 @@ final class ReaderFootnoteTests: XCTestCase {
         app.launchEnvironment["LIBZORA_TEST_SLOW_READER_OPEN"] = "1"
         app.launch()
         app.tabBars.buttons["阅读资料"].tap()
-        let filter = app.buttons["materials.filter.bookmark"]
+        let filter = app.segmentedControls["materials.filter"].buttons["书签"]
         XCTAssertTrue(filter.waitForExistence(timeout: 15))
         filter.tap()
         let entry = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'materials.entry.'")).firstMatch

@@ -80,6 +80,10 @@ public sealed record MobilePreferences
     /// <summary>Overlay each book's rating on its cover in the library.</summary>
     public bool ShowBookRating { get; init; }
     public bool StackBookSeries { get; init; } = true;
+    /// <summary>Offer encoding/chapter-rule previews before importing TXT files.</summary>
+    public bool PreviewTxtImport { get; init; }
+    /// <summary>Explicit status choices; metadata remains authoritative when another device changes it.</summary>
+    public Dictionary<string, int>? ManualBookReadingStatuses { get; init; }
     public bool CollectionsView { get; init; }
     public double PdfZoom { get; init; } = 1;
     /// <summary>PDF display mode: 0 = SinglePage, 1 = Continuous, 2 = TwoPage.</summary>
@@ -143,6 +147,21 @@ public sealed record MobilePreferences
     public string ReaderHighlightColor { get; init; } = "#000000";
     /// <summary>Whether the user has accepted the welcome onboarding, user agreement, and privacy policy.</summary>
     public bool OnboardingAccepted { get; init; }
+
+    public bool HasManualReadingStatus(Guid bookId, LibraryReadingStatus status) =>
+        ManualBookReadingStatuses is { } choices && choices.TryGetValue(bookId.ToString("N"), out var saved) && saved == (int)status;
+
+    public MobilePreferences WithManualReadingStatus(Guid bookId, LibraryReadingStatus status)
+    {
+        var choices = NormalizeManualReadingStatuses(ManualBookReadingStatuses) ?? new Dictionary<string, int>();
+        choices[bookId.ToString("N")] = (int)status;
+        return this with { ManualBookReadingStatuses = choices };
+    }
+
+    public static Dictionary<string, int>? NormalizeManualReadingStatuses(Dictionary<string, int>? values) =>
+        values?.Where(item => Guid.TryParse(item.Key, out _) && Enum.IsDefined((LibraryReadingStatus)item.Value))
+            .GroupBy(item => Guid.Parse(item.Key).ToString("N"))
+            .ToDictionary(group => group.Key, group => group.Last().Value);
 
     public static string NormalizeReaderHighlightStyle(string? value) =>
         value?.Trim().ToLowerInvariant() switch
@@ -326,7 +345,8 @@ public sealed class MobilePreferencesStore(AppPaths paths)
                     ReaderProgressDisplay = MobilePreferences.NormalizeProgressDisplay(
                         current.ReaderProgressDisplay),
                     ReaderHighlightStyle = MobilePreferences.NormalizeReaderHighlightStyle(current.ReaderHighlightStyle),
-                    ReaderHighlightColor = MobilePreferences.NormalizeReaderHighlightColor(current.ReaderHighlightColor)
+                    ReaderHighlightColor = MobilePreferences.NormalizeReaderHighlightColor(current.ReaderHighlightColor),
+                    ManualBookReadingStatuses = MobilePreferences.NormalizeManualReadingStatuses(current.ManualBookReadingStatuses)
                 };
             }
         }
@@ -354,7 +374,8 @@ public sealed class MobilePreferencesStore(AppPaths paths)
             UiLanguage = MobileUiLanguageService.NormalizePreference(changed.UiLanguage),
             UiFont = Enum.IsDefined(changed.UiFont) ? changed.UiFont : AppUiFont.KingHwaOldSong,
             ReaderFlowMode = MobilePreferences.NormalizeFlowMode(changed.ReaderFlowMode),
-            ReaderPageAnimation = MobilePreferences.NormalizePageAnimation(changed.ReaderPageAnimation)
+            ReaderPageAnimation = MobilePreferences.NormalizePageAnimation(changed.ReaderPageAnimation),
+            ManualBookReadingStatuses = MobilePreferences.NormalizeManualReadingStatuses(changed.ManualBookReadingStatuses)
         };
         try
         {

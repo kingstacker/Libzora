@@ -1,7 +1,6 @@
 import AuthenticationServices
 import CryptoKit
 import Security
-import SwiftUI
 import UIKit
 
 struct NativeAppleSignInCredential {
@@ -140,34 +139,5 @@ final class NativeAppleSignInCoordinator: NSObject, ASAuthorizationControllerDel
     private static func sha256Hex(_ input: String) -> String {
         let digest = SHA256.hash(data: Data(input.utf8))
         return digest.map { String(format: "%02x", $0) }.joined()
-    }
-}
-
-/// Official Apple HIG button that adapts to light/dark mode while letting
-/// `NativeAccountPage` drive the async nonce + backend exchange cleanly.
-struct NativeAppleSignInButton: UIViewRepresentable {
-    let type: ASAuthorizationAppleIDButton.ButtonType
-    let style: ASAuthorizationAppleIDButton.Style
-    let cornerRadius: CGFloat
-    let action: () -> Void
-
-    final class Coordinator: NSObject {
-        var action: () -> Void
-        init(action: @escaping () -> Void) { self.action = action }
-        @objc func tapped() { action() }
-    }
-
-    func makeCoordinator() -> Coordinator { Coordinator(action: action) }
-
-    func makeUIView(context: Context) -> ASAuthorizationAppleIDButton {
-        let button = ASAuthorizationAppleIDButton(type: type, style: style)
-        button.cornerRadius = cornerRadius
-        button.addTarget(context.coordinator, action: #selector(Coordinator.tapped), for: .touchUpInside)
-        return button
-    }
-
-    func updateUIView(_ uiView: ASAuthorizationAppleIDButton, context: Context) {
-        context.coordinator.action = action
-        uiView.cornerRadius = cornerRadius
     }
 }

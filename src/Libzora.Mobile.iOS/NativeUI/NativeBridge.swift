@@ -29,6 +29,8 @@ struct MobilePreferences: Codable, Equatable {
     var showBookSyncStatus = false
     var showBookRating = false
     var stackBookSeries = true
+    var previewTxtImport: Bool? = false
+    var manualBookReadingStatuses: [String: Int]?
     var collectionsView = false
     var pdfZoom = 1.0
     var pdfDisplayMode = 0
@@ -282,6 +284,14 @@ final class NativeStore: ObservableObject {
     @Published var bookOpenOrder = UserDefaults.standard.dictionary(forKey: bookOpenOrderKey) as? [String: Int] ?? [:]
     @Published var folders: [LibraryFolder] = []
     @Published private(set) var preparingLibrary = true
+    @Published private(set) var onboardingConfirmed = false
+    var canOpenReader: Bool {
+        var debugBypass = false
+#if DEBUG
+        debugBypass = ProcessInfo.processInfo.arguments.contains("--libzora-skip-onboarding")
+#endif
+        return NativeOnboardingPolicy.canOpenReader(confirmedAcceptance: onboardingConfirmed, debugBypass: debugBypass)
+    }
     @Published private(set) var libraryLoaded = false
     @Published private(set) var libraryLoadError: String?
     /// Isolated from `NativeStore.objectWillChange` so scroll-driven palette
@@ -322,6 +332,20 @@ final class NativeStore: ObservableObject {
     @Published var dataBusy = false
     @Published var busyMessage = ""
     @Published var txtReview: TxtReview?
+    var txtPresentationActive = false
+    private var nextTxtReview: TxtReview?
+
+    func txtReviewDismissed() {
+        txtPresentationActive = false
+        if let next = nextTxtReview {
+            nextTxtReview = nil
+            txtReview = next
+            return
+        }
+        openPendingReaderIfNeeded()
+        openQueuedReaderIfNeeded()
+        restorePendingReaderIfNeeded()
+    }
     @Published var syncStatus = ""
     @Published var requestedTab: Int?
     static let lastReaderKey = "libzora.reader.lastBookId"
@@ -330,6 +354,9 @@ final class NativeStore: ObservableObject {
     var pendingOpenBookId: String?
     /// Bumped whenever a widget link supersedes the reader that is opening.
     var readerOpenGeneration = 0
+#if DEBUG
+    private var reflectionLoadFailureInjected = false
+#endif
     private var nextId: Int64 = 0
     private var pending: [Int64: (Data) -> Void] = [:]
     private var toastTask: Task<Void, Never>?
@@ -368,6 +395,20 @@ final class NativeStore: ObservableObject {
                 try Task.checkCancellation()
             }
         }
+#if DEBUG
+        let testArguments = ProcessInfo.processInfo.arguments
+        if command == "reflection.get", args["editor"] as? Bool == true,
+           testArguments.contains("--libzora-test-editor-load-failure"), !reflectionLoadFailureInjected {
+            reflectionLoadFailureInjected = true
+            throw NativeFailure(message: L("操作失败"))
+        }
+        if command == "materials.delete", testArguments.contains("--libzora-test-material-delete-failure") {
+            throw NativeFailure(message: L("操作失败"))
+        }
+        if command == "reflection.save", testArguments.contains("--libzora-test-slow-reflection-save") {
+            try await Task.sleep(nanoseconds: 6_000_000_000)
+        }
+#endif
         nextId += 1
         let id = nextId
         let data = try JSONSerialization.data(withJSONObject: ["command": command, "args": args])
@@ -438,7 +479,12 @@ final class NativeStore: ObservableObject {
                 session.searchBatch = search
                 session.searchBatches.send(search)
             }
-        case "txtImport": txtReview = event.txtImport
+        case "txtImport":
+            if txtPresentationActive { nextTxtReview = event.txtImport }
+            else { txtReview = event.txtImport }
+        case "txtImportDismissed":
+            if txtReview?.id == event.id { txtReview = nil }
+            if nextTxtReview?.id == event.id { nextTxtReview = nil }
         case "dataBusy": dataBusy = event.busy ?? false; busyMessage = event.message ?? ""
         case "status": if event.channel == "sync" { syncStatus = event.message ?? "" }
         case "aiText":
@@ -610,7 +656,19 @@ final class NativeStore: ObservableObject {
         do {
             try preferenceEdits.receive(value)
             if preferences != preferenceEdits.value { preferences = preferenceEdits.value }
+            updateOnboardingConfirmation()
         } catch { failure = error.localizedDescription }
+    }
+
+    private func updateOnboardingConfirmation() {
+        let accepted = preferenceEdits.confirmed.onboardingAccepted
+        guard accepted != onboardingConfirmed else { return }
+        onboardingConfirmed = accepted
+        if accepted {
+            openPendingReaderIfNeeded()
+            openQueuedReaderIfNeeded()
+            restorePendingReaderIfNeeded()
+        }
     }
 
     /// A Binding setter updates the native control immediately. Persistence and
@@ -640,6 +698,7 @@ final class NativeStore: ObservableObject {
                 let saved: MobilePreferences = try await self.request("preferences.save", ["preferences": self.preferenceEdits.changes])
                 try self.preferenceEdits.saved(saved, revision: revision)
                 self.preferences = self.preferenceEdits.value
+                self.updateOnboardingConfirmation()
                 if self.preferenceRevision == revision {
                     // A second setting may have superseded the request that enabled badges.
                     if saved.showBookSyncStatus || previous.showBookSyncStatus {

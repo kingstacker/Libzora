@@ -3,6 +3,8 @@ using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Input;
+using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using Avalonia.VisualTree;
 using Libzora.Core;
 using Libzora.Infrastructure;
@@ -254,6 +256,16 @@ public sealed class ReaderAnnotationCardTests(SettingsUiSession session)
         Assert.True(scope.Get<Popup>("ReaderAnnotationInputPopup").IsOpen);
         Assert.False(scope.Get<Button>("ReaderAnnotationInputDeleteButton").IsVisible);
 
+        // The primary action inverts the reader ink; its label must use an
+        // opaque page color, because the tiled paper texture is invisible
+        // when painted through glyphs.
+        var saveButton = scope.Get<Button>("ReaderAnnotationInputSaveButton");
+        var saveLabel = Assert.Single(saveButton.GetVisualDescendants().OfType<TextBlock>());
+        var saveForeground = Assert.IsType<SolidColorBrush>(saveLabel.Foreground);
+        Assert.Equal((Color)scope.Window.Resources["ReaderPageColor"]!, saveForeground.Color);
+        Assert.False(string.IsNullOrWhiteSpace(saveLabel.Text));
+        CapturePopupVisual(scope.Get<Border>("ReaderAnnotationInputPanel"), "annotation-note-editor");
+
         var palette = scope.Get<StackPanel>("ReaderAnnotationInputPalette");
         var blueButton = Assert.Single(palette.Children.OfType<Button>(), b => b.Tag as string == "#64B5F6");
         blueButton.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
@@ -283,6 +295,36 @@ public sealed class ReaderAnnotationCardTests(SettingsUiSession session)
         scope.Get<ContentControl>("ReaderActiveHostSlot").Content = null;
     });
 
+    [Fact]
+    public Task NoteEditorPrimaryActionInvertsAcrossReaderThemes() => Run(async () =>
+    {
+        await using var scope = await ReaderTestWindow.Create();
+        using var host = await ReaderAppearanceTests.LoadChapter(scope, new());
+        foreach (var theme in new[] { ReaderTheme.Classic, ReaderTheme.Ink })
+        {
+            scope.Call("ChangeReaderAppearance", new ReaderAppearanceSettings { Theme = theme });
+            await scope.Field<Task>("_readerAppearanceSaveTask");
+            await ReaderTests.Render();
+
+            scope.Set("_selectedReaderAnnotation", null);
+            scope.Set("_readerPendingSelection", "新选文本");
+            scope.Call("ShowReaderAnnotationInputPopup");
+            await ReaderTests.Render();
+
+            var save = scope.Get<Button>("ReaderAnnotationInputSaveButton");
+            var label = Assert.Single(save.GetVisualDescendants().OfType<TextBlock>());
+            var palette = ReaderPalette.For(theme);
+            Assert.Equal(palette.Page, Assert.IsType<SolidColorBrush>(label.Foreground).Color);
+            Assert.Equal(palette.Ink, Assert.IsType<SolidColorBrush>(save.Background).Color);
+            CapturePopupVisual(scope.Get<Border>("ReaderAnnotationInputPanel"),
+                $"annotation-note-editor-{theme}");
+            scope.Call("CloseReaderAnnotationInputPopup");
+        }
+
+        scope.Set("_readerActiveHost", null);
+        scope.Get<ContentControl>("ReaderActiveHostSlot").Content = null;
+    });
+
     private static void Capture(Control card, string name)
     {
         var output = Environment.GetEnvironmentVariable("LIBZORA_READER_ARTIFACTS");
@@ -290,6 +332,18 @@ public sealed class ReaderAnnotationCardTests(SettingsUiSession session)
         Directory.CreateDirectory(output);
         using var frame = root.CaptureRenderedFrame();
         frame!.Save(Path.Combine(output, name + ".png"), Avalonia.Media.Imaging.PngBitmapEncoderOptions.Default);
+    }
+
+    private static void CapturePopupVisual(Visual? visual, string name)
+    {
+        var output = Environment.GetEnvironmentVariable("LIBZORA_READER_ARTIFACTS");
+        if (visual is null || string.IsNullOrWhiteSpace(output) || visual.Bounds.Width < 1) return;
+        Directory.CreateDirectory(output);
+        using var image = new RenderTargetBitmap(new PixelSize(
+            (int)Math.Ceiling(visual.Bounds.Width),
+            (int)Math.Ceiling(visual.Bounds.Height)));
+        image.Render(visual);
+        image.Save(Path.Combine(output, name + ".png"), PngBitmapEncoderOptions.Default);
     }
 
     private Task Run(Func<Task> action) => session.Session.Dispatch(async () =>

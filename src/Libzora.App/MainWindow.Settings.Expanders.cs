@@ -88,10 +88,12 @@ public partial class MainWindow
     private void ConfigureS3SettingsDraftTracking()
     {
         EnsureSyncProviderItems();
-        S3SyncEnabledCheck.IsCheckedChanged += (_, _) => HandleS3SyncEnabledChanged();
-        ToggleSwitch[] switches = [S3AutomaticSyncCheck, S3DownloadBookFilesCheck, S3PathStyleCheck, S3SkipTlsVerifyCheck];
+        S3SyncEnabledCheck.IsCheckedChanged += (_, _) => HandleS3SyncToggleChanged(S3SyncEnabledCheck);
+        S3AutomaticSyncCheck.IsCheckedChanged += (_, _) => HandleS3SyncToggleChanged(S3AutomaticSyncCheck);
+        ToggleSwitch[] switches = [S3DownloadBookFilesCheck, S3PathStyleCheck, S3SkipTlsVerifyCheck];
         foreach (var control in switches) control.IsCheckedChanged += (_, _) => S3SettingsFieldChanged();
-        TextBox[] fields = [S3EndpointBox, S3AccessKeyBox, S3SecretKeyBox, S3BucketBox, S3RegionBox, S3PrefixBox, S3EncryptionKeyBox,
+        TextBox[] fields = [S3EndpointBox, S3AccessKeyBox, S3SecretKeyBox, S3BucketBox, S3RegionBox, S3PrefixBox,
+            S3EncryptionKeyBox, S3EncryptionKeyConfirmBox,
             WebDavEndpointBox, WebDavUsernameBox, WebDavPasswordBox];
         foreach (var control in fields)
             control.PropertyChanged += (_, e) =>
@@ -140,47 +142,62 @@ public partial class MainWindow
         }
     }
 
-    private void HandleS3SyncEnabledChanged()
+    private void HandleS3SyncToggleChanged(ToggleSwitch toggle)
     {
         if (_suppressS3SettingsDraftTracking)
             return;
 
-        if (S3SyncEnabledCheck.IsChecked == true)
+        if (toggle.IsChecked == true && !HasReadySyncEncryptionKey(out var missingKey, out var unconfirmedKey))
         {
-            var savedKey = S3SyncSettings.Normalize(_s3SyncStoredSettings.Settings).EncryptionKey;
-            var key = S3EncryptionKeyBox.Text ?? string.Empty;
-            var confirmation = S3EncryptionKeyConfirmBox.Text ?? string.Empty;
-            var missingKey = string.IsNullOrWhiteSpace(key);
-            var unconfirmedKey = !missingKey
-                && !string.Equals(key, savedKey, StringComparison.Ordinal)
-                && !string.Equals(key, confirmation, StringComparison.Ordinal);
+            var wasSuppressing = _suppressS3SettingsDraftTracking;
+            _suppressS3SettingsDraftTracking = true;
+            try { toggle.IsChecked = false; }
+            finally { _suppressS3SettingsDraftTracking = wasSuppressing; }
 
-            if (missingKey || unconfirmedKey)
-            {
-                var wasSuppressing = _suppressS3SettingsDraftTracking;
-                _suppressS3SettingsDraftTracking = true;
-                try { S3SyncEnabledCheck.IsChecked = false; }
-                finally { _suppressS3SettingsDraftTracking = wasSuppressing; }
-
-                var message = missingKey
-                    ? T("开启同步前，请先在下方设置同步密钥。")
-                    : T("请先再次输入并确认一致的同步密钥，再开启同步。");
-                S3SyncStatusText.Text = message;
-                _ = ShowMessageAsync(
-                    T("需要设置同步密钥"),
-                    message,
-                    secondaryActionText: T("去设置"),
-                    secondaryAction: () => OpenSyncEncryptionKeySettings(unconfirmedKey));
-                return;
-            }
+            var message = missingKey
+                ? T("开启同步前，请先在下方设置加密密钥。")
+                : T("请先再次输入并确认一致的加密密钥，再开启同步。");
+            S3SyncStatusText.Text = message;
+            _ = ShowMessageAsync(
+                T("需要设置加密密钥"),
+                message,
+                secondaryActionText: T("去设置"),
+                secondaryAction: () => OpenSyncEncryptionKeySettings(unconfirmedKey));
+            return;
         }
 
         S3SettingsFieldChanged();
     }
 
+    private bool HasReadySyncEncryptionKey(out bool missingKey, out bool unconfirmedKey)
+    {
+        var savedKey = S3SyncSettings.Normalize(_s3SyncStoredSettings.Settings).EncryptionKey;
+        var key = S3EncryptionKeyBox.Text ?? string.Empty;
+        var confirmation = S3EncryptionKeyConfirmBox.Text ?? string.Empty;
+        missingKey = string.IsNullOrWhiteSpace(key);
+        unconfirmedKey = !missingKey
+            && !string.Equals(key, savedKey, StringComparison.Ordinal)
+            && !string.Equals(key, confirmation, StringComparison.Ordinal);
+        return !missingKey && !unconfirmedKey;
+    }
+
     private void S3SettingsFieldChanged()
     {
         if (_suppressS3SettingsDraftTracking) return;
+        // If the encryption key is cleared while sync switches are on, turn
+        // them off immediately so sync cannot remain enabled without a key.
+        if (string.IsNullOrWhiteSpace(S3EncryptionKeyBox.Text)
+            && (S3SyncEnabledCheck.IsChecked == true || S3AutomaticSyncCheck.IsChecked == true))
+        {
+            var wasSuppressing = _suppressS3SettingsDraftTracking;
+            _suppressS3SettingsDraftTracking = true;
+            try
+            {
+                S3SyncEnabledCheck.IsChecked = false;
+                S3AutomaticSyncCheck.IsChecked = false;
+            }
+            finally { _suppressS3SettingsDraftTracking = wasSuppressing; }
+        }
         _s3TestConnectionCancellation?.Cancel();
         _s3SettingsEditVersion++;
         S3SyncStatusText.Text = string.Empty;

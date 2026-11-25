@@ -136,6 +136,7 @@ public sealed partial class MtpKindleDeviceService : IKindleDeviceService, IDevi
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var isDictionary = false;
+                var downloadedOverMtp = false;
                 try
                 {
                     if (cached.TryGetValue(book.RelativePath.Replace('/', '\\').TrimStart('\\'), out var entry)
@@ -154,6 +155,7 @@ public sealed partial class MtpKindleDeviceService : IKindleDeviceService, IDevi
                         var remote = session.Find(book.RelativePath);
                         if (remote is not null && book.Size <= MaximumMetadataFileSize)
                         {
+                            downloadedOverMtp = true;
                             var staged = Path.Combine(
                                 stagingDirectory,
                                 $"{Guid.NewGuid():N}{Path.GetExtension(book.FileName)}");
@@ -209,7 +211,7 @@ public sealed partial class MtpKindleDeviceService : IKindleDeviceService, IDevi
                 processed++;
                 if (isDictionary) removed.Add(book.RelativePath);
                 else changed.Add(CloneBook(book));
-                if (changed.Count + removed.Count >= 8 || processed == books.Count)
+                if (downloadedOverMtp || changed.Count + removed.Count >= 8 || processed == books.Count)
                 {
                     progress?.Report(new KindleScanProgress(
                         KindleScanStage.Enriched,

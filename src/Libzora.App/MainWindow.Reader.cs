@@ -82,7 +82,10 @@ public partial class MainWindow
             _readerRestoredProgress = ValidateReaderProgress(document, savedProgress);
             if (restoreProgress && _readerRestoredProgress is { } progress)
             {
-                _readerChapterIndex = progress.ChapterIndex;
+                _readerChapterIndex = ResolveReadingReaderChapter(progress.ChapterIndex, -1);
+                if (_readerChapterIndex < 0 || _readerChapterIndex >= document.Chapters.Count)
+                    _readerChapterIndex = Math.Clamp(ResolveReadingReaderChapter(progress.ChapterIndex, 1),
+                        0, document.Chapters.Count - 1);
                 _readerScrollPosition = progress.ScrollPosition;
                 _readerCurrentFragment = DecodeReaderFragment(progress.Fragment);
                 var syncedMarker = await _readerData.GetSyncedPositionMarkerAsync(file.Id, sessionToken);

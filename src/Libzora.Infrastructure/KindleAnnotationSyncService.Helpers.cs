@@ -297,12 +297,13 @@ public sealed partial class KindleAnnotationSyncService
             match.Chunk.Content[sourceEnd..Math.Min(match.Chunk.Content.Length, sourceEnd + 40)]);
     }
 
-    private static (List<KindleAnnotationMutation> Mutations, int ChangedAnnotations) BuildDeviceMutations(
+    private static (List<KindleAnnotationMutation> Mutations, int ChangedAnnotations, int BookmarksToDevice) BuildDeviceMutations(
         IReadOnlyList<BookContext> contexts)
     {
         var mutations = new List<KindleAnnotationMutation>();
         var byKey = new Dictionary<(string Id, string BookId), int>();
         var changedAnnotations = 0;
+        var bookmarksToDevice = 0;
         foreach (var context in contexts)
         {
             if (context.RawText is null) continue;
@@ -311,7 +312,7 @@ public sealed partial class KindleAnnotationSyncService
                 ?? context.RawText.CreateBookId();
             if (string.IsNullOrWhiteSpace(bookId))
             {
-                context.UnsupportedCount += context.ChangesToDevice.Count;
+                context.UnsupportedCount += context.ChangesToDevice.Count + context.BookmarksToDevice.Count;
                 continue;
             }
 
@@ -428,9 +429,11 @@ public sealed partial class KindleAnnotationSyncService
                 }
                 changed.Add(repair.LocalId);
             }
-            changedAnnotations += changed.Count;
+            var bookmarkWrites = BuildBookmarkMutations(context, bookData, bookId, mutations, byKey);
+            bookmarksToDevice += bookmarkWrites;
+            changedAnnotations += changed.Count + bookmarkWrites;
         }
-        return (mutations, changedAnnotations);
+        return (mutations, changedAnnotations, bookmarksToDevice);
     }
 
     private static bool IsOwnedNote(KindleAnnotationRecord note) =>

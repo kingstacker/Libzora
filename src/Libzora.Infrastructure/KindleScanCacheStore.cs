@@ -66,6 +66,25 @@ internal sealed class KindleScanCacheStore
             }).OrderBy(book => book.Title, StringComparer.CurrentCultureIgnoreCase).ToArray();
     }
 
+    public async Task UpsertDeviceEntryAsync(
+        KindleScanCacheEntry entry,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            await EnsureLoadedAsync(cancellationToken);
+            var normalized = NormalizePath(entry.RelativePath);
+            _document!.Entries.RemoveAll(existing =>
+                existing.DeviceIdentity.Equals(entry.DeviceIdentity, StringComparison.OrdinalIgnoreCase)
+                && NormalizePath(existing.RelativePath).Equals(normalized, StringComparison.OrdinalIgnoreCase));
+            _document.Entries.Add(entry);
+            await SaveDocumentAsync(cancellationToken);
+        }
+        finally { _gate.Release(); }
+    }
+
     public async Task ReplaceDeviceEntriesAsync(
         string deviceIdentity,
         IEnumerable<KindleScanCacheEntry> entries,
@@ -78,27 +97,32 @@ internal sealed class KindleScanCacheStore
             _document!.Entries.RemoveAll(entry =>
                 entry.DeviceIdentity.Equals(deviceIdentity, StringComparison.OrdinalIgnoreCase));
             _document.Entries.AddRange(entries);
-            Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
-            var temporary = _path + ".tmp";
-            try
-            {
-                await using (var stream = new FileStream(
-                                 temporary,
-                                 FileMode.Create,
-                                 FileAccess.Write,
-                                 FileShare.None,
-                                 81920,
-                                 useAsync: true))
-                    await JsonSerializer.SerializeAsync(stream, _document, cancellationToken: cancellationToken);
-                File.Move(temporary, _path, overwrite: true);
-            }
-            finally
-            {
-                try { if (File.Exists(temporary)) File.Delete(temporary); }
-                catch { }
-            }
+            await SaveDocumentAsync(cancellationToken);
         }
         finally { _gate.Release(); }
+    }
+
+    private async Task SaveDocumentAsync(CancellationToken cancellationToken)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
+        var temporary = _path + ".tmp";
+        try
+        {
+            await using (var stream = new FileStream(
+                             temporary,
+                             FileMode.Create,
+                             FileAccess.Write,
+                             FileShare.None,
+                             81920,
+                             useAsync: true))
+                await JsonSerializer.SerializeAsync(stream, _document, cancellationToken: cancellationToken);
+            File.Move(temporary, _path, overwrite: true);
+        }
+        finally
+        {
+            try { if (File.Exists(temporary)) File.Delete(temporary); }
+            catch { }
+        }
     }
 
     private async Task EnsureLoadedAsync(CancellationToken cancellationToken)

@@ -79,9 +79,8 @@ struct NativeReaderEntryPresentation: ViewModifier {
                 try? await Task.sleep(nanoseconds: NativeReaderPresentationPolicy.loadingFeedbackDelay)
                 guard !Task.isCancelled, !prepared else { return }
                 loadingFeedback = true
-                // The modal now supplies its own stable loading state; the
-                // startup cover beneath it can safely release without a flash.
                 if store.session.appearanceSessionId == sessionId && !store.widgetColdLaunch {
+                    store.dismissWidgetEntrySnapshotCover()
                     store.restoringReader = false
                 }
             }
@@ -108,12 +107,19 @@ struct NativeReaderEntryPresentation: ViewModifier {
         }
         guard !Task.isCancelled, store.session.appearanceSessionId == sessionId else { return }
         let window = store.navigationWindow
-        let snapshot = store.widgetColdLaunch
-            ? (store.captureWidgetBrandSnapshot() ?? store.readerEntrySnapshot)
-            : (loadingFeedback ? store.captureNavigationSnapshot() : store.readerEntrySnapshot)
-        let handoff = NativePageSlideTransition(window: window, snapshot: snapshot, paper: UIColor(paper))
+        let handoff: NativePageSlideTransition?
+        if store.widgetColdLaunch {
+            let snapshot = store.captureWidgetBrandSnapshot() ?? store.readerEntrySnapshot
+            handoff = NativePageSlideTransition(window: window, snapshot: snapshot, paper: UIColor(paper))
+        } else if !loadingFeedback, let oldView = store.takeWidgetEntrySnapshotCover() {
+            handoff = NativePageSlideTransition(window: window, oldPageView: oldView, paper: UIColor(paper))
+        } else {
+            let snapshot = loadingFeedback ? store.captureNavigationSnapshot() : store.readerEntrySnapshot
+            handoff = NativePageSlideTransition(window: window, snapshot: snapshot, paper: UIColor(paper))
+        }
         transition = handoff
         store.dismissWidgetBrandCover()
+        store.dismissWidgetEntrySnapshotCover()
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) { prepared = true }

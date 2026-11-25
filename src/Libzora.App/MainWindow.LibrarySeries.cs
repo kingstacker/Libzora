@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
@@ -93,6 +94,7 @@ public partial class MainWindow
                 isSelected: () => ReferenceEquals(selectedVolume, volume),
                 isCurrent: () => ReferenceEquals(currentFront, volume),
                 registerStateUpdater: updater => selectionUpdaters.Add((volume, updater)),
+                statusBadges: BuildLocalVolumeStatusBadges(volume),
                 onActivate: async () =>
                 {
                     if (ReferenceEquals(selectedVolume, volume))
@@ -200,6 +202,7 @@ public partial class MainWindow
                 isSelected: () => false,
                 isCurrent: () => isCurrent,
                 registerStateUpdater: null,
+                statusBadges: BuildDeviceVolumeStatusBadges(volume),
                 onActivate: async () =>
                 {
                     CloseSeriesShelfOverlay();
@@ -363,6 +366,104 @@ public partial class MainWindow
         _seriesShelfPendingCenterIndex = null;
     }
 
+    private Control BuildLocalVolumeStatusBadges(BookCardViewModel volume)
+    {
+        var syncTemplate = Resources.TryGetValue("BookSyncStatusGlyph", out var syncRes)
+            ? syncRes as Avalonia.Controls.Templates.IDataTemplate
+            : null;
+        var presenceTemplate = Resources.TryGetValue("LibraryPresenceGlyph", out var presRes)
+            ? presRes as Avalonia.Controls.Templates.IDataTemplate
+            : null;
+
+        var panel = new StackPanel
+        {
+            Orientation = Avalonia.Layout.Orientation.Horizontal,
+            Spacing = 2,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+        };
+
+        if (syncTemplate is not null)
+        {
+            var syncControl = new ContentControl
+            {
+                DataContext = volume,
+                Content = volume,
+                Width = 22,
+                Height = 22,
+                Padding = new Thickness(0),
+                ContentTemplate = syncTemplate,
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+                HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                VerticalContentAlignment = Avalonia.Layout.VerticalAlignment.Center,
+                IsVisible = volume.SyncStatusVisibility
+            };
+            ToolTip.SetTip(syncControl, volume.SyncStatusLabel);
+            AutomationProperties.SetName(syncControl, volume.SyncStatusLabel);
+            syncControl.Tapped += BookSyncStatusIcon_Tapped;
+            panel.Children.Add(syncControl);
+        }
+
+        if (presenceTemplate is not null)
+        {
+            var presenceControl = new ContentControl
+            {
+                DataContext = volume,
+                Content = volume,
+                Width = 22,
+                Height = 22,
+                Padding = new Thickness(0),
+                ContentTemplate = presenceTemplate,
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+                HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                VerticalContentAlignment = Avalonia.Layout.VerticalAlignment.Center,
+                IsVisible = volume.PresenceVisibility
+            };
+            ToolTip.SetTip(presenceControl, volume.PresenceLabel);
+            AutomationProperties.SetName(presenceControl, volume.PresenceLabel);
+            panel.Children.Add(presenceControl);
+        }
+
+        return panel;
+    }
+
+    private Control BuildDeviceVolumeStatusBadges(KindleBookCardViewModel volume)
+    {
+        var presenceTemplate = Resources.TryGetValue("LibraryPresenceGlyph", out var presRes)
+            ? presRes as Avalonia.Controls.Templates.IDataTemplate
+            : null;
+        var panel = new StackPanel
+        {
+            Orientation = Avalonia.Layout.Orientation.Horizontal,
+            Spacing = 2,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+        };
+        if (presenceTemplate is not null)
+        {
+            var presenceControl = new ContentControl
+            {
+                DataContext = volume,
+                Content = volume,
+                Width = 22,
+                Height = 22,
+                Padding = new Thickness(0),
+                ContentTemplate = presenceTemplate,
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+                HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                VerticalContentAlignment = Avalonia.Layout.VerticalAlignment.Center,
+                IsVisible = volume.PresenceVisibility
+            };
+            ToolTip.SetTip(presenceControl, volume.PresenceLabel);
+            AutomationProperties.SetName(presenceControl, volume.PresenceLabel);
+            panel.Children.Add(presenceControl);
+        }
+        return panel;
+    }
+
     private Control BuildSeriesVolumeTile(
         string title,
         string authors,
@@ -375,6 +476,7 @@ public partial class MainWindow
         Func<bool> isSelected,
         Func<bool> isCurrent,
         Action<Action<bool, bool>>? registerStateUpdater,
+        Control? statusBadges,
         Func<Task> onActivate,
         Func<Task>? onOpenReader,
         Action<Control, ContextRequestedEventArgs>? onContextRequested)
@@ -492,14 +594,30 @@ public partial class MainWindow
 
         var cardStack = new StackPanel { Spacing = 0 };
         cardStack.Children.Add(coverBorder);
-        var captionGrid = new StackPanel
+        var captionGrid = new Grid
         {
             Margin = new Thickness(2, 8, 2, 0),
-            Spacing = 2
+            ColumnDefinitions = new ColumnDefinitions("*,Auto"),
+            RowDefinitions = new RowDefinitions("Auto,Auto,Auto")
         };
+        Grid.SetRow(titleText, 0);
+        Grid.SetColumnSpan(titleText, 2);
+        Grid.SetRow(authorsText, 1);
+        Grid.SetColumn(authorsText, 0);
+        authorsText.Margin = new Thickness(0, 2, 0, 0);
+        Grid.SetRow(metaText, 2);
+        Grid.SetColumn(metaText, 0);
+        metaText.Margin = new Thickness(0, 2, 0, 0);
         captionGrid.Children.Add(titleText);
         captionGrid.Children.Add(authorsText);
         captionGrid.Children.Add(metaText);
+        if (statusBadges is not null)
+        {
+            Grid.SetRow(statusBadges, 1);
+            Grid.SetRowSpan(statusBadges, 2);
+            Grid.SetColumn(statusBadges, 1);
+            captionGrid.Children.Add(statusBadges);
+        }
         cardStack.Children.Add(captionGrid);
 
         var outlineBorder = new Border

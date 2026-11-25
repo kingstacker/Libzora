@@ -162,6 +162,13 @@ public sealed class MacOSKindleDeviceService : IKindleDeviceService, IDeviceAtta
         IProgress<KindleAnnotationSyncProgress>? progress) =>
         Service(device).ApplyAnnotationMutationsAsync(device, snapshot, mutations, cancellationToken, progress);
 
+    public Task<KindleAnnotationRestoreResult> RestoreAnnotationDatabaseAsync(
+        KindleDevice device,
+        KindleAnnotationBackupEntry backup,
+        CancellationToken cancellationToken = default,
+        IProgress<KindleAnnotationSyncProgress>? progress = null) =>
+        Service(device).RestoreAnnotationDatabaseAsync(device, backup, cancellationToken, progress);
+
     public Task EjectAsync(KindleDevice device, CancellationToken cancellationToken = default) =>
         Service(device).EjectAsync(device, cancellationToken);
 

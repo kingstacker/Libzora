@@ -103,6 +103,12 @@ enum KkTheme {
             : Color(red: 0.79, green: 0.34, blue: 0.22)
     }
 
+    static func treeYellowAccent(_ scheme: ColorScheme) -> Color {
+        scheme == .dark
+            ? Color(red: 0.95, green: 0.75, blue: 0.34)
+            : Color(red: 0.90, green: 0.66, blue: 0.22)
+    }
+
     static func title(_ size: CGFloat, relativeTo style: Font.TextStyle = .headline, useSystemFont: Bool = false) -> Font {
         font(size, relativeTo: style, weight: .semibold, useSystemFont: useSystemFont)
     }

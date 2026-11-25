@@ -152,6 +152,92 @@ internal sealed partial record KindleRawBookText(
     }
 
     /// <summary>
+    /// Extracts a visible text anchor starting at (or immediately after) a
+    /// Kindle byte position so point-based records like bookmarks can be mapped
+    /// into another format's text stream.
+    /// </summary>
+    public bool ExtractAnchorAt(
+        long position,
+        out string quote,
+        out string prefix,
+        out string suffix,
+        int quoteLength = 32,
+        int contextLength = 24)
+    {
+        quote = string.Empty;
+        prefix = string.Empty;
+        suffix = string.Empty;
+        if (position < 0 || position >= Text.LongLength) return false;
+
+        var visible = GetVisibleIndex();
+        if (visible is not null && visible.Text.Length > 0)
+        {
+            var index = FindFirstVisibleAtOrAfter(visible.Starts, position);
+            if (index >= visible.Text.Length)
+                index = Math.Max(0, visible.Text.Length - Math.Min(quoteLength, visible.Text.Length));
+            var length = Math.Min(quoteLength, visible.Text.Length - index);
+            if (length <= 0) return false;
+            quote = visible.Text.Substring(index, length);
+            var prefixStart = Math.Max(0, index - contextLength);
+            prefix = visible.Text.Substring(prefixStart, index - prefixStart);
+            var suffixStart = index + length;
+            var suffixLength = Math.Min(contextLength, visible.Text.Length - suffixStart);
+            suffix = suffixLength > 0 ? visible.Text.Substring(suffixStart, suffixLength) : string.Empty;
+            return true;
+        }
+
+        var fallback = ExtractRange(position, Math.Min(Text.LongLength, position + 256));
+        if (string.IsNullOrWhiteSpace(fallback)) return false;
+        quote = fallback.Length > quoteLength ? fallback[..quoteLength] : fallback;
+        return quote.Length > 0;
+    }
+
+    /// <summary>
+    /// Resolves a bookmark anchor quote (plus optional surrounding context) to a
+    /// Kindle byte offset. Falls back to shorter leading slices when trailing
+    /// punctuation or whitespace differs across editions.
+    /// </summary>
+    public bool TryFindAnchorPosition(
+        string? quote,
+        string? prefix,
+        string? suffix,
+        out long position)
+    {
+        position = 0;
+        var trimmed = (quote ?? string.Empty).Trim();
+        if (trimmed.Length == 0) return false;
+        if (TryFindRange(trimmed, prefix, suffix, out var start, out _))
+        {
+            position = start;
+            return true;
+        }
+        foreach (var sliceLength in new[] { 40, 24, 16 })
+        {
+            if (trimmed.Length <= sliceLength) continue;
+            var slice = trimmed[..sliceLength];
+            if (TryFindRange(slice, prefix, null, out start, out _))
+            {
+                position = start;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static int FindFirstVisibleAtOrAfter(int[] starts, long position)
+    {
+        var low = 0;
+        var high = starts.Length;
+        while (low < high)
+        {
+            var mid = low + ((high - low) / 2);
+            if (starts[mid] < position) low = mid + 1;
+            else high = mid;
+        }
+        return low;
+    }
+
+    /// <summary>
     /// The reader's context can differ slightly from the book markup, so shorter
     /// context is tried when nothing matches. More than one survivor is ambiguous;
     /// shorter context could only add candidates, so the search stops there.

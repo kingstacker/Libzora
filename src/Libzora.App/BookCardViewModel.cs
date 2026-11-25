@@ -155,10 +155,30 @@ public sealed class BookCardViewModel : ObservableObject, IDisposable
         private set
         {
             if (!SetProperty(ref _libraryPresence, value)) return;
-            OnPropertyChanged(nameof(PresenceLabel));
-            OnPropertyChanged(nameof(ComputerOnlyPresenceVisibility));
-            OnPropertyChanged(nameof(KindleOnlyPresenceVisibility));
-            OnPropertyChanged(nameof(BothLibrariesPresenceVisibility));
+            NotifyPresenceChanged();
+        }
+    }
+
+    private BookLibraryPresence EffectiveLibraryPresence
+    {
+        get
+        {
+            if (!IsSeriesStack) return LibraryPresence;
+            var both = _seriesMembers.Count(member => member.LibraryPresence == BookLibraryPresence.Both);
+            if (both > 0) return BookLibraryPresence.Both;
+            return _seriesMembers.All(member => member.LibraryPresence == BookLibraryPresence.KindleOnly)
+                ? BookLibraryPresence.KindleOnly
+                : BookLibraryPresence.ComputerOnly;
+        }
+    }
+
+    public double PresenceOpacity
+    {
+        get
+        {
+            if (!IsSeriesStack) return 1d;
+            var both = _seriesMembers.Count(member => member.LibraryPresence == BookLibraryPresence.Both);
+            return both > 0 && both < _seriesMembers.Count ? 0.52d : 1d;
         }
     }
 
@@ -166,16 +186,30 @@ public sealed class BookCardViewModel : ObservableObject, IDisposable
     // library-presence badge (PC only / Kindle only / both). Avalonia keeps
     // the same three-state model so the comparison stays readable instead of
     // using a fixed icon on every card.
-    public bool ComputerOnlyPresenceVisibility => LibraryPresence == BookLibraryPresence.ComputerOnly;
-    public bool KindleOnlyPresenceVisibility => LibraryPresence == BookLibraryPresence.KindleOnly;
-    public bool BothLibrariesPresenceVisibility => LibraryPresence == BookLibraryPresence.Both;
+    public bool ComputerOnlyPresenceVisibility => EffectiveLibraryPresence == BookLibraryPresence.ComputerOnly;
+    public bool KindleOnlyPresenceVisibility => EffectiveLibraryPresence == BookLibraryPresence.KindleOnly;
+    public bool BothLibrariesPresenceVisibility => EffectiveLibraryPresence == BookLibraryPresence.Both;
 
-    public string PresenceLabel => LibraryPresence switch
+    public string PresenceLabel
     {
-        BookLibraryPresence.Both => UiText.Get("电脑与当前设备都有"),
-        BookLibraryPresence.KindleOnly => UiText.Get("仅当前设备有"),
-        _ => UiText.Get("仅电脑书库有")
-    };
+        get
+        {
+            if (IsSeriesStack)
+            {
+                var total = _seriesMembers.Count;
+                var both = _seriesMembers.Count(member => member.LibraryPresence == BookLibraryPresence.Both);
+                if (both == total) return UiText.Get("全部 {0} 册在电脑和当前设备均有", total);
+                if (both > 0) return UiText.Get("{0}/{1} 册已在当前设备，{2} 册仅在电脑", both, total, total - both);
+                return UiText.Get("全部 {0} 册仅在电脑书库", total);
+            }
+            return LibraryPresence switch
+            {
+                BookLibraryPresence.Both => UiText.Get("电脑与当前设备都有"),
+                BookLibraryPresence.KindleOnly => UiText.Get("仅当前设备有"),
+                _ => UiText.Get("仅电脑书库有")
+            };
+        }
+    }
 
     // The presence badge sits in the card's text footer; when gallery mode
     // hides the footer the badge must go with it so only the cover remains.
@@ -187,27 +221,102 @@ public sealed class BookCardViewModel : ObservableObject, IDisposable
         private set
         {
             if (!SetProperty(ref _syncStatus, value)) return;
-            OnPropertyChanged(nameof(SyncStatusLabel));
-            OnPropertyChanged(nameof(SyncNotSyncedVisibility));
-            OnPropertyChanged(nameof(SyncSyncedVisibility));
-            OnPropertyChanged(nameof(SyncNotDownloadedVisibility));
+            NotifySyncStatusChanged();
+        }
+    }
+
+    private BookSyncStatus EffectiveSyncStatus
+    {
+        get
+        {
+            if (!IsSeriesStack) return SyncStatus;
+            if (_seriesMembers.Any(member => member.SyncStatus == BookSyncStatus.NotDownloaded))
+                return BookSyncStatus.NotDownloaded;
+            if (_seriesMembers.Any(member => member.SyncStatus == BookSyncStatus.NotSynced))
+                return BookSyncStatus.NotSynced;
+            return BookSyncStatus.Synced;
+        }
+    }
+
+    public double SyncStatusOpacity
+    {
+        get
+        {
+            if (!IsSeriesStack) return 1d;
+            var synced = _seriesMembers.Count(member => member.SyncStatus is BookSyncStatus.Synced or BookSyncStatus.Downloaded);
+            return synced > 0 && synced < _seriesMembers.Count ? 0.58d : 1d;
         }
     }
 
     public bool SyncStatusVisibility => _isSyncStatusVisible;
-    public bool SyncNotSyncedVisibility => SyncStatus == BookSyncStatus.NotSynced;
+    public bool SyncNotSyncedVisibility => EffectiveSyncStatus == BookSyncStatus.NotSynced;
     // A local copy that is already part of the remote baseline is simply
     // synced from the user's perspective; the separate enum value is kept
     // internally for service/test compatibility.
-    public bool SyncSyncedVisibility => SyncStatus is BookSyncStatus.Synced or BookSyncStatus.Downloaded;
-    public bool SyncNotDownloadedVisibility => SyncStatus == BookSyncStatus.NotDownloaded;
-    public string SyncStatusLabel => SyncStatus switch
+    public bool SyncSyncedVisibility => EffectiveSyncStatus is BookSyncStatus.Synced or BookSyncStatus.Downloaded;
+    public bool SyncNotDownloadedVisibility => EffectiveSyncStatus == BookSyncStatus.NotDownloaded;
+    public string SyncStatusLabel
     {
-        BookSyncStatus.Synced => UiText.Get("已同步"),
-        BookSyncStatus.NotDownloaded => UiText.Get("已同步到云端，尚未下载；点击图标下载"),
-        BookSyncStatus.Downloaded => UiText.Get("已同步"),
-        _ => UiText.Get("未同步；点击图标上传")
-    };
+        get
+        {
+            if (IsSeriesStack)
+            {
+                var total = _seriesMembers.Count;
+                var notDownloaded = _seriesMembers.Count(member => member.SyncStatus == BookSyncStatus.NotDownloaded);
+                var synced = _seriesMembers.Count(member => member.SyncStatus is BookSyncStatus.Synced or BookSyncStatus.Downloaded);
+                if (synced == total) return UiText.Get("全部 {0} 册已同步", total);
+                if (notDownloaded > 0) return UiText.Get("云端同步：{0}/{1} 册已下载，{2} 册待下载", total - notDownloaded, total, notDownloaded);
+                return UiText.Get("云端同步：{0}/{1} 册已同步，{2} 册未同步", synced, total, total - synced);
+            }
+            return SyncStatus switch
+            {
+                BookSyncStatus.Synced => UiText.Get("已同步"),
+                BookSyncStatus.NotDownloaded => UiText.Get("已同步到云端，尚未下载；点击图标下载"),
+                BookSyncStatus.Downloaded => UiText.Get("已同步"),
+                _ => UiText.Get("未同步；点击图标上传")
+            };
+        }
+    }
+
+    public string SeriesSummaryLabel
+    {
+        get
+        {
+            if (!IsSeriesStack) return SeriesCountLabel;
+            var parts = new List<string> { SeriesCountLabel };
+            if (_isSyncStatusVisible)
+            {
+                var synced = _seriesMembers.Count(member => member.SyncStatus is BookSyncStatus.Synced or BookSyncStatus.Downloaded);
+                parts.Add(UiText.Get("{0}/{1} 已同步", synced, _seriesMembers.Count));
+            }
+            if (_isLibraryPresenceVisible)
+            {
+                var both = _seriesMembers.Count(member => member.LibraryPresence == BookLibraryPresence.Both);
+                if (both > 0) parts.Add(UiText.Get("{0}/{1} 在设备", both, _seriesMembers.Count));
+            }
+            return string.Join(" · ", parts);
+        }
+    }
+
+    private void NotifyPresenceChanged()
+    {
+        OnPropertyChanged(nameof(PresenceLabel));
+        OnPropertyChanged(nameof(PresenceOpacity));
+        OnPropertyChanged(nameof(ComputerOnlyPresenceVisibility));
+        OnPropertyChanged(nameof(KindleOnlyPresenceVisibility));
+        OnPropertyChanged(nameof(BothLibrariesPresenceVisibility));
+        OnPropertyChanged(nameof(SeriesSummaryLabel));
+    }
+
+    private void NotifySyncStatusChanged()
+    {
+        OnPropertyChanged(nameof(SyncStatusLabel));
+        OnPropertyChanged(nameof(SyncStatusOpacity));
+        OnPropertyChanged(nameof(SyncNotSyncedVisibility));
+        OnPropertyChanged(nameof(SyncSyncedVisibility));
+        OnPropertyChanged(nameof(SyncNotDownloadedVisibility));
+        OnPropertyChanged(nameof(SeriesSummaryLabel));
+    }
 
     public bool GalleryTextVisibility => _isGalleryTextVisible;
 
@@ -265,9 +374,19 @@ public sealed class BookCardViewModel : ObservableObject, IDisposable
 
     private void SeriesMember_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
-        if (e.PropertyName != nameof(CoverImage)) return;
-        OnPropertyChanged(nameof(SeriesCover2));
-        OnPropertyChanged(nameof(SeriesCover3));
+        if (e.PropertyName == nameof(CoverImage))
+        {
+            OnPropertyChanged(nameof(SeriesCover2));
+            OnPropertyChanged(nameof(SeriesCover3));
+        }
+        else if (e.PropertyName == nameof(LibraryPresence))
+        {
+            NotifyPresenceChanged();
+        }
+        else if (e.PropertyName == nameof(SyncStatus))
+        {
+            NotifySyncStatusChanged();
+        }
     }
 
     private void NotifySeriesChanged()
@@ -289,6 +408,8 @@ public sealed class BookCardViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(DisplayTitle));
         OnPropertyChanged(nameof(DisplayMetaLabel));
         OnPropertyChanged(nameof(DisplayFileSummaryLabel));
+        NotifyPresenceChanged();
+        NotifySyncStatusChanged();
     }
 
     /// <summary>

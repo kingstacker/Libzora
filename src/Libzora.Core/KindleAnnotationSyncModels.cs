@@ -62,6 +62,23 @@ public sealed record KindleAnnotationWriteResult(
     string? LocalBackupPath,
     string? DeviceBackupPath);
 
+public sealed record KindleAnnotationBackupEntry(
+    string LocalBackupPath,
+    string DatabaseRelativePath,
+    string Sha256,
+    DateTimeOffset CreatedAt,
+    string DeviceName,
+    long FileSizeBytes,
+    string? DeviceBackupPath = null,
+    string? Reason = null);
+
+public sealed record KindleAnnotationRestoreResult(
+    string RestoredFromPath,
+    string RestoredSha256,
+    string PreviousSha256,
+    string? PreRestoreLocalBackupPath,
+    string? PreRestoreDeviceBackupPath);
+
 public sealed record KindleAnnotationSyncBookSummary(
     Guid LocalBookId,
     string LocalTitle,
@@ -71,7 +88,11 @@ public sealed record KindleAnnotationSyncBookSummary(
     int DeviceCount,
     int ChangesToComputer,
     int ChangesToDevice,
-    int UnsupportedCount);
+    int UnsupportedCount,
+    int LocalBookmarkCount = 0,
+    int DeviceBookmarkCount = 0,
+    int BookmarksToComputer = 0,
+    int BookmarksToDevice = 0);
 
 public sealed record KindleAnnotationSyncPreview(
     bool HasChanges,
@@ -81,6 +102,7 @@ public sealed record KindleAnnotationSyncPreview(
     int SkippedBookCount = 0)
 {
     public int DifferenceCount => Books.Sum(book => book.ChangesToComputer + book.ChangesToDevice);
+    public int BookmarkDifferenceCount => Books.Sum(book => book.BookmarksToComputer + book.BookmarksToDevice);
     public int BookCount => Books.Count(book => book.ChangesToComputer + book.ChangesToDevice > 0);
     public int UnsupportedCount => Books.Sum(book => book.UnsupportedCount);
 }
@@ -92,7 +114,9 @@ public sealed record KindleAnnotationSyncResult(
     int UnsupportedCount,
     string? LocalBackupPath,
     string? DeviceBackupPath,
-    int SkippedBookCount = 0);
+    int SkippedBookCount = 0,
+    int BookmarksToComputer = 0,
+    int BookmarksToDevice = 0);
 
 /// <summary>A failed union sync can still have committed computer-side changes.</summary>
 public sealed class KindleAnnotationSyncException(int changesToComputer, Exception innerException)

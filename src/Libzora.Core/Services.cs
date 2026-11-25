@@ -150,6 +150,12 @@ public interface IKindleDeviceService
         IReadOnlyList<KindleAnnotationMutation> mutations, CancellationToken cancellationToken,
         IProgress<KindleAnnotationSyncProgress>? progress) =>
         ApplyAnnotationMutationsAsync(device, snapshot, mutations, cancellationToken);
+    Task<KindleAnnotationRestoreResult> RestoreAnnotationDatabaseAsync(
+        KindleDevice device,
+        KindleAnnotationBackupEntry backup,
+        CancellationToken cancellationToken = default,
+        IProgress<KindleAnnotationSyncProgress>? progress = null) =>
+        throw new NotSupportedException(UiText.Get("当前设备暂不支持回退 Kindle 批注备份。"));
     Task EjectAsync(KindleDevice device, CancellationToken cancellationToken = default);
 }
 

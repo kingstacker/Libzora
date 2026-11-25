@@ -105,13 +105,19 @@ struct NativeShell: View {
             store.ambient.fallbackColors = colors
         }
         .onReceive(store.$requestedTab) { tab in
-            if tab != nil { showRequestedTabIfPossible() }
+            if tab != nil { showRequestedTabIfPossible(isNewRequest: true) }
         }
         .onReceive(store.$preparingLibrary) { preparing in
             if !preparing { showRequestedTabIfPossible() }
         }
         .onReceive(store.$readerPresentationActive) { active in
             if !active { showRequestedTabIfPossible() }
+        }
+        .onReceive(store.$closingReader) { closing in
+            if !closing { showRequestedTabIfPossible() }
+        }
+        .onReceive(store.$openingReader) { opening in
+            if !opening { showRequestedTabIfPossible() }
         }
         .onReceive(NotificationCenter.default.publisher(for: .NSProcessInfoPowerStateDidChange)
             .receive(on: DispatchQueue.main)) { _ in
@@ -195,29 +201,44 @@ struct NativeShell: View {
         .environment(\.nativeUiFont, store.uiFont)
     }
 
-    private func showRequestedTabIfPossible() {
+    private func showRequestedTabIfPossible(isNewRequest: Bool = false) {
+        // Readiness notifications fire while an already-accepted handoff waits
+        // for a display commit; do not cancel the in-flight slide transition.
+        guard isNewRequest || store.requestedTab != nil else { return }
         widgetNavigationTask?.cancel()
         widgetNavigationTask = Task { @MainActor in
             // @Published delivers before its stored value changes.
             await Task.yield()
             guard store.requestedTab != nil, !store.preparingLibrary, !store.closingReader,
-                  store.readerBook == nil, !store.readerPresentationActive else { return }
-            // Switch the tab quietly under the Libzora icon overlay while the destination loads.
+                  !store.openingReader, store.readerBook == nil, !store.readerPresentationActive else { return }
+            // Switch the tab quietly under the active snapshot/icon overlay while the destination loads.
             if let tab = store.requestedTab {
                 var transaction = Transaction()
                 transaction.disablesAnimations = true
                 withTransaction(transaction) { selectedTab = tab }
             }
-            await store.waitForMinimumWidgetBrandHold()
-            guard !Task.isCancelled, store.requestedTab != nil,
-                  !store.preparingLibrary, !store.closingReader,
+            if store.widgetColdLaunch {
+                await store.waitForMinimumWidgetBrandHold()
+                guard !Task.isCancelled else { return }
+            }
+            guard store.requestedTab != nil,
+                  !store.preparingLibrary, !store.closingReader, !store.openingReader,
                   store.readerBook == nil, !store.readerPresentationActive else {
-                store.dismissWidgetBrandCover()
+                if store.pendingOpenBookId == nil && store.requestedTab == nil {
+                    store.dismissWidgetBrandCover()
+                    store.widgetTabTransition?.finish()
+                    store.widgetTabTransition = nil
+                }
                 return
             }
             store.requestedTab = nil
-            let handoff = store.createWidgetBrandSlideTransition()
-            store.dismissWidgetBrandCover()
+            let handoff: NativePageSlideTransition?
+            if store.widgetColdLaunch {
+                handoff = store.createWidgetBrandSlideTransition()
+                store.dismissWidgetBrandCover()
+            } else {
+                handoff = store.takeWidgetTabTransition()
+            }
             await NativeDisplayFrame.waitForCommit()
             guard !Task.isCancelled else {
                 handoff?.finish(); return

@@ -23,6 +23,9 @@ internal static class ReaderAppearanceResources
         Set("Input", palette.Page);
         var pageBrush = ReaderPaperTexture.CreateBrush(palette.Page, appearance);
         resources["ReaderPageBrush"] = pageBrush;
+        // Glyph and selection foregrounds need an opaque solid color: a tiled
+        // paper texture cannot be painted through text and renders invisible.
+        resources["ReaderPageSolidBrush"] = new SolidColorBrush(palette.Page);
         // Structural reader panes are transparent and reveal the single paper
         // surface painted by ReaderRoot. Keep these aliases for standalone
         // controls and popups that still need an opaque reader background.

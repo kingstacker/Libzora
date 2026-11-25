@@ -354,12 +354,12 @@ public partial class ReaderPage
             await GoToPdfPageAsync(_pdfPage + 1);
             return true;
         }
-        if (_readerHost is not NativeReaderHost host || _epubDocument is null
-            || _chapterIndex + 1 >= _epubDocument.Chapters.Count)
-        {
+        if (_readerHost is not NativeReaderHost host || _epubDocument is null)
             return false;
-        }
-        var next = _chapterIndex + 1;
+        // Skip footnote containers: the last content chapter ends the reading.
+        var next = ResolveReadingChapter(_chapterIndex + 1, 1);
+        if (next < 0 || next >= _epubDocument.Chapters.Count)
+            return false;
         await GoToChapterAsync(host, next, fromEnd: false, direction: 1);
         return _chapterIndex == next;
     }

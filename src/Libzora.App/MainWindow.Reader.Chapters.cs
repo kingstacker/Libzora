@@ -53,7 +53,9 @@ public partial class MainWindow
             _readerLinuxTextFallbackEndFragment = null;
         }
         _readerCurrentFragment = null;
-        var targetIndex = _readerChapterIndex + offset;
+        // Note containers are not reading content: skip them so a page turn
+        // stops at the last real chapter instead of opening a blank page.
+        var targetIndex = ResolveReadingReaderChapter(_readerChapterIndex + offset, offset);
         if (targetIndex < 0 || targetIndex >= _readerDocument.Chapters.Count)
         {
             _readerLinuxTextFallbackMoveToChapterEnd = false;

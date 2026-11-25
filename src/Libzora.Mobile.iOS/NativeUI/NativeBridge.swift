@@ -262,11 +262,13 @@ final class NativeStore: ObservableObject {
     var lastBookOpenOrigin: (bookId: String, sourceKey: String)?
     @Published var readerPresentationActive = false
     var widgetTabTransition: NativePageSlideTransition?
-    var widgetBrandOverlayController: UIViewController?
+    var widgetTabTask: Task<Void, Never>?
+    weak var rootViewController: UIViewController?
     var widgetBrandOverlay: UIView?
+    var widgetEntrySnapshotCover: UIView?
     var widgetHandoffStartedNs: UInt64?
     var pendingWidgetReaderSnapshot: UIImage?
-    var closingReader = false
+    @Published var closingReader = false
     var openingReaderBookId: String?
     var openingReaderGeneration: Int?
     var queuedReaderOpen = NativeReaderOpenQueue<NativeReaderOpenRequest>()
@@ -459,15 +461,35 @@ final class NativeStore: ObservableObject {
                 let alreadyVisible = !preparingLibrary && libraryLoaded && activeTab == tab
                     && readerBook == nil && !readerPresentationActive && !closingReader && !openingReader
                 guard !alreadyVisible else { return }
-                beginWidgetBrandCover()
-                // A tab link asks for the tab itself, so it must also cancel
-                // the saved reading session and any reader that is still
-                // opening. Otherwise the last book reopens over the tab.
+                let useBrandCover = NativeWidgetNavigationPolicy.shouldUseLaunchBrandCover(
+                    preparingLibrary: preparingLibrary,
+                    libraryLoaded: libraryLoaded,
+                    restoringReader: restoringReader
+                )
                 pendingReaderRestore = nil
                 pendingOpenBookId = nil
-                requestedTab = tab
-                restoringReader = false
-                dismissReaderForTab()
+                if useBrandCover {
+                    widgetTabTask?.cancel()
+                    widgetTabTask = nil
+                    beginWidgetBrandCover()
+                    requestedTab = tab
+                    restoringReader = false
+                    dismissReaderForTab()
+                } else {
+                    widgetTabTask?.cancel()
+                    widgetTabTask = Task { @MainActor [weak self] in
+                        await self?.waitForWidgetForegroundCommit()
+                        guard let self, !Task.isCancelled, self.pendingOpenBookId == nil else { return }
+                        let stillVisible = !self.preparingLibrary && self.libraryLoaded && self.activeTab == tab
+                            && self.readerBook == nil && !self.readerPresentationActive
+                            && !self.closingReader && !self.openingReader
+                        guard !stillVisible else { return }
+                        self.beginWidgetTabSlideTransition()
+                        self.requestedTab = tab
+                        self.restoringReader = false
+                        self.dismissReaderForTab()
+                    }
+                }
             }
         case "closeReader": if readerBook != nil { perform { await self.closeReader() } }
         default: break
@@ -692,6 +714,7 @@ public func createNativeShell(_ handler: ManagedRequest?, _ readerPointer: Unsaf
     let store = NativeStore(handler: handler, readerController: readerController)
     NativeRuntime.store = store
     let controller = UIHostingController(rootView: NativeShell(store: store))
+    store.rootViewController = controller
     controller.view.backgroundColor = .systemBackground
     controller.view.tintColor = .label
     return Unmanaged.passRetained(controller).toOpaque()

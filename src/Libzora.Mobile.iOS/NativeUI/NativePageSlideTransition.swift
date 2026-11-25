@@ -8,12 +8,12 @@ final class NativePageSlideTransition {
     let id = UUID()
     private weak var window: UIWindow?
     private let overlay: UIView
-    private let oldPage: UIImageView
+    private let oldPage: UIView
     private var animator: UIViewPropertyAnimator?
     private var continuation: CheckedContinuation<Void, Never>?
     private var finished = false
 
-    init?(window: UIWindow?, snapshot: UIImage?, paper: UIColor) {
+    init?(window: UIWindow?, oldPageView: UIView?, paper: UIColor) {
         guard let window, window.bounds.width > 10, window.bounds.height > 10 else { return nil }
         self.window = window
         overlay = UIView(frame: window.bounds)
@@ -21,13 +21,21 @@ final class NativePageSlideTransition {
         overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         overlay.isAccessibilityElement = false
         overlay.accessibilityElementsHidden = true
-        oldPage = UIImageView(frame: overlay.bounds)
-        oldPage.image = snapshot
-        oldPage.backgroundColor = paper
-        oldPage.contentMode = .scaleToFill
-        oldPage.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        overlay.addSubview(oldPage)
+        overlay.layer.zPosition = 10_001
+        let page = oldPageView ?? UIView(frame: overlay.bounds)
+        page.frame = overlay.bounds
+        page.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        overlay.addSubview(page)
+        oldPage = page
         window.addSubview(overlay)
+    }
+
+    convenience init?(window: UIWindow?, snapshot: UIImage?, paper: UIColor) {
+        let imageView = UIImageView()
+        imageView.image = snapshot
+        imageView.backgroundColor = paper
+        imageView.contentMode = .scaleToFill
+        self.init(window: window, oldPageView: imageView, paper: paper)
     }
 
     func show(_ view: UIView?, animation: NativeBookOpenAnimation, duration: Double,
@@ -61,6 +69,7 @@ final class NativePageSlideTransition {
             await withCheckedContinuation { continuation in
                 guard !Task.isCancelled, !finished else { continuation.resume(); finish(); return }
                 self.continuation = continuation
+                if !UIView.areAnimationsEnabled { UIView.setAnimationsEnabled(true) }
                 let animator = UIViewPropertyAnimator(duration: duration, curve: .easeInOut) {
                     newPage.transform = .identity
                     newPage.alpha = 1

@@ -424,7 +424,7 @@ struct NativeReaderPage: View {
     }
     private func readerContent() -> some View {
         ZStack {
-            if !reader.ready {
+            if !reader.ready && entryInteractive {
                 VStack(spacing: 16) {
                     if (loadingChromeVisible && activeOpenTransition == nil) || reader.error != nil {
                         Text(book.title).font(NativeTheme.font(21, relativeTo: .title2)).multilineTextAlignment(.center)

@@ -61,33 +61,28 @@ struct KkReadingTreeWidgetView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding(.vertical, -3)
 
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(profile.stageTitle(isChinese: isChinese))
-                    .kkTitleFont(13.5)
-                    .foregroundStyle(KkTheme.ink(scheme))
+            HStack(alignment: .center, spacing: 4) {
+                Text(KkFormat.compactHours(profile.totalSeconds, isChinese: isChinese))
+                    .kkLabelFont(9.5, weight: .medium)
+                    .foregroundStyle(KkTheme.secondaryInk(scheme))
+                    .monospacedDigit()
                     .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                Spacer(minLength: 4)
-                if profile.booksFinished > 0 {
-                    HStack(spacing: 3) {
-                        Circle()
-                            .fill(isFullColor ? KkTheme.treeFruitAccent(scheme) : Color.primary.opacity(0.8))
-                            .frame(width: 5, height: 5)
-                        Text("\(profile.booksFinished)")
-                            .kkLabelFont(9.5, weight: .semibold)
-                            .foregroundStyle(KkTheme.secondaryInk(scheme))
-                            .monospacedDigit()
-                            .lineLimit(1)
-                    }
                     .fixedSize(horizontal: true, vertical: false)
-                } else {
-                    Text(KkFormat.compactHours(profile.totalSeconds, isChinese: isChinese))
-                        .kkLabelFont(9.5, weight: .regular)
+                Spacer(minLength: 4)
+                HStack(spacing: 3) {
+                    Circle()
+                        .fill(isFullColor ? KkTheme.treeYellowAccent(scheme) : Color.primary.opacity(0.7))
+                        .frame(width: 5, height: 5)
+                    let countText = KkFormat.compactCount(profile.booksFinished, isChinese: isChinese)
+                    Text(isChinese
+                        ? "\(countText) 本"
+                        : (profile.booksFinished == 1 ? "1 book" : "\(countText) books"))
+                        .kkLabelFont(9.5, weight: .medium)
                         .foregroundStyle(KkTheme.secondaryInk(scheme))
                         .monospacedDigit()
                         .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
                 }
+                .fixedSize(horizontal: true, vertical: false)
             }
         }
         .padding(.horizontal, 13)

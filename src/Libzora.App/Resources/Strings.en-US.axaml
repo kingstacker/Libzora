@@ -1662,6 +1662,7 @@ Book excerpts:
     <x:String x:Key="Ui.Onboarding.DisclaimerBody">Libzora is a tool for organizing, reading, and transferring ebook files that you have lawfully obtained or are authorized to use. You are responsible for confirming that any content you import, convert, read, or transfer complies with applicable laws, licenses, and device or service rules. The software does not determine whether content is authorized; you are responsible for the content you import, device operations, and use of third-party services. Libzora does not provide or distribute unauthorized ebook resources and makes no warranty about the availability, accuracy, or legality of third-party content or services.</x:String>
     <x:String x:Key="Ui.Onboarding.DisclaimerAcknowledgement">I have read and understood the statement above and want to continue using Libzora</x:String>
     <x:String x:Key="Ui.Onboarding.DisclaimerRequired">Please read the statement and check the confirmation box before continuing.</x:String>
+    <x:String x:Key="Ui.Onboarding.LegalHint">Read before continuing</x:String>
     <x:String x:Key="Ui.Onboarding.LanguageLabel">Interface language</x:String>
     <x:String x:Key="Ui.Onboarding.LanguageHint">Your system language was selected automatically. You can switch it now.</x:String>
     <x:String x:Key="Ui.Onboarding.DeviceTitle">Choose your device model</x:String>
@@ -2452,6 +2453,8 @@ The update package is saved. Retry installation. Installer log: {1}</x:String>
     <x:String x:Key="Ui.Auto.2C8F8091E220C543">Skipped books that may already be on the device. Nothing was sent.</x:String>
     <x:String x:Key="Ui.Auto.5AE6FD40CA2C0289">Transfer complete: {0} sent, {1} possible existing books skipped, {2} failed.</x:String>
     <x:String x:Key="Main.KindleAnnotationSync.Button">Sync Kindle annotations</x:String>
+    <x:String x:Key="Main.KindleFullSync.Button">Two-way sync with Kindle (books, bookmarks, highlights, notes)</x:String>
+    <x:String x:Key="Main.KindleRestoreBackup.Button">Roll back Kindle annotation backup</x:String>
     <x:String x:Key="Ui.Auto.D469493647C1AB7A">Kindle annotation sync is experimental and not recommended for now. It may overwrite annotation data on your Kindle; back up your annotations before proceeding.</x:String>
     <x:String x:Key="Ui.Auto.B6978BA9B6DB36A7">About Libzora</x:String>
     <x:String x:Key="Ui.Auto.DA9FC8BA94970B9D">Settings…</x:String>

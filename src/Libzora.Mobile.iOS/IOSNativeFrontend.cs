@@ -160,7 +160,10 @@ internal sealed partial class IOSNativeFrontend
             || !string.Equals(url.Scheme, "libzora", StringComparison.OrdinalIgnoreCase))
             return false;
         if (_current is { } frontend)
-            Dispatcher.UIThread.Post(() => frontend.OpenUrl(url));
+        {
+            if (Dispatcher.UIThread.CheckAccess()) frontend.OpenUrl(url);
+            else Dispatcher.UIThread.Post(() => frontend.OpenUrl(url));
+        }
         else
             _pendingUrl = url;
         return true;

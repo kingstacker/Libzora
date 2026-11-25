@@ -1062,8 +1062,8 @@
                         <ListBox x:Name="BookGrid" Classes="bookGrid" ItemsSource="{Binding ViewModel.ShelfBooks}" SelectionMode="Multiple" SelectionChanged="BookList_SelectionChanged" PointerPressed="BookGrid_PointerPressed" PointerMoved="BookGrid_PointerMoved" PointerReleased="BookGrid_PointerReleased" PointerCaptureLost="BookGrid_PointerCaptureLost" KeyDown="BookGrid_KeyDown" Focusable="True" Background="Transparent" BorderThickness="0" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Disabled"><ListBox.ItemsPanel><ItemsPanelTemplate><local:VirtualizingWrapPanel Orientation="Horizontal" ItemWidth="166" ItemHeight="304" CacheLength="0.5" /></ItemsPanelTemplate></ListBox.ItemsPanel><ListBox.ItemTemplate>                                 <DataTemplate x:DataType="local:BookCardViewModel">                                     <Grid Width="154"                                           Height="{Binding CardHeight}"                                           Margin="6"                                           RowDefinitions="214,Auto"                                           PointerPressed="BookCard_PointerPressed"                                           PointerEntered="BookCard_PointerEntered"                                           PointerExited="BookCard_PointerExited"                                           ContextRequested="BookCard_ContextRequested"                                           DoubleTapped="BookCard_DoubleTapped" AttachedToVisualTree="BookCard_AttachedToVisualTree" DetachedFromVisualTree="BookCard_DetachedFromVisualTree">                                         <Border Grid.Row="0"                                                 Classes="bookCover"                                                 Classes.hover="{Binding IsHovered}"                                                 Background="{DynamicResource PressedBrush}"                                                 BorderThickness="1">                                             <Grid Background="Transparent">                                                 <TextBlock Text="BOOK"                                                            HorizontalAlignment="Center"                                                            VerticalAlignment="Center"                                                            Foreground="{DynamicResource MutedInkBrush}"                                                            FontSize="17"                                                            IsHitTestVisible="False" />                                                 <Border HorizontalAlignment="Left" VerticalAlignment="Stretch" Width="154" ClipToBounds="True" IsVisible="{Binding SeriesCover3Visibility}"><Image Classes="seriesLayer" Source="{Binding SeriesCover3}" Stretch="UniformToFill" /></Border><Border HorizontalAlignment="Left" VerticalAlignment="Stretch" Width="{Binding RearCover1Width}" ClipToBounds="True" IsVisible="{Binding SeriesCover2Visibility}"><Image Classes="seriesLayer" Source="{Binding SeriesCover2}" Stretch="UniformToFill" /></Border><Border HorizontalAlignment="Left" VerticalAlignment="Stretch" Width="{Binding FrontCoverWidth}" ClipToBounds="True"><Image Classes.seriesFront="{Binding IsSeriesStack}" Source="{Binding CoverImage}" Stretch="UniformToFill" /></Border><Button IsVisible="{Binding IsReadActionVisible}" Classes="coverReadAction bookCoverRead"
                                                 Content="{DynamicResource Ui.Auto.CE9B12499C471759}"
                                                 Click="BookCoverReadButton_Click" /><Button Classes="seriesBadge" Content="{Binding SeriesCountLabel}" IsVisible="{Binding SeriesBadgeVisibility}" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,6,6" ToolTip.Tip="{Binding SeriesBadgeTip}" AutomationProperties.Name="{Binding SeriesBadgeTip}" Click="BookSeriesBadge_Click" /></Grid>                                         </Border>                                         <Grid Grid.Row="1" Margin="2,8,2,0" ColumnDefinitions="*,58" RowDefinitions="40,16,14" IsVisible="{Binding GalleryTextVisibility}">                                             <TextBlock Grid.Row="0" Grid.ColumnSpan="2" Text="{Binding DisplayTitle}" FontSize="15" LineHeight="18" FontWeight="SemiBold" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" />                                             <TextBlock Grid.Row="1" Text="{Binding Authors}" FontSize="11" LineHeight="14" Foreground="{DynamicResource MutedInkBrush}" TextTrimming="CharacterEllipsis" />                                             <TextBlock Grid.Row="2" Text="{Binding DisplayMetaLabel}" FontSize="10" LineHeight="12" Foreground="{DynamicResource SubtleInkBrush}" TextTrimming="CharacterEllipsis" />                                         <Grid Grid.Row="1" Grid.RowSpan="2" Grid.Column="1" Width="52" ColumnDefinitions="24,24" ColumnSpacing="4" HorizontalAlignment="Right" VerticalAlignment="Center">
-                                             <ContentControl Grid.Column="0" Width="24" Height="24" Content="{Binding}" Padding="0" HorizontalAlignment="Center" VerticalAlignment="Center" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ContentTemplate="{StaticResource BookSyncStatusGlyph}" ToolTip.Tip="{Binding SyncStatusLabel}" AutomationProperties.Name="{Binding SyncStatusLabel}" Tapped="BookSyncStatusIcon_Tapped" IsVisible="{Binding SyncStatusVisibility}" />
-                                             <ContentControl Grid.Column="1" Width="24" Height="24" Content="{Binding}" Padding="0" HorizontalAlignment="Center" VerticalAlignment="Center" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ContentTemplate="{StaticResource LibraryPresenceGlyph}" ToolTip.Tip="{Binding PresenceLabel}" AutomationProperties.Name="{Binding PresenceLabel}" IsVisible="{Binding PresenceVisibility}" />
+                                             <ContentControl Grid.Column="0" Width="24" Height="24" Content="{Binding}" Padding="0" HorizontalAlignment="Center" VerticalAlignment="Center" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ContentTemplate="{StaticResource BookSyncStatusGlyph}" ToolTip.Tip="{Binding SyncStatusLabel}" AutomationProperties.Name="{Binding SyncStatusLabel}" Tapped="BookSyncStatusIcon_Tapped" Opacity="{Binding SyncStatusOpacity}" IsVisible="{Binding SyncStatusVisibility}" />
+                                             <ContentControl Grid.Column="1" Width="24" Height="24" Content="{Binding}" Padding="0" HorizontalAlignment="Center" VerticalAlignment="Center" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ContentTemplate="{StaticResource LibraryPresenceGlyph}" ToolTip.Tip="{Binding PresenceLabel}" AutomationProperties.Name="{Binding PresenceLabel}" Opacity="{Binding PresenceOpacity}" IsVisible="{Binding PresenceVisibility}" />
                                          </Grid>                                         </Grid>                                                                                  <Border Grid.RowSpan="2"                                                 Classes="bookOutline"                                                 BorderBrush="{DynamicResource HairlineBrush}"                                                 BorderThickness="1"                                                 IsHitTestVisible="False" />                                         <Border Width="20" Height="20" Margin="6" HorizontalAlignment="Left" VerticalAlignment="Top" CornerRadius="10" Background="{DynamicResource InkBrush}" IsVisible="{Binding IsMultiSelected}" IsHitTestVisible="False">                                             <TextBlock Text="✓"                                                            Foreground="{DynamicResource PaperBrush}"                                                            FontSize="12"                                                            FontWeight="Bold"                                                            HorizontalAlignment="Center"                                                            VerticalAlignment="Center" />                                         </Border>                                     </Grid></DataTemplate>                             </ListBox.ItemTemplate>
                         </ListBox>
 
@@ -1873,10 +1873,24 @@
                         <Button x:Name="DeviceViewToggleButton" Classes="quiet libraryToolbar" ToolTip.Tip="{DynamicResource Ui.Auto.EE20B1318E9AFE1B}" AutomationProperties.Name="{DynamicResource Ui.Auto.EE20B1318E9AFE1B}" Click="DeviceViewToggleButton_Click">
                             <Path x:Name="DeviceViewToggleIcon" Classes="libraryGlyph" />
                         </Button>
-                        <Button x:Name="RefreshDeviceBooksButton" Classes="quiet libraryToolbar" ToolTip.Tip="{DynamicResource Ui.Auto.4470BFD2C729D4A2}" AutomationProperties.Name="{DynamicResource Ui.Auto.4470BFD2C729D4A2}" Click="RefreshDevicesButton_Click">
+                        <Button x:Name="SyncKindleFullButton" Classes="quiet libraryToolbar"
+                                IsVisible="False" IsEnabled="False"
+                                ToolTip.Tip="{DynamicResource Main.KindleFullSync.Button}"
+                                AutomationProperties.Name="{DynamicResource Main.KindleFullSync.Button}"
+                                Click="SyncKindleFullButton_Click">
+                            <Path Classes="libraryGlyph" Data="M 4,8 H 18 L 14,4 M 20,16 H 6 L 10,20" />
+                        </Button>
+                        <Button x:Name="RestoreKindleBackupButton" Classes="quiet libraryToolbar"
+                                IsVisible="False" IsEnabled="False"
+                                ToolTip.Tip="{DynamicResource Main.KindleRestoreBackup.Button}"
+                                AutomationProperties.Name="{DynamicResource Main.KindleRestoreBackup.Button}"
+                                Click="RestoreKindleBackupButton_Click">
+                            <Path Classes="libraryGlyph" Data="M 4,12 A 8,8 0 1,0 6.5,6.2 M 4,6 V 12 H 10" />
+                        </Button>
+                        <Button x:Name="RefreshDeviceBooksButton" Classes="quiet libraryToolbar" IsVisible="False" ToolTip.Tip="{DynamicResource Ui.Auto.4470BFD2C729D4A2}" AutomationProperties.Name="{DynamicResource Ui.Auto.4470BFD2C729D4A2}" Click="RefreshDevicesButton_Click">
                             <Path Classes="libraryGlyph" Data="M 20,8 A 9,9 0 1,0 20,16 M 20,8 V 3 M 20,8 H 15" />
                         </Button>
-                        <Button x:Name="EjectDeviceButton" Classes="quiet libraryToolbar" ToolTip.Tip="{DynamicResource Ui.Auto.F78C515D501BF2E0}" AutomationProperties.Name="{DynamicResource Ui.Auto.F78C515D501BF2E0}" Click="EjectDeviceButton_Click" IsEnabled="False">
+                        <Button x:Name="EjectDeviceButton" Classes="quiet libraryToolbar" IsVisible="False" ToolTip.Tip="{DynamicResource Ui.Auto.F78C515D501BF2E0}" AutomationProperties.Name="{DynamicResource Ui.Auto.F78C515D501BF2E0}" Click="EjectDeviceButton_Click" IsEnabled="False">
                             <Path Classes="libraryGlyph" Data="M 6,15 L 12,9 L 18,15 M 6,20 H 18" />
                         </Button>
                     </StackPanel>
@@ -1975,6 +1989,7 @@
                                                     ToolTip.Tip="{Binding PresenceLabel}"
                                                     ToolTip.ServiceEnabled="{Binding IsTooltipEnabled}"
                                                     AutomationProperties.Name="{Binding PresenceLabel}"
+                                                    Opacity="{Binding PresenceOpacity}"
                                                     IsVisible="{Binding PresenceVisibility}" />
                                     <Border Grid.RowSpan="2"
                                             Classes="bookOutline"
@@ -3782,6 +3797,90 @@
                 </Border>
             </Grid>
 
+            <!-- Kindle backup picker overlay -->
+            <Grid x:Name="KindleBackupPickerOverlay"
+                  Grid.ColumnSpan="3"
+                  Background="#66000000"
+                  IsVisible="False"
+                  IsHitTestVisible="True"
+                  ZIndex="102">
+                <Border Width="470"
+                        Padding="22"
+                        Background="{DynamicResource PaperBrush}"
+                        BorderBrush="{DynamicResource InkBrush}"
+                        BorderThickness="1"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center">
+                    <StackPanel Spacing="12">
+                        <TextBlock x:Name="KindleBackupPickerTitleText" FontSize="18" FontWeight="Bold" />
+                        <TextBlock x:Name="KindleBackupPickerSubtitleText"
+                                   TextWrapping="Wrap"
+                                   FontSize="12"
+                                   Foreground="{DynamicResource MutedInkBrush}" />
+                        <ListBox x:Name="KindleBackupPickerList"
+                                 Classes="kindleBackupPicker"
+                                 MaxHeight="260" />
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,4,0,0">
+                            <Button x:Name="KindleBackupPickerCancelButton"
+                                    Content="{DynamicResource Ui.Auto.2CD0F3BE8738A86C}"
+                                    Classes="quiet"
+                                    Padding="13,7"
+                                    Click="KindleBackupPickerCancelButton_Click" />
+                            <Button x:Name="KindleBackupPickerConfirmButton"
+                                    Content="确认回退"
+                                    Padding="13,7"
+                                    Click="KindleBackupPickerConfirmButton_Click" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <!-- Kindle sync / rollback blocking progress overlay -->
+            <Grid x:Name="KindleSyncProgressOverlay"
+                  Grid.ColumnSpan="3"
+                  Background="#66000000"
+                  IsVisible="False"
+                  IsHitTestVisible="True"
+                  ZIndex="105">
+                <Border Width="430"
+                        Padding="22"
+                        Background="{DynamicResource PaperBrush}"
+                        BorderBrush="{DynamicResource InkBrush}"
+                        BorderThickness="1"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center">
+                    <StackPanel Spacing="12">
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                            <TextBlock x:Name="KindleSyncProgressTitleText" FontSize="17" FontWeight="Bold" />
+                            <TextBlock x:Name="KindleSyncProgressPercentText"
+                                       Grid.Column="1"
+                                       FontSize="13"
+                                       Foreground="{DynamicResource MutedInkBrush}"
+                                       VerticalAlignment="Center" />
+                        </Grid>
+                        <Border Height="10"
+                                Padding="1"
+                                Background="{DynamicResource PaperBrush}"
+                                BorderBrush="{DynamicResource InkBrush}"
+                                BorderThickness="1">
+                            <ProgressBar x:Name="KindleSyncProgressBar"
+                                         Minimum="0"
+                                         Maximum="100"
+                                         Height="6"
+                                         Background="Transparent"
+                                         IsIndeterminate="True" />
+                        </Border>
+                        <TextBlock x:Name="KindleSyncProgressStageText"
+                                   TextWrapping="Wrap"
+                                   FontSize="13" />
+                        <TextBlock x:Name="KindleSyncProgressHintText"
+                                   TextWrapping="Wrap"
+                                   FontSize="12"
+                                   Foreground="{DynamicResource MutedInkBrush}" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+
             <!-- Collection-name overlay -->
             <Grid x:Name="CollectionNameOverlay"
                   Grid.ColumnSpan="3"
@@ -4977,7 +5076,7 @@
                                                          IsVisible="False"
                                                          FontFamily="{StaticResource ReaderFallbackFontFamily}"
                                                          SelectionBrush="{DynamicResource ReaderInkBrush}"
-                                                         SelectionForegroundBrush="{DynamicResource ReaderPageBrush}" />
+                                                         SelectionForegroundBrush="{DynamicResource ReaderPageSolidBrush}" />
                                     <ItemsControl ItemsSource="{Binding ReaderLinuxTextFallbackBlocks}">
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
@@ -7147,9 +7246,12 @@
                         <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
                             <Button x:Name="ReaderAnnotationInputDeleteButton"
                                     Classes="readerNoteDangerAction"
-                                    Content="{DynamicResource Ui.Auto.2F9DAA828907B93F}"
                                     IsVisible="False"
-                                    Click="ReaderAnnotationInputDeleteButton_Click" />
+                                    Click="ReaderAnnotationInputDeleteButton_Click">
+                                <TextBlock Text="{DynamicResource Ui.Auto.2F9DAA828907B93F}"
+                                           FontWeight="SemiBold"
+                                           Foreground="#C9453B" />
+                            </Button>
                             <Button Grid.Column="2"
                                     Classes="readerMinimalAction"
                                     Content="{DynamicResource Ui.Auto.2CD0F3BE8738A86C}"
@@ -7159,10 +7261,14 @@
                                     Padding="12,5"
                                     MinHeight="32"
                                     Click="ReaderAnnotationInputCancelButton_Click" />
-                            <Button Grid.Column="3"
+                            <Button x:Name="ReaderAnnotationInputSaveButton"
+                                    Grid.Column="3"
                                     Classes="readerNotePrimaryAction"
-                                    Content="{DynamicResource Ui.Auto.49DD2BD35DD7E743}"
-                                    Click="ReaderAnnotationInputSaveButton_Click" />
+                                    Click="ReaderAnnotationInputSaveButton_Click">
+                                <TextBlock Text="{DynamicResource Ui.Auto.49DD2BD35DD7E743}"
+                                           FontWeight="SemiBold"
+                                           Foreground="{DynamicResource ReaderPageSolidBrush}" />
+                            </Button>
                         </Grid>
                     </StackPanel>
                 </Border>
@@ -7513,7 +7619,7 @@
 
                             <Grid x:Name="OnboardingDisclaimerPage"
                                   IsVisible="False"
-                                  RowDefinitions="Auto,Auto,Auto,Auto,Auto"
+                                  RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto"
                                   RowSpacing="16"
                                   HorizontalAlignment="Stretch">
                                 <TextBlock Text="{DynamicResource Ui.Onboarding.DisclaimerTitle}"
@@ -7540,8 +7646,49 @@
                                                TextAlignment="Justify"
                                                TextWrapping="Wrap" />
                                 </Border>
+                                <StackPanel Grid.Row="3"
+                                            Orientation="Horizontal"
+                                            Spacing="10"
+                                            VerticalAlignment="Center">
+                                    <TextBlock Text="{DynamicResource Ui.Onboarding.LegalHint}"
+                                               FontSize="12"
+                                               Foreground="{DynamicResource MutedInkBrush}"
+                                               VerticalAlignment="Center" />
+                                    <Button x:Name="OnboardingUserAgreementButton"
+                                            Classes="quiet"
+                                            FontSize="12"
+                                            MinWidth="0"
+                                            MinHeight="0"
+                                            Padding="0"
+                                            BorderThickness="0"
+                                            VerticalAlignment="Center"
+                                            Cursor="Hand"
+                                            Click="UserAgreementButton_Click">
+                                        <TextBlock Text="{DynamicResource Ui.About.UserAgreement}"
+                                                   FontSize="12"
+                                                   TextDecorations="Underline" />
+                                    </Button>
+                                    <TextBlock Text="·"
+                                               FontSize="12"
+                                               Foreground="{DynamicResource MutedInkBrush}"
+                                               VerticalAlignment="Center" />
+                                    <Button x:Name="OnboardingPrivacyPolicyButton"
+                                            Classes="quiet"
+                                            FontSize="12"
+                                            MinWidth="0"
+                                            MinHeight="0"
+                                            Padding="0"
+                                            BorderThickness="0"
+                                            VerticalAlignment="Center"
+                                            Cursor="Hand"
+                                            Click="PrivacyPolicyButton_Click">
+                                        <TextBlock Text="{DynamicResource Ui.About.PrivacyPolicy}"
+                                                   FontSize="12"
+                                                   TextDecorations="Underline" />
+                                    </Button>
+                                </StackPanel>
                                 <CheckBox x:Name="OnboardingDisclaimerCheckBox"
-                                          Grid.Row="3"
+                                          Grid.Row="4"
                                           IsChecked="False"
                                           IsTabStop="True"
                                           IsCheckedChanged="OnboardingDisclaimerCheckBox_IsCheckedChanged">
@@ -7550,7 +7697,7 @@
                                                TextWrapping="Wrap" />
                                 </CheckBox>
                                 <TextBlock x:Name="OnboardingDisclaimerStatusText"
-                                           Grid.Row="4"
+                                           Grid.Row="5"
                                            Text="{DynamicResource Ui.Onboarding.DisclaimerRequired}"
                                            IsVisible="False"
                                            FontSize="11"
@@ -7738,12 +7885,14 @@
             </Border>
         </Grid>
 
-        <!-- Built-in offline viewer for User Agreement and Privacy Policy -->
+        <!-- Built-in offline viewer for User Agreement and Privacy Policy.
+             Sits above the onboarding overlay so the first-run disclaimer can
+             open it without leaving the setup flow. -->
         <Grid x:Name="LegalOverlay"
               Grid.ColumnSpan="3"
               Background="#66000000"
               IsVisible="False"
-              ZIndex="112"
+              ZIndex="300"
               KeyboardNavigation.TabNavigation="Cycle"
               KeyDown="LegalOverlay_KeyDown">
             <Grid.Transitions>

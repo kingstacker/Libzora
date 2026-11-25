@@ -191,4 +191,76 @@ public sealed class ReaderPaginationTests
         Assert.False(ReaderPaginationPolicy.CanTurn(0, 1, double.NaN, 1000));
         Assert.Equal(0, ReaderPaginationPolicy.GetTurnTarget(0, 1, double.PositiveInfinity, 1000));
     }
+
+    [Fact]
+    public void BookProgressUsesPageCountsAcrossUnequalChapters()
+    {
+        int[] counts = [10, 90, 900];
+        var position = ReaderBookProgressPolicy.ResolveBookPagePosition(counts, 1, 41, 90);
+        Assert.Equal((51, 1000), position);
+
+        var fraction = ReaderBookProgressPolicy.CalculateFraction(position.CurrentPage, position.TotalPages);
+        Assert.Equal(0.051, fraction, precision: 6);
+
+        var continuousStart = ReaderBookProgressPolicy.CalculateFraction(counts, 1, 0.0);
+        Assert.Equal(11.0 / 1000.0, continuousStart, precision: 6);
+
+        var continuousEnd = ReaderBookProgressPolicy.CalculateFraction(counts, 1, 1.0);
+        Assert.Equal(100.0 / 1000.0, continuousEnd, precision: 6);
+    }
+
+    [Fact]
+    public void BookProgressSeekMapsPercentToMatchingChapterAndPage()
+    {
+        int[] counts = [10, 90, 900];
+
+        Assert.Equal((0, 0d), ReaderBookProgressPolicy.MapPercentToChapterTarget(counts, 0));
+        Assert.Equal((2, 1d), ReaderBookProgressPolicy.MapPercentToChapterTarget(counts, 100));
+
+        var (chapter50, ratio50) = ReaderBookProgressPolicy.MapPercentToChapterTarget(counts, 50);
+        Assert.Equal(2, chapter50);
+        var landedPage = (int)Math.Round(ratio50 * (counts[chapter50] - 1)) + 1;
+        var resolved = ReaderBookProgressPolicy.ResolveBookPagePosition(counts, chapter50, landedPage, counts[chapter50]);
+        Assert.Equal(500, resolved.CurrentPage);
+    }
+
+    [Fact]
+    public void ExactChapterPageCountReplacesATooLargeEstimate()
+    {
+        int[] counts = [10, 90, 900];
+        // The background estimate guessed 900 pages; the composed chapter has
+        // 880. The last page must still read as the last page of the book.
+        var position = ReaderBookProgressPolicy.ResolveBookPagePosition(
+            counts, 2, 880, 880, chapterPageCountIsExact: true);
+        Assert.Equal((980, 980), position);
+        Assert.Equal(1.0, ReaderBookProgressPolicy.CalculateFraction(
+            position.CurrentPage, position.TotalPages), precision: 6);
+
+        // Before the layout is complete the estimate is only a lower bound.
+        var partial = ReaderBookProgressPolicy.ResolveBookPagePosition(
+            [10, 90, 900], 2, 1, 40);
+        Assert.Equal((101, 1000), partial);
+    }
+
+    [Fact]
+    public void AuxiliaryChaptersTakeNoPartInBookProgress()
+    {
+        // The last spine document is a footnotes container: zero pages.
+        int[] counts = [10, 90, 0];
+        var position = ReaderBookProgressPolicy.ResolveBookPagePosition(counts, 1, 90, 90);
+        Assert.Equal((100, 100), position);
+        Assert.Equal(1.0, ReaderBookProgressPolicy.CalculateFraction(
+            position.CurrentPage, position.TotalPages), precision: 6);
+
+        Assert.Equal(0.99,
+            ReaderBookProgressPolicy.CalculateFraction(counts, 1, 88.0 / 89.0), precision: 6);
+
+        var (chapter, ratio) = ReaderBookProgressPolicy.MapPercentToChapterTarget(counts, 100);
+        Assert.Equal((1, 1d), (chapter, ratio));
+        Assert.Equal((0, 0d), ReaderBookProgressPolicy.MapPercentToChapterTarget(counts, 0));
+
+        var half = ReaderBookProgressPolicy.MapPercentToChapterTarget(counts, 50);
+        Assert.Equal(1, half.ChapterIndex);
+        Assert.InRange(half.ChapterRatio, 0, 1);
+    }
 }

@@ -48,8 +48,20 @@ public partial class ReaderPage
         // with the chapters listed in the TOC sheet.
         if (_tocEntries.Count > 0 && selected >= 0)
             return UiText.Get("第 {0} / {1} 章", selected + 1, _tocEntries.Count);
-        return _epubDocument is { } document
-            ? UiText.Get("第 {0} / {1} 章", _chapterIndex + 1, document.Chapters.Count) : pages;
+        if (_epubDocument is { } document)
+        {
+            var readingChapters = 0;
+            var ordinal = 0;
+            for (var index = 0; index < document.Chapters.Count; index++)
+            {
+                if (IsAuxiliaryChapter(index)) continue;
+                readingChapters++;
+                if (index <= _chapterIndex) ordinal++;
+            }
+            if (readingChapters > 0)
+                return UiText.Get("第 {0} / {1} 章", Math.Max(1, ordinal), readingChapters);
+        }
+        return pages;
     }
 
     /// <summary>

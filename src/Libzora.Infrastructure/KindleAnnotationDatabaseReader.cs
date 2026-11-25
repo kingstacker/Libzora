@@ -66,7 +66,7 @@ internal static class KindleAnnotationDatabaseReader
         if (requireCompleteSnapshot)
         {
             using var count = connection.CreateCommand();
-            count.CommandText = $"SELECT COUNT(*) FROM {AnnotationTable} WHERE dataset IN (1, 3);";
+            count.CommandText = $"SELECT COUNT(*) FROM {AnnotationTable} WHERE dataset IN (1, 2, 3);";
             if (Convert.ToInt64(await count.ExecuteScalarAsync(cancellationToken)) > Math.Clamp(maxItems, 1, 100_000))
                 throw new NotSupportedException(UiText.Get("Kindle 批注超过安全同步上限，不能只同步部分数据库。笔记仍可查看和导出。"));
         }
@@ -83,7 +83,7 @@ internal static class KindleAnnotationDatabaseReader
                    {(columns.Contains("created_time") ? "created_time" : "0")},
                    {modifiedExpression}
             FROM {AnnotationTable}
-            WHERE dataset IN (1, 3)
+            WHERE dataset IN (1, 2, 3)
             ORDER BY {orderExpression}
             LIMIT $limit;
             """;
@@ -114,9 +114,12 @@ internal static class KindleAnnotationDatabaseReader
             var bookTitle = resolveBookTitle?.Invoke(record.Book);
             if (string.IsNullOrWhiteSpace(bookTitle)) bookTitle = DisplayBookTitle(record.Book);
             var location = FormatLocation(record.Start, record.End);
-            var content = record.Type == KindleClippingType.Note
-                ? record.Note
-                : UiText.Get("划线原文待定位");
+            var content = record.Type switch
+            {
+                KindleClippingType.Note => record.Note,
+                KindleClippingType.Bookmark => UiText.Get("书签"),
+                _ => UiText.Get("划线原文待定位")
+            };
             return new KindleClipping
             {
                 Id = $"kindle-db:{record.Book.BookId}:{record.Id}",
@@ -150,8 +153,9 @@ internal static class KindleAnnotationDatabaseReader
             var payload = document.RootElement;
             if (payload.ValueKind != JsonValueKind.Object) return null;
             var type = ParseType(GetString(payload, "type"), dataset);
-            if (type is not (KindleClippingType.Highlight or KindleClippingType.Note)) return null;
+            if (type is not (KindleClippingType.Highlight or KindleClippingType.Bookmark or KindleClippingType.Note)) return null;
             if (strict && (dataset == 1 && type != KindleClippingType.Highlight
+                || dataset == 2 && type != KindleClippingType.Bookmark
                 || dataset == 3 && type != KindleClippingType.Note)) return null;
 
             var bookData = GetElement(payload, "book_data") ?? GetElement(payload, "bookData");
@@ -231,10 +235,12 @@ internal static class KindleAnnotationDatabaseReader
         value?.Trim().ToUpperInvariant() switch
         {
             "HIGHLIGHT" => KindleClippingType.Highlight,
+            "BOOKMARK" => KindleClippingType.Bookmark,
             "NOTE" => KindleClippingType.Note,
             _ when string.IsNullOrWhiteSpace(value) => dataset switch
             {
                 1 => KindleClippingType.Highlight,
+                2 => KindleClippingType.Bookmark,
                 3 => KindleClippingType.Note,
                 _ => KindleClippingType.Unknown
             },

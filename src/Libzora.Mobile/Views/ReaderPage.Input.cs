@@ -733,13 +733,18 @@ public partial class ReaderPage
                 ShowEdgeNotice(direction);
                 return;
             }
-            if (!_isPdf && _readerHost is NativeReaderHost current
-                && !current.CanTurn(direction)
-                && (_epubDocument is null || _chapterIndex + direction < 0
-                    || _chapterIndex + direction >= _epubDocument.Chapters.Count))
+            if (!_isPdf && _readerHost is NativeReaderHost current && !current.CanTurn(direction))
             {
-                ShowEdgeNotice(direction);
-                return;
+                // The next spine file may be a footnote container; report the
+                // edge instead of animating toward a page that never opens.
+                var target = _epubDocument is null
+                    ? -1
+                    : ResolveReadingChapter(_chapterIndex + direction, direction);
+                if (_epubDocument is null || target < 0 || target >= _epubDocument.Chapters.Count)
+                {
+                    ShowEdgeNotice(direction);
+                    return;
+                }
             }
 
             var surface = CreateTransitionSurface();
@@ -803,6 +808,9 @@ public partial class ReaderPage
         ClearActiveSyncedMarker();
         HideSelectionBar();
         if (_epubDocument is null) return;
+        // Footnote containers are not reading content: stepping past the last
+        // real chapter reports the edge instead of opening a blank notes page.
+        chapter = ResolveReadingChapter(chapter, direction < 0 ? -1 : 1);
         if (chapter < 0 || chapter >= _epubDocument.Chapters.Count)
         {
             ShowEdgeNotice(direction);

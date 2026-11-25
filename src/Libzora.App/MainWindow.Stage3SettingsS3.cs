@@ -83,8 +83,9 @@ public partial class MainWindow
             EnsureSyncProviderItems();
             SyncProviderBox.SelectedItem = SyncProviderBox.Items.OfType<ComboBoxItem>()
                 .FirstOrDefault(item => item.Tag is SyncProvider provider && provider == settings.Provider);
-            S3SyncEnabledCheck.IsChecked = settings.Enabled;
-            S3AutomaticSyncCheck.IsChecked = settings.AutomaticSyncEnabled;
+            var hasSavedKey = !string.IsNullOrWhiteSpace(settings.EncryptionKey);
+            S3SyncEnabledCheck.IsChecked = settings.Enabled && hasSavedKey;
+            S3AutomaticSyncCheck.IsChecked = settings.AutomaticSyncEnabled && hasSavedKey;
             S3DownloadBookFilesCheck.IsChecked = settings.DownloadBookFilesOnSync;
             S3SyncIntervalBox.Value = settings.IntervalMinutes;
             S3EndpointBox.Text = settings.Endpoint;

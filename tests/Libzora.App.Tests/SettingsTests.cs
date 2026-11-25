@@ -65,6 +65,32 @@ public sealed partial class SettingsTests(SettingsUiSession session)
         Assert.False(scope.Get<Grid>("OnboardingDevicePage").IsVisible);
         Assert.Equal("2 / 3", scope.Get<TextBlock>("OnboardingStepText").Text);
 
+        // The first-run disclaimer offers the same offline legal documents as
+        // the About pane, without leaving the setup flow.
+        var termsButton = scope.Get<Button>("OnboardingUserAgreementButton");
+        var privacyButton = scope.Get<Button>("OnboardingPrivacyPolicyButton");
+        Assert.True(termsButton.IsEffectivelyVisible);
+        Assert.True(privacyButton.IsEffectivelyVisible);
+
+        termsButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await Render();
+        Assert.True(scope.Get<Grid>("LegalOverlay").IsVisible);
+        Capture(scope.Window, "onboarding-legal-terms");
+        var termsTitle = scope.Get<TextBlock>("LegalTitleText").Text;
+        Assert.False(string.IsNullOrWhiteSpace(termsTitle));
+        scope.Get<Button>("LegalCloseButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await Render();
+        Assert.False(scope.Get<Grid>("LegalOverlay").IsVisible);
+        Assert.True(scope.Get<Grid>("OnboardingDisclaimerPage").IsVisible);
+
+        privacyButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await Render();
+        Assert.True(scope.Get<Grid>("LegalOverlay").IsVisible);
+        Assert.NotEqual(termsTitle, scope.Get<TextBlock>("LegalTitleText").Text);
+        scope.Get<Button>("LegalCloseButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        await Render();
+        Assert.False(scope.Get<Grid>("LegalOverlay").IsVisible);
+
         scope.Get<Button>("OnboardingNextButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         Assert.True(scope.Get<TextBlock>("OnboardingDisclaimerStatusText").IsVisible);
         Assert.True(scope.Get<Grid>("OnboardingDisclaimerPage").IsVisible);

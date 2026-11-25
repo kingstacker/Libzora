@@ -151,8 +151,8 @@ internal static class KindleAnnotationDatabaseWriter
     {
         if (string.IsNullOrWhiteSpace(mutation.AnnotationId)
             || string.IsNullOrWhiteSpace(mutation.BookId)) throw new ArgumentException("Kindle 批注标识无效。");
-        if (mutation.Dataset is not (1 or 3))
-            throw new ArgumentOutOfRangeException(nameof(mutation), "仅允许同步普通划线和笔记。");
+        if (mutation.Dataset is not (1 or 2 or 3))
+            throw new ArgumentOutOfRangeException(nameof(mutation), "仅允许同步普通划线、书签和笔记。");
         if (mutation.Start < 0 || mutation.End < mutation.Start)
             throw new ArgumentOutOfRangeException(nameof(mutation), "Kindle 批注位置无效。");
         if (mutation.CreatedTime < 0 || mutation.ModifiedTime < 0)

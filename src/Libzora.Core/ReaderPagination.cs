@@ -171,3 +171,131 @@ public static class ReaderSelectionPagingPolicy
     private static bool HasText(int pageStart, int pageEnd) =>
         pageStart >= 0 && pageEnd > pageStart;
 }
+
+/// <summary>
+/// Whole-book page position, progress fraction, and slider seek mapping
+/// derived from per-chapter page counts. A chapter whose count is zero is an
+/// auxiliary document (for example a footnotes container) and takes no part
+/// in the reading total.
+/// </summary>
+public static class ReaderBookProgressPolicy
+{
+    public static (int CurrentPage, int TotalPages) ResolveBookPagePosition(
+        int[] chapterPageCounts,
+        int chapterIndex,
+        int chapterPageOneBased,
+        int chapterPages,
+        bool chapterPageCountIsExact = false)
+    {
+        if (chapterPageCounts.Length == 0)
+        {
+            var fallbackTotal = Math.Max(1, chapterPages);
+            return (Math.Clamp(chapterPageOneBased, 1, fallbackTotal), fallbackTotal);
+        }
+
+        var safeChapter = Math.Clamp(chapterIndex, 0, chapterPageCounts.Length - 1);
+        if (chapterPages > 0)
+        {
+            // A complete layout is authoritative. Until then a partially
+            // composed chapter only guarantees a minimum, because its prefix
+            // can be shorter than the chapter.
+            chapterPageCounts[safeChapter] = chapterPageCountIsExact
+                ? Math.Max(1, chapterPages)
+                : Math.Max(1, Math.Max(chapterPageCounts[safeChapter], chapterPages));
+        }
+
+        var totalPages = 0L;
+        var prefixPages = 0L;
+        for (var i = 0; i < chapterPageCounts.Length; i++)
+        {
+            var count = Math.Max(0, chapterPageCounts[i]);
+            if (i < safeChapter) prefixPages += count;
+            totalPages += count;
+        }
+
+        var safeTotal = (int)Math.Clamp(totalPages, 1, int.MaxValue);
+        var currentPage = (int)Math.Clamp(prefixPages + Math.Max(1, chapterPageOneBased), 1, safeTotal);
+        return (currentPage, safeTotal);
+    }
+
+    public static double CalculateFraction(int currentPageOneBased, int totalPages)
+    {
+        if (totalPages <= 0) return 0;
+        return Math.Clamp((double)Math.Max(1, currentPageOneBased) / totalPages, 0, 1);
+    }
+
+    public static double CalculateFraction(
+        IReadOnlyList<int> chapterPageCounts,
+        int chapterIndex,
+        double chapterRatio)
+    {
+        if (chapterPageCounts.Count == 0) return 0;
+
+        var safeChapter = Math.Clamp(chapterIndex, 0, chapterPageCounts.Count - 1);
+        var clampedRatio = double.IsFinite(chapterRatio) ? Math.Clamp(chapterRatio, 0, 1) : 0;
+        var totalPages = 0L;
+        var prefixPages = 0L;
+        for (var i = 0; i < chapterPageCounts.Count; i++)
+        {
+            var count = Math.Max(0, chapterPageCounts[i]);
+            if (i < safeChapter) prefixPages += count;
+            totalPages += count;
+        }
+
+        if (totalPages <= 0) return 0;
+        var currentChapterPages = Math.Max(0, chapterPageCounts[safeChapter]);
+        if (currentChapterPages == 0)
+            return Math.Clamp((double)prefixPages / totalPages, 0, 1);
+        var continuousPage = prefixPages + 1d + clampedRatio * Math.Max(0, currentChapterPages - 1);
+        return Math.Clamp(continuousPage / totalPages, 0, 1);
+    }
+
+    public static (int ChapterIndex, double ChapterRatio) MapPercentToChapterTarget(
+        IReadOnlyList<int> chapterPageCounts,
+        double percent)
+    {
+        if (chapterPageCounts.Count == 0) return (0, 0);
+
+        var clampedPercent = double.IsFinite(percent) ? Math.Clamp(percent, 0, 100) : 0;
+        if (clampedPercent <= 0) return (FirstReadingChapter(chapterPageCounts), 0);
+
+        var totalPages = 0L;
+        for (var i = 0; i < chapterPageCounts.Count; i++)
+            totalPages += Math.Max(0, chapterPageCounts[i]);
+        if (totalPages <= 0) return (FirstReadingChapter(chapterPageCounts), 0);
+
+        if (clampedPercent >= 100)
+            return (LastReadingChapter(chapterPageCounts), 1);
+
+        var targetPage = Math.Clamp(clampedPercent / 100d * totalPages, 1d, totalPages);
+        var prefix = 0L;
+        for (var i = 0; i < chapterPageCounts.Count; i++)
+        {
+            var count = Math.Max(0, chapterPageCounts[i]);
+            if (count == 0) continue;
+            if (targetPage <= prefix + count || i == chapterPageCounts.Count - 1)
+            {
+                var localPageIndex = Math.Clamp(targetPage - prefix - 1d, 0d, Math.Max(0, count - 1));
+                var ratio = count > 1 ? Math.Clamp(localPageIndex / (count - 1d), 0, 1) : 0;
+                return (i, ratio);
+            }
+            prefix += count;
+        }
+
+        return (LastReadingChapter(chapterPageCounts), 1);
+    }
+
+    private static int FirstReadingChapter(IReadOnlyList<int> chapterPageCounts)
+    {
+        for (var i = 0; i < chapterPageCounts.Count; i++)
+            if (chapterPageCounts[i] > 0) return i;
+        return 0;
+    }
+
+    private static int LastReadingChapter(IReadOnlyList<int> chapterPageCounts)
+    {
+        for (var i = chapterPageCounts.Count - 1; i >= 0; i--)
+            if (chapterPageCounts[i] > 0) return i;
+        return Math.Max(0, chapterPageCounts.Count - 1);
+    }
+}

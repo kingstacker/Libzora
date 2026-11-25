@@ -53,6 +53,8 @@ public sealed partial class KindleAnnotationSyncService
         var summaries = contexts
             .Where(context => context.ChangesToComputer.Count > 0
                 || context.ChangesToDevice.Count > 0
+                || context.BookmarksToComputer.Count > 0
+                || context.BookmarksToDevice.Count > 0
                 || context.LocalRepairs.Count > 0 || context.AnchorRepairs.Count > 0
                 || context.UnsupportedCount > 0)
             .Select(context => new KindleAnnotationSyncBookSummary(
@@ -64,15 +66,21 @@ public sealed partial class KindleAnnotationSyncService
                 context.DeviceAnnotations.Count + context.DeviceUnsupportedCount,
                 context.ComputerChangeCount,
                 context.DeviceChangeCount,
-                context.UnsupportedCount))
+                context.UnsupportedCount,
+                context.LocalBookmarks.Count,
+                context.DeviceBookmarks.Count,
+                context.BookmarksToComputer.Count,
+                context.BookmarksToDevice.Count))
             .ToArray();
         var summarySignature = string.Join(
             '\n',
             summaries.Select(summary =>
-                $"{summary.LocalBookId:N}|{summary.DeviceRelativePath}|{summary.LocalCount}|{summary.DeviceCount}|{summary.ChangesToComputer}|{summary.ChangesToDevice}|{summary.UnsupportedCount}"));
+                $"{summary.LocalBookId:N}|{summary.DeviceRelativePath}|{summary.LocalCount}|{summary.DeviceCount}|{summary.ChangesToComputer}|{summary.ChangesToDevice}|{summary.UnsupportedCount}|{summary.LocalBookmarkCount}|{summary.DeviceBookmarkCount}|{summary.BookmarksToComputer}|{summary.BookmarksToDevice}"));
         var signatureSource = summarySignature + "\n" + string.Join('\n', contexts.SelectMany(context =>
             context.LocalAnnotations.OrderBy(annotation => annotation.Id)
                 .Select(annotation => $"{annotation.Id:N}|{annotation.UpdatedAt:O}|{annotation.ChapterPath}|{annotation.StartOffset}|{annotation.EndOffset}|{annotation.Note}")
+                .Concat(context.LocalBookmarks.OrderBy(bookmark => bookmark.Id)
+                    .Select(bookmark => $"B|{bookmark.Id:N}|{bookmark.CreatedAt:O}|{bookmark.ChapterPath}|{bookmark.ContentPosition?.TextOffset}|{bookmark.Quote}"))
                 .Concat(context.DeviceRecords.OrderBy(record => record.AnnotationId, StringComparer.Ordinal)
                     .Select(record => $"{record.Book.BookId}|{record.AnnotationId}|{record.SerializedPayload}"))));
         var signature = Convert.ToHexString(
@@ -102,7 +110,10 @@ public sealed partial class KindleAnnotationSyncService
         var contexts = prepared.Contexts;
         var changedContexts = contexts
             .Where(context => context.ChangesToComputer.Count > 0
-                || context.ChangesToDevice.Count > 0 || context.LocalRepairs.Count > 0 || context.AnchorRepairs.Count > 0)
+                || context.ChangesToDevice.Count > 0
+                || context.BookmarksToComputer.Count > 0
+                || context.BookmarksToDevice.Count > 0
+                || context.LocalRepairs.Count > 0 || context.AnchorRepairs.Count > 0)
             .ToArray();
         if (changedContexts.Length == 0)
         {
@@ -116,6 +127,7 @@ public sealed partial class KindleAnnotationSyncService
         }
 
         var imported = 0;
+        var bookmarksImported = 0;
         var totalImports = changedContexts.Sum(context => context.ComputerChangeCount);
         var processedImports = 0;
         try
@@ -149,13 +161,21 @@ public sealed partial class KindleAnnotationSyncService
                     await _readerData.SaveAnnotationAsync(change.PreparedImport!, cancellationToken);
                     imported++;
                 }
+                foreach (var bookmark in context.BookmarksToComputer)
+                {
+                    progress?.Report(new(KindleAnnotationSyncStage.ImportingToComputer,
+                        processedImports++, totalImports, context.LocalBook.Title));
+                    await _readerData.SaveBookmarkAsync(bookmark, cancellationToken);
+                    imported++;
+                    bookmarksImported++;
+                }
             }
 
             if (totalImports > 0)
                 progress?.Report(new(KindleAnnotationSyncStage.ImportingToComputer, totalImports, totalImports));
 
             progress?.Report(new(KindleAnnotationSyncStage.PreparingWrite));
-            var (mutations, deviceChanges) = BuildDeviceMutations(contexts);
+            var (mutations, deviceChanges, bookmarksToDevice) = BuildDeviceMutations(contexts);
             KindleAnnotationWriteResult? writeResult = null;
             if (mutations.Count > 0)
             {
@@ -175,7 +195,9 @@ public sealed partial class KindleAnnotationSyncService
                 contexts.Sum(context => context.UnsupportedCount),
                 writeResult?.LocalBackupPath,
                 writeResult?.DeviceBackupPath,
-                prepared.SkippedBookCount);
+                prepared.SkippedBookCount,
+                bookmarksImported,
+                bookmarksToDevice);
         }
         catch (Exception exception) when (imported > 0 && exception is not OperationCanceledException)
         {
@@ -221,10 +243,11 @@ public sealed partial class KindleAnnotationSyncService
             var localBook = await _library.GetBookAsync(pair.LocalBookId, cancellationToken);
             if (localBook is null) { skipped++; continue; }
             var localAnnotations = await ReadLocalAnnotationsAsync(localBook, cancellationToken);
+            var localBookmarks = await ReadLocalBookmarksAsync(localBook, cancellationToken);
             var stamp = DeviceBookStamp(device, deviceBook);
-            if (localAnnotations.Count == 0)
+            if (localAnnotations.Count == 0 && localBookmarks.Count == 0)
             {
-                // Without local annotations a book only matters when the device
+                // Without local annotations or bookmarks a book only matters when the device
                 // database has records for it; skip the copy when that is known.
                 if (snapshot.Records.Count == 0) { compared++; continue; }
                 if (TryGetCachedIdentity(stamp, out var identity)
@@ -256,13 +279,14 @@ public sealed partial class KindleAnnotationSyncService
                 continue;
             }
             compared++;
-            if (records.Length == 0 && localAnnotations.Count == 0) continue;
+            if (records.Length == 0 && localAnnotations.Count == 0 && localBookmarks.Count == 0) continue;
 
             var context = new BookContext(
                 snapshot,
                 localBook,
                 deviceBook,
                 localAnnotations,
+                localBookmarks,
                 rawText,
                 records);
             PrepareDeviceGroups(context);
@@ -282,6 +306,7 @@ public sealed partial class KindleAnnotationSyncService
                 else context.ChangesToComputer[index] = change with { PreparedImport = import };
             }
             await PrepareAnchorRepairsAsync(context, cancellationToken);
+            await PrepareBookmarksAsync(context, cancellationToken);
             result.Add(context);
         }
         progress?.Report(new(KindleAnnotationSyncStage.ProcessingBooks, pairs.Count, pairs.Count));
@@ -553,6 +578,7 @@ public sealed partial class KindleAnnotationSyncService
         Book localBook,
         KindleBook deviceBook,
         IReadOnlyList<ReaderAnnotation> localAnnotations,
+        IReadOnlyList<ReaderBookmark> localBookmarks,
         KindleRawBookText? rawText,
         IReadOnlyList<KindleAnnotationRecord> deviceRecords)
     {
@@ -560,21 +586,26 @@ public sealed partial class KindleAnnotationSyncService
         public Book LocalBook { get; } = localBook;
         public KindleBook DeviceBook { get; } = deviceBook;
         public IReadOnlyList<ReaderAnnotation> LocalAnnotations { get; } = localAnnotations;
+        public IReadOnlyList<ReaderBookmark> LocalBookmarks { get; } = localBookmarks;
         public KindleRawBookText? RawText { get; } = rawText;
         public IReadOnlyList<KindleAnnotationRecord> DeviceRecords { get; } = deviceRecords;
         public List<DeviceAnnotationPair> DeviceAnnotations { get; } = [];
+        public List<KindleAnnotationRecord> DeviceBookmarks { get; } = [];
         public HashSet<Guid> BlockedLocalAnnotations { get; } = [];
         public List<ComputerChange> ChangesToComputer { get; } = [];
         public List<DeviceChange> ChangesToDevice { get; } = [];
+        public List<ReaderBookmark> BookmarksToComputer { get; } = [];
+        public List<DeviceBookmarkChange> BookmarksToDevice { get; } = [];
         public Dictionary<Guid, IReadOnlyList<BookContentChunk>> ReaderChapters { get; } = [];
         public Dictionary<Guid, ReaderAnnotation> LocalRepairs { get; } = [];
         public List<(ReaderAnnotation Local, DeviceAnnotationPair Device)> MatchedAnnotations { get; } = [];
         public List<DeviceAnchorRepair> AnchorRepairs { get; } = [];
-        public int ComputerChangeCount => ChangesToComputer.Count + LocalRepairs.Keys.Count(id =>
+        public int ComputerChangeCount => ChangesToComputer.Count + BookmarksToComputer.Count + LocalRepairs.Keys.Count(id =>
             !ChangesToComputer.Any(change => change.ExistingLocal?.Id == id));
-        // One user-visible change per annotation, however many rows it needs.
+        // One user-visible change per annotation or bookmark, however many rows it needs.
         public int DeviceChangeCount => ChangesToDevice.Select(change => change.Local.Id)
-            .Concat(AnchorRepairs.Select(repair => repair.LocalId)).Distinct().Count();
+            .Concat(AnchorRepairs.Select(repair => repair.LocalId)).Distinct().Count()
+            + BookmarksToDevice.Count;
         public int UnsupportedCount { get; set; }
         // Kindle records that exist but cannot be paired; local-side problems
         // must not inflate the number of annotations shown for the Kindle.

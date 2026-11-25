@@ -1618,6 +1618,7 @@
     <x:String x:Key="Ui.Onboarding.DisclaimerBody">Libzora 是用于整理、阅读和传输用户自行取得或有权使用的电子书文件的工具。你应自行确认导入、转换、阅读和传输的内容符合适用法律、许可协议以及设备或服务规则。软件不会替你判断内容是否获得授权；对于你导入的内容、设备操作以及第三方服务的使用，你应自行承担相应责任。Libzora 不提供或分发未经授权的电子书资源，也不对第三方内容、服务的可用性、准确性或合法性作保证。</x:String>
     <x:String x:Key="Ui.Onboarding.DisclaimerAcknowledgement">我已阅读并理解上述说明，继续使用 Libzora</x:String>
     <x:String x:Key="Ui.Onboarding.DisclaimerRequired">请先阅读并勾选确认后再继续。</x:String>
+    <x:String x:Key="Ui.Onboarding.LegalHint">继续前请阅读</x:String>
     <x:String x:Key="Ui.Onboarding.LanguageLabel">界面语言</x:String>
     <x:String x:Key="Ui.Onboarding.LanguageHint">已根据系统语言预选，你也可以立即切换。</x:String>
     <x:String x:Key="Ui.Onboarding.DeviceTitle">选择设备型号</x:String>
@@ -2408,6 +2409,8 @@
     <x:String x:Key="Ui.Auto.2C8F8091E220C543">已跳过设备中可能已有的书籍，没有发送。</x:String>
     <x:String x:Key="Ui.Auto.5AE6FD40CA2C0289">发送完成：成功 {0} 本，跳过可能已有 {1} 本，失败 {2} 本。</x:String>
     <x:String x:Key="Main.KindleAnnotationSync.Button">同步 Kindle 批注</x:String>
+    <x:String x:Key="Main.KindleFullSync.Button">双向同步 Kindle（书籍、书签、划线、批注）</x:String>
+    <x:String x:Key="Main.KindleRestoreBackup.Button">回退 Kindle 批注备份</x:String>
     <x:String x:Key="Ui.Auto.D469493647C1AB7A">Kindle 批注同步是实验性功能，暂不建议使用。该功能可能覆盖设备上的批注数据，请先自行备份后再操作。</x:String>
     <x:String x:Key="Ui.Auto.B6978BA9B6DB36A7">关于 Libzora</x:String>
     <x:String x:Key="Ui.Auto.DA9FC8BA94970B9D">设置…</x:String>

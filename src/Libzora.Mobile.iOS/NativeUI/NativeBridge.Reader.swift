@@ -24,6 +24,8 @@ extension NativeStore {
     /// while another book is open. Keep the request until a fresh library
     /// snapshot can resolve it and the reader is free.
     func openRequestedBook(_ bookId: String, source: NativeBookOpenSource) {
+        widgetTabTask?.cancel()
+        widgetTabTask = nil
         widgetTabTransition?.finish()
         widgetTabTransition = nil
         requestedTab = nil
@@ -34,13 +36,19 @@ extension NativeStore {
             currentGeneration: readerOpenGeneration, readerBookId: readerBook?.id,
             closing: closingReader, hasPending: pendingOpenBookId != nil || queuedReaderOpen.pending != nil
         ) { return }
-        if source == .widget {
+        let useBrandCover = NativeWidgetNavigationPolicy.shouldUseLaunchBrandCover(
+            preparingLibrary: preparingLibrary,
+            libraryLoaded: libraryLoaded,
+            restoringReader: restoringReader
+        )
+        if source == .widget && useBrandCover {
             beginWidgetBrandCover()
-            pendingWidgetReaderSnapshot = captureWidgetBrandSnapshot()
+            pendingWidgetReaderSnapshot = nil
             restoringReader = true
         } else {
             widgetColdLaunch = false
             pendingWidgetReaderSnapshot = nil
+            dismissWidgetEntrySnapshotCover()
         }
         readerEntrySnapshot = pendingWidgetReaderSnapshot
         queuedReaderOpen.clear()
@@ -53,7 +61,19 @@ extension NativeStore {
         } else if openingReader {
             readerOpenGeneration += 1
         } else if libraryLoaded {
-            openPendingReaderIfNeeded()
+            if source == .widget {
+                // Wait until the app is active and its live surface is rendered
+                // before snapshotting or opening the reader underneath.
+                let generation = readerOpenGeneration
+                Task { @MainActor [weak self] in
+                    await self?.waitForWidgetForegroundCommit()
+                    guard let self, self.pendingOpenBookId == bookId,
+                          self.readerOpenGeneration == generation else { return }
+                    self.openPendingReaderIfNeeded()
+                }
+            } else {
+                openPendingReaderIfNeeded()
+            }
         } else {
             perform { try await self.refreshLibrary() }
         }
@@ -75,13 +95,16 @@ extension NativeStore {
         readerOpenGeneration += 1
         restoringReader = false
         if readerBook != nil && !openingReader {
-            perform { await self.closeReader(animated: false) }
+            perform { await self.closeReader(animated: false, preserveWidgetCover: true) }
         }
     }
 
     func openPendingReaderIfNeeded() {
         guard let bookId = pendingOpenBookId, libraryLoaded, !preparingLibrary,
               !openingReader, !closingReader, !restartRequired else { return }
+        if pendingOpenSource == .widget && !widgetColdLaunch && widgetEntrySnapshotCover == nil {
+            beginWidgetEntrySnapshotCover()
+        }
         if readerBook != nil {
             perform {
                 guard self.pendingOpenBookId != nil else { return }
@@ -104,6 +127,7 @@ extension NativeStore {
                         pendingWidgetReaderSnapshot = nil
                         pendingOpenBookId = nil
                         dismissWidgetBrandCover()
+                        dismissWidgetEntrySnapshotCover()
                         restoringReader = false
                         if !Task.isCancelled { failure = error.localizedDescription }
                     }
@@ -117,6 +141,7 @@ extension NativeStore {
             pendingWidgetReaderSnapshot = nil
             pendingOpenBookId = nil
             dismissWidgetBrandCover()
+            dismissWidgetEntrySnapshotCover()
             restoringReader = false
             showToast(L("书籍已不存在。"))
         case .open:
@@ -307,7 +332,7 @@ extension NativeStore {
         readerOpenSource = source
         readerOpenAnimation = animation
         readerEntrySnapshot = source == .widget
-            ? (pendingWidgetReaderSnapshot ?? captureWidgetBrandSnapshot())
+            ? (widgetColdLaunch ? (pendingWidgetReaderSnapshot ?? captureWidgetBrandSnapshot()) : nil)
             : (animation == .cover || preparingLibrary || restoringReader ? nil : captureNavigationSnapshot())
         pendingWidgetReaderSnapshot = nil
         lastBookOpenOrigin = animated && source != .widget ? sourceKey.map { (book.id, $0) } : nil
@@ -422,7 +447,10 @@ extension NativeStore {
         }
         openingBookReadyId = nil
         openingBookTransition = nil
-        dismissWidgetBrandCover()
+        if pendingOpenBookId == nil && requestedTab == nil {
+            dismissWidgetBrandCover()
+            dismissWidgetEntrySnapshotCover()
+        }
         restoringReader = false
         dismissReaderPresentation()
         do { try await closeReaderBackend() }
@@ -430,12 +458,15 @@ extension NativeStore {
         session.reset()
     }
 
-    func closeReader(animated: Bool = true, preservePendingOpen: Bool = false) async {
+    func closeReader(animated: Bool = true, preservePendingOpen: Bool = false, preserveWidgetCover: Bool = false) async {
         guard !closingReader, readerBook != nil || openingReader else { return }
         if !preservePendingOpen {
             readerEntrySnapshot = nil
             pendingWidgetReaderSnapshot = nil
-            dismissWidgetBrandCover()
+            if !preserveWidgetCover {
+                dismissWidgetBrandCover()
+                dismissWidgetEntrySnapshotCover()
+            }
             queuedReaderOpen.clear()
             pendingOpenBookId = nil
         }
@@ -576,11 +607,13 @@ extension NativeStore {
         guard session.appearanceSessionId == sessionId else { return }
         readerEntrySnapshot = nil
         dismissWidgetBrandCover()
+        dismissWidgetEntrySnapshotCover()
         restoringReader = false
     }
 
     var navigationWindow: UIWindow? {
-        readerController.viewIfLoaded?.window
+        rootViewController?.viewIfLoaded?.window
+            ?? readerController.viewIfLoaded?.window
             ?? UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene })
                 .flatMap(\.windows).first(where: { $0.isKeyWindow })
             ?? UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene })

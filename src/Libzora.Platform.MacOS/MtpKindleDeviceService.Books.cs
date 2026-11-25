@@ -103,7 +103,7 @@ public sealed partial class MtpKindleDeviceService : IKindleDeviceService, IDevi
                     sourcePath, _metadata, cancellationToken, coverOverridePath).ConfigureAwait(false)
                 : null;
 
-            await WithSessionAsync(device, session =>
+            var uploadedEntry = await WithSessionAsync(device, session =>
             {
                 var folder = session.EnsureDirectory(device.Profile.BooksDirectory);
                 var bookPath = $"{folder.RelativePath}/{fileName}";
@@ -121,8 +121,50 @@ public sealed partial class MtpKindleDeviceService : IKindleDeviceService, IDevi
                 }
                 if (isNewBook)
                     DeleteSidecarFolder(session, device.Profile.BooksDirectory, fileName);
-                return true;
+                return session.Find(bookPath);
             }, cancellationToken).ConfigureAwait(false);
+
+            // Pre-populate the scan cache from the local source file we just
+            // uploaded so the next device refresh shows its cover immediately
+            // without downloading the entire book back over USB MTP.
+            if (uploadedEntry is not null)
+            {
+                try
+                {
+                    var sha256 = !string.IsNullOrWhiteSpace(bookFile.Sha256)
+                        ? bookFile.Sha256
+                        : await Hashing.Sha256Async(sourcePath, cancellationToken).ConfigureAwait(false);
+                    var metadata = await _metadata.ReadMetadataAsync(sourcePath, cancellationToken).ConfigureAwait(false);
+                    var coverPath = WriteCover(sha256, metadata);
+                    if (string.IsNullOrWhiteSpace(coverPath) && !string.IsNullOrWhiteSpace(coverOverridePath) && File.Exists(coverOverridePath))
+                    {
+                        var overrideBytes = await File.ReadAllBytesAsync(coverOverridePath, cancellationToken).ConfigureAwait(false);
+                        coverPath = WriteCover(sha256, new BookMetadata
+                        {
+                            CoverBytes = overrideBytes,
+                            CoverExtension = Path.GetExtension(coverOverridePath)
+                        });
+                    }
+                    var fallbackTitle = Path.GetFileNameWithoutExtension(fileName);
+                    await _scanCache.UpsertDeviceEntryAsync(new KindleScanCacheEntry
+                    {
+                        DeviceIdentity = device.Identity,
+                        RelativePath = uploadedEntry.RelativePath,
+                        Size = uploadedEntry.Size > 0 ? uploadedEntry.Size : total,
+                        ModifiedAt = uploadedEntry.ModifiedAt,
+                        Format = Path.GetExtension(fileName).TrimStart('.').ToLowerInvariant(),
+                        Sha256 = sha256,
+                        Title = string.IsNullOrWhiteSpace(metadata.Title) ? fallbackTitle : metadata.Title.Trim(),
+                        Authors = metadata.Authors?.Trim() ?? string.Empty,
+                        CoverPath = coverPath,
+                        IsDictionary = false
+                    }, cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException)
+                {
+                    Debug.WriteLine($"Pre-caching uploaded MTP book failed: {exception.Message}");
+                }
+            }
             progress?.Report(new TransferProgress(total, total, "已发送"));
         }
         finally

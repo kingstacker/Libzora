@@ -59,9 +59,30 @@ public partial class ReaderPage
             }
 
             if (_readerHost is not NativeReaderHost host || _epubDocument is null) return;
-            var position = percent / 100 * _epubDocument.Chapters.Count;
-            var chapter = Math.Min((int)position, _epubDocument.Chapters.Count - 1);
-            var chapterRatio = Math.Clamp(position - chapter, 0, 1);
+            EnsureBookPageCountsScheduled(_epubDocument);
+            int chapter;
+            double chapterRatio;
+            if (_bookPageCounts.Length == _epubDocument.Chapters.Count)
+            {
+                (chapter, chapterRatio) = ReaderBookProgressPolicy.MapPercentToChapterTarget(_bookPageCounts, percent);
+            }
+            else
+            {
+                // Exact counts are still being built. Map the percent across
+                // reading chapters only, so seeking to 100% lands on the last
+                // content chapter rather than a notes container.
+                var reading = new List<int>(_epubDocument.Chapters.Count);
+                for (var index = 0; index < _epubDocument.Chapters.Count; index++)
+                {
+                    if (!IsAuxiliaryChapter(index)) reading.Add(index);
+                }
+                if (reading.Count == 0) return;
+                var position = percent / 100 * reading.Count;
+                var ordinal = Math.Clamp((int)position, 0, reading.Count - 1);
+                chapter = reading[ordinal];
+                chapterRatio = Math.Clamp(position - ordinal, 0, 1);
+            }
+            if (chapter < 0 || chapter >= _epubDocument.Chapters.Count) return;
             if (chapter != _chapterIndex)
                 await GoToChapterAsync(host, chapter, fromEnd: false, chapter - _chapterIndex);
             // A different chapter starts at page zero, which is exact even in
@@ -101,14 +122,43 @@ public partial class ReaderPage
     }
 
     /// <summary>
-    /// The entry for the current chapter or PDF page. Pages without their own
-    /// entry, such as illustrations, belong to the nearest preceding entry.
+    /// The entry for the current chapter or PDF page. Several entries often
+    /// share one spine file, so the visible anchor decides between them;
+    /// pages without their own entry, such as illustrations, belong to the
+    /// nearest preceding entry.
     /// </summary>
     private int CurrentTocIndex()
     {
         var current = _isPdf ? _pdfPage - 1 : _chapterIndex;
+        if (!_isPdf
+            && _readerHost is NativeReaderHost host
+            && host.GetCurrentNavigationFragment() is { Length: > 0 } fragment)
+        {
+            for (var index = 0; index < _tocEntries.Count; index++)
+            {
+                var entry = _tocEntries[index];
+                if (entry.ChapterIndex != current) continue;
+                if (string.IsNullOrWhiteSpace(entry.Target)) continue;
+                if (!Uri.TryCreate(entry.Target, UriKind.Absolute, out var uri)) continue;
+                if (string.Equals(DecodeTocFragment(uri.Fragment), fragment, StringComparison.Ordinal))
+                    return index;
+            }
+        }
         var selected = _tocEntries.FindIndex(entry => entry.ChapterIndex == current);
         return selected >= 0 ? selected : _tocEntries.FindLastIndex(entry => entry.ChapterIndex < current);
+    }
+
+    private static string DecodeTocFragment(string fragment)
+    {
+        var value = fragment.Trim().TrimStart('#');
+        try
+        {
+            return Uri.UnescapeDataString(value);
+        }
+        catch (UriFormatException)
+        {
+            return value;
+        }
     }
 
     private async void OnPreviousClick(object? sender, RoutedEventArgs e) => await MoveChapterAsync(-1);

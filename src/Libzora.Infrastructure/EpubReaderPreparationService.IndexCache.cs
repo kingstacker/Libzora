@@ -21,7 +21,8 @@ public sealed partial class EpubReaderPreparationService
         List<ReaderIndexNavigationItem>? Navigation,
         List<string>? ChapterTitles,
         Dictionary<string, string>? ChapterAliases,
-        List<string>? OriginalChapters);
+        List<string>? OriginalChapters,
+        List<string>? AuxiliaryChapters);
 
     private sealed record ReaderIndexNavigationItem(
         string Title,
@@ -127,6 +128,10 @@ public sealed partial class EpubReaderPreparationService
                 ResolveContainedPathNormalized(normalizedRoot, cacheRoot, path)).ToList();
             if (originalChapters?.Any(path => !chapters.Contains(path, StringComparer.Ordinal)
                     && !aliases.ContainsKey(path)) == true) return null;
+            var auxiliaryChapters = cache.AuxiliaryChapters?.Select(path =>
+                ResolveContainedPathNormalized(normalizedRoot, cacheRoot, path)).ToList();
+            if (auxiliaryChapters?.Any(path => !chapters.Contains(path, StringComparer.Ordinal)) == true)
+                auxiliaryChapters = null;
             return new EpubReaderDocument(
                 cacheRoot,
                 chapters,
@@ -134,7 +139,8 @@ public sealed partial class EpubReaderPreparationService
                 cache.ChapterTitles)
             {
                 ChapterAliases = aliases,
-                OriginalChapters = originalChapters
+                OriginalChapters = originalChapters,
+                AuxiliaryChapters = auxiliaryChapters ?? []
             };
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -184,6 +190,8 @@ public sealed partial class EpubReaderPreparationService
                 pair => Path.GetRelativePath(cacheRoot, pair.Key).Replace('\\', '/'),
                 pair => Path.GetRelativePath(cacheRoot, pair.Value).Replace('\\', '/')),
             document.OriginalChapters?.Select(path =>
+                Path.GetRelativePath(cacheRoot, path).Replace('\\', '/')).ToList(),
+            document.AuxiliaryChapters.Select(path =>
                 Path.GetRelativePath(cacheRoot, path).Replace('\\', '/')).ToList());
         var indexPath = Path.Combine(cacheRoot, ReaderIndexFileName);
         var temporaryPath = Path.Combine(

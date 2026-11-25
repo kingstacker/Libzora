@@ -506,6 +506,11 @@ public sealed partial class EpubReaderPreparationService
                     manifest,
                     packageDirectory,
                     ct).ConfigureAwait(false);
+                document = document with
+                {
+                    AuxiliaryChapters = await DetectAuxiliaryChaptersAsync(
+                        document.Chapters, document.Navigation, ct).ConfigureAwait(false)
+                };
                 await WriteReaderIndexAsync(cacheRoot, document, ct).ConfigureAwait(false);
                 await File.WriteAllTextAsync(
                     extractionReadyPath,

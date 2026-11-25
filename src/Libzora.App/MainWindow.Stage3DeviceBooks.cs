@@ -195,14 +195,36 @@ public partial class MainWindow
         var query = DeviceBookSearchBox?.Text?.Trim() ?? string.Empty;
         var enabled = (stackingEnabled ?? _appSettings.StackBookSeries) && query.Length == 0;
         var page = VisibleDeviceBooks.ToArray();
+        var seriesByDevicePath = new Dictionary<string, (string? Series, double? SeriesIndex)>(StringComparer.OrdinalIgnoreCase);
+        if (enabled && page.Length >= 2 && ViewModel.Books.Count > 0)
+        {
+            var localById = ViewModel.Books.ToDictionary(card => card.Book.Id, card => card.Book);
+            var comparison = BookLibraryComparer.Compare(
+                ViewModel.Books.Select(card => card.Book),
+                page.Select(card => card.Book));
+            foreach (var pair in comparison.Matches ?? [])
+            {
+                if (localById.TryGetValue(pair.LocalBookId, out var localBook)
+                    && !string.IsNullOrWhiteSpace(localBook.Series))
+                {
+                    seriesByDevicePath.TryAdd(pair.DeviceRelativePath, (localBook.Series, localBook.SeriesIndex));
+                }
+            }
+        }
         var shelf = SeriesShelfProjection.Project(
             page,
             enabled,
-            card => new BookSeriesCandidate(
-                card.Book.RelativePath,
-                card.Book.Title,
-                card.Book.Authors,
-                FileTitles: [Path.GetFileNameWithoutExtension(card.Book.FileName)]),
+            card =>
+            {
+                seriesByDevicePath.TryGetValue(card.Book.RelativePath, out var matchedSeries);
+                return new BookSeriesCandidate(
+                    card.Book.RelativePath,
+                    card.Book.Title,
+                    card.Book.Authors,
+                    Series: matchedSeries.Series,
+                    SeriesIndex: matchedSeries.SeriesIndex,
+                    FileTitles: [Path.GetFileNameWithoutExtension(card.Book.FileName)]);
+            },
             card => card.Book.RelativePath,
             (card, key, title, members) => card.SetSeriesMembers(key, title, members),
             _deviceSeriesFronts);

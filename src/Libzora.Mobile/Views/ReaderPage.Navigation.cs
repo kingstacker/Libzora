@@ -44,6 +44,7 @@ public partial class ReaderPage
             _epubPath, contentHash, preferredChapter, cancellationToken, _lifetime.Token);
         _epubPreparationSession = session;
         _epubDocument = session.InitialDocument;
+        RefreshAuxiliaryChapters(_epubDocument);
         if (!session.IsComplete)
             _ = ObserveEpubCompletionAsync(session);
         if (_epubDocument.Chapters.Count == 0)
@@ -103,6 +104,21 @@ public partial class ReaderPage
             }
         }
         _chapterIndex = Math.Clamp(restore?.ChapterIndex ?? 0, 0, _epubDocument.Chapters.Count - 1);
+        // An older record may point at a notes container that is not reading
+        // content; resume on the closest real chapter instead of a blank page.
+        if (IsAuxiliaryChapter(_chapterIndex))
+        {
+            var previousReading = ResolveReadingChapter(_chapterIndex, -1);
+            _chapterIndex = previousReading >= 0
+                ? previousReading
+                : Math.Clamp(ResolveReadingChapter(_chapterIndex, 1), 0, _epubDocument.Chapters.Count - 1);
+            if (IsAuxiliaryChapter(_chapterIndex))
+            {
+                _chapterIndex = 0;
+                while (_chapterIndex < _epubDocument.Chapters.Count - 1 && IsAuxiliaryChapter(_chapterIndex))
+                    _chapterIndex++;
+            }
+        }
         _epubPosition = restore?.ScrollPosition ?? 0;
 
         // Keep the current text visible after reflow, without inserting a hard
@@ -349,6 +365,7 @@ public partial class ReaderPage
                 if (targetChapter >= 0)
                     await prepSession.EnsureChapterReadyAsync(targetChapter, cancellationToken);
             }
+            SetNavigationFragmentsFor(host, target);
             host.Navigate(
                 target,
                 _layout,
@@ -363,6 +380,26 @@ public partial class ReaderPage
         {
             host.NavigationCompleted -= handler;
         }
+    }
+
+    /// <summary>
+    /// Only anchors that live in the document being loaded can describe the
+    /// visible position; another chapter's anchors never match this layout.
+    /// Without them the table of contents and footer can only tell chapters
+    /// apart by spine file, which merges every section of a single-file book.
+    /// </summary>
+    private void SetNavigationFragmentsFor(NativeReaderHost host, Uri target)
+    {
+        var fragments = new List<string>(_tocEntries.Count);
+        foreach (var entry in _tocEntries)
+        {
+            if (string.IsNullOrWhiteSpace(entry.Target)) continue;
+            if (!Uri.TryCreate(entry.Target, UriKind.Absolute, out var uri)) continue;
+            if (!ReaderNavigationLocationPolicy.TargetsSameDocument(uri, target)) continue;
+            if (uri.Fragment.Length <= 1) continue;
+            fragments.Add(uri.Fragment);
+        }
+        host.SetNavigationFragments(fragments);
     }
 
     private async Task ObserveEpubCompletionAsync(EpubProgressiveSession session)
@@ -380,12 +417,18 @@ public partial class ReaderPage
                     ? Path.GetFullPath(prior.Chapters[_chapterIndex])
                     : null;
                 _epubDocument = completed;
+                RefreshAuxiliaryChapters(completed);
                 if (currentPath is not null)
                 {
                     var remapped = FindEpubChapter(completed, currentPath);
                     if (remapped >= 0)
                         _chapterIndex = remapped;
                 }
+                // The completed index knows which spine documents are note
+                // containers and may disagree with the opening estimate.
+                InvalidateBookPageCounts();
+                if (_readerHost is NativeReaderHost host && host.Source is { } source)
+                    SetNavigationFragmentsFor(host, source);
                 BuildEpubToc();
                 UpdateEpubLabels();
                 NotifyNativeState();
@@ -551,11 +594,25 @@ public partial class ReaderPage
             ? element.GetDouble()
             : null;
 
+    /// <summary>
+    /// The label readers actually recognize is the table-of-contents entry at
+    /// the visible anchor. A spine file can hold dozens of entries, so its own
+    /// title (often just the first section) would be wrong for most of it.
+    /// </summary>
+    private string CurrentChapterDisplayTitle()
+    {
+        var selected = CurrentTocIndex();
+        if (selected >= 0 && selected < _tocEntries.Count
+            && _tocEntries[selected].ChapterIndex == _chapterIndex)
+            return _tocEntries[selected].DisplayTitle;
+        return _epubDocument?.ChapterTitles.ElementAtOrDefault(_chapterIndex)
+            ?? Path.GetFileNameWithoutExtension(_epubDocument?.Chapters[_chapterIndex] ?? string.Empty);
+    }
+
     private void UpdateEpubLabels()
     {
         if (_epubDocument is null || _readerHost is not NativeReaderHost host) return;
-        var title = _epubDocument.ChapterTitles.ElementAtOrDefault(_chapterIndex)
-            ?? Path.GetFileNameWithoutExtension(_epubDocument.Chapters[_chapterIndex]);
+        var title = CurrentChapterDisplayTitle();
         if (!host.IsLayoutComplete)
         {
             // Only the opening prefix is composed. A page-index ratio would
@@ -563,17 +620,16 @@ public partial class ReaderPage
             // the visible text position until the full layout arrives.
             var ratio = Math.Clamp(
                 host.CurrentTextOffset / (double)Math.Max(1, host.BodyTextLength), 0, 1);
-            _overallProgress = Math.Clamp(
-                (_chapterIndex + ratio) / _epubDocument.Chapters.Count, 0, 1);
+            _overallProgress = CalculateEpubProgressFraction(ratio);
             PresentPosition(title, UiText.Get("排版中"));
             return;
         }
 
         var pages = Math.Max(1, host.PageCount);
         var page = Math.Clamp(host.CurrentPage, 0, pages - 1);
-        var chapterRatio = pages > 1 ? (double)page / (pages - 1) : 0;
-        _overallProgress = Math.Clamp((_chapterIndex + chapterRatio) / _epubDocument.Chapters.Count, 0, 1);
-        PresentPosition(title, BookPagePosition(page, pages));
+        var pagePosition = BookPagePosition(page, pages);
+        _overallProgress = CalculateEpubProgressFraction(page, pages);
+        PresentPosition(title, pagePosition);
     }
 
     private async Task AdvanceContinuousChapterAsync(NativeReaderHost host, int direction)

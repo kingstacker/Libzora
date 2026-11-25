@@ -13,8 +13,10 @@ public partial class ReaderPage
     private ReaderLayoutSettings? _bookPageCountLayout;
     private double _bookPageCountWidth;
     private double _bookPageCountHeight;
+    private EpubReaderDocument? _bookPageCountDocument;
     private bool _bookPageCountsAreExact;
     private CancellationTokenSource? _bookPageCountCancellation;
+    private HashSet<string> _auxiliaryChapterPaths = new(StringComparer.Ordinal);
 
     /// <summary>
     /// Position within the whole book. The current chapter already knows its
@@ -27,24 +29,112 @@ public partial class ReaderPage
         if (_isPdf || _epubDocument is not { Chapters.Count: > 0 } document)
             return $"{chapterPageIndex + 1} / {chapterPages}";
 
-        if (_shell.Preferences.Current.ReaderProgressDisplay == MobileReaderProgressDisplay.Pages
-            && _readerHost is NativeReaderHost host
-            && host.Bounds is { Width: >= 200, Height: >= 200 } bounds)
-            ScheduleBookPageCounts(document, bounds.Width, bounds.Height);
-
+        EnsureBookPageCountsScheduled(document);
         if (_bookPageCounts.Length != document.Chapters.Count)
             return $"{chapterPageIndex + 1} / {chapterPages}";
 
-        var chapterIndex = Math.Clamp(_chapterIndex, 0, _bookPageCounts.Length - 1);
-        _bookPageCounts[chapterIndex] = Math.Max(
-            _bookPageCounts[chapterIndex], chapterPages);
-        var totalPages = _bookPageCounts.Sum(count => Math.Max(1, count));
-        var prefixPages = _bookPageCounts
-            .Take(chapterIndex)
-            .Sum(count => Math.Max(1, count));
-        var currentPage = Math.Clamp(
-            prefixPages + chapterPageIndex + 1, 1, Math.Max(1, totalPages));
-        return $"{currentPage} / {Math.Max(1, totalPages)}";
+        var position = ReaderBookProgressPolicy.ResolveBookPagePosition(
+            _bookPageCounts, _chapterIndex, chapterPageIndex + 1, chapterPages,
+            chapterPageCountIsExact: true);
+        return $"{position.CurrentPage} / {position.TotalPages}";
+    }
+
+    private void EnsureBookPageCountsScheduled(EpubReaderDocument document)
+    {
+        if (_readerHost is not NativeReaderHost host) return;
+        var (width, height) = ResolveBookPageCountViewport(host);
+        if (width >= 200 && height >= 200)
+            ScheduleBookPageCounts(document, width, height);
+    }
+
+    private (double Width, double Height) ResolveBookPageCountViewport(NativeReaderHost host)
+    {
+        if (host.Bounds is { Width: >= 200, Height: >= 200 } bounds)
+            return (bounds.Width, bounds.Height);
+        if (_nativeViewportHint is { Width: >= 200, Height: >= 200 } hint)
+            return (hint.Width, hint.Height);
+        return (0, 0);
+    }
+
+    private double CalculateEpubProgressFraction(int chapterPageIndex, int chapterPages)
+    {
+        if (_epubDocument is not { Chapters.Count: > 0 } document)
+            return 0;
+
+        EnsureBookPageCountsScheduled(document);
+        if (_bookPageCounts.Length == document.Chapters.Count)
+        {
+            var position = ReaderBookProgressPolicy.ResolveBookPagePosition(
+                _bookPageCounts, _chapterIndex, chapterPageIndex + 1, chapterPages,
+                chapterPageCountIsExact: true);
+            return ReaderBookProgressPolicy.CalculateFraction(position.CurrentPage, position.TotalPages);
+        }
+
+        var chapterRatio = chapterPages > 1 ? (double)chapterPageIndex / (chapterPages - 1) : 0;
+        return FallbackProgressFraction(chapterRatio);
+    }
+
+    private double CalculateEpubProgressFraction(double chapterRatio)
+    {
+        if (_epubDocument is not { Chapters.Count: > 0 } document)
+            return 0;
+
+        EnsureBookPageCountsScheduled(document);
+        if (_bookPageCounts.Length == document.Chapters.Count)
+        {
+            return ReaderBookProgressPolicy.CalculateFraction(
+                _bookPageCounts, _chapterIndex, chapterRatio);
+        }
+
+        return FallbackProgressFraction(chapterRatio);
+    }
+
+    /// <summary>
+    /// Before exact pagination exists, chapter ordinals still give a usable
+    /// estimate. Auxiliary note containers are skipped so they never hold the
+    /// label below 100% once the reader reaches the last content chapter.
+    /// </summary>
+    private double FallbackProgressFraction(double chapterRatio)
+    {
+        if (_epubDocument is not { } document) return 0;
+        var clamped = Math.Clamp(chapterRatio, 0, 1);
+        var readingChapters = 0;
+        var ordinal = 0;
+        for (var index = 0; index < document.Chapters.Count; index++)
+        {
+            if (IsAuxiliaryChapter(index)) continue;
+            readingChapters++;
+            if (index < _chapterIndex) ordinal++;
+        }
+        if (readingChapters == 0) return 0;
+        return Math.Clamp((ordinal + clamped) / readingChapters, 0, 1);
+    }
+
+    private void RefreshAuxiliaryChapters(EpubReaderDocument? document)
+    {
+        _auxiliaryChapterPaths = document is { AuxiliaryChapters.Count: > 0 }
+            ? new HashSet<string>(document.AuxiliaryChapters.Select(Path.GetFullPath), StringComparer.Ordinal)
+            : new HashSet<string>(StringComparer.Ordinal);
+    }
+
+    private bool IsAuxiliaryChapter(int index) =>
+        _epubDocument is { } document
+        && index >= 0 && index < document.Chapters.Count
+        && _auxiliaryChapterPaths.Contains(Path.GetFullPath(document.Chapters[index]));
+
+    /// <summary>
+    /// Walks past footnote containers in the requested direction. A jump that
+    /// runs out of reading chapters returns an out-of-range index so the
+    /// caller can show its edge notice instead of a blank notes page.
+    /// </summary>
+    private int ResolveReadingChapter(int chapter, int direction)
+    {
+        if (_epubDocument is not { } document) return chapter;
+        var step = direction < 0 ? -1 : 1;
+        var target = chapter;
+        while (target >= 0 && target < document.Chapters.Count && IsAuxiliaryChapter(target))
+            target += step;
+        return target;
     }
 
     private void ScheduleBookPageCounts(
@@ -54,19 +144,23 @@ public partial class ReaderPage
         if (_bookPageCountLayout == _layout
             && Math.Abs(_bookPageCountWidth - width) < 0.5
             && Math.Abs(_bookPageCountHeight - height) < 0.5
+            && ReferenceEquals(_bookPageCountDocument, document)
             && _bookPageCounts.Length == document.Chapters.Count)
             return;
 
         _bookPageCountLayout = _layout;
         _bookPageCountWidth = width;
         _bookPageCountHeight = height;
+        _bookPageCountDocument = document;
         _bookPageCountCancellation?.Cancel();
         _bookPageCountCancellation?.Dispose();
         _bookPageCountCancellation = null;
         var sequence = ++_bookPageCountSequence;
 
         var host = _readerHost as IReaderPageCountHost;
-        var knownChapter = host?.GetCurrentChapterPageCountFor(_layout, width, height);
+        var knownChapter = IsAuxiliaryChapter(_chapterIndex)
+            ? null
+            : host?.GetCurrentChapterPageCountFor(_layout, width, height);
         // Cheap byte-size totals appear immediately, so the footer switches
         // to a whole-book page number on the very first turn. In power-saving
         // mode, keep the instant estimate and skip full-book background layout.
@@ -81,6 +175,17 @@ public partial class ReaderPage
         _bookPageCountCancellation = cancellation;
         _ = RefreshBookPageCountsAsync(
             document, _layout, width, height, host, knownChapter, sequence, cancellation);
+    }
+
+    /// <summary>
+    /// Drops the counts that belong to a superseded document. Background
+    /// preparation replaces the opening document once the whole book is
+    /// indexed; its auxiliary chapter list and page totals can differ.
+    /// </summary>
+    private void InvalidateBookPageCounts()
+    {
+        _bookPageCountLayout = null;
+        _bookPageCountDocument = null;
     }
 
     /// <summary>
@@ -116,9 +221,17 @@ public partial class ReaderPage
             token.ThrowIfCancellationRequested();
             if (host is null) return;
 
-            var counts = await Task.Run(
+            // Footnote containers are not reading content; paginating them
+            // would both waste work and leave a phantom page in the total.
+            var readingPaths = new List<string>(document.Chapters.Count);
+            foreach (var path in document.Chapters)
+            {
+                if (!IsAuxiliaryPath(document, path)) readingPaths.Add(path);
+            }
+
+            var readingCounts = await Task.Run(
                 () => host.EstimateChapterPageCounts(
-                    document.Chapters,
+                    readingPaths,
                     layout,
                     width,
                     height,
@@ -126,6 +239,21 @@ public partial class ReaderPage
                     knownChapter),
                 token);
             token.ThrowIfCancellationRequested();
+
+            var counts = new int[document.Chapters.Count];
+            var readingIndex = 0;
+            for (var index = 0; index < counts.Length; index++)
+            {
+                if (IsAuxiliaryPath(document, document.Chapters[index]))
+                {
+                    counts[index] = 0;
+                    continue;
+                }
+                counts[index] = readingIndex < readingCounts.Length
+                    ? Math.Max(1, readingCounts[readingIndex])
+                    : 1;
+                readingIndex++;
+            }
 
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
@@ -156,6 +284,18 @@ public partial class ReaderPage
         }
     }
 
+    private static bool IsAuxiliaryPath(EpubReaderDocument document, string path)
+    {
+        if (document.AuxiliaryChapters.Count == 0) return false;
+        var fullPath = Path.GetFullPath(path);
+        foreach (var auxiliary in document.AuxiliaryChapters)
+        {
+            if (string.Equals(Path.GetFullPath(auxiliary), fullPath, StringComparison.Ordinal))
+                return true;
+        }
+        return false;
+    }
+
     private static int[] BuildCheapBookPageCounts(
         EpubReaderDocument document,
         (string ChapterPath, int PageCount)? knownChapter)
@@ -178,6 +318,11 @@ public partial class ReaderPage
 
         for (var index = 0; index < counts.Length; index++)
         {
+            if (IsAuxiliaryPath(document, document.Chapters[index]))
+            {
+                counts[index] = 0;
+                continue;
+            }
             try
             {
                 var length = new FileInfo(document.Chapters[index]).Length;

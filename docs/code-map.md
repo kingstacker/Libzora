@@ -76,6 +76,8 @@ pattern: `MainWindow.<Area><Aspect>.cs`.
 | `MainWindow.Stage3DeviceBooks.cs` | Device book list, selection, filtering, paging. |
 | `MainWindow.Stage3DeviceTransfer*.cs` | Send books to Kindle over USB or email. |
 | `MainWindow.Stage3DeviceExport.cs` | Export and delete device books. |
+| `MainWindow.KindleAnnotationSync.cs` | Kindle USB highlights, notes and bookmarks sync UI. |
+| `MainWindow.KindleFullSync.cs` | Unified Kindle USB two-way sync (books, bookmarks, highlights, notes). |
 | `MainWindow.Stage3ReadingMaterials.cs` | Collected highlights and notes. |
 | `MainWindow.Stage3DeviceResources.cs` | Device fonts and dictionaries. |
 | `MainWindow.Stage3Dashboard.cs` | Reading dashboard, diagnostics, library trash. |
@@ -135,7 +137,7 @@ Large services are split by responsibility so one change opens one file:
 | `S3SyncService.Database*.cs` | connection, snapshot, apply-remote (sync core), merge, dedupe, blobs, SQL, tombstones |
 | `SqliteBookLibraryService.*.cs` | queries, import, mutations, trash, collections, file paths, readers, schema |
 | `ReaderDataService.*.cs` | annotations, layout, stats, index, embeddings, search |
-| `EpubReaderPreparationService.*.cs` | toc, navigation, chapter titles, duplicate cover normalization, index cache, extraction, XML, sanitizer |
+| `EpubReaderPreparationService.*.cs` | toc, navigation, chapter titles, duplicate cover normalization, index cache, extraction, XML, sanitizer, footnote-container detection |
 | `PluginBridge.*.cs` | dispatch, content, AI, network, decode |
 | `EpubTranslationService.*.cs` | translate, retry, render, documents, text tools, cache, types |
 | `PinyinBookService.*.cs` | generate, annotate, AI review, documents, cache, types |
@@ -184,6 +186,9 @@ Large services are split by responsibility so one change opens one file:
 - `NativePageSlideTransition.swift`, `NativeDisplayFrame.swift` — native display commits and GPU-composited page snapshots; only library and reading-dashboard sessions use 3D book animations.
 - `NativeBridge.Navigation.swift`, `NativeWidgetNavigationPolicy.swift` — fast widget tab handoffs without resetting the live tab/navigation trees.
 - `Libzora.Reader/Native{Pdf,}ReaderHost.Presentation.cs` — optional Core presentation-frame capability, notifying only after the current page was drawn.
+- `EpubReaderPreparationService.Auxiliary.cs` — marks footnote/endnote-only
+  spine documents so they stay resolvable but never count as a page, a chapter
+  position, or a page-turn destination.
 - `src/Libzora.Mobile.iOS/IOSNativeFrontend.*.cs` — C# side of the bridge,
   split by area (`Library`, `Reader`, `Settings`, `Fonts`).
 - `src/Libzora.Mobile.iOS/IOSMobileHost.cs` — host wiring.

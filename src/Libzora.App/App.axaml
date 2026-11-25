@@ -1664,7 +1664,7 @@
             <Setter Property="Foreground" Value="{DynamicResource ReaderInkBrush}" />
             <Setter Property="Background" Value="{DynamicResource ReaderPageBrush}" />
             <Setter Property="SelectionBrush" Value="{DynamicResource ReaderInkBrush}" />
-            <Setter Property="SelectionForegroundBrush" Value="{DynamicResource ReaderPageBrush}" />
+            <Setter Property="SelectionForegroundBrush" Value="{DynamicResource ReaderPageSolidBrush}" />
         </Style>
         <!-- Long selected text (e.g. author names in a 145px filter box) must
              trim instead of pushing the dropdown chevron out of the border. -->
@@ -2417,7 +2417,7 @@
             <Setter Property="MinHeight" Value="32" />
             <Setter Property="Padding" Value="16,5" />
             <Setter Property="Background" Value="{DynamicResource ReaderInkBrush}" />
-            <Setter Property="Foreground" Value="{DynamicResource ReaderPageBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource ReaderPageSolidBrush}" />
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="CornerRadius" Value="0" />
             <Setter Property="FontSize" Value="13" />
@@ -2428,6 +2428,9 @@
         </Style>
         <Style Selector="Button.readerNotePrimaryAction:pointerover">
             <Setter Property="Opacity" Value="0.86" />
+        </Style>
+        <Style Selector="Button.readerNotePrimaryAction /template/ ContentPresenter TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource ReaderPageSolidBrush}" />
         </Style>
         <Style Selector="Button.readerNoteDangerAction">
             <Setter Property="FontFamily" Value="{DynamicResource DefaultAppFontFamily}" />
@@ -2441,6 +2444,41 @@
             <Setter Property="HorizontalContentAlignment" Value="Center" />
             <Setter Property="VerticalContentAlignment" Value="Center" />
             <Setter Property="Template" Value="{StaticResource ReaderToolbarButtonTemplate}" />
+        </Style>
+        <Style Selector="Button.readerNoteDangerAction /template/ ContentPresenter TextBlock">
+            <Setter Property="Foreground" Value="#C9453B" />
+        </Style>
+        <Style Selector="ListBox.kindleBackupPicker">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+        </Style>
+        <Style Selector="ListBox.kindleBackupPicker ListBoxItem">
+            <Setter Property="Padding" Value="12,10" />
+            <Setter Property="Margin" Value="0,0,0,6" />
+            <Setter Property="Background" Value="{DynamicResource PaperBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource HairlineBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="ListBox.kindleBackupPicker ListBoxItem /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+        <Style Selector="ListBox.kindleBackupPicker ListBoxItem:pointerover">
+            <Setter Property="Background" Value="{DynamicResource HoverBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource MutedInkBrush}" />
+        </Style>
+        <Style Selector="ListBox.kindleBackupPicker ListBoxItem:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+        <Style Selector="ListBox.kindleBackupPicker ListBoxItem:selected">
+            <Setter Property="Background" Value="{DynamicResource HoverBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource InkBrush}" />
+            <Setter Property="BorderThickness" Value="1.5" />
+        </Style>
+        <Style Selector="ListBox.kindleBackupPicker ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
         </Style>
         <Style Selector="Button.readerNoteDangerAction:pointerover">
             <Setter Property="Background" Value="#14C9453B" />

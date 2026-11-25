@@ -29,6 +29,13 @@ public sealed record EpubReaderDocument(
     public IReadOnlyDictionary<string, string> ChapterAliases { get; init; } =
         new Dictionary<string, string>(StringComparer.Ordinal);
     public IReadOnlyList<string>? OriginalChapters { get; init; }
+
+    /// <summary>
+    /// Spine documents that hold footnote/endnote definitions rather than
+    /// reading content. They stay reachable for note resolution but never
+    /// count as a page, a chapter position, or a page turn destination.
+    /// </summary>
+    public IReadOnlyList<string> AuxiliaryChapters { get; init; } = [];
 }
 
 /// <summary>
@@ -41,7 +48,7 @@ public sealed partial class EpubReaderPreparationService
     private const int MaximumEpubEntries = 100_000;
     private const string ExtractionReadyFileName = ".libzora-extracted";
     private const string ReaderIndexFileName = ".libzora-reader-index.json";
-    private const string ReaderIndexFormatVersion = "4";
+    private const string ReaderIndexFormatVersion = "5";
     private const int PhysicalTocFullScanChapterLimit = 256;
     // Bump whenever sanitization changes. Existing reader caches otherwise
     // keep stale sanitized markup indefinitely.
@@ -220,6 +227,11 @@ public sealed partial class EpubReaderPreparationService
         var document = await NormalizeCoverChaptersAsync(
             new EpubReaderDocument(cacheRoot, chapters, navigation, chapterTitles),
             package, manifest, packageDirectory, cancellationToken);
+        document = document with
+        {
+            AuxiliaryChapters = await DetectAuxiliaryChaptersAsync(
+                document.Chapters, document.Navigation, cancellationToken)
+        };
         await WriteReaderIndexAsync(cacheRoot, document, cancellationToken);
         return document;
     }

@@ -304,6 +304,13 @@ public sealed partial class KindleDeviceService : IKindleDeviceService, IDeviceA
                         localBackupPath,
                         cancellationToken, progress),
                     cancellationToken);
+                KindleAnnotationBackupStore.SaveManifest(
+                    localBackupPath,
+                    device,
+                    snapshot.DatabaseRelativePath,
+                    snapshot.Sha256,
+                    deviceBackup,
+                    reason: "sync");
                 return new KindleAnnotationWriteResult(
                     mutations.Count,
                     snapshot.Sha256,
@@ -316,6 +323,13 @@ public sealed partial class KindleDeviceService : IKindleDeviceService, IDeviceA
                 Path.Combine(device.RootPath, snapshot.DatabaseRelativePath));
             var installed = await KindleAnnotationMountedWriter.ApplyAsync(
                 currentPath, snapshot.Sha256, localBackupPath, mutations, cancellationToken, progress);
+            KindleAnnotationBackupStore.SaveManifest(
+                localBackupPath,
+                device,
+                snapshot.DatabaseRelativePath,
+                snapshot.Sha256,
+                installed.DeviceBackup,
+                reason: "sync");
             return new KindleAnnotationWriteResult(mutations.Count, snapshot.Sha256,
                 installed.Hash, localBackupPath, installed.DeviceBackup);
         }
@@ -327,6 +341,152 @@ public sealed partial class KindleDeviceService : IKindleDeviceService, IDeviceA
                 catch (IOException) { }
                 catch (UnauthorizedAccessException) { }
             }
+        }
+    }
+
+    public async Task<KindleAnnotationRestoreResult> RestoreAnnotationDatabaseAsync(
+        KindleDevice device,
+        KindleAnnotationBackupEntry backup,
+        CancellationToken cancellationToken = default,
+        IProgress<KindleAnnotationSyncProgress>? progress = null)
+    {
+        ArgumentNullException.ThrowIfNull(backup);
+        progress?.Report(new(KindleAnnotationSyncStage.PreparingWrite));
+        if (!device.Profile.SupportsClippings)
+            throw new NotSupportedException(UiText.Get("当前设备暂不支持回退 Kindle 批注备份。"));
+
+        var backupHash = await KindleAnnotationBackupStore.ValidateBackupFileAsync(
+            backup.LocalBackupPath, backup.Sha256, cancellationToken);
+
+        var databaseRelativePath = backup.DatabaseRelativePath;
+        if (string.IsNullOrWhiteSpace(databaseRelativePath))
+        {
+            if (device.Transport == KindleTransport.Wpd)
+            {
+                var (databases, _) = await Task.Run(
+                    () => WpdKindleAccess.FindAnnotationMetadata(device, cancellationToken),
+                    cancellationToken);
+                if (databases.Count != 1)
+                    throw new NotSupportedException(UiText.Get("无法唯一确认目标 Kindle 批注数据库路径，已取消回退。"));
+                databaseRelativePath = databases[0].Replace('\\', '/');
+            }
+            else
+            {
+                var databases = KindleAnnotationDeviceFiles.FindMountedDatabases(device.RootPath, cancellationToken);
+                if (databases.Count != 1)
+                    throw new NotSupportedException(UiText.Get("无法唯一确认目标 Kindle 批注数据库路径，已取消回退。"));
+                databaseRelativePath = Path.GetRelativePath(device.RootPath, databases[0]).Replace('\\', '/');
+            }
+        }
+
+        var deviceKey = KindleAnnotationBackupStore.ComputeDeviceKey(device);
+        var backupDirectory = Path.Combine(
+            _paths.Backups,
+            "KindleAnnotations",
+            deviceKey,
+            DateTime.Now.ToString("yyyyMMdd-HHmmssfff"));
+        Directory.CreateDirectory(backupDirectory);
+        var preRestoreLocalBackup = Path.Combine(backupDirectory, "ksdk_annotation_v1.db");
+
+        if (device.Transport == KindleTransport.Wpd)
+        {
+            progress?.Report(new(KindleAnnotationSyncStage.BackingUp));
+            await Task.Run(() =>
+            {
+                using var session = new WpdKindleAccess.WpdSession(device);
+                var copied = WpdKindleAccess.CopyStorageFileToLocal(
+                    session, device, databaseRelativePath, backupDirectory, cancellationToken);
+                if (!string.Equals(copied, preRestoreLocalBackup, StringComparison.OrdinalIgnoreCase))
+                    File.Move(copied, preRestoreLocalBackup, overwrite: true);
+            }, cancellationToken);
+
+            string previousHash;
+            await using (var stream = File.OpenRead(preRestoreLocalBackup))
+            {
+                previousHash = Convert.ToHexString(
+                    await SHA256.HashDataAsync(stream, cancellationToken)).ToLowerInvariant();
+            }
+
+            var preRestoreDeviceBackup = await Task.Run(
+                () => WpdKindleAccess.ReplaceAnnotationDatabase(
+                    device,
+                    databaseRelativePath,
+                    previousHash,
+                    backup.LocalBackupPath,
+                    preRestoreLocalBackup,
+                    cancellationToken,
+                    progress),
+                cancellationToken);
+            KindleAnnotationBackupStore.SaveManifest(
+                preRestoreLocalBackup,
+                device,
+                databaseRelativePath,
+                previousHash,
+                preRestoreDeviceBackup,
+                reason: "pre-restore");
+            progress?.Report(new(KindleAnnotationSyncStage.Completed, 1, 1));
+            return new KindleAnnotationRestoreResult(
+                backup.LocalBackupPath,
+                backupHash,
+                previousHash,
+                preRestoreLocalBackup,
+                preRestoreDeviceBackup);
+        }
+
+        var target = Path.GetFullPath(Path.Combine(device.RootPath, databaseRelativePath));
+        var annotationRoot = Path.GetFullPath(Path.Combine(device.RootPath, "system", "ksdk", ".annotations"));
+        if (!target.StartsWith(annotationRoot.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+            || !File.Exists(target))
+            throw new IOException("设备批注数据库路径不存在或已变化。");
+        KindleAnnotationMountedWriter.ValidateSnapshotSource(target);
+
+        progress?.Report(new(KindleAnnotationSyncStage.BackingUp));
+        File.Copy(target, preRestoreLocalBackup, overwrite: false);
+        string mountedPreviousHash;
+        await using (var stream = File.OpenRead(preRestoreLocalBackup))
+        {
+            mountedPreviousHash = Convert.ToHexString(
+                await SHA256.HashDataAsync(stream, cancellationToken)).ToLowerInvariant();
+        }
+        var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmssfff") + "-" + Guid.NewGuid().ToString("N")[..8];
+        var mountedDeviceBackup = target + ".libzora-backup-" + stamp;
+        var staged = target + ".libzora-restore-new-" + stamp;
+        try
+        {
+            File.Copy(preRestoreLocalBackup, mountedDeviceBackup, overwrite: false);
+            KindleAnnotationBackupStore.SaveManifest(
+                preRestoreLocalBackup,
+                device,
+                databaseRelativePath,
+                mountedPreviousHash,
+                mountedDeviceBackup,
+                reason: "pre-restore");
+
+            progress?.Report(new(KindleAnnotationSyncStage.WritingToDevice));
+            File.Copy(backup.LocalBackupPath, staged, overwrite: false);
+            File.Move(staged, target, overwrite: true);
+
+            progress?.Report(new(KindleAnnotationSyncStage.Verifying));
+            await using (var readback = File.OpenRead(target))
+            {
+                var installedHash = Convert.ToHexString(
+                    await SHA256.HashDataAsync(readback, cancellationToken)).ToLowerInvariant();
+                if (!installedHash.Equals(backupHash, StringComparison.OrdinalIgnoreCase))
+                    throw new IOException("回退后读回校验不一致。");
+            }
+            progress?.Report(new(KindleAnnotationSyncStage.Completed, 1, 1));
+            return new KindleAnnotationRestoreResult(
+                backup.LocalBackupPath,
+                backupHash,
+                mountedPreviousHash,
+                preRestoreLocalBackup,
+                mountedDeviceBackup);
+        }
+        finally
+        {
+            try { if (File.Exists(staged)) File.Delete(staged); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
         }
     }
 

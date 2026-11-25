@@ -237,23 +237,32 @@ public partial class MainWindow
 
             await Task.Delay(TimeSpan.FromSeconds(2), cancellation.Token);
 
+            var readingPaths = document.Chapters
+                .Where(path => !IsAuxiliaryReaderChapterPath(document, path))
+                .ToList();
+            var knownReadingChapter = knownChapter is { } known
+                && !IsAuxiliaryReaderChapterPath(document, known.ChapterPath)
+                    ? knownChapter
+                    : null;
             var counts = await Task.Run(
-                () => useNativeLayout
-                    ? nativeHost!.EstimateChapterPageCounts(
-                        document.Chapters,
-                        layout,
-                        viewportWidth,
-                        viewportHeight,
-                        cancellation.Token,
-                        knownChapter)
-                    : document.Chapters
-                        .Select(path => EstimateReaderChapterPageCount(
-                            path,
+                () => RemapReaderPageCounts(
+                    document,
+                    useNativeLayout
+                        ? nativeHost!.EstimateChapterPageCounts(
+                            readingPaths,
                             layout,
                             viewportWidth,
-                            viewportHeight))
-                        .Select(count => Math.Max(1, count))
-                        .ToArray(),
+                            viewportHeight,
+                            cancellation.Token,
+                            knownReadingChapter)
+                        : readingPaths
+                            .Select(path => EstimateReaderChapterPageCount(
+                                path,
+                                layout,
+                                viewportWidth,
+                                viewportHeight))
+                            .Select(count => Math.Max(1, count))
+                            .ToArray()),
                 cancellation.Token);
             cancellation.Token.ThrowIfCancellationRequested();
 
@@ -297,6 +306,11 @@ public partial class MainWindow
 
         for (var index = 0; index < counts.Length; index++)
         {
+            if (IsAuxiliaryReaderChapterPath(document, document.Chapters[index]))
+            {
+                counts[index] = 0;
+                continue;
+            }
             try
             {
                 var length = new FileInfo(document.Chapters[index]).Length;
@@ -308,6 +322,72 @@ public partial class MainWindow
             }
         }
         return counts;
+    }
+
+    /// <summary>
+    /// Footnote containers are kept in the spine so note links resolve, but
+    /// they are not reading content and must not add a page or a chapter step.
+    /// </summary>
+    private static bool IsAuxiliaryReaderChapterPath(EpubReaderDocument document, string path)
+    {
+        if (document.AuxiliaryChapters.Count == 0) return false;
+        string fullPath;
+        try
+        {
+            fullPath = Path.GetFullPath(path);
+        }
+        catch (Exception exception) when (exception is ArgumentException or NotSupportedException)
+        {
+            return false;
+        }
+        foreach (var auxiliary in document.AuxiliaryChapters)
+        {
+            if (string.Equals(Path.GetFullPath(auxiliary), fullPath, StringComparison.Ordinal))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Spreads counts measured over reading chapters back onto the full spine
+    /// and leaves note containers at zero pages.
+    /// </summary>
+    private static int[] RemapReaderPageCounts(EpubReaderDocument document, int[] readingCounts)
+    {
+        var counts = new int[document.Chapters.Count];
+        var readingIndex = 0;
+        for (var index = 0; index < counts.Length; index++)
+        {
+            if (IsAuxiliaryReaderChapterPath(document, document.Chapters[index]))
+            {
+                counts[index] = 0;
+                continue;
+            }
+            counts[index] = readingIndex < readingCounts.Length
+                ? Math.Max(1, readingCounts[readingIndex])
+                : 1;
+            readingIndex++;
+        }
+        return counts;
+    }
+
+    private bool IsAuxiliaryReaderChapter(int index) =>
+        _readerDocument is { } document
+        && index >= 0 && index < document.Chapters.Count
+        && IsAuxiliaryReaderChapterPath(document, document.Chapters[index]);
+
+    /// <summary>
+    /// Walks past note containers in the requested direction. Running out of
+    /// reading chapters returns an out-of-range index for the edge notice.
+    /// </summary>
+    private int ResolveReadingReaderChapter(int index, int direction)
+    {
+        if (_readerDocument is not { } document) return index;
+        var step = direction < 0 ? -1 : 1;
+        var target = index;
+        while (target >= 0 && target < document.Chapters.Count && IsAuxiliaryReaderChapter(target))
+            target += step;
+        return target;
     }
 
     private static int EstimateReaderChapterPageCount(
@@ -380,18 +460,15 @@ public partial class MainWindow
             || _readerIsPdf)
             return local;
 
-        if (_readerChapterIndex >= 0 && _readerChapterIndex < _readerBookPageCounts.Length)
-            _readerBookPageCounts[_readerChapterIndex] = Math.Max(
-                1,
-                Math.Max(_readerBookPageCounts[_readerChapterIndex], local.TotalPages));
-
-        var totalPages = _readerBookPageCounts.Sum(count => Math.Max(1, count));
-        var prefixPages = _readerBookPageCounts
-            .Take(Math.Clamp(_readerChapterIndex, 0, _readerBookPageCounts.Length))
-            .Sum(count => Math.Max(1, count));
-        return (
-            Math.Clamp(prefixPages + local.CurrentPage, 1, Math.Max(1, totalPages)),
-            Math.Max(1, totalPages));
+        // A completed native layout is authoritative; a partially composed
+        // chapter only contributes a lower bound.
+        var exact = CurrentReaderHost is NativeReaderHost { IsLayoutComplete: true };
+        return ReaderBookProgressPolicy.ResolveBookPagePosition(
+            _readerBookPageCounts,
+            _readerChapterIndex,
+            local.CurrentPage,
+            local.TotalPages,
+            exact);
     }
 
     private (int CurrentPage, int TotalPages) GetReaderChapterPagePosition()
@@ -499,10 +576,38 @@ public partial class MainWindow
             return Math.Clamp((_readerPdfPage - 1d) * 100d / (_readerPdfPages.Count - 1d), 0, 100);
         }
         if (_readerDocument is null || _readerDocument.Chapters.Count == 0) return 0;
-        return Math.Clamp(
-            (_readerChapterIndex + _readerScrollRatio) * 100d / _readerDocument.Chapters.Count,
-            0,
-            100);
+        if (_readerBookPageCounts.Length == _readerDocument.Chapters.Count)
+        {
+            if (_readerLayout.FlowMode == 0)
+            {
+                return ReaderBookProgressPolicy.CalculateFraction(
+                    _readerBookPageCounts, _readerChapterIndex, _readerScrollRatio) * 100d;
+            }
+            var position = GetReaderPagePosition();
+            return ReaderBookProgressPolicy.CalculateFraction(
+                position.CurrentPage, position.TotalPages) * 100d;
+        }
+        return ReadReaderOrdinalProgress(_readerScrollRatio) * 100d;
+    }
+
+    /// <summary>
+    /// Chapter-ordinal estimate used before exact pagination exists. Note
+    /// containers are skipped so the last real chapter reads as the end.
+    /// </summary>
+    private double ReadReaderOrdinalProgress(double chapterRatio)
+    {
+        if (_readerDocument is not { Chapters.Count: > 0 } document) return 0;
+        var clamped = Math.Clamp(chapterRatio, 0, 1);
+        var readingChapters = 0;
+        var ordinal = 0;
+        for (var index = 0; index < document.Chapters.Count; index++)
+        {
+            if (IsAuxiliaryReaderChapterPath(document, document.Chapters[index])) continue;
+            readingChapters++;
+            if (index < _readerChapterIndex) ordinal++;
+        }
+        if (readingChapters == 0) return 0;
+        return Math.Clamp((ordinal + clamped) / readingChapters, 0, 1);
     }
 
     private static double ReadDouble(JsonElement root, string name) =>

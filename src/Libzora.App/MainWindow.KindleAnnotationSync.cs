@@ -32,13 +32,23 @@ public partial class MainWindow
                 var stage = DescribeKindleAnnotationStage(value.Stage);
                 if (!string.IsNullOrWhiteSpace(value.BookTitle)) stage += " · 《" + value.BookTitle + "》";
                 if (value.Total <= 0)
+                {
                     context.ReportProgress(stage);
+                    UpdateKindleSyncBlockingOverlay(stage);
+                }
                 else if (value.Stage is KindleAnnotationSyncStage.ProcessingBooks
                          or KindleAnnotationSyncStage.ImportingToComputer
                          && value.Total <= int.MaxValue)
+                {
                     context.ReportProgress(stage, (int)Math.Min(value.Completed, value.Total), (int)value.Total);
+                    UpdateKindleSyncBlockingOverlay(stage, 100d * Math.Min(value.Completed, value.Total) / value.Total);
+                }
                 else
-                    context.ReportProgress(stage, (int)Math.Round(value.Percentage ?? 0), 100);
+                {
+                    var pct = Math.Round(value.Percentage ?? 0);
+                    context.ReportProgress(stage, (int)pct, 100);
+                    UpdateKindleSyncBlockingOverlay(stage, pct);
+                }
             });
             try { result = await operation(progress, token); }
             catch (Exception exception)
@@ -93,8 +103,10 @@ public partial class MainWindow
             && _kindle is not null;
         KindleAnnotationExperimentalNotice.IsVisible = SyncKindleAnnotationsButton.IsVisible;
         SyncKindleAnnotationsButton.IsEnabled = !_kindleAnnotationSyncPromptBusy
+            && !_kindleFullSyncBusy
             && _deviceBooksLoaded && !_deviceBooksShowingCache && !_deviceBookScanFailed
             && DeviceBooks.Count > 0 && !HasActiveDeviceOperations;
+        UpdateKindleFullSyncButtonState();
     }
 
     private async void SyncKindleAnnotationsButton_Click(object? sender, RoutedEventArgs e)
@@ -227,23 +239,33 @@ public partial class MainWindow
 
             KindleAnnotationSyncResult? result = null;
             Exception? failure = null;
-            await TrackDeviceOperationAsync(async () =>
+            ShowKindleSyncBlockingOverlay(
+                T("正在同步 Kindle 书签与批注"),
+                T("正在自动备份并准备写入…"));
+            try
             {
-                try
+                await TrackDeviceOperationAsync(async () =>
                 {
-                    result = await RunKindleAnnotationTaskAsync(
-                        T("同步 Kindle 批注"),
-                        cancellable: false,
-                        (progress, _) => Task.Run(() => _kindleAnnotationSync.SynchronizeAsync(
-                            device, booksToSync, _kindle, _lifetimeCancellation.Token, progress),
-                            _lifetimeCancellation.Token),
-                        _lifetimeCancellation.Token);
-                }
-                catch (Exception exception)
-                {
-                    failure = exception;
-                }
-            });
+                    try
+                    {
+                        result = await RunKindleAnnotationTaskAsync(
+                            T("同步 Kindle 批注"),
+                            cancellable: false,
+                            (progress, _) => Task.Run(() => _kindleAnnotationSync.SynchronizeAsync(
+                                device, booksToSync, _kindle, _lifetimeCancellation.Token, progress),
+                                _lifetimeCancellation.Token),
+                            _lifetimeCancellation.Token);
+                    }
+                    catch (Exception exception)
+                    {
+                        failure = exception;
+                    }
+                });
+            }
+            finally
+            {
+                HideKindleSyncBlockingOverlay();
+            }
             if (_lifetimeCancellation.IsCancellationRequested) return;
             if (failure is not null)
             {
@@ -266,9 +288,11 @@ public partial class MainWindow
             _lastKindleAnnotationSyncPromptSignature = null;
             await RefreshAfterKindleAnnotationSyncAsync(device);
             var completion = T(
-                "批注同步完成：导入电脑 {0} 项，写入 Kindle {1} 项。",
+                "批注与书签同步完成：导入电脑 {0} 项（含书签 {1} 个），写入 Kindle {2} 项（含书签 {3} 个）。",
                 result.ChangesToComputer,
-                result.ChangesToDevice);
+                result.BookmarksToComputer,
+                result.ChangesToDevice,
+                result.BookmarksToDevice);
             if (result.UnsupportedCount > 0)
                 completion += Environment.NewLine
                     + T("{0} 项未同步（位置无法确认、两端时间冲突，或电脑上已清空的笔记）。", result.UnsupportedCount);

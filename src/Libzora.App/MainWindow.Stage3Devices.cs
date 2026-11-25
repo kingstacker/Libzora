@@ -636,6 +636,7 @@ public partial class MainWindow
         AutomationProperties.SetName(DeviceStatusEjectButton, action);
         ToolTip.SetTip(EjectDeviceButton, action);
         AutomationProperties.SetName(EjectDeviceButton, action);
+        UpdateKindleFullSyncButtonState();
     }
     private Task<bool> ShowDevicePromptAsync(
         string title,

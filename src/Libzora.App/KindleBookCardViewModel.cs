@@ -107,12 +107,38 @@ public sealed class KindleBookCardViewModel : ObservableObject, IDisposable
     public string HashLabel => string.IsNullOrWhiteSpace(Book.Sha256)
         ? UiText.Get("SHA-256 未计算")
         : UiText.Get("SHA-256 {0}…", Book.Sha256[..Math.Min(12, Book.Sha256.Length)]);
-    public string PresenceLabel => LibraryPresence switch
+    public string PresenceLabel
     {
-        BookLibraryPresence.Both => UiText.Get("电脑与当前设备都有"),
-        BookLibraryPresence.ComputerOnly => UiText.Get("仅电脑书库"),
-        _ => UiText.Get("仅当前设备")
-    };
+        get
+        {
+            if (IsSeriesStack)
+            {
+                var total = _seriesMembers.Count;
+                var both = _seriesMembers.Count(member => member.LibraryPresence == BookLibraryPresence.Both);
+                if (both == total) return UiText.Get("全部 {0} 册在电脑和当前设备均有", total);
+                if (both > 0) return UiText.Get("{0}/{1} 册在电脑已有，{2} 册仅在当前设备", both, total, total - both);
+                return UiText.Get("全部 {0} 册仅在当前设备", total);
+            }
+            return LibraryPresence switch
+            {
+                BookLibraryPresence.Both => UiText.Get("电脑与当前设备都有"),
+                BookLibraryPresence.ComputerOnly => UiText.Get("仅电脑书库"),
+                _ => UiText.Get("仅当前设备")
+            };
+        }
+    }
+
+    public string SeriesSummaryLabel
+    {
+        get
+        {
+            if (!IsSeriesStack) return SeriesCountLabel;
+            var both = _seriesMembers.Count(member => member.LibraryPresence == BookLibraryPresence.Both);
+            return both > 0
+                ? $"{SeriesCountLabel} · {UiText.Get("{0}/{1} 在电脑", both, _seriesMembers.Count)}"
+                : SeriesCountLabel;
+        }
+    }
 
     // Gallery mode (shared with the PC library grid): hide the title/author/
     // info text so only the cover image remains.
@@ -158,10 +184,27 @@ public sealed class KindleBookCardViewModel : ObservableObject, IDisposable
             && _seriesMembers.SequenceEqual(next);
         if (unchanged) return;
 
+        foreach (var member in _seriesMembers)
+            member.PropertyChanged -= SeriesMember_PropertyChanged;
         _seriesKey = next.Count > 0 ? key : null;
         _seriesTitle = next.Count > 0 ? title : null;
         _seriesMembers = next.Count > 0 ? next.ToArray() : [];
+        foreach (var member in _seriesMembers)
+            member.PropertyChanged += SeriesMember_PropertyChanged;
         NotifySeriesChanged();
+    }
+
+    private void SeriesMember_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(CoverImage))
+        {
+            OnPropertyChanged(nameof(SeriesCover2));
+            OnPropertyChanged(nameof(SeriesCover3));
+        }
+        else if (e.PropertyName == nameof(LibraryPresence))
+        {
+            NotifyPresenceChanged();
+        }
     }
 
     private Bitmap? SeriesCover(int index) =>
@@ -187,6 +230,17 @@ public sealed class KindleBookCardViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(DisplayMetaLabel));
         OnPropertyChanged(nameof(DisplayInfoLabel));
         OnPropertyChanged(nameof(DisplayFileName));
+        NotifyPresenceChanged();
+    }
+
+    private void NotifyPresenceChanged()
+    {
+        OnPropertyChanged(nameof(PresenceLabel));
+        OnPropertyChanged(nameof(PresenceOpacity));
+        OnPropertyChanged(nameof(ComputerOnlyPresenceVisibility));
+        OnPropertyChanged(nameof(KindleOnlyPresenceVisibility));
+        OnPropertyChanged(nameof(BothLibrariesPresenceVisibility));
+        OnPropertyChanged(nameof(SeriesSummaryLabel));
     }
 
     public void SetGalleryTextVisible(bool visible)
@@ -221,15 +275,36 @@ public sealed class KindleBookCardViewModel : ObservableObject, IDisposable
         private set
         {
             if (!SetProperty(ref _libraryPresence, value)) return;
-            OnPropertyChanged(nameof(PresenceLabel));
-            OnPropertyChanged(nameof(ComputerOnlyPresenceVisibility));
-            OnPropertyChanged(nameof(KindleOnlyPresenceVisibility));
-            OnPropertyChanged(nameof(BothLibrariesPresenceVisibility));
+            NotifyPresenceChanged();
         }
     }
-    public bool ComputerOnlyPresenceVisibility => LibraryPresence == BookLibraryPresence.ComputerOnly;
-    public bool KindleOnlyPresenceVisibility => LibraryPresence == BookLibraryPresence.KindleOnly;
-    public bool BothLibrariesPresenceVisibility => LibraryPresence == BookLibraryPresence.Both;
+
+    private BookLibraryPresence EffectiveLibraryPresence
+    {
+        get
+        {
+            if (!IsSeriesStack) return LibraryPresence;
+            var both = _seriesMembers.Count(member => member.LibraryPresence == BookLibraryPresence.Both);
+            if (both > 0) return BookLibraryPresence.Both;
+            return _seriesMembers.All(member => member.LibraryPresence == BookLibraryPresence.ComputerOnly)
+                ? BookLibraryPresence.ComputerOnly
+                : BookLibraryPresence.KindleOnly;
+        }
+    }
+
+    public double PresenceOpacity
+    {
+        get
+        {
+            if (!IsSeriesStack) return 1d;
+            var both = _seriesMembers.Count(member => member.LibraryPresence == BookLibraryPresence.Both);
+            return both > 0 && both < _seriesMembers.Count ? 0.52d : 1d;
+        }
+    }
+
+    public bool ComputerOnlyPresenceVisibility => EffectiveLibraryPresence == BookLibraryPresence.ComputerOnly;
+    public bool KindleOnlyPresenceVisibility => EffectiveLibraryPresence == BookLibraryPresence.KindleOnly;
+    public bool BothLibrariesPresenceVisibility => EffectiveLibraryPresence == BookLibraryPresence.Both;
     public bool IsDownloading
     {
         get => _isDownloading;

@@ -38,6 +38,18 @@ struct NativeReaderPresentationLogicTests {
         check(!NativeWidgetNavigationPolicy.shouldAnimateTab(currentTab: 0, targetTab: 2,
             readerVisible: false, libraryReady: false, reduceMotion: false, powerSaving: false), "A cold launch must not flash a shelf to animate it out")
         check(NativeReaderPresentationPolicy.widgetTransitionDuration <= 0.35, "Widget navigation stays snappy")
+        check(NativeWidgetNavigationPolicy.shouldUseLaunchBrandCover(
+            preparingLibrary: true, libraryLoaded: false, restoringReader: false),
+            "Cold widget launch enters through the icon brand cover")
+        check(NativeWidgetNavigationPolicy.shouldUseLaunchBrandCover(
+            preparingLibrary: false, libraryLoaded: false, restoringReader: false),
+            "Unloaded shelf widget launch still uses the icon brand cover")
+        check(NativeWidgetNavigationPolicy.shouldUseLaunchBrandCover(
+            preparingLibrary: false, libraryLoaded: true, restoringReader: true),
+            "Interrupted launch restore still uses the icon brand cover")
+        check(!NativeWidgetNavigationPolicy.shouldUseLaunchBrandCover(
+            preparingLibrary: false, libraryLoaded: true, restoringReader: false),
+            "Warm widget tap slides directly from the current page without the icon cover")
         print("Passed \(assertions) reader presentation and widget navigation assertions.")
     }
 }

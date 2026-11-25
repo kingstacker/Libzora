@@ -197,6 +197,7 @@ Large services are split by responsibility so one change opens one file:
 - `src/Libzora.Mobile.iOS/NativeUI/NativePreferenceEdits.swift` — field-level
   optimistic preference writes, rollback baselines, widget-link and filter policies.
 - `NativeUI/NativeLegalDocument.swift` — settings navigation to the bundled user agreement and privacy policy.
+- `NativeUI/NativeAppleSignIn.swift` — native Sign in with Apple coordinator (SHA-256 nonce) and HIG button used by `NativeAccount.swift` for sign-in and Apple ID linking.
 - `tests/Libzora.Mobile.iOS.UITests/` and `.LogicTests/` — behaviour contracts.
 
 ## Where to look for common tasks

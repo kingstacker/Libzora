@@ -380,8 +380,25 @@ internal sealed partial class IOSNativeFrontend
                     var surfaceBounds = _readerSurface.Bounds.Width >= 2 && _readerSurface.Bounds.Height >= 2
                         ? _readerSurface.Bounds
                         : _window.Bounds;
+                    if (args.TryGetProperty("insets", out var initialInsets) && initialInsets.ValueKind == JsonValueKind.Object)
+                    {
+                        _nativeSurfaceInsets = new Thickness(
+                            ReadDouble(initialInsets, "left"),
+                            ReadDouble(initialInsets, "top"),
+                            ReadDouble(initialInsets, "right"),
+                            ReadDouble(initialInsets, "bottom"));
+                        var hintWidth = ReadDouble(initialInsets, "viewportWidth");
+                        var hintHeight = ReadDouble(initialInsets, "viewportHeight");
+                        if (hintWidth >= 2 && hintHeight >= 2)
+                            surfaceBounds = new CoreGraphics.CGRect(0, 0, hintWidth, hintHeight);
+                    }
+                    else if (_nativeSurfaceInsets == default)
+                    {
+                        var safe = _window.SafeAreaInsets;
+                        _nativeSurfaceInsets = new Thickness(safe.Left, safe.Top, safe.Right, safe.Bottom);
+                    }
                     _reader.NativeSetViewportHint(surfaceBounds.Width, surfaceBounds.Height);
-                    _reader.NativeSetSurfaceInsets(_nativeSurfaceInsets);
+                    _reader.NativeSetSurfaceInsets(_nativeSurfaceInsets, surfaceBounds.Width, surfaceBounds.Height);
                     var darkAppearance = _shell.Preferences.Current.ThemeMode switch
                     {
                         MobileThemeMode.Light => false,
@@ -423,7 +440,12 @@ internal sealed partial class IOSNativeFrontend
                         ReadDouble(args, "top"),
                         ReadDouble(args, "right"),
                         ReadDouble(args, "bottom"));
-                    _reader?.NativeSetSurfaceInsets(_nativeSurfaceInsets);
+                    var viewportWidth = ReadDouble(args, "viewportWidth");
+                    var viewportHeight = ReadDouble(args, "viewportHeight");
+                    _reader?.NativeSetSurfaceInsets(
+                        _nativeSurfaceInsets,
+                        viewportWidth >= 2 ? viewportWidth : null,
+                        viewportHeight >= 2 ? viewportHeight : null);
                     return Data(("accepted", _reader is not null),
                         ("revision", _reader?.NativePresentationFrameRevision ?? 0L));
                 }

@@ -9,7 +9,10 @@ enum NativeAdaptiveLayout {
     static let mastheadHeight: CGFloat = 44
     static let mastheadTopInset: CGFloat = 16
     static let readerMaxWidth: CGFloat = 840
+    static let readerSpreadMaxWidth: CGFloat = 1240
     static let readerToolsMaxWidth: CGFloat = 720
+    static let libraryFilterMaxWidth: CGFloat = 520
+    static let libraryBatchBarMaxWidth: CGFloat = 520
     static let noteMaxWidth: CGFloat = 560
 
     struct Grid: Equatable {
@@ -48,10 +51,24 @@ enum NativeAdaptiveLayout {
         return min(4, max(1, Int((available + 10) / 160)))
     }
 
-    static func readerWidth(viewportWidth: CGFloat, isPdf: Bool) -> CGFloat {
+    static func readerWidth(viewportWidth: CGFloat, isPdf: Bool, isTwoPage: Bool = false) -> CGFloat {
         let width = finiteWidth(viewportWidth)
         // PDF zoom and page fitting still use the whole window.
-        return isPdf ? width : min(readerMaxWidth, width)
+        if isPdf { return width }
+        return min(isTwoPage ? readerSpreadMaxWidth : readerMaxWidth, width)
+    }
+
+    static func isLandscapeSpread(
+        viewportSize: CGSize,
+        isPdf: Bool,
+        isManga: Bool,
+        verticalWriting: Bool,
+        twoPageInLandscape: Bool
+    ) -> Bool {
+        guard !isPdf, !isManga, !verticalWriting, twoPageInLandscape,
+              viewportSize.width.isFinite, viewportSize.height.isFinite,
+              viewportSize.width >= 760, viewportSize.height > 0 else { return false }
+        return viewportSize.width > viewportSize.height
     }
 
     static func noteWidth(viewportWidth: CGFloat) -> CGFloat {

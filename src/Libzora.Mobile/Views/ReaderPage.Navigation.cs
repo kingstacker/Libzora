@@ -19,10 +19,15 @@ namespace Libzora.Mobile.Views;
 /// </summary>
 public partial class ReaderPage
 {
-    private async Task OpenEpubAsync(string sourcePath, string format, CancellationToken cancellationToken)
+    private async Task OpenEpubAsync(
+        string sourcePath,
+        string format,
+        Task<IReadOnlyList<ReaderBookmark>> bookmarksTask,
+        CancellationToken cancellationToken)
     {
         _isPdf = false;
         LoadingDetailText.Text = UiText.Get("正在整理章节与图片…");
+        var annotationsTask = _modules.Reader.Data.GetAnnotationsAsync(_bookFile!.Id, cancellationToken);
 
         _epubPath = sourcePath;
         if (format is "azw3" or "mobi" or "txt")
@@ -176,7 +181,8 @@ public partial class ReaderPage
                 contentPosition: restore.ContentPosition);
         }
 
-        _annotations.AddRange(await _modules.Reader.Data.GetAnnotationsAsync(_bookFile.Id, cancellationToken));
+        _bookmarks.AddRange(await bookmarksTask);
+        _annotations.AddRange(await annotationsTask);
         host.SetAnnotations(_annotations.ToList());
         host.SetResumeMarker(ToResumeMarker(_activeSyncedMarker));
         _syncedMarkerScrollOrigin = _epubPosition;
@@ -223,11 +229,15 @@ public partial class ReaderPage
             ? Path.GetRelativePath(document.RootPath, document.Chapters[index]).Replace('\\', '/')
             : string.Empty;
 
-    private async Task OpenPdfAsync(string path, CancellationToken cancellationToken)
+    private async Task OpenPdfAsync(
+        string path,
+        Task<IReadOnlyList<ReaderBookmark>> bookmarksTask,
+        CancellationToken cancellationToken)
     {
         _isPdf = true;
         TypographyLabel.Text = UiText.Get("显示");
         LoadingDetailText.Text = UiText.Get("正在渲染 PDF 页面…");
+        var annotationsTask = _modules.Reader.Data.GetAnnotationsAsync(_bookFile!.Id, cancellationToken);
 
         var savedProgress = _jump ?? await _modules.Reader.Data.GetProgressAsync(_bookFile!.Id, cancellationToken);
         var initialPage = Math.Max(1, (savedProgress?.ChapterIndex ?? 0) + 1);
@@ -244,7 +254,8 @@ public partial class ReaderPage
 
         _pdfPageCount = await host.PrepareDocumentAsync(path, cancellationToken);
         if (_pdfPageCount <= 0) throw new InvalidOperationException("这个 PDF 没有可显示的页面。");
-        _annotations.AddRange(await _modules.Reader.Data.GetAnnotationsAsync(_bookFile!.Id, cancellationToken));
+        _bookmarks.AddRange(await bookmarksTask);
+        _annotations.AddRange(await annotationsTask);
         host.SetAnnotations(_annotations.ToList());
         // Sync global PdfZoom chip with this book's remembered zoom before applying.
         var bookZoom = _shell.Preferences.Current.GetEffectivePdfZoom(_bookFile!.Id);

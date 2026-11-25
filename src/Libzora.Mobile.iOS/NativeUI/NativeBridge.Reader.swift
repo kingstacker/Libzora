@@ -61,19 +61,7 @@ extension NativeStore {
         } else if openingReader {
             readerOpenGeneration += 1
         } else if libraryLoaded {
-            if source == .widget {
-                // Wait until the app is active and its live surface is rendered
-                // before snapshotting or opening the reader underneath.
-                let generation = readerOpenGeneration
-                Task { @MainActor [weak self] in
-                    await self?.waitForWidgetForegroundCommit()
-                    guard let self, self.pendingOpenBookId == bookId,
-                          self.readerOpenGeneration == generation else { return }
-                    self.openPendingReaderIfNeeded()
-                }
-            } else {
-                openPendingReaderIfNeeded()
-            }
+            openPendingReaderIfNeeded()
         } else {
             perform { try await self.refreshLibrary() }
         }
@@ -321,6 +309,9 @@ extension NativeStore {
         session.appearanceColorScheme = nil
         var args: [String: Any] = ["bookId": book.id, "sessionId": session.appearanceSessionId]
         if let location { args["location"] = location }
+        if let initialInsets = estimatedInitialSurfaceInsets(for: book) {
+            args["insets"] = initialInsets
+        }
         let powerSaving = preferences.isPowerSaving(systemLowPower: ProcessInfo.processInfo.isLowPowerModeEnabled)
         let animation = NativeBookOpenTransitionPolicy.openAnimation(
             source: source,
@@ -331,12 +322,26 @@ extension NativeStore {
         )
         readerOpenSource = source
         readerOpenAnimation = animation
-        readerEntrySnapshot = source == .widget
-            ? (widgetColdLaunch ? (pendingWidgetReaderSnapshot ?? captureWidgetBrandSnapshot()) : nil)
-            : (animation == .cover || preparingLibrary || restoringReader ? nil : captureNavigationSnapshot())
+        let useLiveWindowCover = animation != .cover && !widgetColdLaunch && !preparingLibrary && !restoringReader
+        if useLiveWindowCover && widgetEntrySnapshotCover == nil {
+            beginWidgetEntrySnapshotCover()
+        }
+        readerEntrySnapshot = source == .widget && widgetColdLaunch
+            ? (pendingWidgetReaderSnapshot ?? captureWidgetBrandSnapshot())
+            : nil
         pendingWidgetReaderSnapshot = nil
         lastBookOpenOrigin = animated && source != .widget ? sourceKey.map { (book.id, $0) } : nil
         clearClosingBookTransition()
+
+        // Start backend book loading and layout immediately so it overlaps with
+        // cover decoding, modal presentation, and display commit frames.
+        let openRequest = Task { @MainActor [weak self] () throws -> Void in
+            guard let self else { return }
+            await self.readerTestDelay("--libzora-test-slow-reader-open")
+            guard generation == self.readerOpenGeneration else { return }
+            let _: Done = try await self.request("reader.open", args)
+        }
+
         if animation == .cover {
             let target = NativeBookOpenTransitionPolicy.resolveOpenTarget(
                 bookId: book.id,
@@ -352,7 +357,11 @@ extension NativeStore {
             lastBookOpenOrigin = target.sourceKey.map { (book.id, $0) }
             // Load the text concurrently while the cover opens over the live reader.
             let coverImage = await resolveTransitionCoverImage(for: book, preferredWidth: target.frame.width)
-            guard generation == readerOpenGeneration else { return }
+            guard generation == readerOpenGeneration else {
+                openRequest.cancel()
+                await discardReaderOpen()
+                return
+            }
             let transition = NativeBookOpenTransition(
                 book: book,
                 sourceFrame: target.frame,
@@ -374,7 +383,11 @@ extension NativeStore {
             UIView.setAnimationsEnabled(true)
             guard !Task.isCancelled,
                   generation == readerOpenGeneration,
-                  openingBookTransition?.id == transition.id else { return }
+                  openingBookTransition?.id == transition.id else {
+                openRequest.cancel()
+                await discardReaderOpen()
+                return
+            }
             openingBookReadyId = transition.id
             let transitionId = transition.id
             let fallbackTimeout = (target.isCentered
@@ -404,10 +417,7 @@ extension NativeStore {
             // viewport's page has been drawn and committed by the native display.
         }
         do {
-            await readerTestDelay("--libzora-test-slow-reader-open")
-            if generation == readerOpenGeneration {
-                let _: Done = try await request("reader.open", args)
-            }
+            try await openRequest.value
         } catch {
             await discardReaderOpen()
             if generation == readerOpenGeneration { throw error }
@@ -421,6 +431,46 @@ extension NativeStore {
         let nextOrder = (bookOpenOrder.values.max() ?? 0) + 1
         bookOpenOrder[book.id] = nextOrder
         UserDefaults.standard.set(bookOpenOrder, forKey: Self.bookOpenOrderKey)
+    }
+
+    private func estimatedInitialSurfaceInsets(for book: LibraryBook) -> [String: Double]? {
+        guard let window = navigationWindow,
+              window.bounds.width > 10, window.bounds.height > 10 else { return nil }
+        let safe = window.safeAreaInsets
+        let contentWidth = max(1, window.bounds.width - safe.left - safe.right)
+        let formats = book.formats
+        let isPdfOnly = formats.localizedCaseInsensitiveContains("PDF")
+            && !formats.localizedCaseInsensitiveContains("EPUB")
+            && !formats.localizedCaseInsensitiveContains("AZW3")
+            && !formats.localizedCaseInsensitiveContains("MOBI")
+            && !formats.localizedCaseInsensitiveContains("TXT")
+        let isPdfOrManga = isPdfOnly || preferences.mangaMode
+        let footerVisible = preferences.readerProgressDisplay != 4
+        let bodyInset = min(64, max(16, preferences.readerBodyPadding))
+        let extraFooter: CGFloat = isPdfOnly ? (footerVisible ? 24 : 0)
+            : (preferences.mangaMode || !footerVisible ? 0 : max(0, 24 - CGFloat(bodyInset)))
+        let contentHeight = max(1, window.bounds.height - safe.top - safe.bottom - extraFooter)
+        let isTwoPage = NativeAdaptiveLayout.isLandscapeSpread(
+            viewportSize: CGSize(width: contentWidth, height: contentHeight),
+            isPdf: isPdfOnly,
+            isManga: preferences.mangaMode,
+            verticalWriting: preferences.readerVerticalWriting,
+            twoPageInLandscape: preferences.readerTwoPageInLandscape
+        )
+        let readingWidth = NativeAdaptiveLayout.readerWidth(
+            viewportWidth: contentWidth,
+            isPdf: isPdfOrManga,
+            isTwoPage: isTwoPage
+        )
+        let sideColumnInset = max(0, (contentWidth - readingWidth) / 2)
+        return [
+            "left": Double(safe.left + sideColumnInset),
+            "top": Double(safe.top),
+            "right": Double(safe.right + sideColumnInset),
+            "bottom": Double(safe.bottom + extraFooter),
+            "viewportWidth": Double(contentWidth),
+            "viewportHeight": Double(contentHeight)
+        ]
     }
 
     private func readerTestDelay(_ argument: String) async {

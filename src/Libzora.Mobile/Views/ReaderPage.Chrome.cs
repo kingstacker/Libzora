@@ -242,7 +242,7 @@ public partial class ReaderPage
     private PdfReaderDisplayMode DesiredPdfDisplayMode => _shell.Preferences.Current.PdfDisplayMode switch
     {
         1 => PdfReaderDisplayMode.Continuous,
-        2 => PdfReaderDisplayMode.TwoPage,
+        2 when !_usesNativeFrontend || _nativeViewportHint is not { Width: > 0 and < 520 } => PdfReaderDisplayMode.TwoPage,
         _ => PdfReaderDisplayMode.SinglePage,
     };
 

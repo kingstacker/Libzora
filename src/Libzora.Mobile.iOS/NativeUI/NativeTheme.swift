@@ -239,9 +239,11 @@ struct NativePageMasthead: ViewModifier {
 
 /// Protects status text while letting the material fade into scrolling content.
 struct NativeStatusBarGlass: View {
+    @State private var topInset: CGFloat = 0
+
     var body: some View {
         Rectangle().fill(.ultraThinMaterial)
-            .frame(height: NativeTheme.statusBarHeight + 28)
+            .frame(height: max(topInset, NativeTheme.statusBarHeight) + 28)
             .mask {
                 LinearGradient(stops: [
                     .init(color: .black, location: 0),
@@ -252,6 +254,13 @@ struct NativeStatusBarGlass: View {
             .opacity(0.35)
             .frame(maxWidth: .infinity, alignment: .top)
             .ignoresSafeArea(edges: .top)
+            .background {
+                GeometryReader { proxy in
+                    Color.clear
+                        .onAppear { topInset = proxy.safeAreaInsets.top }
+                        .onChange(of: proxy.safeAreaInsets.top) { topInset = $0 }
+                }
+            }
             .allowsHitTesting(false)
             .accessibilityHidden(true)
     }

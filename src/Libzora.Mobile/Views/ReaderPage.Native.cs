@@ -200,24 +200,58 @@ public partial class ReaderPage
         _nativeViewportHint = new Size(width, height);
     }
 
-    public void NativeSetSurfaceInsets(Thickness insets)
+    public void NativeSetSurfaceInsets(Thickness insets, double? viewportWidth = null, double? viewportHeight = null)
     {
+        var viewportChanged = false;
+        if (viewportWidth is { } width && viewportHeight is { } height
+            && double.IsFinite(width) && double.IsFinite(height) && width >= 2 && height >= 2)
+        {
+            var nextHint = new Size(width, height);
+            if (_nativeViewportHint is not { } prev
+                || Math.Abs(prev.Width - nextHint.Width) >= 0.25
+                || Math.Abs(prev.Height - nextHint.Height) >= 0.25)
+            {
+                _nativeViewportHint = nextHint;
+                viewportChanged = true;
+            }
+        }
+
         var clamped = new Thickness(
             double.IsFinite(insets.Left) ? Math.Max(0, insets.Left) : 0,
             double.IsFinite(insets.Top) ? Math.Max(0, insets.Top) : 0,
             double.IsFinite(insets.Right) ? Math.Max(0, insets.Right) : 0,
             double.IsFinite(insets.Bottom) ? Math.Max(0, insets.Bottom) : 0);
         var current = ReaderHostSlot.Padding;
-        if (Math.Abs(current.Left - clamped.Left) < 0.25
-            && Math.Abs(current.Top - clamped.Top) < 0.25
-            && Math.Abs(current.Right - clamped.Right) < 0.25
-            && Math.Abs(current.Bottom - clamped.Bottom) < 0.25)
+        var paddingChanged = Math.Abs(current.Left - clamped.Left) >= 0.25
+            || Math.Abs(current.Top - clamped.Top) >= 0.25
+            || Math.Abs(current.Right - clamped.Right) >= 0.25
+            || Math.Abs(current.Bottom - clamped.Bottom) >= 0.25;
+        if (!paddingChanged && !viewportChanged)
         {
             return;
         }
 
-        ReaderHostSlot.Padding = clamped;
-        RequestNativePresentationFrame();
+        if (paddingChanged)
+        {
+            ReaderHostSlot.Padding = clamped;
+            RequestNativePresentationFrame();
+        }
+
+        if (_disposed || !_started || !_ready) return;
+        if (_isPdf)
+        {
+            if (viewportChanged && _readerHost is NativePdfReaderHost pdf && pdf.DisplayMode != DesiredPdfDisplayMode)
+            {
+                _ = ApplyReaderSettingsAsync();
+            }
+            return;
+        }
+
+        var desired = BuildLayoutForViewport(_shell.Preferences.Current, ResolveViewportLandscape());
+        if (desired.FlowMode != _layout.FlowMode || desired.TwoPageMode != _layout.TwoPageMode)
+        {
+            _ = ApplyReaderSettingsAsync();
+        }
     }
 
     public NativeReaderState GetNativeState()

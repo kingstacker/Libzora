@@ -28,6 +28,6 @@ public sealed partial class NativePdfReaderHost
                 || request != _layoutRequest || !ReferenceEquals(layout, _layout) || bounds != Bounds) return;
             _presentationFrameRequest = null;
             PresentationFrameRendered?.Invoke(revision);
-        }, DispatcherPriority.Background);
+        }, DispatcherPriority.Loaded);
     }
 }

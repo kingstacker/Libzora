@@ -128,12 +128,29 @@ struct NativeReaderPage: View {
     // Compact screens present the assistant in a resizable sheet; regular wide
     // windows dock it as a side rail beside the reading surface.
     @State private var viewportWidth: CGFloat = 0
+    @State private var viewportHeight: CGFloat = 0
     private var docksAssistantSidebar: Bool {
         horizontalSizeClass == .regular && viewportWidth >= 760
     }
+    private var usesTypographyPopover: Bool {
+        horizontalSizeClass == .regular
+    }
+    private var typographyPopover: Binding<Bool> {
+        Binding(
+            get: { panel == .typography && usesTypographyPopover },
+            set: { open in
+                if !open && panel == .typography { panel = nil }
+            }
+        )
+    }
     private var sheetPanel: Binding<ReaderPanel?> {
         Binding(
-            get: { (panel == .assistant && docksAssistantSidebar) ? nil : panel },
+            get: {
+                if (panel == .assistant && docksAssistantSidebar) || (panel == .typography && usesTypographyPopover) {
+                    return nil
+                }
+                return panel
+            },
             set: { panel = $0 })
     }
 
@@ -152,11 +169,23 @@ struct NativeReaderPage: View {
             let sidebarOpen = isSidebarOpen(contentWidth: contentWidth)
             let sidebarWidth = assistantSidebarWidth(contentWidth: contentWidth)
             let readingViewportWidth = max(1, contentWidth - sidebarWidth)
+            let readingViewportHeight = max(1, safeGeometry.size.height - readerBottomInset)
+            let isLandscapeSpread = NativeAdaptiveLayout.isLandscapeSpread(
+                viewportSize: CGSize(width: readingViewportWidth, height: readingViewportHeight),
+                isPdf: reader.isPdf,
+                isManga: reader.isManga,
+                verticalWriting: store.preferences.readerVerticalWriting,
+                twoPageInLandscape: store.preferences.readerTwoPageInLandscape
+            )
             let openTransition = activeOpenTransition
 
             GeometryReader { fullGeometry in
                 let containerFrame = fullGeometry.frame(in: .global)
-                let readingWidth = NativeAdaptiveLayout.readerWidth(viewportWidth: readingViewportWidth, isPdf: reader.isPdf || reader.isManga)
+                let readingWidth = NativeAdaptiveLayout.readerWidth(
+                    viewportWidth: readingViewportWidth,
+                    isPdf: reader.isPdf || reader.isManga,
+                    isTwoPage: isLandscapeSpread
+                )
                 let sideColumnInset = max(0, (readingViewportWidth - readingWidth) / 2)
                 let surfaceInsets = ReaderSurfaceInsets(
                     left: safeInsets.leading + sideColumnInset,
@@ -196,6 +225,15 @@ struct NativeReaderPage: View {
                                 readingViewportWidth: readingViewportWidth,
                                 openTransition: openTransition)
                                 .zIndex(10)
+                            bottomChromeOverlay(
+                                safeInsets: safeInsets,
+                                readingViewportWidth: readingViewportWidth,
+                                openTransition: openTransition)
+                                .zIndex(10)
+                            floatingModalOverlay(
+                                safeInsets: safeInsets,
+                                readingViewportWidth: readingViewportWidth)
+                                .zIndex(15)
                         }
 
                         if sidebarOpen {
@@ -207,16 +245,25 @@ struct NativeReaderPage: View {
                         }
                     }
                     .frame(width: fullGeometry.size.width, height: fullGeometry.size.height)
-                    .onAppear { viewportWidth = contentWidth }
-                    .onChange(of: contentWidth) { viewportWidth = $0 }
-                    .task(id: "\(appearanceSessionId)|\(surfaceInsets)|\(reader.ready)|\(reader.presentationFrameRevision)") {
+                    .background { readerKeyboardShortcuts }
+                    .onAppear {
+                        viewportWidth = contentWidth
+                        viewportHeight = safeGeometry.size.height
+                    }
+                    .onChange(of: safeGeometry.size) { size in
+                        viewportWidth = max(1, size.width)
+                        viewportHeight = size.height
+                    }
+                    .task(id: "\(appearanceSessionId)|\(surfaceInsets)|\(Int(readingViewportWidth.rounded()))x\(Int(readingViewportHeight.rounded()))|\(reader.ready)|\(reader.presentationFrameRevision)") {
                         acknowledgedFrameRevision = nil
                         let reply: NativeReaderInsetsAcknowledgement? = try? await store.request("reader.insets", [
                             "sessionId": appearanceSessionId,
                             "left": Double(surfaceInsets.left),
                             "top": Double(surfaceInsets.top),
                             "right": Double(surfaceInsets.right),
-                            "bottom": Double(surfaceInsets.bottom)
+                            "bottom": Double(surfaceInsets.bottom),
+                            "viewportWidth": Double(readingViewportWidth),
+                            "viewportHeight": Double(readingViewportHeight)
                         ])
                         guard !Task.isCancelled, reply?.accepted == true,
                               session.appearanceSessionId == appearanceSessionId else { return }
@@ -259,7 +306,11 @@ struct NativeReaderPage: View {
         .sheet(item: sheetPanel) { panel in
             Group {
                 if panel == .typography {
-                    NativeTypographyPanel(store: store, isPdf: reader.isPdf) { self.panel = nil }
+                    NativeTypographyPanel(
+                        store: store,
+                        isPdf: reader.isPdf,
+                        allowSpreadOptions: horizontalSizeClass == .regular
+                    ) { self.panel = nil }
                 } else {
                     NavigationView {
                         panelContent(panel)
@@ -437,22 +488,7 @@ struct NativeReaderPage: View {
             }
             VStack(spacing: 0) {
                 Spacer(minLength: 0)
-                // Toasts sit above whichever reader toolbars are showing instead of covering them.
-                if let toast = store.toast { NativeToast(text: toast).padding(.bottom, 12) }
-                if speechActive {
-                    NativeReaderSpeechControls(state: reader.speechState, status: reader.speechStatus,
-                        speed: reader.speechSpeed,
-                        sleepMinutesRemaining: reader.speechSleepMinutesRemaining,
-                        sleepAfterChapter: reader.speechSleepAfterChapter,
-                        suspended: panel != nil || showingSearchResults, expanded: $speechExpanded,
-                        setSpeed: { next in run("speechSpeed", ["speed": next]) },
-                        setSleepTimer: { mins, afterChapter in run("speechSleep", ["minutes": mins, "afterChapter": afterChapter]) },
-                        settings: { panel = .speech }, pause: { run("speechPause") }, stop: { run("speechStop") })
-                        .frame(maxWidth: NativeAdaptiveLayout.readerToolsMaxWidth)
-                        .frame(maxWidth: .infinity)
-                }
-                if reader.chromeVisible && reader.ready { bottomBar }
-                else if footerVisible && reader.ready {
+                if !reader.chromeVisible && footerVisible && reader.ready {
                     HStack {
                         Text(reader.chapter).lineLimit(1)
                         Spacer(minLength: 12)
@@ -482,7 +518,7 @@ struct NativeReaderPage: View {
                                height: NativeSelectionToolbarLayout.height)
                         .position(NativeSelectionToolbarLayout.position(bounds: reader.selectionBounds,
                             in: geometry.size, chromeVisible: reader.chromeVisible,
-                            speechVisible: speechActive && speechExpanded))
+                            speechVisible: speechActive && speechExpanded, bottomInset: readerBottomInset))
 
                     if showingHighlightPalette {
                         NativeSelectionHighlightBar(
@@ -500,50 +536,11 @@ struct NativeReaderPage: View {
                         )
                         .position(NativeSelectionToolbarLayout.palettePosition(bounds: reader.selectionBounds,
                             in: geometry.size, chromeVisible: reader.chromeVisible,
-                            speechVisible: speechActive && speechExpanded))
+                            speechVisible: speechActive && speechExpanded, bottomInset: readerBottomInset))
                     }
                 }
             }
             .transaction { $0.animation = nil }
-        }
-        .overlay {
-            if let term = dictionaryTerm {
-                GeometryReader { geometry in
-                    let bottomPad = keyboardHeight > 0 ? keyboardHeight + 12 : CGFloat(0)
-                    ZStack(alignment: keyboardHeight > 0 ? .bottom : .center) {
-                        Color.black.opacity(0.08).ignoresSafeArea()
-                            .onTapGesture { dismissDictionaryCard() }
-                        NativeFloatingDictionaryCard(store: store, initialTerm: term) {
-                            dismissDictionaryCard()
-                        }
-                        .frame(width: min(440, NativeAdaptiveLayout.noteWidth(viewportWidth: geometry.size.width)))
-                        .padding(.horizontal, chromeSideInset)
-                        .padding(.bottom, bottomPad)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .animation(.easeOut(duration: 0.22), value: keyboardHeight)
-                }
-                .transition(.opacity)
-            }
-        }
-        .overlay {
-            if let request = noteRequest {
-                GeometryReader { geometry in
-                    ZStack(alignment: .bottom) {
-                        Color.black.opacity(0.06).ignoresSafeArea()
-                            .onTapGesture { dismissNoteEditor() }
-                        NativeFloatingNoteEditor(store: store, request: request) {
-                            dismissNoteEditor()
-                        }
-                        // Match the reader chrome's side inset so the floating
-                        // note card lines up with the top and bottom bars.
-                        .frame(width: NativeAdaptiveLayout.noteWidth(viewportWidth: geometry.size.width))
-                        .padding(.horizontal, chromeSideInset)
-                        .padding(.bottom, keyboardHeight + 12)
-                    }
-                    .animation(.easeOut(duration: 0.22), value: keyboardHeight)
-                }
-            }
         }
         .overlay {
             GeometryReader { geometry in
@@ -794,6 +791,17 @@ struct NativeReaderPage: View {
                      identifier: reader.speechState == 0 || reader.speechState == 4 ? "reader.听书" : "reader.停止") { run("speech") }
                 tool("AI", "sparkles", identifier: "reader.AI") { selectedText = ""; panel = .assistant }
                 tool(reader.isPdf ? L("显示") : L("排版"), "Aa", identifier: reader.isPdf ? "reader.显示" : "reader.排版") { panel = .typography }
+                    .popover(isPresented: typographyPopover, arrowEdge: .bottom) {
+                        NativeTypographyPanel(
+                            store: store,
+                            isPdf: reader.isPdf,
+                            allowSpreadOptions: horizontalSizeClass == .regular,
+                            isPopover: true,
+                            popoverMaxHeight: viewportHeight > 0 ? viewportHeight : 800
+                        ) { self.panel = nil }
+                            .font(NativeTheme.font()).foregroundStyle(NativeTheme.ink).tint(NativeTheme.ink)
+                            .preferredColorScheme(readerColorScheme)
+                    }
             }
         }.padding(.horizontal, 18).padding(.top, 14).padding(.bottom, 8)
             .modifier(NativeLiquidGlassSurface(shape: RoundedRectangle(cornerRadius: 26, style: .continuous)))
@@ -1049,12 +1057,99 @@ struct NativeReaderPage: View {
         .padding(.leading, safeInsets.leading)
     }
 
+    @ViewBuilder
+    private func bottomChromeOverlay(
+        safeInsets: EdgeInsets,
+        readingViewportWidth: CGFloat,
+        openTransition: NativeBookOpenTransition?
+    ) -> some View {
+        VStack(spacing: 0) {
+            Spacer(minLength: 0)
+            if openTransition == nil {
+                // Toasts sit above whichever reader toolbars are showing instead of covering them.
+                if let toast = store.toast {
+                    NativeToast(text: toast)
+                        .padding(.bottom, 12)
+                }
+                if speechActive {
+                    NativeReaderSpeechControls(state: reader.speechState, status: reader.speechStatus,
+                        speed: reader.speechSpeed,
+                        sleepMinutesRemaining: reader.speechSleepMinutesRemaining,
+                        sleepAfterChapter: reader.speechSleepAfterChapter,
+                        suspended: panel != nil || showingSearchResults, expanded: $speechExpanded,
+                        setSpeed: { next in run("speechSpeed", ["speed": next]) },
+                        setSleepTimer: { mins, afterChapter in run("speechSleep", ["minutes": mins, "afterChapter": afterChapter]) },
+                        settings: { panel = .speech }, pause: { run("speechPause") }, stop: { run("speechStop") })
+                }
+                if reader.chromeVisible && reader.ready {
+                    bottomBar
+                } else if footerVisible && reader.ready {
+                    Color.clear
+                        .frame(height: footerHeight)
+                        .allowsHitTesting(false)
+                }
+            }
+        }
+        .frame(width: readingViewportWidth)
+        .frame(maxHeight: .infinity, alignment: .bottom)
+        .padding(.top, safeInsets.top)
+        .padding(.bottom, safeInsets.bottom)
+        .padding(.leading, safeInsets.leading)
+    }
+
+    @ViewBuilder
+    private func floatingModalOverlay(
+        safeInsets: EdgeInsets,
+        readingViewportWidth: CGFloat
+    ) -> some View {
+        if let term = dictionaryTerm {
+            let bottomPad = keyboardHeight > 0 ? keyboardHeight + 12 : CGFloat(0)
+            ZStack(alignment: keyboardHeight > 0 ? .bottom : .center) {
+                Color.black.opacity(0.08).ignoresSafeArea()
+                    .onTapGesture { dismissDictionaryCard() }
+                NativeFloatingDictionaryCard(store: store, initialTerm: term) {
+                    dismissDictionaryCard()
+                }
+                .frame(width: min(440, NativeAdaptiveLayout.noteWidth(viewportWidth: readingViewportWidth)))
+                .padding(.horizontal, chromeSideInset)
+                .padding(.bottom, bottomPad)
+            }
+            .frame(width: readingViewportWidth)
+            .frame(maxHeight: .infinity)
+            .padding(.top, safeInsets.top)
+            .padding(.bottom, safeInsets.bottom)
+            .padding(.leading, safeInsets.leading)
+            .animation(.easeOut(duration: 0.22), value: keyboardHeight)
+            .transition(.opacity)
+        } else if let request = noteRequest {
+            ZStack(alignment: .bottom) {
+                Color.black.opacity(0.06).ignoresSafeArea()
+                    .onTapGesture { dismissNoteEditor() }
+                NativeFloatingNoteEditor(store: store, request: request) {
+                    dismissNoteEditor()
+                }
+                // Match the reader chrome's side inset so the floating
+                // note card lines up with the top and bottom bars.
+                .frame(width: NativeAdaptiveLayout.noteWidth(viewportWidth: readingViewportWidth))
+                .padding(.horizontal, chromeSideInset)
+                .padding(.bottom, keyboardHeight + 12)
+            }
+            .frame(width: readingViewportWidth)
+            .frame(maxHeight: .infinity)
+            .padding(.top, safeInsets.top)
+            .padding(.bottom, safeInsets.bottom)
+            .padding(.leading, safeInsets.leading)
+            .animation(.easeOut(duration: 0.22), value: keyboardHeight)
+        }
+    }
+
     private func assistantSidebarOverlay(
         sidebarWidth: CGFloat,
         safeInsets: EdgeInsets,
         fullSize: CGSize
     ) -> some View {
-        HStack(spacing: 0) {
+        let usesAmbient = store.preferences.readerThemeFollowsAppearance && store.preferences.colorfulMode
+        return HStack(spacing: 0) {
             Spacer(minLength: 0)
             HStack(spacing: 0) {
                 Rectangle()
@@ -1066,6 +1161,7 @@ struct NativeReaderPage: View {
                     book: book,
                     initialSelection: selectedText,
                     isSidebar: true,
+                    backgroundColor: .clear,
                     onJumpToSource: jumpToAiSource,
                     onClose: { panel = nil })
             }
@@ -1073,11 +1169,67 @@ struct NativeReaderPage: View {
             .padding(.top, safeInsets.top)
             .padding(.bottom, safeInsets.bottom)
             .padding(.trailing, safeInsets.trailing)
-            .background(NativeTheme.page)
+            .background {
+                NativeReaderPaperBackground(
+                    paper: paper,
+                    usesAmbient: usesAmbient,
+                    ambientOpacity: appColorScheme == .dark ? 0.14 : 0.10)
+            }
             .font(NativeTheme.font()).foregroundStyle(NativeTheme.ink).tint(NativeTheme.ink)
             .preferredColorScheme(readerColorScheme)
         }
         .frame(width: fullSize.width, height: fullSize.height)
+    }
+
+    private var keyboardPagingReversed: Bool {
+        !reader.isPdf && (store.preferences.readerVerticalWriting
+            || (store.preferences.mangaMode && store.preferences.mangaDirection == 0))
+    }
+
+    private var keyboardPagingEnabled: Bool {
+        reader.ready && !closing && !searching && !showingSearchResults
+            && noteRequest == nil && dictionaryTerm == nil && session.media == nil
+            && (panel == nil || (panel == .assistant && docksAssistantSidebar))
+    }
+
+    @ViewBuilder
+    private var readerKeyboardShortcuts: some View {
+        Group {
+            if keyboardPagingEnabled {
+                Button("") { run("turn", ["direction": keyboardPagingReversed ? 1 : -1]) }
+                    .keyboardShortcut(.leftArrow, modifiers: [])
+                Button("") { run("turn", ["direction": keyboardPagingReversed ? -1 : 1]) }
+                    .keyboardShortcut(.rightArrow, modifiers: [])
+                Button("") { run("turn", ["direction": 1]) }
+                    .keyboardShortcut(.space, modifiers: [])
+            }
+            if reader.ready && !closing && noteRequest == nil && dictionaryTerm == nil && session.media == nil {
+                Button("") { openSearchResults(focus: true) }
+                    .keyboardShortcut("f", modifiers: .command)
+            }
+            if !closing && noteRequest == nil && dictionaryTerm == nil && session.media == nil {
+                Button("") { handleEscapeShortcut() }
+                    .keyboardShortcut(.escape, modifiers: [])
+                Button("") {
+                    closing = true
+                    Task { await store.closeReader(); closing = false }
+                }
+                .keyboardShortcut("w", modifiers: .command)
+            }
+        }
+        .frame(width: 0, height: 0)
+        .opacity(0)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private func handleEscapeShortcut() {
+        if searching || showingSearchResults { closeSearch(); return }
+        if panel != nil { panel = nil; return }
+        if session.footnote != nil { dismissFootnote(); return }
+        if reader.selectedText != nil { run("clearSelection"); return }
+        closing = true
+        Task { await store.closeReader(); closing = false }
     }
 
     private func jumpToAiSource(_ source: AiSource) {
@@ -1131,6 +1283,7 @@ private struct NativeSelectionUnderlineGlyph: Shape {
 struct NativeTypography: View {
     @ObservedObject var store: NativeStore
     let isPdf: Bool
+    var allowSpreadOptions = UIDevice.current.userInterfaceIdiom == .pad
     var onOpenFontPicker: (() -> Void)? = nil
     @State private var fontPicker = false
     @State private var advancedTypography = false
@@ -1200,7 +1353,7 @@ struct NativeTypography: View {
                         Picker(L("阅读模式"), selection: preference(\.pdfDisplayMode)) {
                             Text(L("单页")).tag(0)
                             Text(L("滚动")).tag(1)
-                            if UIDevice.current.userInterfaceIdiom == .pad {
+                            if allowSpreadOptions {
                                 Text(L("双页")).tag(2)
                             }
                         }.pickerStyle(.segmented).accessibilityIdentifier("typography.pdfDisplayMode")
@@ -1338,7 +1491,7 @@ struct NativeTypography: View {
                             .pickerStyle(.segmented).disabled(store.preferences.readerVerticalWriting)
                             .accessibilityIdentifier("typography.flowMode")
                     }
-                    if UIDevice.current.userInterfaceIdiom == .pad {
+                    if allowSpreadOptions {
                         row(L("横屏双栏")) {
                             Picker(L("横屏双栏"), selection: preference(\.readerTwoPageInLandscape)) { Text(L("关")).tag(false); Text(L("开")).tag(true) }
                                 .pickerStyle(.segmented).disabled(store.preferences.readerVerticalWriting)
@@ -1554,10 +1707,13 @@ private struct NativeReaderFontPicker: View {
 private struct NativeTypographyPanel: View {
     @ObservedObject var store: NativeStore
     let isPdf: Bool
+    var allowSpreadOptions = UIDevice.current.userInterfaceIdiom == .pad
+    var isPopover = false
+    var popoverMaxHeight: CGFloat = 800
     let close: () -> Void
     @State private var showingFontPicker = false
     var body: some View {
-        VStack(spacing: 0) {
+        let panelBody = VStack(spacing: 0) {
             if showingFontPicker {
                 ZStack {
                     Text(L("正文字体")).font(NativeTheme.font(17, relativeTo: .headline))
@@ -1589,12 +1745,25 @@ private struct NativeTypographyPanel: View {
                     Button(L("完成"), action: close).font(NativeTheme.font(14)).frame(minWidth: 44, minHeight: 44)
                         .accessibilityIdentifier("typography.done")
                 }.buttonStyle(.plain).padding(.horizontal, 24).padding(.top, 8)
-                NativeTypography(store: store, isPdf: isPdf) {
+                NativeTypography(store: store, isPdf: isPdf, allowSpreadOptions: allowSpreadOptions) {
                     withAnimation(.easeInOut(duration: 0.2)) { showingFontPicker = true }
                 }
             }
-        }.background(NativeTheme.page).accessibilityElement(children: .contain)
-            .accessibilityIdentifier("typography.panel").modifier(NativeTypographyPresentation(isPdf: isPdf))
+        }
+        .background(NativeTheme.page)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("typography.panel")
+
+        if isPopover {
+            panelBody
+                .frame(
+                    width: 390,
+                    height: NativeAdaptiveLayout.readerSettingsHeight(
+                        maxHeight: popoverMaxHeight, isPdf: isPdf, isTablet: true)
+                )
+        } else {
+            panelBody.modifier(NativeTypographyPresentation(isPdf: isPdf))
+        }
     }
 }
 

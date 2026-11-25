@@ -1,7 +1,9 @@
+import AuthenticationServices
 import SwiftUI
 
 struct NativeAccountPage: View {
     @ObservedObject var store: NativeStore
+    @Environment(\.colorScheme) private var colorScheme
     @State private var serverUrl = ""
     @State private var username = ""
     @State private var email = ""
@@ -14,6 +16,11 @@ struct NativeAccountPage: View {
     @State private var resetConfirmation = ""
     @State private var emailCode = ""
     @State private var emailCodeSent = false
+    @State private var confirmUnbindApple = false
+    @State private var showingCloseAccount = false
+    @State private var closePassword = ""
+    @State private var closeConfirmation = ""
+    @State private var closeError = ""
     @State private var loading = true
     @State private var busy = false
     @State private var status = ""
@@ -30,8 +37,10 @@ struct NativeAccountPage: View {
             if let account = store.account, account.isLoggedIn {
                 restartNotice
                 emailVerificationSection
+                appleLinkSection
                 NativeMembershipSections(store: store, onSignOut: { signOut() },
                                          signingOut: busy, accountStatus: status)
+                closeAccountSection
             } else {
                 Section {
                     Picker(L("账号操作"), selection: $register) { Text(L("登录")).tag(false); Text(L("注册")).tag(true) }
@@ -93,12 +102,26 @@ struct NativeAccountPage: View {
                 }
                 regionSection
                 actionSection
+                if !resetMode {
+                    appleSignInSection
+                }
             }
         }.textInputAutocapitalization(.never).disableAutocorrection(true).disabled(loading || busy)
             .id(store.account?.isLoggedIn == true ? "account.signed-in" : "account.signed-out")
             .navigationTitle(L("用户账号")).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
             .nativeBackButton()
             .modifier(NativeKeyboardDone())
+            .confirmationDialog(L("解绑 Apple ID？"), isPresented: $confirmUnbindApple, titleVisibility: .visible) {
+                Button(L("解绑 Apple ID"), role: .destructive) { unbindAppleId() }
+                Button(L("取消"), role: .cancel) {}
+            } message: {
+                Text(L("解绑后将无法再使用此 Apple ID 直接登录当前账号。"))
+            }
+            .sheet(isPresented: $showingCloseAccount, onDismiss: {
+                closePassword = ""; closeConfirmation = ""; closeError = ""
+            }) {
+                closeAccountSheet
+            }
             .task { await load() }
             .onChange(of: register) { _ in resetMode = false; clearPasswords(); status = "" }
             .onDisappear { actionTask?.cancel(); clearPasswords() }
@@ -379,6 +402,248 @@ struct NativeAccountPage: View {
                 guard !Task.isCancelled else { return }
                 store.account = account; serverUrl = account.serverUrl; status = result.message
             } catch { if !Task.isCancelled { status = error.localizedDescription } }
+        }
+    }
+
+    @ViewBuilder private var appleSignInSection: some View {
+        Section {
+            NativeAppleSignInButton(
+                type: register ? .continue : .signIn,
+                style: colorScheme == .dark ? .white : .black,
+                cornerRadius: 10
+            ) {
+                signInWithApple()
+            }
+            .id("\(register)-\(colorScheme == .dark)")
+            .frame(height: 44)
+            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+            .listRowBackground(Color.clear)
+            .accessibilityLabel(L("通过 Apple 登录"))
+            .accessibilityIdentifier("account.apple.signin")
+        } footer: {
+            accountFooterText(L("使用 Apple ID 登录或自动创建当前区域账号，也可在登录后与已有账号绑定。"))
+        }
+    }
+
+    @ViewBuilder private var appleLinkSection: some View {
+        Section {
+            if let user = store.account?.user {
+                if user.appleLinked == true {
+                    HStack {
+                        Text(L("Apple ID"))
+                            .font(NativeTheme.font())
+                        Spacer()
+                        Text(L("已绑定"))
+                            .font(NativeTheme.font(13))
+                            .foregroundStyle(NativeTheme.secondary)
+                    }
+                    .accessibilityIdentifier("account.apple.linked")
+                    Button(role: .destructive) {
+                        confirmUnbindApple = true
+                    } label: {
+                        HStack {
+                            Text(L("解绑 Apple ID"))
+                            Spacer()
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .accessibilityIdentifier("account.apple.unbind")
+                } else {
+                    Button {
+                        bindAppleId()
+                    } label: {
+                        HStack {
+                            Text(L("绑定 Apple ID"))
+                                .foregroundStyle(Color(uiColor: .systemBlue))
+                            Spacer()
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .accessibilityIdentifier("account.apple.bind")
+                }
+            }
+        } header: {
+            Text(L("Apple 登录"))
+        } footer: {
+            if store.account?.user?.appleLinked == true {
+                accountFooterText(L("已绑定 Apple ID，可在支持的设备上直接使用 Apple ID 登录此账号。"))
+            } else {
+                accountFooterText(L("绑定后可直接使用 Apple ID 登录当前账号。"))
+            }
+        }
+    }
+
+    private func signInWithApple() {
+        guard !busy else { return }
+        busy = true; status = L("正在通过 Apple 登录…")
+        actionTask = Task {
+            defer { busy = false; clearPasswords() }
+            do {
+                guard let credential = try await NativeAppleSignInCoordinator.authorize(in: store.navigationWindow) else {
+                    status = ""
+                    return
+                }
+                guard !Task.isCancelled else { return }
+                var args = credential.bridgeArguments
+                args["serverUrl"] = serverUrl
+                args["region"] = store.account?.region ?? 0
+                let account: AccountStatus = try await store.request("settings.account.apple.login", args)
+                guard !Task.isCancelled else { return }
+                store.account = account; status = ""
+            } catch {
+                if !Task.isCancelled { status = error.localizedDescription }
+            }
+        }
+    }
+
+    private func bindAppleId() {
+        guard !busy else { return }
+        busy = true; status = L("正在绑定 Apple ID…")
+        actionTask = Task {
+            defer { busy = false }
+            do {
+                guard let credential = try await NativeAppleSignInCoordinator.authorize(in: store.navigationWindow) else {
+                    status = ""
+                    return
+                }
+                guard !Task.isCancelled else { return }
+                let account: AccountStatus = try await store.request(
+                    "settings.account.apple.bind",
+                    credential.bridgeArguments
+                )
+                guard !Task.isCancelled else { return }
+                store.account = account
+                status = L("Apple ID 绑定成功。")
+            } catch {
+                if !Task.isCancelled { status = error.localizedDescription }
+            }
+        }
+    }
+
+    private func unbindAppleId() {
+        guard !busy else { return }
+        busy = true; status = L("正在解绑 Apple ID…")
+        actionTask = Task {
+            defer { busy = false }
+            do {
+                let account: AccountStatus = try await store.request("settings.account.apple.unbind")
+                guard !Task.isCancelled else { return }
+                store.account = account
+                status = L("已解绑 Apple ID。")
+            } catch {
+                if !Task.isCancelled { status = error.localizedDescription }
+            }
+        }
+    }
+
+    @ViewBuilder private var closeAccountSection: some View {
+        Section {
+            Button(role: .destructive) {
+                closePassword = ""
+                closeConfirmation = ""
+                closeError = ""
+                showingCloseAccount = true
+            } label: {
+                HStack {
+                    Text(L("注销账号"))
+                    Spacer()
+                }
+                .contentShape(Rectangle())
+            }
+            .accessibilityIdentifier("account.close.open")
+        } header: {
+            Text(L("账号安全"))
+        } footer: {
+            accountFooterText(L("注销后将停用当前账号并下线所有已登录设备，此操作不可撤销；本机已保存的书籍不会被删除。"))
+        }
+    }
+
+    private var closeConfirmationMatches: Bool {
+        let trimmed = closeConfirmation.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed == L("停用账号")
+    }
+
+    private var canSubmitCloseAccount: Bool {
+        !busy && closePassword.count >= 8 && closeConfirmationMatches
+    }
+
+    private var closeAccountSheet: some View {
+        NavigationView {
+            NativeForm {
+                Section {
+                    Text(L("注销后将停用此账号，所有已登录设备会立即退出且无法恢复。本机书库中的本地书籍会保留。"))
+                        .font(NativeTheme.font(13))
+                        .foregroundStyle(NativeTheme.secondary)
+                }
+                Section {
+                    accountField(L("当前登录密码"), text: $closePassword, secure: true,
+                                 identifier: "account.close.password")
+                        .textContentType(.password)
+                    accountField(L("输入“停用账号”确认"), text: $closeConfirmation,
+                                 identifier: "account.close.confirmation")
+                } header: {
+                    Text(L("安全验证"))
+                } footer: {
+                    VStack(alignment: .leading, spacing: 6) {
+                        accountFooterText(L("请输入当前密码并输入“停用账号”以确认注销。"))
+                        if !closeError.isEmpty {
+                            Text(closeError)
+                                .font(NativeTheme.font(12, relativeTo: .caption))
+                                .foregroundStyle(Color(uiColor: .systemRed))
+                                .accessibilityIdentifier("account.close.error")
+                        }
+                    }
+                }
+                Section {
+                    Button(role: .destructive) {
+                        submitCloseAccount()
+                    } label: {
+                        centeredActionLabel(
+                            busy ? L("正在注销账号…") : L("确认注销账号"),
+                            tint: canSubmitCloseAccount ? Color(uiColor: .systemRed) : NativeTheme.muted
+                        )
+                    }
+                    .disabled(!canSubmitCloseAccount)
+                    .accessibilityIdentifier("account.close.confirm")
+                }
+            }
+            .textInputAutocapitalization(.never)
+            .disableAutocorrection(true)
+            .navigationTitle(L("注销账号"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(L("取消")) { showingCloseAccount = false }
+                        .disabled(busy)
+                }
+            }
+        }
+        .navigationViewStyle(.stack)
+        .font(NativeTheme.font())
+        .foregroundStyle(NativeTheme.ink)
+        .tint(NativeTheme.ink)
+    }
+
+    private func submitCloseAccount() {
+        guard canSubmitCloseAccount else { return }
+        busy = true; closeError = ""
+        let currentPassword = closePassword
+        actionTask = Task {
+            defer { busy = false }
+            do {
+                let result: MessageResult = try await store.request("settings.account.close", [
+                    "currentPassword": currentPassword,
+                    "confirmation": closeConfirmation.trimmingCharacters(in: .whitespacesAndNewlines)
+                ])
+                let account: AccountStatus = try await store.request("settings.account.get")
+                guard !Task.isCancelled else { return }
+                closePassword = ""; closeConfirmation = ""; closeError = ""
+                showingCloseAccount = false
+                store.account = account; serverUrl = account.serverUrl
+                status = result.message
+            } catch {
+                if !Task.isCancelled { closeError = error.localizedDescription }
+            }
         }
     }
 

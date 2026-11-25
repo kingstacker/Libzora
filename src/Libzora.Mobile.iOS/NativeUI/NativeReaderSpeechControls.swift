@@ -43,6 +43,8 @@ struct NativeReaderSpeechControls: View {
             if expanded {
                 toolbar
                     .padding(.horizontal, 8)
+                    .frame(maxWidth: NativeAdaptiveLayout.readerToolsMaxWidth)
+                    .frame(maxWidth: .infinity)
                     .transition(transition)
             } else {
                 dock.transition(transition)

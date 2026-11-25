@@ -129,6 +129,11 @@ public sealed class AccountService : IDisposable
         "email_unavailable" => "邮件服务暂不可用，请稍后再试。",
         "email_not_set" => "此账号未设置注册邮箱，无法验证或找回密码。",
         "confirmation_required" => "请输入“停用账号”确认文字。",
+        "apple_token_invalid" => "Apple 身份验证无效或已过期，请重试。",
+        "apple_already_bound" => "此 Apple 账号已绑定其他 Libzora 账号。",
+        "apple_not_bound" => "当前账号尚未绑定 Apple ID。",
+        "apple_unbind_requires_password" => "请先设置登录密码后再解绑 Apple ID，以免无法登录。",
+        "apple_login_disabled" => "当前账号服务暂未开启 Apple 登录。",
         _ => null
     };
 
@@ -246,6 +251,132 @@ public sealed class AccountService : IDisposable
             return Status();
         }
         finally { _gate.Release(); }
+    }
+
+    public async Task<AccountStatus> SignInWithAppleAsync(
+        string serverUrl,
+        AppleSignInCredential credential,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(credential);
+        var endpoint = AccountValidation.ServerUri(serverUrl).AbsoluteUri.TrimEnd('/');
+        var identityToken = credential.IdentityToken?.Trim() ?? "";
+        if (string.IsNullOrEmpty(identityToken))
+            throw new ArgumentException("Apple 身份验证无效，请重试。", nameof(credential));
+
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            await LoadAsync(cancellationToken);
+            var device = await _identity.GetAsync(cancellationToken);
+            using var request = Request(HttpMethod.Post, endpoint, "apple/login");
+            request.Content = JsonContent.Create(new AppleSignInRequest
+            {
+                Region = _region,
+                IdentityToken = identityToken,
+                AuthorizationCode = string.IsNullOrWhiteSpace(credential.AuthorizationCode) ? null : credential.AuthorizationCode.Trim(),
+                Nonce = string.IsNullOrWhiteSpace(credential.Nonce) ? null : credential.Nonce.Trim(),
+                Email = string.IsNullOrWhiteSpace(credential.Email) ? null : credential.Email.Trim(),
+                DisplayName = string.IsNullOrWhiteSpace(credential.DisplayName) ? null : credential.DisplayName.Trim(),
+                DeviceId = device.DeviceId,
+                DeviceName = device.DeviceName,
+                Platform = device.Platform
+            }, AccountJsonContext.Default.AppleSignInRequest);
+            using var response = await SendAsync(request, cancellationToken);
+            EnsureAppleSuccess(response);
+            var session = await ReadAsync(response, AccountJsonContext.Default.AccountSessionResponse, cancellationToken);
+            if (session.Region != _region)
+                throw new InvalidOperationException("账号服务区域不匹配，请检查所选区域和服务地址。");
+            if (session.User is null || session.User.Id == Guid.Empty || !AccountValidation.IsUsername(session.User.Username)
+                || session.Token is not { Length: 43 }
+                || !session.Token.All(character => char.IsAsciiLetterOrDigit(character) || character is '-' or '_')
+                || session.ExpiresAt <= _clock.GetUtcNow())
+                throw new InvalidOperationException("账号服务返回了无效的会话。");
+            await SetAsync(endpoint, session, cancellationToken);
+            return Status();
+        }
+        finally { _gate.Release(); }
+    }
+
+    public async Task<AccountStatus> BindAppleAsync(
+        AppleSignInCredential credential,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(credential);
+        var identityToken = credential.IdentityToken?.Trim() ?? "";
+        if (string.IsNullOrEmpty(identityToken))
+            throw new ArgumentException("Apple 身份验证无效，请重试。", nameof(credential));
+
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            await LoadAsync(cancellationToken);
+            var current = _session ?? throw new InvalidOperationException("请先登录当前区域的账号。");
+            using var request = Request(HttpMethod.Post, _serverUrl, "apple/bind", current.Token);
+            request.Content = JsonContent.Create(new AppleBindRequest
+            {
+                IdentityToken = identityToken,
+                AuthorizationCode = string.IsNullOrWhiteSpace(credential.AuthorizationCode) ? null : credential.AuthorizationCode.Trim(),
+                Nonce = string.IsNullOrWhiteSpace(credential.Nonce) ? null : credential.Nonce.Trim()
+            }, AccountJsonContext.Default.AppleBindRequest);
+            using var response = await SendAsync(request, cancellationToken);
+            await EnsureAppleAccountChangeSuccessAsync(response, cancellationToken);
+            var user = await ReadAsync(response, AccountJsonContext.Default.AccountUser, cancellationToken);
+            if (user.Id != current.User.Id || !AccountValidation.IsUsername(user.Username))
+                throw new InvalidOperationException("账号服务返回了无效的账号资料。");
+            await SetAsync(_serverUrl, new AccountSessionResponse
+            {
+                Region = _region,
+                User = user with { AppleLinked = true },
+                Token = current.Token,
+                ExpiresAt = current.ExpiresAt
+            }, cancellationToken);
+            return Status();
+        }
+        finally { _gate.Release(); }
+    }
+
+    public async Task<AccountStatus> UnbindAppleAsync(CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            await LoadAsync(cancellationToken);
+            var current = _session ?? throw new InvalidOperationException("请先登录当前区域的账号。");
+            using var request = Request(HttpMethod.Post, _serverUrl, "apple/unbind", current.Token);
+            using var response = await SendAsync(request, cancellationToken);
+            await EnsureAppleAccountChangeSuccessAsync(response, cancellationToken);
+            var user = await ReadAsync(response, AccountJsonContext.Default.AccountUser, cancellationToken);
+            if (user.Id != current.User.Id || !AccountValidation.IsUsername(user.Username))
+                throw new InvalidOperationException("账号服务返回了无效的账号资料。");
+            await SetAsync(_serverUrl, new AccountSessionResponse
+            {
+                Region = _region,
+                User = user with { AppleLinked = false },
+                Token = current.Token,
+                ExpiresAt = current.ExpiresAt
+            }, cancellationToken);
+            return Status();
+        }
+        finally { _gate.Release(); }
+    }
+
+    private async Task EnsureAppleAccountChangeSuccessAsync(HttpResponseMessage response, CancellationToken token)
+    {
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            await InvalidateAsync(token);
+            throw new InvalidOperationException("会话已失效，请重新登录。");
+        }
+        EnsureAppleSuccess(response);
+    }
+
+    private static void EnsureAppleSuccess(HttpResponseMessage response)
+    {
+        if (response.IsSuccessStatusCode) return;
+        if (response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.NotImplemented or HttpStatusCode.MethodNotAllowed)
+            throw new InvalidOperationException("当前账号服务暂未开启 Apple 登录，请待服务端更新后再试。");
+        EnsureSuccess(response, register: false);
     }
 
     public async Task<AccountStatus> UpdateProfileAsync(string username, string currentPassword, CancellationToken token = default)

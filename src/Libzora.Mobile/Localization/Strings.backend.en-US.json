@@ -206,5 +206,6 @@
   "选中的 {0} 本书将移到回收站。": "{0} selected books will be moved to Trash.",
   "正在删除所选书籍…": "Deleting selected books…",
   "已将 {0} 本书移到回收站。": "Moved {0} books to Trash.",
-  "书籍级": "Book-level"
+  "书籍级": "Book-level",
+  "账号已注销并退出登录。": "Account deleted and signed out."
 }

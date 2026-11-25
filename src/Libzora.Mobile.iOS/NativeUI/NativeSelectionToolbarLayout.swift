@@ -14,25 +14,25 @@ enum NativeSelectionToolbarLayout {
     static func width(in size: CGSize) -> CGFloat { min(360, max(0, size.width - 16)) }
 
     static func position(bounds: NativeSelectionBounds?, in size: CGSize,
-                         chromeVisible: Bool, speechVisible: Bool) -> CGPoint {
+                         chromeVisible: Bool, speechVisible: Bool, bottomInset: CGFloat = 0) -> CGPoint {
         let width = width(in: size)
         let rect = barFrame(width: width, bounds: bounds, in: size,
-                            chromeVisible: chromeVisible, speechVisible: speechVisible)
+                            chromeVisible: chromeVisible, speechVisible: speechVisible, bottomInset: bottomInset)
         return CGPoint(x: rect.midX, y: rect.midY)
     }
 
     static func palettePosition(bounds: NativeSelectionBounds?, in size: CGSize,
-                                chromeVisible: Bool, speechVisible: Bool) -> CGPoint {
+                                chromeVisible: Bool, speechVisible: Bool, bottomInset: CGFloat = 0) -> CGPoint {
         let width = width(in: size)
         let bar = barFrame(width: width, bounds: bounds, in: size,
-                           chromeVisible: chromeVisible, speechVisible: speechVisible)
+                           chromeVisible: chromeVisible, speechVisible: speechVisible, bottomInset: bottomInset)
         let minTop: CGFloat = chromeVisible ? 76 : 8
-        let bottomInset: CGFloat = (chromeVisible ? 160 : 24) + (speechVisible ? 70 : 0) + 8
-        let maxTop = max(minTop, size.height - bottomInset - paletteHeight)
+        let guardBottom: CGFloat = (chromeVisible ? 160 : max(24, bottomInset)) + (speechVisible ? 70 : 0) + 8
+        let maxTop = max(minTop, size.height - guardBottom - paletteHeight)
 
         let placedBelowSelection: Bool = {
             guard let bounds, bounds.viewportHeight > 0, bounds.y.isFinite else { return false }
-            let scaleY = max(0, size.height - 24) / bounds.viewportHeight
+            let scaleY = max(1, size.height - bottomInset) / bounds.viewportHeight
             return bar.midY >= CGFloat(bounds.y) * scaleY
         }()
 
@@ -54,17 +54,17 @@ enum NativeSelectionToolbarLayout {
     }
 
     private static func barFrame(width: CGFloat, bounds: NativeSelectionBounds?, in size: CGSize,
-                                 chromeVisible: Bool, speechVisible: Bool) -> CGRect {
+                                 chromeVisible: Bool, speechVisible: Bool, bottomInset: CGFloat) -> CGRect {
         let minTop: CGFloat = chromeVisible ? 76 : 8
-        let bottomInset: CGFloat = (chromeVisible ? 160 : 24) + (speechVisible ? 70 : 0) + 8
-        let maxTop = max(minTop, size.height - bottomInset - height)
+        let guardBottom: CGFloat = (chromeVisible ? 160 : max(24, bottomInset)) + (speechVisible ? 70 : 0) + 8
+        let maxTop = max(minTop, size.height - guardBottom - height)
         var left = (size.width - width) / 2
         var top = max(minTop, size.height / 2 - height - 10)
         if let bounds, bounds.viewportWidth > 0, bounds.viewportHeight > 0,
            bounds.x.isFinite, bounds.y.isFinite, bounds.bottom.isFinite,
            bounds.viewportWidth.isFinite, bounds.viewportHeight.isFinite {
             let scaleX = size.width / bounds.viewportWidth
-            let scaleY = max(0, size.height - 24) / bounds.viewportHeight
+            let scaleY = max(1, size.height - bottomInset) / bounds.viewportHeight
             // On phones where the 360pt bar spans nearly the full viewport width,
             // keep it horizontally centered so multi-line drags or initial word
             // selection never cause the pill to shift sideways after appearing.

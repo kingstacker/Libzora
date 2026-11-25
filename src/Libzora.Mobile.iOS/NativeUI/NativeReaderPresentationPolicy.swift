@@ -16,6 +16,6 @@ struct NativeReaderPresentationPolicy {
         return true
     }
 
-    static let loadingFeedbackDelay: UInt64 = 400_000_000
-    static let widgetTransitionDuration = 0.28
+    static let loadingFeedbackDelay: UInt64 = 750_000_000
+    static let widgetTransitionDuration = 0.24
 }

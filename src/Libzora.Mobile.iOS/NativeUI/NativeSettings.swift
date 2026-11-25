@@ -20,7 +20,7 @@ struct NativeProfilePage: View {
     @State private var membership: AccountMembership?
 
     private var account: AccountStatus? { store.account ?? summary?.account }
-    private var cardOuterInset: CGFloat { sizeClass == .regular ? 20 : 16 }
+    private var cardOuterInset: CGFloat { sizeClass == .regular ? NativeAdaptiveLayout.pageInset : 16 }
     private var secondaryColor: Color { store.preferences.colorfulMode ? NativeTheme.secondaryOnColorful : NativeTheme.secondary }
     private var detailColor: Color { store.preferences.colorfulMode ? NativeTheme.mutedOnColorful : NativeTheme.muted }
     private var cardDividerColor: Color {

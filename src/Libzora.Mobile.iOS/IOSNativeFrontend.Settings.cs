@@ -39,9 +39,43 @@ internal sealed partial class IOSNativeFrontend
                     Text(args, "password"), command == "settings.account.register", token,
                     command == "settings.account.register" ? Text(args, "email") : null,
                     command == "settings.account.register" ? Text(args, "confirmPassword") : null);
+            case "settings.account.apple.login":
+                if (args.TryGetProperty("region", out var appleRegion))
+                    await modules.Accounts.Service.SelectRegionAsync((AccountRegion)appleRegion.GetInt32(), token);
+                return await modules.Accounts.Service.SignInWithAppleAsync(
+                    Text(args, "serverUrl"),
+                    new AppleSignInCredential
+                    {
+                        IdentityToken = Text(args, "identityToken"),
+                        AuthorizationCode = OptionalText(args, "authorizationCode"),
+                        Nonce = OptionalText(args, "nonce"),
+                        Email = OptionalText(args, "email"),
+                        DisplayName = OptionalText(args, "displayName")
+                    },
+                    token);
+            case "settings.account.apple.bind":
+                return await modules.Accounts.Service.BindAppleAsync(
+                    new AppleSignInCredential
+                    {
+                        IdentityToken = Text(args, "identityToken"),
+                        AuthorizationCode = OptionalText(args, "authorizationCode"),
+                        Nonce = OptionalText(args, "nonce")
+                    },
+                    token);
+            case "settings.account.apple.unbind":
+                return await modules.Accounts.Service.UnbindAppleAsync(token);
             case "settings.account.logout":
                 var revoked = await modules.Accounts.Service.SignOutAsync(token);
                 return Data(("message", revoked ? UiText.Get("已退出登录。") : UiText.Get("已在本机退出；服务器暂时不可用，远端会话将在到期后失效。")));
+            case "settings.account.close":
+                var confirmation = Text(args, "confirmation").Trim();
+                if (string.Equals(confirmation, "DELETE", StringComparison.OrdinalIgnoreCase))
+                    confirmation = "停用账号";
+                await modules.Accounts.Service.CloseAccountAsync(
+                    Text(args, "currentPassword"),
+                    confirmation,
+                    token);
+                return Data(("message", UiText.Get("账号已注销并退出登录。")));
             case "settings.account.reset.request":
                 if (args.TryGetProperty("region", out var recoveryRegion))
                     await modules.Accounts.Service.SelectRegionAsync((AccountRegion)recoveryRegion.GetInt32(), token);

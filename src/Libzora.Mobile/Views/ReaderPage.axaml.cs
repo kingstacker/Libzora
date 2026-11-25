@@ -160,6 +160,8 @@ public partial class ReaderPage : UserControl
 
     private bool ResolveViewportLandscape()
     {
+        if (_usesNativeFrontend && _nativeViewportHint is { Width: > 0, Height: > 0 } hint)
+            return hint.Width > hint.Height && hint.Width >= 760;
         var slot = ReaderHostSlot.Bounds;
         if (slot.Width > 0 && slot.Height > 0) return slot.Width > slot.Height;
         var page = Bounds;
@@ -261,13 +263,12 @@ public partial class ReaderPage : UserControl
             }
 
             var path = _modules.Library.Books.GetAbsoluteFilePath(_bookFile);
+            // Rebuild the absolute-path index for downloaded/imported fonts in
+            // parallel with reader data initialization. A damaged font manifest
+            // must not block opening a book.
+            var fontsTask = WarmFontIndexAsync(_lifetime.Token);
             await _shell.EnsureReaderDataAsync();
-            // Rebuild the absolute-path index for downloaded/imported fonts.
-            // The app container path changes across iOS updates, so the
-            // persisted preference stores only the catalog key.
-            try { await _modules.Library.Fonts.ListAsync(_lifetime.Token); }
-            catch (OperationCanceledException) { throw; }
-            catch { /* A damaged font manifest must not block opening a book. */ }
+            await fontsTask;
             if (!File.Exists(path) && await TryDownloadAsync(_bookFile) is { } downloaded) path = downloaded;
             if (!File.Exists(path))
             {
@@ -275,17 +276,17 @@ public partial class ReaderPage : UserControl
                 return;
             }
 
-            _bookmarks.AddRange(await _modules.Reader.Data.GetBookmarksAsync(_bookFile.Id, _lifetime.Token));
+            var bookmarksTask = _modules.Reader.Data.GetBookmarksAsync(_bookFile.Id, _lifetime.Token);
             var format = _bookFile.Format.Trim().TrimStart('.').ToLowerInvariant();
             if (format == "pdf")
             {
-                await OpenPdfAsync(path, _lifetime.Token);
+                await OpenPdfAsync(path, bookmarksTask, _lifetime.Token);
                 return;
             }
 
             if (format is "epub" or "azw3" or "mobi" or "txt")
             {
-                await OpenEpubAsync(path, format, _lifetime.Token);
+                await OpenEpubAsync(path, format, bookmarksTask, _lifetime.Token);
                 return;
             }
 
@@ -298,6 +299,13 @@ public partial class ReaderPage : UserControl
         {
             ShowError(() => UiText.Localize(exception.Message));
         }
+    }
+
+    private async Task WarmFontIndexAsync(CancellationToken cancellationToken)
+    {
+        try { await _modules.Library.Fonts.ListAsync(cancellationToken); }
+        catch (OperationCanceledException) { throw; }
+        catch { /* A damaged font manifest must not block opening a book. */ }
     }
 
     /// <summary>Synced books arrive as metadata; their files download when first opened.</summary>

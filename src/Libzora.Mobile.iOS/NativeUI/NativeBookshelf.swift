@@ -22,7 +22,7 @@ struct NativeLibraryPage: View {
     @StateObject private var bookDestinations = NativeShelfBookDestinations()
     @StateObject private var scrollState = NativeLibraryScrollState()
     @State private var pageVisible = false
-    @State private var viewportSize: CGSize = UIScreen.main.bounds.size
+    @State private var viewportSize: CGSize = .zero
     @State private var visibleCovers: [NativeVisibleCover] = []
     @State private var visibleRegions: [NativeAmbientCoverRegion] = []
     @State private var sampledColors: [NativeVisibleCover: NativeAmbientColor] = [:]
@@ -118,6 +118,7 @@ struct NativeLibraryPage: View {
                     busy: batchDeleting,
                     onDelete: deleteSelectedBooks
                 )
+                .frame(maxWidth: NativeAdaptiveLayout.libraryBatchBarMaxWidth)
                 .padding(.horizontal, NativeAdaptiveLayout.pageInset)
                 .padding(.bottom, 12)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -354,7 +355,10 @@ struct NativeLibraryPage: View {
                 if value == 1 || value == 3 { advancedFilter.readingStatus = nil }
             })) {
                 Text(L("全部")).tag(0); Text(L("在读")).tag(1); Text(L("收藏")).tag(2); Text(L("读完")).tag(3)
-            }.pickerStyle(.segmented).accessibilityIdentifier("library.filter")
+            }.pickerStyle(.segmented)
+                .frame(maxWidth: NativeAdaptiveLayout.libraryFilterMaxWidth)
+                .accessibilityIdentifier("library.filter")
+            Spacer(minLength: 0)
             Button { openFilters() } label: {
                 ZStack(alignment: .topTrailing) {
                     Group {

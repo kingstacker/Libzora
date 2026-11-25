@@ -14,7 +14,7 @@ public static class AccountRegions
     { AccountRegion.China => "中国区", AccountRegion.International => "国际区", _ => throw new ArgumentOutOfRangeException(nameof(region)) };
 }
 
-public sealed record AccountUser(Guid Id, string Username, string? Email = null, bool EmailVerified = false);
+public sealed record AccountUser(Guid Id, string Username, string? Email = null, bool EmailVerified = false, bool AppleLinked = false);
 public sealed record AccountSessionInfo(AccountUser User, DateTimeOffset ExpiresAt, AccountRegion Region = AccountRegion.China);
 public sealed record AccountStatus(string ServerUrl, AccountUser? User, DateTimeOffset? ExpiresAt,
     AccountRegion Region = AccountRegion.China, bool RequiresDataRestart = false)
@@ -72,6 +72,49 @@ public sealed class AccountPasswordResetConfirm
 public sealed class AccountEmailVerificationConfirm
 {
     public string Code { get; init; } = "";
+}
+
+/// <summary>Platform-neutral credential returned by Sign in with Apple.</summary>
+public sealed class AppleSignInCredential
+{
+    public string IdentityToken { get; init; } = "";
+    public string? AuthorizationCode { get; init; }
+    public string? Nonce { get; init; }
+    public string? Email { get; init; }
+    public string? DisplayName { get; init; }
+}
+
+/// <summary>Implemented by platform heads that support Sign in with Apple (iOS, macOS, Android, Linux).</summary>
+public interface IAppleSignInProvider
+{
+    bool IsSupported { get; }
+    Task<AppleSignInCredential?> SignInAsync(CancellationToken cancellationToken = default);
+}
+
+public sealed class AppleSignInRequest
+{
+    public AccountRegion Region { get; init; }
+    public string IdentityToken { get; init; } = "";
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? AuthorizationCode { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Nonce { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Email { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? DisplayName { get; init; }
+    public Guid DeviceId { get; init; }
+    public string DeviceName { get; init; } = "";
+    public string Platform { get; init; } = "";
+}
+
+public sealed class AppleBindRequest
+{
+    public string IdentityToken { get; init; } = "";
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? AuthorizationCode { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Nonce { get; init; }
 }
 
 public sealed class AccountSessionResponse
@@ -136,6 +179,8 @@ public static class AccountValidation
 [JsonSerializable(typeof(AccountPasswordResetRequest))]
 [JsonSerializable(typeof(AccountPasswordResetConfirm))]
 [JsonSerializable(typeof(AccountEmailVerificationConfirm))]
+[JsonSerializable(typeof(AppleSignInRequest))]
+[JsonSerializable(typeof(AppleBindRequest))]
 [JsonSerializable(typeof(AccountSessionResponse))]
 [JsonSerializable(typeof(AccountSessionInfo))]
 [JsonSerializable(typeof(AccountStatus))]

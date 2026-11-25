@@ -43,8 +43,11 @@ struct NativeReaderEntryPresentation: ViewModifier {
                         } else {
                             ZStack {
                                 paper
-                                if !loadingFeedback, let snapshot = store.readerEntrySnapshot {
-                                    Image(uiImage: snapshot).resizable().scaledToFill()
+                                if !loadingFeedback, store.widgetEntrySnapshotCover == nil,
+                                   let snapshot = store.readerEntrySnapshot {
+                                    Image(uiImage: snapshot)
+                                        .resizable()
+                                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                                 }
                                 if loadingFeedback {
                                     VStack(spacing: 14) {
@@ -88,7 +91,6 @@ struct NativeReaderEntryPresentation: ViewModifier {
                 guard animation != .cover, !prepared,
                       key.hasError || key.ready && key.frameReady && key.revision > 0
                         && key.acknowledgedRevision == key.revision else { return }
-                await NativeDisplayFrame.waitForCommit()
                 guard !Task.isCancelled,
                       session.state.presentationFrameRevision == key.revision,
                       policy.begin(ready: key.ready, frameReady: key.frameReady, frameRevision: key.revision,
@@ -102,9 +104,6 @@ struct NativeReaderEntryPresentation: ViewModifier {
     }
 
     private func revealReader() async {
-        if store.widgetColdLaunch {
-            await store.waitForMinimumWidgetBrandHold()
-        }
         guard !Task.isCancelled, store.session.appearanceSessionId == sessionId else { return }
         let window = store.navigationWindow
         let handoff: NativePageSlideTransition?

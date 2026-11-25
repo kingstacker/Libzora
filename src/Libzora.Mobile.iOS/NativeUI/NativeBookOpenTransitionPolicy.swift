@@ -167,7 +167,7 @@ enum NativeBookOpenTransitionPolicy {
     ) -> NativeBookOpenAnimation {
         guard animated, !reduceMotion, !powerSaving else { return .none }
         if source == .library || source == .dashboard { return .cover }
-        if source == .widget || source == .continueReading { return .slide }
+        if source == .widget || source == .continueReading || source == .materials { return .slide }
         switch pageAnimation {
         case 0: return .none
         case 1: return .fade

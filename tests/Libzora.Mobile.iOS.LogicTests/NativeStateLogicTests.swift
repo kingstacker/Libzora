@@ -218,7 +218,7 @@ struct NativeStateLogicTests {
         check(!NativeBookOpenTransitionPolicy.isVisibleFrame(buriedTabBarFrame, in: viewport),
               "Cover mostly buried below the bottom tab bar is rejected")
 
-        for source in [NativeBookOpenSource.materials, .external, .restore, .other] {
+        for source in [NativeBookOpenSource.external, .restore, .other] {
             check(NativeBookOpenTransitionPolicy.openAnimation(
                 source: source, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: 3) == .slide,
                 "Non-cover page entries use the configured slide")
@@ -248,6 +248,12 @@ struct NativeStateLogicTests {
             check(NativeBookOpenTransitionPolicy.closeAnimation(
                 source: .continueReading, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: pageAnimation) == .slide,
                 "Closing a continue-reading entry slides back cleanly")
+            check(NativeBookOpenTransitionPolicy.openAnimation(
+                source: .materials, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: pageAnimation) == .slide,
+                "Reading materials entry always slides in directly from the right")
+            check(NativeBookOpenTransitionPolicy.closeAnimation(
+                source: .materials, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: pageAnimation) == .slide,
+                "Closing a reading materials entry slides back cleanly")
         }
         for source in [NativeBookOpenSource.materials, .external, .restore, .other] {
             check(NativeBookOpenTransitionPolicy.closeAnimation(
@@ -284,14 +290,17 @@ struct NativeStateLogicTests {
             source: .materials, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: 3) == .slide,
             "Closing a book opened from Reading Materials slides back")
         check(NativeBookOpenTransitionPolicy.closeAnimation(
-            source: .materials, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: 1) == .fade,
-            "Closing a book opened from Reading Materials respects the fade preference")
+            source: .materials, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: 1) == .slide,
+            "Closing a book opened from Reading Materials always slides back regardless of fade preference")
         check(NativeBookOpenTransitionPolicy.closeAnimation(
-            source: .materials, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: 0) == .none,
-            "Closing a book opened from Reading Materials respects the disabled preference")
+            source: .materials, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: 0) == .slide,
+            "Closing a book opened from Reading Materials always slides back regardless of disabled page animation")
         check(NativeBookOpenTransitionPolicy.closeAnimation(
             source: .materials, animated: true, reduceMotion: true, powerSaving: false, pageAnimation: 3) == .none,
             "Closing a book opened from Reading Materials respects Reduce Motion")
+        check(NativeBookOpenTransitionPolicy.closeAnimation(
+            source: .materials, animated: true, reduceMotion: false, powerSaving: true, pageAnimation: 3) == .none,
+            "Closing a book opened from Reading Materials respects power saving")
         check(NativeBookOpenTransitionPolicy.closeAnimation(
             source: .library, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: 3) == .cover,
             "Closing a shelf book still uses the cover animation")
@@ -538,6 +547,18 @@ struct NativeStateLogicTests {
             selection: NSRange(location: 2, length: 2)
         )
         check(bolded.text == "这里**加粗**", "Bold wraps selected substring")
+
+        // Selection toolbar vertical scaling respects actual bottomInset (0 when footer fits in margin).
+        let tallBounds = NativeSelectionBounds(x: 120, y: 700, bottom: 724, viewportWidth: 840, viewportHeight: 1000)
+        let posNoInset = NativeSelectionToolbarLayout.position(
+            bounds: tallBounds,
+            in: CGSize(width: 840, height: 1000),
+            chromeVisible: false,
+            speechVisible: false,
+            bottomInset: 0
+        )
+        check(abs(posNoInset.y - (700 - NativeSelectionToolbarLayout.height / 2 - 10)) < 0.01,
+              "Zero bottomInset maps selection Y 1:1 without subtracting phantom 24pt")
 
         print("Passed \(assertions) iOS preference, widget-link, filter, search, swipe-delete and transition regression assertions.")
     }

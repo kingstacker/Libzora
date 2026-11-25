@@ -62,8 +62,24 @@ struct NativeLibraryLogicTests {
               && NativeAdaptiveLayout.mastheadTopInset == 16,
               "Every top-level page uses the shelf's title and edge geometry")
         check(NativeAdaptiveLayout.readerWidth(viewportWidth: 1180, isPdf: false) == 840, "EPUB text is constrained on iPad")
+        check(NativeAdaptiveLayout.readerWidth(viewportWidth: 1180, isPdf: false, isTwoPage: true) == 1180,
+              "EPUB two-page spread uses available width up to spread limit on iPad")
+        check(NativeAdaptiveLayout.readerWidth(viewportWidth: 1366, isPdf: false, isTwoPage: true) == 1240,
+              "EPUB two-page spread caps at spread maximum on 13-inch iPad")
         check(NativeAdaptiveLayout.readerWidth(viewportWidth: 1180, isPdf: true) == 1180, "PDF keeps its full-width viewport")
         check(NativeAdaptiveLayout.readerWidth(viewportWidth: 393, isPdf: false) == 393, "Phone reading remains full width")
+        check(NativeAdaptiveLayout.isLandscapeSpread(
+            viewportSize: CGSize(width: 1194, height: 834),
+            isPdf: false, isManga: false, verticalWriting: false, twoPageInLandscape: true),
+            "Full iPad landscape uses two-column spread")
+        check(!NativeAdaptiveLayout.isLandscapeSpread(
+            viewportSize: CGSize(width: 774, height: 834),
+            isPdf: false, isManga: false, verticalWriting: false, twoPageInLandscape: true),
+            "Docked AI sidebar narrowing reading viewport below height falls back to single column")
+        check(!NativeAdaptiveLayout.isLandscapeSpread(
+            viewportSize: CGSize(width: 680, height: 400),
+            isPdf: false, isManga: false, verticalWriting: false, twoPageInLandscape: true),
+            "Narrow landscape split view below 760pt stays single column")
         check(NativeAdaptiveLayout.noteWidth(viewportWidth: 1180) == 560, "An iPad note editor must not stretch across the screen")
         check(NativeAdaptiveLayout.dashboardColumns(pageWidth: 393) == 2, "Phone statistic cards remain in two columns")
         check(NativeAdaptiveLayout.dashboardColumns(pageWidth: 980) == 4, "All four statistics fill one wide row")

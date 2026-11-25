@@ -99,7 +99,7 @@ struct ReaderFontOption: Decodable, Identifiable, Equatable {
 struct ReaderFontList: Decodable { let current: String; let fonts: [ReaderFontOption] }
 struct ReaderFontInstall: Decodable { let key: String; let path: String; let previewName: String }
 struct ProfileSummary: Decodable { let version: String; let sync: String; let ai: String; let kindle: String; let storage: String; let account: AccountStatus }
-struct AccountUser: Decodable { let id: String; let username: String; let email: String?; let emailVerified: Bool? }
+struct AccountUser: Decodable { let id: String; let username: String; let email: String?; let emailVerified: Bool?; let appleLinked: Bool? }
 struct AccountStatus: Decodable {
     let serverUrl: String; let user: AccountUser?; let expiresAt: String?; let isLoggedIn: Bool
     let region: Int; let requiresDataRestart: Bool

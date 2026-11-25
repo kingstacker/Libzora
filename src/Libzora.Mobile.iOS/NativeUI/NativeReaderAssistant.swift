@@ -233,6 +233,7 @@ struct NativeAssistant: View {
     let book: LibraryBook
     let initialSelection: String
     var isSidebar = false
+    var backgroundColor: Color = NativeTheme.page
     var onJumpToSource: (AiSource) -> Void
     var onClose: () -> Void
 
@@ -251,6 +252,7 @@ struct NativeAssistant: View {
         book: LibraryBook,
         initialSelection: String,
         isSidebar: Bool = false,
+        backgroundColor: Color = NativeTheme.page,
         onJumpToSource: @escaping (AiSource) -> Void,
         onClose: @escaping () -> Void
     ) {
@@ -259,6 +261,7 @@ struct NativeAssistant: View {
         self.book = book
         self.initialSelection = initialSelection
         self.isSidebar = isSidebar
+        self.backgroundColor = backgroundColor
         self.onJumpToSource = onJumpToSource
         self.onClose = onClose
         _activeSelection = State(initialValue: initialSelection)
@@ -331,7 +334,7 @@ struct NativeAssistant: View {
                 Divider()
                 composer
             }
-            .background(NativeTheme.page)
+            .background(isSidebar ? backgroundColor : NativeTheme.page)
         }
         .modifier(NativeKeyboardDone())
         .modifier(NativeAssistantToolbarModifier(enabled: !isSidebar, content: {

@@ -197,6 +197,22 @@ public sealed class ReaderPageTransitionTests(MobileUiSession session)
                 window.Height = 844;
                 await WaitUntil(() => GetField<ReaderLayoutSettings>(reader, "_layout").FlowMode == 0
                     && !GetField<ReaderLayoutSettings>(reader, "_layout").TwoPageMode);
+
+                // Native iPad viewport hint drives two-column <-> single-column transitions
+                // when the AI sidebar narrows the reading viewport without changing window bounds.
+                window.Width = 1194;
+                window.Height = 834;
+                reader.NativeSetSurfaceInsets(new Thickness(0, 0, 0, 0), viewportWidth: 1194, viewportHeight: 834);
+                await WaitUntil(() => GetField<ReaderLayoutSettings>(reader, "_layout").FlowMode == 1
+                    && GetField<ReaderLayoutSettings>(reader, "_layout").TwoPageMode);
+
+                reader.NativeSetSurfaceInsets(new Thickness(0, 0, 420, 0), viewportWidth: 774, viewportHeight: 834);
+                await WaitUntil(() => GetField<ReaderLayoutSettings>(reader, "_layout").FlowMode == 0
+                    && !GetField<ReaderLayoutSettings>(reader, "_layout").TwoPageMode);
+
+                reader.NativeSetSurfaceInsets(new Thickness(0, 0, 0, 0), viewportWidth: 1194, viewportHeight: 834);
+                await WaitUntil(() => GetField<ReaderLayoutSettings>(reader, "_layout").FlowMode == 1
+                    && GetField<ReaderLayoutSettings>(reader, "_layout").TwoPageMode);
             }
             finally
             {

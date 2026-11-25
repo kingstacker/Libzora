@@ -149,6 +149,9 @@
       </Grid>
     </ThemeVariantScope>
 
+    <Border Grid.RowSpan="2" Name="WelcomeHost" IsVisible="False" ZIndex="35"
+            Background="{DynamicResource PageBackgroundBrush}" />
+
     <Border Grid.RowSpan="2" Name="BackupBlocker" IsVisible="False" ZIndex="40"
             Background="{DynamicResource PageBackgroundBrush}" Padding="32">
       <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16" MaxWidth="360">

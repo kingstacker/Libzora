@@ -207,5 +207,19 @@
   "正在删除所选书籍…": "Deleting selected books…",
   "已将 {0} 本书移到回收站。": "Moved {0} books to Trash.",
   "书籍级": "Book-level",
-  "账号已注销并退出登录。": "Account deleted and signed out."
+  "账号已注销并退出登录。": "Account deleted and signed out.",
+  "欢迎使用 Libzora": "Welcome to Libzora",
+  "静心阅读，数据归己。": "Calm reading. Your library stays yours.",
+  "精排离线阅读": "Refined Offline Reading",
+  "支持 EPUB、PDF、漫画等常见电子书格式，专注舒适排版与沉浸阅读体验。": "Read EPUB, PDF, manga, and common ebook formats offline with careful typography.",
+  "批注、统计与同步": "Notes, Stats & Sync",
+  "统一管理划线笔记、读后思考与阅读数据，支持自备 S3 / WebDAV 端到端加密同步。": "Organize highlights, reflections, and reading stats with optional end-to-end encrypted S3 / WebDAV sync.",
+  "隐私优先": "Privacy First",
+  "书库与同步密钥仅保存在你的设备中，无广告、无第三方追踪，离线即可使用。": "Your books and sync keys stay on your device. No ads, no tracking, works offline.",
+  "我已阅读并同意《用户协议》和《隐私政策》": "I have read and agree to the User Agreement and Privacy Policy",
+  "阅读用户协议": "User Agreement",
+  "阅读隐私政策": "Privacy Policy",
+  "同意并开始使用": "Agree & Continue",
+  "需勾选同意用户协议与隐私政策后方可继续使用": "Please agree to the User Agreement and Privacy Policy to continue",
+  "完成": "Done"
 }

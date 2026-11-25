@@ -61,6 +61,7 @@ struct MobilePreferences: Codable, Equatable {
     var readerPowerSavingMode = 1
     var readerHighlightStyle = "solid"
     var readerHighlightColor = "#000000"
+    var onboardingAccepted = false
 
     func isPowerSaving(systemLowPower: Bool) -> Bool {
         switch readerPowerSavingMode {

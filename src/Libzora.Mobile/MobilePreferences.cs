@@ -141,6 +141,8 @@ public sealed record MobilePreferences
     public string ReaderHighlightStyle { get; init; } = "solid";
     /// <summary>Last used reader highlight color (#RRGGBB).</summary>
     public string ReaderHighlightColor { get; init; } = "#000000";
+    /// <summary>Whether the user has accepted the welcome onboarding, user agreement, and privacy policy.</summary>
+    public bool OnboardingAccepted { get; init; }
 
     public static string NormalizeReaderHighlightStyle(string? value) =>
         value?.Trim().ToLowerInvariant() switch

@@ -99,7 +99,19 @@ public partial class MobileShell : UserControl
         if (MobileDataCoordinator.IsRestartRequired)
             ShowRestartRequired(MobileDataCoordinator.IsRecoveryIncomplete);
         else
+        {
             ShowLibrary();
+            if (!Preferences.Current.OnboardingAccepted)
+            {
+                WelcomeHost.Child = new Views.WelcomeOverlay(() =>
+                {
+                    Preferences.UpdateAndSave(p => p with { OnboardingAccepted = true });
+                    WelcomeHost.IsVisible = false;
+                    WelcomeHost.Child = null;
+                });
+                WelcomeHost.IsVisible = true;
+            }
+        }
     }
 
     public MobilePreferencesStore Preferences { get; }

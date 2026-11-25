@@ -13,10 +13,11 @@ private struct NativeLegalDocument: Decodable {
 }
 
 struct NativeLegalDocumentPage: View {
-    enum Kind: String {
+    enum Kind: String, Identifiable {
         case terms
         case privacy
 
+        var id: String { rawValue }
         var title: String { self == .terms ? L("用户协议") : L("隐私政策") }
         var error: String { self == .terms ? L("无法打开用户协议") : L("无法打开隐私政策") }
     }

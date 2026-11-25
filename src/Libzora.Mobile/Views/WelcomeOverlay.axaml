@@ -1,0 +1,112 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Libzora.Mobile.Views.WelcomeOverlay"
+             Background="{DynamicResource PageBackgroundBrush}">
+  <Grid>
+    <!-- Main welcome guide -->
+    <Grid Name="WelcomeContent" RowDefinitions="*,Auto">
+      <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
+        <StackPanel Spacing="24" Margin="28,40,28,24" MaxWidth="440" HorizontalAlignment="Center">
+          <StackPanel Spacing="10" HorizontalAlignment="Center">
+            <TextBlock Name="WelcomeTitleText"
+                       Text="欢迎使用 Libzora"
+                       FontSize="26"
+                       FontWeight="SemiBold"
+                       HorizontalAlignment="Center"
+                       TextAlignment="Center"
+                       Foreground="{DynamicResource TextPrimaryBrush}" />
+            <TextBlock Name="WelcomeSubtitleText"
+                       Text="静心阅读，数据归己。"
+                       FontSize="15"
+                       HorizontalAlignment="Center"
+                       TextAlignment="Center"
+                       Foreground="{DynamicResource TextSecondaryBrush}" />
+          </StackPanel>
+
+          <Border Background="{DynamicResource SurfaceBrush}" CornerRadius="16" Padding="20">
+            <StackPanel Spacing="18">
+              <StackPanel Spacing="4">
+                <TextBlock Name="Feature1Title" Text="精排离线阅读" FontSize="15" FontWeight="SemiBold"
+                           Foreground="{DynamicResource TextPrimaryBrush}" />
+                <TextBlock Name="Feature1Detail"
+                           Text="支持 EPUB、PDF、漫画等常见电子书格式，专注舒适排版与沉浸阅读体验。"
+                           FontSize="13" TextWrapping="Wrap"
+                           Foreground="{DynamicResource TextSecondaryBrush}" />
+              </StackPanel>
+              <StackPanel Spacing="4">
+                <TextBlock Name="Feature2Title" Text="批注、统计与同步" FontSize="15" FontWeight="SemiBold"
+                           Foreground="{DynamicResource TextPrimaryBrush}" />
+                <TextBlock Name="Feature2Detail"
+                           Text="统一管理划线笔记、读后思考与阅读数据，支持自备 S3 / WebDAV 端到端加密同步。"
+                           FontSize="13" TextWrapping="Wrap"
+                           Foreground="{DynamicResource TextSecondaryBrush}" />
+              </StackPanel>
+              <StackPanel Spacing="4">
+                <TextBlock Name="Feature3Title" Text="隐私优先" FontSize="15" FontWeight="SemiBold"
+                           Foreground="{DynamicResource TextPrimaryBrush}" />
+                <TextBlock Name="Feature3Detail"
+                           Text="书库与同步密钥仅保存在你的设备中，无广告、无第三方追踪，离线即可使用。"
+                           FontSize="13" TextWrapping="Wrap"
+                           Foreground="{DynamicResource TextSecondaryBrush}" />
+              </StackPanel>
+            </StackPanel>
+          </Border>
+        </StackPanel>
+      </ScrollViewer>
+
+      <Border Grid.Row="1" Background="{DynamicResource PageBackgroundBrush}" Padding="24,14,24,24"
+              BorderBrush="{DynamicResource DividerBrush}" BorderThickness="0,1,0,0">
+        <StackPanel Spacing="12" MaxWidth="440" HorizontalAlignment="Center">
+          <CheckBox Name="AgreeCheckBox" IsCheckedChanged="OnAgreeChanged">
+            <TextBlock Name="AgreeText"
+                       Text="我已阅读并同意《用户协议》和《隐私政策》"
+                       FontSize="13"
+                       TextWrapping="Wrap"
+                       Foreground="{DynamicResource TextPrimaryBrush}" />
+          </CheckBox>
+
+          <StackPanel Orientation="Horizontal" Spacing="12" Margin="28,0,0,0">
+            <Button Name="TermsButton" Content="阅读用户协议" Click="OnTermsClick"
+                    Padding="12,6" CornerRadius="14" FontSize="12" />
+            <Button Name="PrivacyButton" Content="阅读隐私政策" Click="OnPrivacyClick"
+                    Padding="12,6" CornerRadius="14" FontSize="12" />
+          </StackPanel>
+
+          <Button Name="AcceptButton"
+                  Content="同意并开始使用"
+                  IsEnabled="False"
+                  Click="OnAcceptClick"
+                  HorizontalAlignment="Stretch"
+                  HorizontalContentAlignment="Center"
+                  VerticalContentAlignment="Center"
+                  Height="48"
+                  CornerRadius="14"
+                  FontSize="16"
+                  FontWeight="SemiBold" />
+
+          <TextBlock Name="ConsentHintText"
+                     Text="需勾选同意用户协议与隐私政策后方可继续使用"
+                     FontSize="12"
+                     HorizontalAlignment="Center"
+                     TextAlignment="Center"
+                     TextWrapping="Wrap"
+                     Foreground="{DynamicResource TextSecondaryBrush}" />
+        </StackPanel>
+      </Border>
+    </Grid>
+
+    <!-- Bundled offline legal document reader -->
+    <Grid Name="LegalViewer" IsVisible="False" RowDefinitions="Auto,*"
+          Background="{DynamicResource PageBackgroundBrush}">
+      <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="20,16,16,12">
+        <TextBlock Name="LegalTitleText" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center"
+                   Foreground="{DynamicResource TextPrimaryBrush}" />
+        <Button Grid.Column="1" Name="LegalCloseButton" Content="完成" Click="OnCloseLegalClick"
+                Padding="14,6" CornerRadius="12" />
+      </Grid>
+      <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+        <StackPanel Name="LegalBlocksPanel" Spacing="10" Margin="20,4,20,28" MaxWidth="560" />
+      </ScrollViewer>
+    </Grid>
+  </Grid>
+</UserControl>

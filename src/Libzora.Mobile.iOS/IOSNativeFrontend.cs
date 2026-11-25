@@ -347,7 +347,12 @@ internal sealed partial class IOSNativeFrontend
                     // Language and interface-font changes refresh chrome through the event;
                     // they must not reflow or reopen the current book.
                     if (_reader is { } currentReader
-                        && (previous with { UiLanguage = _shell.Preferences.Current.UiLanguage, UiFont = _shell.Preferences.Current.UiFont }) != _shell.Preferences.Current)
+                        && (previous with
+                        {
+                            UiLanguage = _shell.Preferences.Current.UiLanguage,
+                            UiFont = _shell.Preferences.Current.UiFont,
+                            OnboardingAccepted = _shell.Preferences.Current.OnboardingAccepted
+                        }) != _shell.Preferences.Current)
                         await currentReader.NativeApplySettingsAsync();
                 }
                 finally { _readerGate.Release(); }
@@ -727,7 +732,8 @@ internal sealed partial class IOSNativeFrontend
             ? Math.Clamp(value.ReaderParagraphSpacing, 0, ReaderLayoutDefaults.MaxParagraphSpacing) : ReaderLayoutDefaults.DefaultParagraphSpacing,
         ReaderBodyPadding = double.IsFinite(value.ReaderBodyPadding) ? Math.Clamp(value.ReaderBodyPadding, 16, 64) : 24,
         ReaderHighlightStyle = MobilePreferences.NormalizeReaderHighlightStyle(value.ReaderHighlightStyle),
-        ReaderHighlightColor = MobilePreferences.NormalizeReaderHighlightColor(value.ReaderHighlightColor)
+        ReaderHighlightColor = MobilePreferences.NormalizeReaderHighlightColor(value.ReaderHighlightColor),
+        OnboardingAccepted = value.OnboardingAccepted
     };
 
     private static string NormalizeReaderLatinFontFamily(string? value)

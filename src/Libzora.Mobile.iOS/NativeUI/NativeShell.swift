@@ -35,6 +35,14 @@ struct NativeShell: View {
         return ambientBooks.map { "\($0.coverPath ?? "")|\($0.updatedAt)" }.joined(separator: "\n")
     }
     private var showingLaunch: Bool { store.preparingLibrary || store.restoringReader }
+    private var showingWelcome: Bool {
+        !showingLaunch
+            && !store.restartRequired
+            && !store.dataBusy
+            && store.libraryLoaded
+            && !store.preferences.onboardingAccepted
+            && !ProcessInfo.processInfo.arguments.contains("--libzora-skip-onboarding")
+    }
 
     var body: some View {
         let activeSeries = seriesCenter.request.flatMap { request in
@@ -52,8 +60,8 @@ struct NativeShell: View {
                     .tabItem { NativeTabLabel(title: L("我的"), symbol: "person") }.tag(3)
             }
             .opacity(showingLaunch ? 0 : 1)
-            .allowsHitTesting(!showingLaunch)
-            .accessibilityHidden(showingLaunch || (activeSeries != nil && seriesCenter.isVisible))
+            .allowsHitTesting(!showingLaunch && !showingWelcome)
+            .accessibilityHidden(showingLaunch || showingWelcome || (activeSeries != nil && seriesCenter.isVisible))
             .onAppear {
                 store.activeTab = selectedTab
                 store.keepWidgetBrandOverlayOnTop()
@@ -151,9 +159,13 @@ struct NativeShell: View {
                         .accessibilityElement(children: .contain)
                         .accessibilityIdentifier("launch.screen")
                 }
+            } else if showingWelcome {
+                NativeWelcomeView(store: store)
+                    .transition(.opacity)
             }
         }
         .animation(store.showsLaunchAnimation && !store.restoringReader ? .easeOut(duration: 0.2) : nil, value: showingLaunch)
+        .animation(.easeOut(duration: 0.22), value: showingWelcome)
         .overlay {
             if let (request, series) = activeSeries {
                 NativeBookSeriesOverlay(series: series, sourceFrame: request.sourceFrame,

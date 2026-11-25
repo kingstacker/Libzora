@@ -37,4 +37,12 @@ public sealed class ReaderPagingPolicyTests
         var ratio = MobileReaderPagingPolicy.TapRatio(x, left, width);
         Assert.Equal(expected, MobileReaderPagingPolicy.TapDirection(ratio, verticalWriting: false));
     }
+
+    [Theory]
+    [InlineData(false, false, true)]
+    [InlineData(true, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(true, true, false)]
+    public void SurfaceSelectionIsBlockedWhenChromeIsVisibleOrMangaPannable(bool chromeVisible, bool mangaPannable, bool expected) =>
+        Assert.Equal(expected, MobileReaderPagingPolicy.AllowsSurfaceSelection(chromeVisible, mangaPannable));
 }

@@ -59,7 +59,14 @@ struct NativeMaterials: View {
                         .lineLimit(1).padding(.trailing, 10)
                     Menu {
                         Button(L("导出 Markdown")) { export(true) }; Button(L("导出纯文本")) { export(false) }
-                    } label: { Text(L("导出")).font(NativeTheme.font(14)).frame(width: 44, height: 44) }
+                    } label: {
+                        Text(L("导出"))
+                            .font(NativeTheme.font(14))
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                            .padding(.horizontal, 8)
+                            .frame(minWidth: 44, minHeight: 44)
+                    }
                         .disabled(exporting || count == 0).accessibilityLabel(L("导出阅读资料"))
                 }.modifier(NativePageMasthead())
                 Picker(L("筛选"), selection: $filter) {
@@ -385,10 +392,11 @@ struct NativeReadingDashboard: View {
         return VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 10) {
                 Text(title).font(NativeTheme.font(16, relativeTo: .headline))
+                    .lineLimit(2).minimumScaleFactor(0.85)
                 Spacer(minLength: 0)
                 Picker(L("阅读周期"), selection: $period) { Text(L("周")).tag(0); Text(L("月")).tag(1); Text(L("年")).tag(2) }
                     .pickerStyle(.segmented)
-                    .frame(width: store.uiLanguage == "en-US" ? 160 : 120)
+                    .frame(width: NativeLocalization.isCjk ? 120 : 182)
                     .accessibilityIdentifier("dashboard.period")
             }
             Text("\(bucketLabel(selected, yearly: snapshot.period == 2)) · \(detail)")
@@ -487,8 +495,15 @@ struct NativeReadingDashboard: View {
             Text(L("平均 {0}% · 共 {1} 本", String(format: "%.0f", locale: NativeLocalization.locale, dashboard?.averageProgress ?? 0), books.count)).font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary)
             ForEach(0..<5) { index in
                 let count = books.filter { ($0.progressPercent >= 99.5 ? 4 : min(3, Int($0.progressPercent / 25))) == index }.count
-                HStack { Text(index == 4 ? L("已读完") : "\(index * 25)–\(index * 25 + 24)%").frame(width: 70, alignment: .leading)
-                    NativeThinProgress(value: Double(count), total: Double(max(1, books.count)), height: 4); Text(L("{0} 本", count)).frame(width: 40, alignment: .trailing) }.font(NativeTheme.font(12, relativeTo: .caption))
+                HStack {
+                    Text(index == 4 ? L("已读完") : "\(index * 25)–\(index * 25 + 24)%")
+                        .frame(minWidth: 70, alignment: .leading)
+                        .lineLimit(1).minimumScaleFactor(0.8)
+                    NativeThinProgress(value: Double(count), total: Double(max(1, books.count)), height: 4)
+                    Text(L("{0} 本", count))
+                        .frame(minWidth: 44, alignment: .trailing)
+                        .lineLimit(1).fixedSize(horizontal: true, vertical: false)
+                }.font(NativeTheme.font(12, relativeTo: .caption))
             }
         }.padding(16).background(NativeTheme.sunk, in: RoundedRectangle(cornerRadius: 18))
     }

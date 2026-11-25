@@ -53,6 +53,69 @@ enum KkTreeStage: Int, CaseIterable, Equatable {
         }
     }
 
+    func title(for language: WidgetLanguage = WidgetLocalization.current) -> String {
+        switch (language, self) {
+        case (.zhCN, _): return chineseTitle
+        case (.zhHant, .seed): return "埋下書種"
+        case (.zhHant, .sprout): return "破土萌芽"
+        case (.zhHant, .seedling): return "青枝幼苗"
+        case (.zhHant, .sapling): return "小樹初成"
+        case (.zhHant, .leafy): return "亭亭如蓋"
+        case (.zhHant, .lush): return "枝繁葉茂"
+        case (.zhHant, .ancient): return "參天古木"
+        case (.jaJP, .seed): return "本の種"
+        case (.jaJP, .sprout): return "芽生え"
+        case (.jaJP, .seedling): return "若芽"
+        case (.jaJP, .sapling): return "若木"
+        case (.jaJP, .leafy): return "青葉の木"
+        case (.jaJP, .lush): return "茂る木"
+        case (.jaJP, .ancient): return "大樹"
+        case (.deDE, .seed): return "Samen"
+        case (.deDE, .sprout): return "Keim"
+        case (.deDE, .seedling): return "Setzling"
+        case (.deDE, .sapling): return "Schössling"
+        case (.deDE, .leafy): return "Krone"
+        case (.deDE, .lush): return "Üppig"
+        case (.deDE, .ancient): return "Alter Baum"
+        case (.frFR, .seed): return "Graine"
+        case (.frFR, .sprout): return "Pousse"
+        case (.frFR, .seedling): return "Jeune plant"
+        case (.frFR, .sapling): return "Arbuste"
+        case (.frFR, .leafy): return "Canopée"
+        case (.frFR, .lush): return "Florissant"
+        case (.frFR, .ancient): return "Arbre ancien"
+        case (.koKR, .seed): return "씨앗"
+        case (.koKR, .sprout): return "새싹"
+        case (.koKR, .seedling): return "어린나무"
+        case (.koKR, .sapling): return "묘목"
+        case (.koKR, .leafy): return "푸른 나무"
+        case (.koKR, .lush): return "울창한 나무"
+        case (.koKR, .ancient): return "고목"
+        case (.esES, .seed): return "Semilla"
+        case (.esES, .sprout): return "Brote"
+        case (.esES, .seedling): return "Plántula"
+        case (.esES, .sapling): return "Retoño"
+        case (.esES, .leafy): return "Copa"
+        case (.esES, .lush): return "Frondoso"
+        case (.esES, .ancient): return "Árbol milenario"
+        case (.itIT, .seed): return "Seme"
+        case (.itIT, .sprout): return "Germoglio"
+        case (.itIT, .seedling): return "Piantina"
+        case (.itIT, .sapling): return "Alberello"
+        case (.itIT, .leafy): return "Chioma"
+        case (.itIT, .lush): return "Rigoglioso"
+        case (.itIT, .ancient): return "Albero antico"
+        case (.ptBR, .seed): return "Semente"
+        case (.ptBR, .sprout): return "Broto"
+        case (.ptBR, .seedling): return "Muda"
+        case (.ptBR, .sapling): return "Arbusto"
+        case (.ptBR, .leafy): return "Copa"
+        case (.ptBR, .lush): return "Viçosa"
+        case (.ptBR, .ancient): return "Árvore anciã"
+        default: return englishTitle
+        }
+    }
+
     /// Recursive branching depth for procedural trunk/branch generation.
     var branchDepth: Int {
         switch self {
@@ -421,6 +484,10 @@ struct KkReadingTreeProfile: Equatable {
         isChinese ? stage.chineseTitle : stage.englishTitle
     }
 
+    func localizedStageTitle(_ language: WidgetLanguage = WidgetLocalization.current) -> String {
+        stage.title(for: language)
+    }
+
     func nextHint(isChinese: Bool = KkFormat.isChinese,
                   durationText: (Int64) -> String = KkFormat.duration) -> String {
         guard let next = nextStage, let remaining = remainingSecondsToNext else {
@@ -429,6 +496,15 @@ struct KkReadingTreeProfile: Equatable {
         let targetName = isChinese ? next.chineseTitle : next.englishTitle
         let formatted = durationText(remaining)
         return isChinese ? "距「\(targetName)」还差 \(formatted)" : "\(formatted) to \(targetName)"
+    }
+
+    func localizedNextHint(_ language: WidgetLanguage = WidgetLocalization.current) -> String {
+        guard let next = nextStage, let remaining = remainingSecondsToNext else {
+            return WidgetLocalization.evergreen(language)
+        }
+        let targetName = next.title(for: language)
+        let formatted = KkFormat.duration(remaining, language: language)
+        return WidgetLocalization.nextStageHint(formatted, target: targetName, language)
     }
 }
 

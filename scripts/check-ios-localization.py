@@ -14,7 +14,9 @@ HAN = re.compile(r"[㐀-鿿]")
 PLACEHOLDER = re.compile(r"(?<!\{)\{([0-9]+)(?:,[+-]?[0-9]+)?(?::[^{}]+)?\}(?!\})")
 # These are content/data identifiers, not interface labels. Language options
 # deliberately use their own names so they can be found in either language.
-VERBATIM = {"京华老宋体", "简体中文"}
+VERBATIM = {"京华老宋体", "简体中文", "繁體中文", "日本語"}
+TARGET_LANGUAGES = ("en-US", "zh-Hant", "ja-JP", "de-DE", "fr-FR", "ko-KR", "es-ES", "it-IT", "pt-BR")
+ALLOW_HAN_LANGUAGES = {"zh-Hant", "ja-JP"}
 
 
 @dataclass
@@ -108,24 +110,33 @@ def swift_strings(text: str) -> list[SwiftString]:
     return result
 
 
-def catalog(root: Path) -> dict[str, str]:
+def catalogs(root: Path) -> dict[str, dict[str, str]]:
     namespace = "{http://schemas.microsoft.com/winfx/2006/xaml}"
+
     def shared(language: str) -> dict[str, str]:
         path = root / "src/Libzora.App/Resources" / ("Strings." + language + ".axaml")
         return {element.attrib[namespace + "Key"]: element.text or ""
                 for element in ET.parse(path).getroot().findall(namespace + "String")}
+
     chinese, english = shared("zh-CN"), shared("en-US")
-    values: dict[str, str] = {}
+    shared_english: dict[str, str] = {}
     for key in sorted(chinese):
         if key in english:
-            values.setdefault(chinese[key], english[key])
-    for path in sorted((root / "src/Libzora.Mobile/Localization").glob("*.en-US.json")):
-        values.update(json.loads(path.read_text(encoding="utf-8")))
-    return values
+            shared_english.setdefault(chinese[key], english[key])
+
+    localization_dir = root / "src/Libzora.Mobile/Localization"
+    result: dict[str, dict[str, str]] = {}
+    for language in TARGET_LANGUAGES:
+        values: dict[str, str] = dict(shared_english) if language == "en-US" else {}
+        for path in sorted(localization_dir.glob(f"*.{language}.json")):
+            values.update(json.loads(path.read_text(encoding="utf-8")))
+        result[language] = values
+    return result
 
 
 def check(root: Path) -> int:
-    values = catalog(root)
+    by_language = catalogs(root)
+    english = by_language["en-US"]
     failures: list[str] = []
     keys: set[str] = set()
     count = 0
@@ -147,7 +158,7 @@ def check(root: Path) -> int:
                 continue
             keys.add(value.source)
             count += 1
-            if value.source not in values:
+            if value.source not in english:
                 failures.append(f"{location}: missing English translation: {value.source!r}")
     backend_count = 0
     backend_paths = list((root / "src/Libzora.Mobile.iOS").glob("IOSNativeFrontend*.cs"))
@@ -160,20 +171,26 @@ def check(root: Path) -> int:
                 continue
             keys.add(source)
             backend_count += 1
-            if source not in values:
+            if source not in english:
                 line = text.count("\n", 0, match.start()) + 1
                 failures.append(f"{path.relative_to(root)}:{line}: missing backend translation: {source!r}")
-    for source in keys:
-        if source not in values:
-            continue
-        translated = values[source]
-        if HAN.search(translated) and source not in VERBATIM:
-            failures.append(f"English UI translation still contains Chinese: {source!r}: {translated!r}")
-        if Counter(PLACEHOLDER.findall(source)) != Counter(PLACEHOLDER.findall(translated)):
-            failures.append(f"Formatting arguments differ: {source!r}: {translated!r}")
+    for source in sorted(keys):
+        source_placeholders = Counter(PLACEHOLDER.findall(source))
+        for language in TARGET_LANGUAGES:
+            values = by_language[language]
+            if source not in values:
+                failures.append(f"[{language}] missing translation: {source!r}")
+                continue
+            translated = values[source]
+            if not translated:
+                failures.append(f"[{language}] empty translation: {source!r}")
+            if language not in ALLOW_HAN_LANGUAGES and HAN.search(translated) and source not in VERBATIM:
+                failures.append(f"[{language}] translation still contains Han characters: {source!r}: {translated!r}")
+            if source_placeholders != Counter(PLACEHOLDER.findall(translated)):
+                failures.append(f"[{language}] formatting arguments differ: {source!r}: {translated!r}")
     for failure in failures:
         print(failure)
-    print(f"iOS UI localization: {count} native and {backend_count} backend occurrences, {len(keys)} source keys; {len(failures)} errors")
+    print(f"iOS UI localization ({len(TARGET_LANGUAGES)} target languages): {count} native and {backend_count} backend occurrences, {len(keys)} source keys; {len(failures)} errors")
     return int(bool(failures))
 
 

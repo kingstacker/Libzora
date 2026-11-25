@@ -3,9 +3,22 @@ import Foundation
 /// The managed UI and SwiftUI share source keys, translations and language codes.
 /// Only interface text is passed here, never book text or user-authored content.
 enum NativeLocalization {
+    static let supportedLanguages: [(id: String, title: String)] = [
+        ("zh-CN", "简体中文"),
+        ("zh-Hant", "繁體中文"),
+        ("en-US", "English"),
+        ("ja-JP", "日本語"),
+        ("de-DE", "Deutsch"),
+        ("fr-FR", "Français"),
+        ("ko-KR", "한국어"),
+        ("es-ES", "Español"),
+        ("it-IT", "Italiano"),
+        ("pt-BR", "Português (Brasil)")
+    ]
+
     private static let lock = NSLock()
     private static var currentLanguage = resolvedLanguage("auto")
-    private static let english = loadCatalog()
+    private static let catalogs = loadCatalogs()
     private static let placeholders = try! NSRegularExpression(pattern: #"\{([0-9]+)\}"#)
 
     static var language: String {
@@ -13,6 +26,13 @@ enum NativeLocalization {
         return currentLanguage
     }
     static var locale: Locale { Locale(identifier: language) }
+    static var isCjk: Bool { ["zh-CN", "zh-Hant", "ja-JP", "ko-KR"].contains(language) }
+    static var usesVerticalColumns: Bool { ["zh-CN", "zh-Hant", "ja-JP"].contains(language) }
+
+    static func displayName(for id: String) -> String {
+        if id == "auto" { return L("跟随系统") }
+        return supportedLanguages.first { $0.id == id }?.title ?? L("跟随系统")
+    }
 
     static func setLanguage(_ language: String) {
         let normalized = resolvedLanguage(language)
@@ -24,8 +44,19 @@ enum NativeLocalization {
         func supported(_ value: String) -> String? {
             let code = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
                 .replacingOccurrences(of: "_", with: "-")
+            if code == "zh-hant" || code.hasPrefix("zh-hant-")
+                || code == "zh-tw" || code.hasPrefix("zh-tw-")
+                || code == "zh-hk" || code.hasPrefix("zh-hk-")
+                || code == "zh-mo" || code.hasPrefix("zh-mo-") { return "zh-Hant" }
             if code == "zh" || code.hasPrefix("zh-") { return "zh-CN" }
             if code == "en" || code.hasPrefix("en-") { return "en-US" }
+            if code == "ja" || code.hasPrefix("ja-") { return "ja-JP" }
+            if code == "de" || code.hasPrefix("de-") { return "de-DE" }
+            if code == "fr" || code.hasPrefix("fr-") { return "fr-FR" }
+            if code == "ko" || code.hasPrefix("ko-") { return "ko-KR" }
+            if code == "es" || code.hasPrefix("es-") { return "es-ES" }
+            if code == "it" || code.hasPrefix("it-") { return "it-IT" }
+            if code == "pt" || code.hasPrefix("pt-") { return "pt-BR" }
             return nil
         }
         if let manual = supported(preference) { return manual }
@@ -33,7 +64,13 @@ enum NativeLocalization {
     }
 
     static func text(_ source: String, arguments: [Any] = []) -> String {
-        let template = language == "en-US" ? english[source] ?? source : source
+        let active = language
+        let template: String
+        if active == "zh-CN" {
+            template = source
+        } else {
+            template = catalogs[active]?[source] ?? catalogs["en-US"]?[source] ?? source
+        }
         guard !arguments.isEmpty else { return template }
         let matches = placeholders.matches(in: template, range: NSRange(template.startIndex..., in: template))
         var result = template
@@ -48,7 +85,7 @@ enum NativeLocalization {
         return result
     }
 
-    private static func loadCatalog() -> [String: String] {
+    private static func loadCatalogs() -> [String: [String: String]] {
         func shared(_ language: String) -> [String: String] {
             guard let url = Bundle.main.url(forResource: "Shared." + language, withExtension: "axaml", subdirectory: "Localization"),
                   let parser = XMLParser(contentsOf: url) else { return [:] }
@@ -58,22 +95,26 @@ enum NativeLocalization {
             return parser.parse() ? collector.values : [:]
         }
         let chinese = shared("zh-CN"), english = shared("en-US")
-        var values: [String: String] = [:]
+        var sharedEnglish: [String: String] = [:]
         // Stable order mirrors the managed catalog's resource order.
         for key in chinese.keys.sorted() {
-            if let source = chinese[key], let translation = english[key], values[source] == nil {
-                values[source] = translation
+            if let source = chinese[key], let translation = english[key], sharedEnglish[source] == nil {
+                sharedEnglish[source] = translation
             }
         }
-        let overrides = (Bundle.main.urls(forResourcesWithExtension: "json", subdirectory: "Localization") ?? [])
-            .filter { $0.lastPathComponent.hasSuffix(".en-US.json") }
+        var result: [String: [String: String]] = ["en-US": sharedEnglish]
+        let files = (Bundle.main.urls(forResourcesWithExtension: "json", subdirectory: "Localization") ?? [])
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
-        for url in overrides {
-            guard let data = try? Data(contentsOf: url),
-                  let translations = try? JSONSerialization.jsonObject(with: data) as? [String: String] else { continue }
-            values.merge(translations) { _, value in value }
+        for lang in supportedLanguages where lang.id != "zh-CN" {
+            var values = result[lang.id] ?? [:]
+            for url in files where url.lastPathComponent.hasSuffix(".\(lang.id).json") {
+                guard let data = try? Data(contentsOf: url),
+                      let translations = try? JSONSerialization.jsonObject(with: data) as? [String: String] else { continue }
+                values.merge(translations) { _, value in value }
+            }
+            result[lang.id] = values
         }
-        return values
+        return result
     }
 }
 

@@ -1015,6 +1015,7 @@ struct NativeReaderPage: View {
                 if image == "Aa" { Text("Aa").font(NativeTheme.font(16)).frame(height: 21) }
                 else { Image(systemName: image).font(.system(size: 21, weight: .regular)).frame(height: 21) }
                 Text(title).font(NativeTheme.font(11, relativeTo: .caption2))
+                    .lineLimit(1).minimumScaleFactor(0.72)
             }.frame(maxWidth: .infinity).frame(minHeight: 52).contentShape(Rectangle())
         }
             .buttonStyle(NativeGlassToolbarButtonStyle()).accessibilityIdentifier(identifier)
@@ -1678,7 +1679,7 @@ struct NativeTypography: View {
                         .accessibilityIdentifier("typography.advanced")
                     }
                 }
-            }.padding(.horizontal, 24).padding(.top, 2).padding(.bottom, 16)
+            }.padding(.horizontal, 18).padding(.top, 2).padding(.bottom, 16)
         }.accessibilityIdentifier("typography.scroll")
             .task { await loadFonts() }
             .onChange(of: store.preferences.readerFontFamily) { _ in Task { await loadFonts() } }
@@ -1706,8 +1707,10 @@ struct NativeTypography: View {
         fontOptions = list.fonts
     }
     private func row<Content: View>(_ title: String, @ViewBuilder controls: () -> Content) -> some View {
-        HStack(spacing: 12) {
-            Text(title).font(NativeTheme.font(13)).foregroundStyle(NativeTheme.secondary).frame(width: 58, alignment: .leading)
+        HStack(spacing: 10) {
+            Text(title).font(NativeTheme.font(13)).foregroundStyle(NativeTheme.secondary)
+                .frame(width: NativeLocalization.isCjk ? 68 : 96, alignment: .leading)
+                .lineLimit(2).minimumScaleFactor(0.82)
             controls().frame(maxWidth: .infinity)
         }.frame(minHeight: 44)
     }

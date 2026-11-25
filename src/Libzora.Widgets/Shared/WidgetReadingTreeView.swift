@@ -7,19 +7,19 @@ struct KkReadingTreeWidgetView: View {
     @Environment(\.colorScheme) private var scheme
     @Environment(\.widgetRenderingMode) private var renderingMode
 
-    private var snapshot: KkSnapshot { entry.snapshot ?? KkSnapshot.sample(isChinese: isChinese) }
+    private var lang: WidgetLanguage { WidgetLocalization.current }
+    private var snapshot: KkSnapshot { entry.snapshot ?? KkSnapshot.sample(language: lang) }
     private var profile: KkReadingTreeProfile {
         KkReadingTreeProfile(snapshot: snapshot, date: entry.date, isPreview: entry.isPlaceholder || !entry.hasData)
     }
     private var isFullColor: Bool { renderingMode == .fullColor }
-    private var isChinese: Bool { KkFormat.isChinese }
 
     var body: some View {
         Group {
             if !entry.hasData {
                 KkEmptyState(
-                    title: isChinese ? "阅读之树" : "Reading Tree",
-                    message: isChinese ? "打开 Libzora，种下一棵书树" : "Open Libzora to plant your tree",
+                    title: WidgetLocalization.treeTitle(lang),
+                    message: WidgetLocalization.treeEmptyMessage(lang),
                     systemImage: "leaf")
             } else if family == .systemMedium {
                 medium
@@ -33,17 +33,18 @@ struct KkReadingTreeWidgetView: View {
     private var small: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .center, spacing: 4) {
-                Text(isChinese ? "阅读之树" : "Reading Tree")
+                Text(WidgetLocalization.treeTitle(lang))
                     .kkLabelFont(11, weight: .medium)
                     .foregroundStyle(KkTheme.secondaryInk(scheme))
                     .lineLimit(1)
+                    .minimumScaleFactor(0.78)
                 Spacer(minLength: 4)
                 if profile.streakDays > 0 {
                     HStack(spacing: 3) {
                         Circle()
                             .fill(isFullColor ? KkTheme.treeLeafAccent(scheme) : Color.primary.opacity(0.7))
                             .frame(width: 5, height: 5)
-                        Text(isChinese ? "\(profile.streakDays)天" : "\(profile.streakDays)d")
+                        Text(WidgetLocalization.shortDays(profile.streakDays, lang))
                             .kkLabelFont(9.5, weight: .medium)
                             .foregroundStyle(KkTheme.secondaryInk(scheme))
                             .monospacedDigit()
@@ -62,7 +63,7 @@ struct KkReadingTreeWidgetView: View {
                 .padding(.vertical, -3)
 
             HStack(alignment: .center, spacing: 4) {
-                Text(KkFormat.compactHours(profile.totalSeconds, isChinese: isChinese))
+                Text(KkFormat.localizedCompactHours(profile.totalSeconds, language: lang))
                     .kkLabelFont(9.5, weight: .medium)
                     .foregroundStyle(KkTheme.secondaryInk(scheme))
                     .monospacedDigit()
@@ -73,10 +74,8 @@ struct KkReadingTreeWidgetView: View {
                     Circle()
                         .fill(isFullColor ? KkTheme.treeYellowAccent(scheme) : Color.primary.opacity(0.7))
                         .frame(width: 5, height: 5)
-                    let countText = KkFormat.compactCount(profile.booksFinished, isChinese: isChinese)
-                    Text(isChinese
-                        ? "\(countText) 本"
-                        : (profile.booksFinished == 1 ? "1 book" : "\(countText) books"))
+                    let countText = KkFormat.localizedCompactCount(profile.booksFinished, language: lang)
+                    Text(WidgetLocalization.treeBooksCount(countText, rawCount: profile.booksFinished, lang))
                         .kkLabelFont(9.5, weight: .medium)
                         .foregroundStyle(KkTheme.secondaryInk(scheme))
                         .monospacedDigit()
@@ -98,27 +97,28 @@ struct KkReadingTreeWidgetView: View {
 
             VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .center, spacing: 6) {
-                    Text(isChinese ? "阅读之树" : "Reading Tree")
+                    Text(WidgetLocalization.treeTitle(lang))
                         .kkLabelFont(11, weight: .medium)
                         .foregroundStyle(KkTheme.secondaryInk(scheme))
                         .lineLimit(1)
+                        .minimumScaleFactor(0.78)
                     Spacer(minLength: 4)
                     vitalityBadge
                 }
 
                 Spacer(minLength: 4)
 
-                Text(profile.stageTitle(isChinese: isChinese))
+                Text(profile.localizedStageTitle(lang))
                     .kkTitleFont(19)
                     .foregroundStyle(KkTheme.ink(scheme))
                     .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                    .minimumScaleFactor(0.75)
 
-                Text(profile.nextHint(isChinese: isChinese))
+                Text(profile.localizedNextHint(lang))
                     .kkBodyFont(10)
                     .foregroundStyle(KkTheme.secondaryInk(scheme))
                     .lineLimit(1)
-                    .minimumScaleFactor(0.75)
+                    .minimumScaleFactor(0.72)
                     .padding(.top, 2)
 
                 KkProgressBar(progress: profile.stageProgress * 100, height: 3)
@@ -131,11 +131,11 @@ struct KkReadingTreeWidgetView: View {
                     .frame(height: 0.5)
                     .accessibilityHidden(true)
 
-                let totalParts = KkFormat.compactHoursParts(profile.totalSeconds, isChinese: isChinese)
-                HStack(alignment: .top, spacing: 0) {
+                let totalParts = KkFormat.localizedCompactHoursParts(profile.totalSeconds, language: lang)
+                HStack(alignment: .top, spacing: 4) {
                     KkStat(
                         value: totalParts.value,
-                        label: isChinese ? "累计" : "Total",
+                        label: WidgetLocalization.totalShort(lang),
                         unit: totalParts.unit,
                         alignment: .leading,
                         valueSize: 13.5,
@@ -143,16 +143,16 @@ struct KkReadingTreeWidgetView: View {
                         stackSpacing: 2)
                     Spacer(minLength: 4)
                     KkStat(
-                        value: KkFormat.compactCount(profile.booksFinished, isChinese: isChinese),
-                        label: isChinese ? "已读完" : "Books",
+                        value: KkFormat.localizedCompactCount(profile.booksFinished, language: lang),
+                        label: WidgetLocalization.finishedLabel(lang),
                         alignment: .center,
                         valueSize: 13.5,
                         labelSize: 9.5,
                         stackSpacing: 2)
                     Spacer(minLength: 4)
                     KkStat(
-                        value: KkFormat.compactCount(profile.annotationCount, isChinese: isChinese),
-                        label: isChinese ? "批注" : "Notes",
+                        value: KkFormat.localizedCompactCount(profile.annotationCount, language: lang),
+                        label: WidgetLocalization.treeNotes(lang),
                         alignment: .trailing,
                         valueSize: 13.5,
                         labelSize: 9.5,
@@ -170,9 +170,9 @@ struct KkReadingTreeWidgetView: View {
     @ViewBuilder
     private var vitalityBadge: some View {
         let labelText: String? = if profile.streakDays > 0 {
-            isChinese ? "连续 \(profile.streakDays) 天" : "\(profile.streakDays)d streak"
+            WidgetLocalization.streakBadge(profile.streakDays, lang)
         } else if profile.hasReadToday {
-            isChinese ? "今日已读" : "Read today"
+            WidgetLocalization.readToday(lang)
         } else {
             nil
         }
@@ -186,6 +186,7 @@ struct KkReadingTreeWidgetView: View {
                     .kkLabelFont(9.5, weight: .medium)
                     .foregroundStyle(KkTheme.secondaryInk(scheme))
                     .lineLimit(1)
+                    .minimumScaleFactor(0.78)
             }
             .fixedSize(horizontal: true, vertical: false)
             .padding(.horizontal, 7)

@@ -12,7 +12,7 @@
     <Compile Include="..\Libzora.App\ReaderTransitionPlayer.cs" Link="ReaderTransitionPlayer.cs" />
     <EmbeddedResource Include="..\Libzora.App\Resources\Strings.zh-CN.axaml" LogicalName="Libzora.Mobile.Localization.Shared.zh-CN.axaml" WithCulture="false" />
     <EmbeddedResource Include="..\Libzora.App\Resources\Strings.en-US.axaml" LogicalName="Libzora.Mobile.Localization.Shared.en-US.axaml" WithCulture="false" />
-    <EmbeddedResource Include="Localization\*.en-US.json" LogicalName="Libzora.Mobile.Localization.%(Filename)%(Extension)" WithCulture="false" />
+    <EmbeddedResource Include="Localization\*.json" LogicalName="Libzora.Mobile.Localization.%(Filename)%(Extension)" WithCulture="false" />
     <AvaloniaResource Include="..\Libzora.App\Assets\Fonts\KingHwaOldSong-v3.0.ttf" Link="Assets\Fonts\KingHwaOldSong-v3.0.ttf" />
     <ProjectReference Include="..\Libzora.Core\Libzora.Core.csproj" />
     <ProjectReference Include="..\Libzora.Application\Libzora.Application.csproj" />

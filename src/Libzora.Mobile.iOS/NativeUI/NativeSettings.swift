@@ -167,7 +167,8 @@ struct NativeProfilePage: View {
     }
 
     private var themeRow: some View {
-        let follow = store.uiLanguage == "en-US" ? L("系统") : L("跟随系统")
+        let isChinese = store.uiLanguage == "zh-CN" || store.uiLanguage == "zh-Hant"
+        let follow = isChinese ? L("跟随系统") : L("系统")
         let options: [(id: Int, title: String)] = [(0, follow), (1, L("浅色")), (2, L("深色"))]
         let current = options.first { $0.id == store.preferences.themeMode }?.title ?? follow
         return NavigationLink {
@@ -177,7 +178,8 @@ struct NativeProfilePage: View {
                 identifierPrefix: "profile.theme",
                 current: { $0.themeMode },
                 options: { currentStore in
-                    let systemLabel = currentStore.uiLanguage == "en-US" ? L("系统") : L("跟随系统")
+                    let isZh = currentStore.uiLanguage == "zh-CN" || currentStore.uiLanguage == "zh-Hant"
+                    let systemLabel = isZh ? L("跟随系统") : L("系统")
                     return [(0, systemLabel), (1, L("浅色")), (2, L("深色"))]
                 },
                 apply: { $0.themeMode = $1 }
@@ -212,7 +214,7 @@ struct NativeProfilePage: View {
     }
 
     private var languageRow: some View {
-        let options: [(id: String, title: String)] = [("auto", L("跟随系统")), ("zh-CN", "简体中文"), ("en-US", "English")]
+        let options: [(id: String, title: String)] = [("auto", L("跟随系统"))] + NativeLocalization.supportedLanguages
         let current = options.first { $0.id == store.preferences.uiLanguage }?.title ?? L("跟随系统")
         return NavigationLink {
             NativePreferenceOptionPage(
@@ -220,7 +222,7 @@ struct NativeProfilePage: View {
                 title: { L("语言") },
                 identifierPrefix: "profile.language",
                 current: { $0.uiLanguage },
-                options: { _ in [("auto", L("跟随系统")), ("zh-CN", "简体中文"), ("en-US", "English")] },
+                options: { _ in [("auto", L("跟随系统"))] + NativeLocalization.supportedLanguages },
                 apply: { $0.uiLanguage = $1 }
             )
         } label: {

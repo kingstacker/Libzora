@@ -10,18 +10,21 @@ public sealed class TtsStateChangedEventArgs : EventArgs
         TtsPlaybackState state,
         string? message,
         int segmentIndex,
-        int segmentCount)
+        int segmentCount,
+        bool isSelection = false)
     {
         State = state;
         Message = message;
         SegmentIndex = segmentIndex;
         SegmentCount = segmentCount;
+        IsSelection = isSelection;
     }
 
     public TtsPlaybackState State { get; }
     public string? Message { get; }
     public int SegmentIndex { get; }
     public int SegmentCount { get; }
+    public bool IsSelection { get; }
 }
 
 /// <summary>
@@ -84,6 +87,7 @@ public sealed partial class TtsService : IDisposable
     private int _currentSegmentIndex = -1;
     private int _requestedSegmentIndex = -1;
     private bool _previewInProgress;
+    private bool _isSelectionPlayback;
 
     public TtsService(
         ITtsEngine? engine,
@@ -145,6 +149,14 @@ public sealed partial class TtsService : IDisposable
         get
         {
             lock (_gate) return _state;
+        }
+    }
+
+    public bool IsSelectionPlayback
+    {
+        get
+        {
+            lock (_gate) return _isSelectionPlayback;
         }
     }
 

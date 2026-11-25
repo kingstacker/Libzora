@@ -142,7 +142,24 @@ public partial class ReaderPage : UserControl
         ReaderHostSlot.AddHandler(PointerPressedEvent, OnSurfacePressed, tunnel, handledEventsToo: true);
         ReaderHostSlot.AddHandler(PointerMovedEvent, OnSurfaceMoved, tunnel, handledEventsToo: true);
         ReaderHostSlot.AddHandler(PointerReleasedEvent, OnSurfaceReleased, tunnel, handledEventsToo: true);
-        ReaderHostSlot.AddHandler(PointerCaptureLostEvent, OnSurfaceCaptureLost, RoutingStrategies.Bubble, handledEventsToo: true);
+        ReaderHostSlot.AddHandler(PointerCaptureLostEvent, OnSurfaceCaptureLost, RoutingStrategies.Direct | RoutingStrategies.Bubble, handledEventsToo: true);
+        // PointerCaptureLostEvent is Direct, so capture owned by the child
+        // reader host does not bubble to ReaderHostSlot when iOS cancels a touch.
+        Control? capturedHostControl = null;
+        ReaderHostSlot.PropertyChanged += (_, args) =>
+        {
+            if (args.Property != ContentControl.ContentProperty) return;
+            if (capturedHostControl is not null)
+            {
+                capturedHostControl.PointerCaptureLost -= OnSurfaceCaptureLost;
+                capturedHostControl = null;
+            }
+            if (args.NewValue is Control nextHost)
+            {
+                capturedHostControl = nextHost;
+                nextHost.PointerCaptureLost += OnSurfaceCaptureLost;
+            }
+        };
         _longPress.Tick += OnLongPress;
         ProgressSlider.AddHandler(PointerPressedEvent, OnSliderPressed, tunnel, handledEventsToo: true);
         ProgressSlider.AddHandler(PointerReleasedEvent, OnSliderReleased, tunnel, handledEventsToo: true);

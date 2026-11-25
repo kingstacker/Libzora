@@ -214,7 +214,9 @@ struct NativeBookDetailPage: View {
     @ViewBuilder private func fact(_ name: String, _ value: String?) -> some View {
         if let value, !value.isEmpty {
             HStack(alignment: .top, spacing: 8) {
-                Text(name).foregroundStyle(NativeTheme.muted).frame(width: 88, alignment: .leading)
+                Text(name).foregroundStyle(NativeTheme.muted)
+                    .frame(minWidth: 88, maxWidth: 136, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
                 Text(value).foregroundStyle(NativeTheme.secondary).frame(maxWidth: .infinity, alignment: .trailing).multilineTextAlignment(.trailing)
             }
         }

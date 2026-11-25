@@ -34,28 +34,47 @@ public sealed class MobileUiLanguageTests : IDisposable
     [InlineData("", "auto")]
     [InlineData("auto", "auto")]
     [InlineData("unsupported", "auto")]
-    [InlineData("fr-FR", "auto")]
+    [InlineData("ru-RU", "auto")]
     [InlineData(" EN-gb ", "en-US")]
     [InlineData("en_US", "en-US")]
-    [InlineData("zh-Hant-TW", "zh-CN")]
+    [InlineData("zh-Hant-TW", "zh-Hant")]
+    [InlineData("zh-HK", "zh-Hant")]
+    [InlineData("zh-Hans-CN", "zh-CN")]
+    [InlineData("ja_JP", "ja-JP")]
+    [InlineData("de-AT", "de-DE")]
+    [InlineData("fr-FR", "fr-FR")]
+    [InlineData("ko-KR", "ko-KR")]
+    [InlineData("es-MX", "es-ES")]
+    [InlineData("it-IT", "it-IT")]
+    [InlineData("pt-BR", "pt-BR")]
     public void StoredChoiceIsNormalizedWithoutSavingAnEffectiveSystemLanguage(string? value, string expected) =>
         Assert.Equal(expected, MobileUiLanguageService.NormalizePreference(value));
 
     [Theory]
     [InlineData("auto", "zh-CN", "en-US", "zh-CN")]
     [InlineData("auto", "en-GB", "zh-CN", "en-US")]
-    [InlineData("auto", "zh-Hant-TW", "en-US", "zh-CN")]
-    [InlineData("auto", "fr-FR", "en-GB", "en-US")]
-    [InlineData("auto", "fr-FR", "de-DE", "en-US")]
+    [InlineData("auto", "zh-Hant-TW", "en-US", "zh-Hant")]
+    [InlineData("auto", "fr-FR", "en-GB", "fr-FR")]
+    [InlineData("auto", "ru-RU", "de-DE", "de-DE")]
+    [InlineData("auto", "ru-RU", "pl-PL", "en-US")]
     [InlineData("en-US", "zh-CN", "zh-Hant", "en-US")]
     [InlineData("zh-CN", "en-US", "fr-FR", "zh-CN")]
+    [InlineData("ja-JP", "en-US", "fr-FR", "ja-JP")]
     public void SystemPreferenceOrderAndManualOverridesAreRespected(string choice, string first, string second, string expected) =>
         Assert.Equal(expected, MobileUiLanguageService.ResolveLanguage(choice, [first, second]));
 
     [Theory]
     [InlineData("auto")]
     [InlineData("zh-CN")]
+    [InlineData("zh-Hant")]
     [InlineData("en-US")]
+    [InlineData("ja-JP")]
+    [InlineData("de-DE")]
+    [InlineData("fr-FR")]
+    [InlineData("ko-KR")]
+    [InlineData("es-ES")]
+    [InlineData("it-IT")]
+    [InlineData("pt-BR")]
     public void LanguageChoiceSurvivesRestartAndPreservesReaderPreferences(string language)
     {
         var store = Store();
@@ -86,7 +105,7 @@ public sealed class MobileUiLanguageTests : IDisposable
 
         system = ["zh-Hant-TW", "en-US"];
         Assert.True(service.Refresh());
-        Assert.Equal("zh-CN", service.Language);
+        Assert.Equal("zh-Hant", service.Language);
         Assert.Equal("auto", store.Current.UiLanguage);
 
         store.Update(value => value with { UiLanguage = "en-US" });
@@ -116,6 +135,32 @@ public sealed class MobileUiLanguageTests : IDisposable
         var title = "中文书名 {1} · English";
         Assert.Equal("Explain this passage: “" + title + "”", UiText.Get("解释这段话：「{0}」", title));
         Assert.Equal("并非界面文字的中文正文", UiText.Get("并非界面文字的中文正文"));
+    }
+
+    [Theory]
+    [InlineData("zh-CN", "我的", "完成")]
+    [InlineData("zh-Hant", "我的", "完成")]
+    [InlineData("en-US", "Profile", "Done")]
+    [InlineData("ja-JP", "マイ", "完了")]
+    [InlineData("de-DE", "Profil", "Fertig")]
+    [InlineData("fr-FR", "Profil", "OK")]
+    [InlineData("ko-KR", "마이", "완료")]
+    [InlineData("es-ES", "Perfil", "Listo")]
+    [InlineData("it-IT", "Profilo", "Fine")]
+    [InlineData("pt-BR", "Perfil", "OK")]
+    public void AllSupportedLanguagesTranslateUiCatalogAndSupportDependents(string language, string expectedProfile, string expectedDone)
+    {
+        _ = new MobileUiLanguageService(Store(), () => [language]);
+        Assert.Equal(expectedProfile, UiText.Get("我的"));
+        Assert.Equal(expectedDone, UiText.Get("完成"));
+        Assert.Equal(language.StartsWith("zh", StringComparison.OrdinalIgnoreCase), UiText.IsChinese);
+        if (!UiText.IsChinese)
+        {
+            var firstMedal = ReadingMedalCatalog.Build(new ReadingDashboard(1, 0, 7200, 5, 0, 5, [], []))[0];
+            Assert.NotEqual("初见书页", firstMedal.Name);
+            var legal = LegalDocuments.GetDocument(LegalDocumentKind.PrivacyPolicy);
+            Assert.Contains("Privacy Policy", legal.Title, StringComparison.OrdinalIgnoreCase);
+        }
     }
 
     [Fact]

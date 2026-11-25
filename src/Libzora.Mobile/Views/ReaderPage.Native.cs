@@ -265,11 +265,13 @@ public partial class ReaderPage
         var hostVisual = _readerHost?.View as Avalonia.Visual;
         var hostWidth = hostVisual is { Bounds.Width: > 0 } ? hostVisual.Bounds.Width : ReaderPaper.Bounds.Width;
         var hostHeight = hostVisual is { Bounds.Height: > 0 } ? hostVisual.Bounds.Height : ReaderPaper.Bounds.Height;
+        var hideSpeechControls = _speechSelectionOnly || _tts?.IsSelectionPlayback == true;
         return new(
             _ready, _nativeChromeVisible, _isPdf, _book.Title,
             FooterChapter.Text ?? string.Empty, FooterPosition.Text ?? string.Empty,
             _overallProgress * 100, FindCurrentBookmark() is not null, _nativeError,
-            _tts?.State ?? TtsPlaybackState.Stopped, SpeechStatusText.Text ?? string.Empty,
+            hideSpeechControls ? TtsPlaybackState.Stopped : (_tts?.State ?? TtsPlaybackState.Stopped),
+            hideSpeechControls ? string.Empty : (SpeechStatusText.Text ?? string.Empty),
             _selection?.Text, _footnoteReturn.Count > 0)
         {
             NavigationRevision = _nativeNavigationRevision,
@@ -277,8 +279,8 @@ public partial class ReaderPage
             PresentationFrameRevision = _nativePresentationFrameRevision,
             IsManga = IsMangaMode,
             IsMangaVerticalScroll = IsMangaVerticalScroll,
-            SpeechSegmentIndex = _tts?.SegmentIndex ?? 0,
-            SpeechSegmentCount = _tts?.SegmentCount ?? 0,
+            SpeechSegmentIndex = hideSpeechControls ? 0 : (_tts?.SegmentIndex ?? 0),
+            SpeechSegmentCount = hideSpeechControls ? 0 : (_tts?.SegmentCount ?? 0),
             SpeechSpeed = _speechSpeed,
             SpeechSleepMinutesRemaining = CurrentSpeechSleepRemainingMinutes(),
             SpeechSleepAfterChapter = _speechSleepAfterChapter,
@@ -427,12 +429,17 @@ public partial class ReaderPage
                 BookKey: document.BookKey, ChapterKey: document.ChapterKey);
             HideSelectionBar();
             SetChromeVisible(false);
-            _speechExpanded = true;
+            _speechSelectionOnly = true;
+            _speechExpanded = false;
             await _tts.StartSelectionAsync(selection, settings, token);
             started = true;
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
-        finally { CompleteSpeechPreparation(request, started); }
+        finally
+        {
+            if (!started) _speechSelectionOnly = false;
+            CompleteSpeechPreparation(request, started);
+        }
     }
 
     public void NativePauseSpeech() => _tts?.PauseOrResume();
@@ -450,6 +457,7 @@ public partial class ReaderPage
     public void NativeSkipSpeechSegment(int direction) => _ = _tts?.SkipSegmentAsync(direction);
     public async Task NativeStopSpeechAsync()
     {
+        _speechSelectionOnly = false;
         CancelSpeechPreparation();
         if (_tts is { } speech) await speech.StopAsync();
     }

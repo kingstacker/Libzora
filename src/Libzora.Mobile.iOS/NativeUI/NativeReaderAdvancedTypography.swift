@@ -69,7 +69,7 @@ struct NativeReaderAdvancedTypography: View {
                             Text(L("左对齐")).tag(true)
                         }
                         .pickerStyle(.segmented)
-                        .frame(width: 140)
+                        .fixedSize()
                         .accessibilityIdentifier("typography.alignment")
                     }
 
@@ -82,7 +82,7 @@ struct NativeReaderAdvancedTypography: View {
                             Text(L("开")).tag(true)
                         }
                         .pickerStyle(.segmented)
-                        .frame(width: 112)
+                        .fixedSize()
                         .accessibilityIdentifier("typography.hyphenation")
                     }
                 }
@@ -97,7 +97,7 @@ struct NativeReaderAdvancedTypography: View {
                             Text(L("开")).tag(true)
                         }
                         .pickerStyle(.segmented)
-                        .frame(width: 112)
+                        .fixedSize()
                         .accessibilityIdentifier("typography.cjkLatinSpacing")
                     }
 
@@ -110,7 +110,7 @@ struct NativeReaderAdvancedTypography: View {
                             Text(L("开")).tag(true)
                         }
                         .pickerStyle(.segmented)
-                        .frame(width: 112)
+                        .fixedSize()
                         .accessibilityIdentifier("typography.widowsOrphans")
                     }
                 }
@@ -126,7 +126,7 @@ struct NativeReaderAdvancedTypography: View {
                             Text(L("开")).tag(2)
                         }
                         .pickerStyle(.segmented)
-                        .frame(width: 156)
+                        .fixedSize()
                         .accessibilityIdentifier("typography.powerSaving")
                     }
                 }

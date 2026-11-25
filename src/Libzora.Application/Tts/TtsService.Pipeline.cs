@@ -171,6 +171,7 @@ public sealed partial class TtsService : IDisposable
         int? expectedStartGeneration = null,
         CancellationTokenSource? expectedStartupCancellation = null)
     {
+        bool isSelection;
         lock (_gate)
         {
             if (_disposed
@@ -185,10 +186,13 @@ public sealed partial class TtsService : IDisposable
             {
                 return;
             }
+            isSelection = _isSelectionPlayback;
             _state = state;
             _message = message;
             _segmentIndex = segmentIndex;
             _segmentCount = segmentCount;
+            if (state is TtsPlaybackState.Stopped or TtsPlaybackState.Error)
+                _isSelectionPlayback = false;
         }
 
         try
@@ -199,7 +203,8 @@ public sealed partial class TtsService : IDisposable
                     state,
                     message,
                     segmentIndex,
-                    segmentCount));
+                    segmentCount,
+                    isSelection));
         }
         catch
         {

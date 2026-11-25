@@ -22,4 +22,8 @@ public static class MobileReaderPagingPolicy
 
     public static int VisualDirection(int direction, bool verticalWriting, bool isPdf = false, bool isRightToLeft = false) =>
         (verticalWriting || isRightToLeft) && !isPdf ? -direction : direction;
+
+    /// <summary>Text selection is suppressed while the reader toolbar chrome is visible.</summary>
+    public static bool AllowsSurfaceSelection(bool chromeVisible, bool isMangaPannable) =>
+        !chromeVisible && !isMangaPannable;
 }

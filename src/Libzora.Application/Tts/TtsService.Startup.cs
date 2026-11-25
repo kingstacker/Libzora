@@ -88,6 +88,7 @@ public sealed partial class TtsService : IDisposable
                 _currentDocumentKey = null;
                 _currentSegmentIndex = -1;
                 _requestedSegmentIndex = -1;
+                _isSelectionPlayback = selection is not null;
                 startupCancellation =
                     CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 _startCancellation = startupCancellation;

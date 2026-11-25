@@ -269,6 +269,64 @@ final class NativeTabletLayoutTests: XCTestCase {
                       "Tapping the AI sidebar close button must dismiss the docked iPad assistant.")
     }
 
+    func testReaderSurvivesMultitaskingAppSwitch() {
+        selectLayout("网格视图", identifier: "books.grid")
+        let book = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'book.'")).firstMatch
+        XCTAssertTrue(book.waitForExistence(timeout: 15))
+        book.tap()
+        revealReaderControls()
+        window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35)).tap()
+        XCTAssertTrue(waitUntil { !self.app.buttons["reader.close"].isHittable })
+
+        let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
+        safari.launch()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+
+        // Activate Libzora back into the reader body, then exercise:
+        // 1) SpringBoard bottom-edge left/right multitasking swipes
+        // 2) Rapid app activation switches between Safari and Libzora
+        // 3) Opening the app switcher and returning to Libzora
+        app.activate()
+        XCTAssertTrue(element("reader.page").waitForExistence(timeout: 10))
+
+        for round in 0..<3 {
+            let sbBottomRight = springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.72, dy: 0.996))
+            let sbBottomLeft = springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.28, dy: 0.996))
+            sbBottomLeft.press(forDuration: 0.02, thenDragTo: sbBottomRight)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.35))
+            sbBottomRight.press(forDuration: 0.02, thenDragTo: sbBottomLeft)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.35))
+
+            safari.activate()
+            RunLoop.current.run(until: Date().addingTimeInterval(0.15))
+            app.activate()
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+            XCTAssertTrue(element("reader.page").waitForExistence(timeout: 10),
+                          "Reader must remain responsive after multitasking switch round \(round)")
+        }
+
+        // Open iPad app switcher via SpringBoard bottom swipe-up and return to Libzora.
+        let sbHomeStart = springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.997))
+        let sbSwitcherHold = springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.65))
+        sbHomeStart.press(forDuration: 0.02, thenDragTo: sbSwitcherHold)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.6))
+        app.activate()
+        XCTAssertTrue(element("reader.page").waitForExistence(timeout: 10))
+
+        // Verify reader body touch/page-turn and toolbar still work smoothly.
+        let beforePos = element("reader.position").label
+        window.coordinate(withNormalizedOffset: CGVector(dx: 0.82, dy: 0.5))
+            .press(forDuration: 0.02, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)))
+        XCTAssertTrue(waitUntil(timeout: 10) { self.element("reader.position").label != beforePos },
+                      "Page turn must still respond after multitasking app switches.")
+
+        revealReaderControls()
+        app.buttons["reader.close"].tap()
+        XCTAssertTrue(app.buttons["library.display"].waitForExistence(timeout: 10))
+    }
+
     private var window: XCUIElement { app.windows.firstMatch }
 
     private func element(_ identifier: String) -> XCUIElement {

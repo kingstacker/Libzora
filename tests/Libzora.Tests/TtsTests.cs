@@ -285,11 +285,14 @@ public sealed class TtsTests
             var prefetchCount = 0;
             var finished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var started = false;
+            var activeStates = new List<TtsStateChangedEventArgs>();
             using var service = new TtsService(engine, new TtsCacheManager(root), player, () => fullDocument,
                 _ => { advanceCount++; return Task.FromResult(true); },
                 prefetchDocumentAccessor: _ => { prefetchCount++; return Task.FromResult<ReaderTtsDocument?>(fullDocument); });
             service.StateChanged += (_, args) =>
             {
+                if (args.State is not (TtsPlaybackState.Stopped or TtsPlaybackState.Error))
+                    activeStates.Add(args);
                 if (args.State == TtsPlaybackState.Generating) started = true;
                 if (started && args.State == TtsPlaybackState.Stopped) finished.TrySetResult();
             };
@@ -297,6 +300,9 @@ public sealed class TtsTests
             var selection = fullDocument with { Text = text, Highlight = (_, _) => Task.CompletedTask };
             await service.StartSelectionAsync(selection, settings);
             await finished.Task.WaitAsync(TimeSpan.FromSeconds(3));
+            Assert.NotEmpty(activeStates);
+            Assert.All(activeStates, args => Assert.True(args.IsSelection));
+            Assert.False(service.IsSelectionPlayback);
             var request = Assert.Single(engine.Requests);
             Assert.Equal(text, request.Text);
             Assert.Equal(settings.Voice, request.Options.Voice);

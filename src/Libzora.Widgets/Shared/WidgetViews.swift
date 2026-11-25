@@ -28,7 +28,7 @@ struct KkContinueWidgetView: View {
     @Environment(\.widgetFamily) private var family
     @Environment(\.colorScheme) private var scheme
 
-    private var isChinese: Bool { KkFormat.isChinese }
+    private var lang: WidgetLanguage { WidgetLocalization.current }
     private var book: KkBook? { entry.snapshot?.continueReading }
     /// In-progress books, newest reading first. Newer snapshots list several;
     /// older ones fall back to the single continueReading book.
@@ -52,8 +52,8 @@ struct KkContinueWidgetView: View {
                 accessoryRectangular
             case .accessoryInline:
                 Label(
-                    book.map { isChinese ? "继续阅读《\($0.title)》" : "Continue \($0.title)" }
-                        ?? (isChinese ? "打开 Libzora 开始阅读" : "Open Libzora to read"),
+                    book.map { WidgetLocalization.continueBook($0.title, lang) }
+                        ?? WidgetLocalization.openToReadShort(lang),
                     systemImage: "book")
                     .kkBodyFont(12)
             default:
@@ -70,8 +70,8 @@ struct KkContinueWidgetView: View {
     private var homeContent: some View {
         if !entry.hasData {
             KkEmptyState(
-                title: isChinese ? "继续阅读" : "Continue Reading",
-                message: isChinese ? "打开 Libzora，开始阅读" : "Open Libzora to start reading")
+                title: WidgetLocalization.continueTitle(lang),
+                message: WidgetLocalization.continueEmptyMessage(lang))
         } else if !books.isEmpty {
             if family == .systemMedium {
                 medium(books)
@@ -80,8 +80,8 @@ struct KkContinueWidgetView: View {
             }
         } else {
             KkEmptyState(
-                title: isChinese ? "书架还空着" : "Empty Shelf",
-                message: isChinese ? "导入一本书，开始阅读" : "Import a book to start reading")
+                title: WidgetLocalization.emptyShelfTitle(lang),
+                message: WidgetLocalization.emptyShelfMessage(lang))
         }
     }
 
@@ -188,11 +188,12 @@ struct KkContinueWidgetView: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.85)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            Text(isChinese ? "已读 \(KkFormat.percent(book.progress))" : "\(KkFormat.percent(book.progress)) read")
+            Text(WidgetLocalization.readPercent(KkFormat.percent(book.progress), lang))
                 .kkLabelFont(9, weight: .medium)
                 .foregroundStyle(KkTheme.secondaryInk(scheme))
                 .monospacedDigit()
                 .lineLimit(1)
+                .minimumScaleFactor(0.72)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(width: slotWidth, alignment: .top)
@@ -201,9 +202,11 @@ struct KkContinueWidgetView: View {
     }
 
     private var heading: some View {
-        Text(isChinese ? "继续阅读" : "Continue Reading")
+        Text(WidgetLocalization.continueTitle(lang))
             .kkLabelFont(11, weight: .medium)
             .foregroundStyle(KkTheme.secondaryInk(scheme))
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
     }
 
     @ViewBuilder
@@ -218,9 +221,11 @@ struct KkContinueWidgetView: View {
 
     private func progress(_ book: KkBook, compact: Bool) -> some View {
         HStack(alignment: .center, spacing: 4) {
-            Text(isChinese ? "已读" : "Read")
+            Text(WidgetLocalization.readLabel(lang))
                 .kkLabelFont(10, weight: .regular)
                 .foregroundStyle(KkTheme.secondaryInk(scheme))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
             Text(KkFormat.percent(book.progress))
                 .kkLabelFont(11, weight: .semibold)
                 .foregroundStyle(KkTheme.ink(scheme))
@@ -237,13 +242,13 @@ struct KkContinueWidgetView: View {
     #if os(iOS)
     private var accessoryRectangular: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Label(isChinese ? "继续阅读" : "Continue", systemImage: "book")
+            Label(WidgetLocalization.continueShort(lang), systemImage: "book")
                 .kkLabelFont(11)
-            Text(book?.title ?? (isChinese ? "打开 Libzora，开始阅读" : "Open Libzora to read"))
+            Text(book?.title ?? WidgetLocalization.continueEmptyMessage(lang))
                 .kkTitleFont(12)
                 .lineLimit(1)
             if let book {
-                Text(isChinese ? "已读 \(KkFormat.percent(book.progress))" : "\(KkFormat.percent(book.progress)) read")
+                Text(WidgetLocalization.readPercent(KkFormat.percent(book.progress), lang))
                     .kkBodyFont(10)
                     .opacity(0.72)
                     .lineLimit(1)
@@ -258,7 +263,7 @@ struct KkStatsWidgetView: View {
     @Environment(\.widgetFamily) private var family
     @Environment(\.colorScheme) private var scheme
 
-    private var isChinese: Bool { KkFormat.isChinese }
+    private var lang: WidgetLanguage { WidgetLocalization.current }
     private var snapshot: KkSnapshot { entry.snapshot ?? KkSnapshot.sample }
     private var reading: KkReading { snapshot.reading }
     private var isLiveSnapshot: Bool { entry.hasData && !entry.isPlaceholder }
@@ -276,8 +281,8 @@ struct KkStatsWidgetView: View {
         Group {
             if !entry.hasData {
                 KkEmptyState(
-                    title: isChinese ? "阅读数据" : "Reading Stats",
-                    message: isChinese ? "打开 Libzora，记录阅读时光" : "Open Libzora to track your reading",
+                    title: WidgetLocalization.statsTitle(lang),
+                    message: WidgetLocalization.statsEmptyMessage(lang),
                     systemImage: "chart.bar")
             } else if family == .systemLarge {
                 large
@@ -291,9 +296,11 @@ struct KkStatsWidgetView: View {
     private var medium: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .firstTextBaseline) {
-                Text(isChinese ? "阅读数据" : "Reading Stats")
+                Text(WidgetLocalization.statsTitle(lang))
                     .kkTitleFont(14)
                     .foregroundStyle(KkTheme.ink(scheme))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
                 Spacer(minLength: 6)
                 streak
             }
@@ -301,29 +308,29 @@ struct KkStatsWidgetView: View {
             HStack(alignment: .bottom, spacing: 12) {
                 VStack(alignment: .leading, spacing: 3) {
                     today(size: 36)
-                    Text(isChinese ? "本周 \(KkFormat.duration(effectiveWeekSeconds))" : "Week \(KkFormat.duration(effectiveWeekSeconds))")
+                    Text(WidgetLocalization.weekDuration(KkFormat.duration(effectiveWeekSeconds), lang))
                         .kkLabelFont(9.5, weight: .regular)
                         .foregroundStyle(KkTheme.secondaryInk(scheme))
                         .lineLimit(1)
-                        .minimumScaleFactor(0.7)
+                        .minimumScaleFactor(0.68)
                 }
-                .frame(minWidth: 82, maxWidth: 98, alignment: .leading)
+                .frame(minWidth: 84, maxWidth: 108, alignment: .leading)
                 KkWeekBars(days: reading.days, referenceDate: isLiveSnapshot ? entry.date : nil, maxHeight: 48, barWidth: 10)
                     .frame(maxWidth: .infinity)
             }
             Spacer(minLength: 8)
             divider
-            HStack(spacing: 0) {
-                KkStat(value: KkFormat.compactCount(reading.booksFinished, isChinese: isChinese),
-                       label: isChinese ? "已读完" : "Finished",
+            HStack(spacing: 4) {
+                KkStat(value: KkFormat.localizedCompactCount(reading.booksFinished, language: lang),
+                       label: WidgetLocalization.finishedLabel(lang),
                        inline: true, alignment: .leading, valueSize: 13, labelSize: 10)
-                Spacer(minLength: 6)
-                KkStat(value: KkFormat.compactCount(reading.bookmarkCount, isChinese: isChinese),
-                       label: isChinese ? "书签" : "Bookmarks",
+                Spacer(minLength: 4)
+                KkStat(value: KkFormat.localizedCompactCount(reading.bookmarkCount, language: lang),
+                       label: WidgetLocalization.bookmarksLabel(lang),
                        inline: true, alignment: .center, valueSize: 13, labelSize: 10)
-                Spacer(minLength: 6)
-                KkStat(value: KkFormat.compactCount(reading.annotationCount, isChinese: isChinese),
-                       label: isChinese ? "划线" : "Notes",
+                Spacer(minLength: 4)
+                KkStat(value: KkFormat.localizedCompactCount(reading.annotationCount, language: lang),
+                       label: WidgetLocalization.notesLabel(lang),
                        inline: true, alignment: .trailing, valueSize: 13, labelSize: 10)
             }
             .padding(.top, 9)
@@ -335,9 +342,11 @@ struct KkStatsWidgetView: View {
     private var large: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .firstTextBaseline) {
-                Text(isChinese ? "阅读数据" : "Reading Stats")
+                Text(WidgetLocalization.statsTitle(lang))
                     .kkTitleFont(18)
                     .foregroundStyle(KkTheme.ink(scheme))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
                 Spacer(minLength: 6)
                 streak
             }
@@ -346,28 +355,28 @@ struct KkStatsWidgetView: View {
                 today(size: 52)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 VStack(alignment: .leading, spacing: 12) {
-                    durationStat(isChinese ? "本周阅读" : "This Week", value: KkFormat.duration(effectiveWeekSeconds))
-                    durationStat(isChinese ? "累计阅读" : "Total Time", value: KkFormat.compactHours(reading.totalSeconds))
+                    durationStat(WidgetLocalization.thisWeekReading(lang), value: KkFormat.duration(effectiveWeekSeconds))
+                    durationStat(WidgetLocalization.totalTime(lang), value: KkFormat.localizedCompactHours(reading.totalSeconds, language: lang))
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             Spacer(minLength: 18)
             VStack(alignment: .leading, spacing: 10) {
-                Text(isChinese ? "本周每日" : "This Week")
+                Text(WidgetLocalization.thisWeekDaily(lang))
                     .kkLabelFont(10, weight: .medium)
                     .foregroundStyle(KkTheme.secondaryInk(scheme))
                 KkWeekBars(days: reading.days, referenceDate: isLiveSnapshot ? entry.date : nil, maxHeight: 92, barWidth: 20)
             }
             Spacer(minLength: 14)
             divider
-            HStack(spacing: 0) {
-                KkStat(value: KkFormat.compactCount(reading.booksStarted, isChinese: isChinese), label: isChinese ? "开始阅读" : "Started", alignment: .center)
-                Spacer(minLength: 8)
-                KkStat(value: KkFormat.compactCount(reading.booksFinished, isChinese: isChinese), label: isChinese ? "已读完" : "Finished", alignment: .center)
-                Spacer(minLength: 8)
-                KkStat(value: KkFormat.compactCount(reading.bookmarkCount, isChinese: isChinese), label: isChinese ? "书签" : "Bookmarks", alignment: .center)
-                Spacer(minLength: 8)
-                KkStat(value: KkFormat.compactCount(reading.annotationCount, isChinese: isChinese), label: isChinese ? "划线笔记" : "Notes", alignment: .center)
+            HStack(spacing: 4) {
+                KkStat(value: KkFormat.localizedCompactCount(reading.booksStarted, language: lang), label: WidgetLocalization.startedLabel(lang), alignment: .center)
+                Spacer(minLength: 4)
+                KkStat(value: KkFormat.localizedCompactCount(reading.booksFinished, language: lang), label: WidgetLocalization.finishedLabel(lang), alignment: .center)
+                Spacer(minLength: 4)
+                KkStat(value: KkFormat.localizedCompactCount(reading.bookmarkCount, language: lang), label: WidgetLocalization.bookmarksLabel(lang), alignment: .center)
+                Spacer(minLength: 4)
+                KkStat(value: KkFormat.localizedCompactCount(reading.annotationCount, language: lang), label: WidgetLocalization.notesDetailedLabel(lang), alignment: .center)
             }
             .padding(.top, 12)
         }
@@ -376,9 +385,11 @@ struct KkStatsWidgetView: View {
 
     private func today(size: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(isChinese ? "今日阅读" : "Today")
+            Text(WidgetLocalization.todayLabel(lang))
                 .kkLabelFont(10, weight: .regular)
                 .foregroundStyle(KkTheme.secondaryInk(scheme))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text("\(max(0, effectiveTodaySeconds / 60))")
                     .kkNumberFont(size)
@@ -386,7 +397,7 @@ struct KkStatsWidgetView: View {
                     .monospacedDigit()
                     .lineLimit(1)
                     .minimumScaleFactor(0.65)
-                Text(isChinese ? "分钟" : "min")
+                Text(WidgetLocalization.minuteUnit(lang))
                     .kkLabelFont(10, weight: .regular)
                     .foregroundStyle(KkTheme.secondaryInk(scheme))
                     .lineLimit(1)
@@ -397,7 +408,7 @@ struct KkStatsWidgetView: View {
     }
 
     private var streak: some View {
-        Text(isChinese ? "连续 \(max(0, effectiveStreakDays)) 天" : "\(max(0, effectiveStreakDays))d streak")
+        Text(WidgetLocalization.streakBadge(effectiveStreakDays, lang))
             .kkLabelFont(10, weight: .medium)
             .foregroundStyle(KkTheme.secondaryInk(scheme))
             .lineLimit(1)
@@ -474,7 +485,7 @@ struct KkWeekBars: View {
                         }
                         .frame(maxWidth: .infinity)
                         .accessibilityElement(children: .ignore)
-                        .accessibilityLabel("\(KkFormat.weekday(day.date))，\(day.seconds > 0 ? KkFormat.duration(day.seconds) : (KkFormat.isChinese ? "0 分钟" : "0 min"))")
+                        .accessibilityLabel("\(KkFormat.weekday(day.date))，\(day.seconds > 0 ? KkFormat.duration(day.seconds) : WidgetLocalization.zeroMinutes())")
                     }
                 }
             }

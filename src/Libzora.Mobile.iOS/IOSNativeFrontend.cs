@@ -43,6 +43,7 @@ internal sealed partial class IOSNativeFrontend
     private string? _readerSessionId;
     private CancellationTokenSource? _readerCancellation;
     private Thickness _nativeSurfaceInsets;
+    private bool _readerSurfaceRenderingPaused;
     private readonly IOSNowPlayingController _nowPlaying;
 
     internal static bool IsAttached => _current is not null;
@@ -75,11 +76,13 @@ internal sealed partial class IOSNativeFrontend
         _observers.Add(UIApplication.Notifications.ObserveDidBecomeActive((_, _) =>
         {
             shell.UiLanguage?.Refresh();
+            ResumeReaderSurfaceRendering(_reader);
             _reader?.Resume();
             _ = shell.CheckDevicesIfDueAsync();
         }));
         _observers.Add(UIApplication.Notifications.ObserveWillResignActive((_, _) =>
         {
+            PauseReaderSurfaceRendering(_reader);
             if (_reader is not { } reader)
             {
                 _widgetSnapshots.Schedule();
@@ -87,6 +90,10 @@ internal sealed partial class IOSNativeFrontend
             }
             if (shell.Services.BackgroundWork is { } background) background.Run(() => PauseReaderAndPublishWidgetsAsync(reader));
             else _ = PauseReaderAndPublishWidgetsAsync(reader);
+        }));
+        _observers.Add(UIApplication.Notifications.ObserveDidEnterBackground((_, _) =>
+        {
+            PauseReaderSurfaceRendering(_reader);
         }));
 
         shell.Modules.Library.Books.DataChanged += (_, _) => _widgetSnapshots.Schedule();
@@ -431,6 +438,10 @@ internal sealed partial class IOSNativeFrontend
                     // text column and leaving a blank band above the footer.
                     TopLevel.SetAutoSafeAreaPadding(_reader, false);
                     _readerSurface.Content = _reader;
+                    if (UIApplication.SharedApplication.ApplicationState == UIApplicationState.Background)
+                        PauseReaderSurfaceRendering(_reader);
+                    else
+                        ResumeReaderSurfaceRendering(_reader);
                     // The reader lives outside the shell's navigation stack, so
                     // shell services (automatic sync) need it reported here.
                     _shell.SetActiveReaderPage(_reader);
@@ -504,12 +515,35 @@ internal sealed partial class IOSNativeFrontend
             throw new InvalidOperationException(UiText.Get("请先阅读并同意用户协议与隐私政策。"));
     }
 
+    private void PauseReaderSurfaceRendering(ReaderPage? reader)
+    {
+        if (_readerSurfaceRenderingPaused) return;
+        var target = reader is null ? null : TopLevel.GetTopLevel(reader) as Avalonia.Controls.Embedding.EmbeddableControlRoot;
+        if (target is null) return;
+        target.StopRendering();
+        _readerSurfaceRenderingPaused = true;
+    }
+
+    private void ResumeReaderSurfaceRendering(ReaderPage? reader)
+    {
+        if (reader is null) return;
+        var target = TopLevel.GetTopLevel(reader) as Avalonia.Controls.Embedding.EmbeddableControlRoot;
+        if (target is null) return;
+        if (_readerSurfaceRenderingPaused)
+        {
+            target.StartRendering();
+            _readerSurfaceRenderingPaused = false;
+        }
+        reader.InvalidateVisual();
+    }
+
     private async Task CloseReaderAsync()
     {
         _nowPlaying.Clear();
         if (_reader is not { } reader) return;
         reader.NativeCancelSearch();
         await reader.PauseAsync();
+        PauseReaderSurfaceRendering(reader);
         _readerSurface.Content = null;
         _reader = null;
         _shell.SetActiveReaderPage(null);

@@ -211,16 +211,41 @@ struct NativeWelcomeView: View {
                         .foregroundStyle(NativeTheme.muted)
                 }
 
-                preferenceSegmentRow(
-                    title: L("语言"),
-                    options: [
-                        ("auto", L("跟随系统")),
-                        ("zh-CN", "简体中文"),
-                        ("en-US", "English")
-                    ],
-                    selection: store.preferences.uiLanguage
-                ) { value in
-                    updatePreference { $0.uiLanguage = value }
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(L("语言"))
+                        .font(NativeTheme.font(13, relativeTo: .caption).weight(.medium))
+                        .foregroundStyle(NativeTheme.secondary)
+
+                    Menu {
+                        let allOptions = [("auto", L("跟随系统"))] + NativeLocalization.supportedLanguages
+                        ForEach(allOptions, id: \.0) { option in
+                            Button {
+                                updatePreference { $0.uiLanguage = option.0 }
+                            } label: {
+                                HStack {
+                                    Text(option.1)
+                                    if store.preferences.uiLanguage == option.0 {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 8) {
+                            Text(NativeLocalization.displayName(for: store.preferences.uiLanguage))
+                                .font(NativeTheme.font(14, relativeTo: .subheadline).weight(.medium))
+                                .foregroundStyle(NativeTheme.ink)
+                                .lineLimit(1)
+                            Spacer(minLength: 8)
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(NativeTheme.secondary)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(NativeTheme.page, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    }
+                    .accessibilityIdentifier("welcome.language")
                 }
 
                 preferenceSegmentRow(
@@ -375,8 +400,7 @@ struct NativeWelcomeView: View {
     private func verticalPreviewColumns(textColor: Color, indent: Bool) -> some View {
         let p1 = L("读书之法，在循序而渐进，熟读而精思。字句既明，则义理自见；纸墨静好，方能心无旁骛。")
         let p2 = L("横排优化中西混排间距，竖排保留传统右起直书，长篇阅读久看不累。")
-        let isEnglish = NativeLocalization.language.hasPrefix("en")
-        if isEnglish {
+        if !NativeLocalization.usesVerticalColumns {
             return AnyView(
                 HStack(alignment: .top, spacing: 14) {
                     ForEach(Array([p2, p1].enumerated()), id: \.offset) { _, paragraph in
@@ -643,7 +667,7 @@ struct NativeWelcomeView: View {
                             .font(NativeTheme.font(12.5, relativeTo: .caption).weight(isSelected ? .semibold : .regular))
                             .foregroundStyle(isSelected ? NativeTheme.page : NativeTheme.ink)
                             .lineLimit(1)
-                            .minimumScaleFactor(0.8)
+                            .minimumScaleFactor(0.72)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 8)
                             .padding(.horizontal, 6)
@@ -715,6 +739,8 @@ struct NativeWelcomeView: View {
                 Text(label)
                     .font(NativeTheme.font(11.5, relativeTo: .caption2).weight(isSelected ? .semibold : .regular))
                     .foregroundStyle(isSelected ? NativeTheme.ink : NativeTheme.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 6)

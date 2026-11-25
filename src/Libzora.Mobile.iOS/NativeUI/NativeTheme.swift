@@ -313,9 +313,9 @@ struct NativeSettingsRow: View {
     var body: some View {
         let _ = uiFont
         HStack(spacing: 8) {
-            Text(title).font(NativeTheme.font())
+            Text(title).font(NativeTheme.font()).lineLimit(2)
             Spacer(minLength: 12)
-            if !value.isEmpty { Text(value).font(NativeTheme.font(14)).foregroundStyle(detailColor).lineLimit(1) }
+            if !value.isEmpty { Text(value).font(NativeTheme.font(14)).foregroundStyle(detailColor).lineLimit(1).minimumScaleFactor(0.85) }
             if chevron { Image(systemName: "chevron.right").font(.system(size: 12, weight: .medium)).foregroundStyle(detailColor.opacity(0.85)) }
         }.frame(minHeight: 22).padding(.vertical, verticalPadding).contentShape(Rectangle())
     }
@@ -393,7 +393,8 @@ struct NativeToggle: View {
         let _ = uiFont
         HStack(spacing: 12) {
             Text(title).font(NativeTheme.font(13)).foregroundStyle(NativeTheme.secondary)
-                .frame(width: 58, alignment: .leading).accessibilityHidden(true)
+                .frame(minWidth: 58, maxWidth: 140, alignment: .leading)
+                .lineLimit(2).minimumScaleFactor(0.85).accessibilityHidden(true)
             Spacer(minLength: 12)
             NativeSwitch(title: title, isOn: $isOn, identifier: identifier).fixedSize()
         }.frame(minHeight: 44).accessibilityElement(children: .contain)

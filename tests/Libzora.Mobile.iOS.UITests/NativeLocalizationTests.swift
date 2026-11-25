@@ -158,6 +158,10 @@ final class NativeLocalizationTests: XCTestCase {
         XCTAssertTrue(waitUntil { self.app.staticTexts["page.profile"].label == "我的" })
 
         launch(system: "fr", locale: "fr_FR")
+        XCTAssertEqual(app.staticTexts["page.profile"].label, "Profil")
+        XCTAssertEqual(try? currentChoice(), "auto")
+
+        launch(system: "ru", locale: "ru_RU")
         XCTAssertEqual(app.staticTexts["page.profile"].label, "Profile")
         XCTAssertEqual(try? currentChoice(), "auto")
         capture("language-system-fallback-english")
@@ -241,9 +245,24 @@ final class NativeLocalizationTests: XCTestCase {
     private func currentChoice() throws -> String {
         let picker = app.buttons["profile.language"]
         let value = picker.value as? String ?? picker.label
-        if value == "English" { return "en-US" }
-        if value == "简体中文" { return "zh-CN" }
-        if ["Follow System", "跟随系统"].contains(value) { return "auto" }
+        let languageMap: [String: String] = [
+            "English": "en-US",
+            "简体中文": "zh-CN",
+            "繁體中文": "zh-Hant",
+            "日本語": "ja-JP",
+            "Deutsch": "de-DE",
+            "Français": "fr-FR",
+            "한국어": "ko-KR",
+            "Español": "es-ES",
+            "Italiano": "it-IT",
+            "Português (Brasil)": "pt-BR"
+        ]
+        if let code = languageMap[value] { return code }
+        let autoLabels = [
+            "Follow System", "跟随系统", "跟隨系統", "システムに従う", "Systemstandard",
+            "Suivre le système", "시스템 설정 따르기", "Seguir al sistema", "Segui sistema", "Seguir sistema"
+        ]
+        if autoLabels.contains(value) { return "auto" }
         throw NSError(domain: "NativeLocalizationTests", code: 1,
                       userInfo: [NSLocalizedDescriptionKey: "Unknown language choice: \(value)"])
     }
@@ -253,7 +272,23 @@ final class NativeLocalizationTests: XCTestCase {
         XCTAssertTrue(picker.waitForExistence(timeout: 10))
         if (try? currentChoice()) == choice { return }
         picker.tap()
-        let labels = choice == "en-US" ? ["English"] : choice == "zh-CN" ? ["简体中文"] : ["Follow System", "跟随系统"]
+        let autoLabels = [
+            "Follow System", "跟随系统", "跟隨系統", "システムに従う", "Systemstandard",
+            "Suivre le système", "시스템 설정 따르기", "Seguir al sistema", "Segui sistema", "Seguir sistema"
+        ]
+        let displayNames: [String: String] = [
+            "en-US": "English",
+            "zh-CN": "简体中文",
+            "zh-Hant": "繁體中文",
+            "ja-JP": "日本語",
+            "de-DE": "Deutsch",
+            "fr-FR": "Français",
+            "ko-KR": "한국어",
+            "es-ES": "Español",
+            "it-IT": "Italiano",
+            "pt-BR": "Português (Brasil)"
+        ]
+        let labels = choice == "auto" ? autoLabels : [displayNames[choice] ?? choice]
         let option = app.buttons.matching(NSPredicate(format: "label IN %@", labels)).firstMatch
         XCTAssertTrue(option.waitForExistence(timeout: 5))
         option.tap()

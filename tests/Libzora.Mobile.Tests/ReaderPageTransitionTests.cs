@@ -289,6 +289,106 @@ public sealed class ReaderPageTransitionTests(MobileUiSession session)
             }
         }, CancellationToken.None);
 
+    [Fact]
+    public Task HostPointerCaptureLostAndPauseCancelInFlightSwipeTransition() =>
+        session.Session.Dispatch(async () =>
+        {
+            var root = Path.Combine(Path.GetTempPath(), "libzora-reader-capture-lost-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(root);
+            var paths = new AppPaths(root);
+            var services = new MobileServices(paths, new TestProtector(), new BookMetadataService(),
+                new UnavailableBookFormatConverter(), new NoFileImportSource());
+            using var modules = MobileComposition.Create(services);
+            var shell = new MobileShell(modules, services, new MobilePreferencesStore(paths));
+            shell.Preferences.Update(p => p with { ReaderPageAnimation = MobilePageAnimation.Push });
+
+            var book = new Book { Id = Guid.NewGuid(), Title = "手势中断测试" };
+            var file = new BookFile { Id = Guid.NewGuid(), BookId = book.Id, Format = "epub", Sha256 = new string('b', 64) };
+            var reader = new ReaderPage(book, modules, shell);
+            reader.UseNativeFrontend();
+            SetField(reader, "_started", true);
+            SetField(reader, "_ready", true);
+            SetField(reader, "_bookFile", file);
+
+            using var host = new NativeReaderHost { Focusable = false };
+            var handler = typeof(ReaderPage)
+                .GetMethod("OnReaderWebMessage", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .CreateDelegate<EventHandler<ReaderWebMessageReceivedEventArgs>>(reader);
+            host.WebMessageReceived += handler;
+            SetField(reader, "_readerHost", host);
+            var hostSlot = reader.FindControl<ContentControl>("ReaderHostSlot")!;
+            hostSlot.Content = host;
+
+            var window = new Window { Width = 390, Height = 844, Content = reader };
+            try
+            {
+                var chapterPath = Path.Combine(root, "chapter.xhtml");
+                var paragraphs = string.Concat(Enumerable.Range(1, 80).Select(i =>
+                    $"<p>第{i}段测试正文，用于生成多页以验证多任务切换手势取消。</p>"));
+                await File.WriteAllTextAsync(chapterPath, $"<html><body>{paragraphs}</body></html>");
+                SetField(reader, "_epubDocument", new EpubReaderDocument(root, [chapterPath], [], ["第一章"]));
+
+                window.Show();
+                await Render();
+
+                var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                host.NavigationCompleted += (_, args) => { if (args.IsSuccess) ready.TrySetResult(); };
+                host.Navigate(new Uri(chapterPath));
+                await ready.Task.WaitAsync(TimeSpan.FromSeconds(15));
+                await host.EnsureCompleteLayoutAsync();
+                await Render();
+
+                Assert.True(host.PageCount >= 3);
+                Assert.Equal(0, host.CurrentPage);
+
+                // Start an interactive horizontal drag; NativeReaderHost captures the pointer.
+                window.MouseDown(new Point(340, 400), MouseButton.Left);
+                await Task.Delay(20);
+                window.MouseMove(new Point(160, 400));
+                await Render();
+                Assert.True(reader.FindControl<Image>("TransitionSnapshot")!.IsVisible);
+
+                // Simulate OS multitasking gesture cancelling the touch on the capturing child host.
+                var pointer = new Avalonia.Input.Pointer(Avalonia.Input.Pointer.GetNextFreeId(), PointerType.Touch, isPrimary: true);
+                host.RaiseEvent(new PointerCaptureLostEventArgs(host, pointer));
+                await Render();
+
+                Assert.False(reader.FindControl<Image>("TransitionSnapshot")!.IsVisible);
+                Assert.Null(GetField<object?>(reader, "_interactiveDrag"));
+                Assert.Null(GetField<Point?>(reader, "_pressPoint"));
+                Assert.Equal(0, host.CurrentPage);
+
+                // Pause/Resume must also clear any remaining gesture state cleanly.
+                window.MouseDown(new Point(340, 400), MouseButton.Left);
+                await Task.Delay(20);
+                window.MouseMove(new Point(160, 400));
+                await Render();
+                await reader.PauseAsync();
+                reader.Resume();
+                await Render();
+
+                Assert.False(reader.FindControl<Image>("TransitionSnapshot")!.IsVisible);
+                Assert.Null(GetField<object?>(reader, "_interactiveDrag"));
+                Assert.False(GetField<bool>(reader, "_suppressScrollUpdatesDuringDrag"));
+                Assert.Equal(0, host.CurrentPage);
+
+                // Normal center tap must still reveal chrome even when the host
+                // releases pointer capture inside OnPointerReleased.
+                Assert.False(reader.IsChromeVisible);
+                window.MouseDown(new Point(195, 400), MouseButton.Left);
+                await Task.Delay(20);
+                window.MouseUp(new Point(195, 400), MouseButton.Left);
+                await Render();
+                Assert.True(reader.IsChromeVisible);
+            }
+            finally
+            {
+                window.Close();
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+            }
+        }, CancellationToken.None);
+
     private static T GetField<T>(object target, string name) =>
         (T)target.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(target)!;
 

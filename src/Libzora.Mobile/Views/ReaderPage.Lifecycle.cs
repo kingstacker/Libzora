@@ -106,6 +106,9 @@ public partial class ReaderPage
     {
         var now = DateTimeOffset.UtcNow;
         _isReaderForeground = false;
+        CancelActiveTransition();
+        CancelSurfaceGesture(clearTouches: true);
+        (_readerHost as NativePdfReaderHost)?.CancelPointerInteraction();
         Interlocked.Add(ref _unsavedSeconds, _activityClock.Pause(now));
         Interlocked.Add(ref _unsavedListeningSeconds, _listeningClock.CountUntil(now));
         return SaveProgressSoonAsync(force: true);
@@ -114,7 +117,7 @@ public partial class ReaderPage
     public void Resume()
     {
         _isReaderForeground = true;
-        ResetTouches();
+        CancelSurfaceGesture(clearTouches: true);
         if (!_listeningClock.IsPlaying)
             _activityClock.Resume(DateTimeOffset.UtcNow);
     }

@@ -541,7 +541,7 @@ public partial class ReaderPage
                     _ = AdvanceContinuousChapterAsync(host, Math.Sign(direction));
                 }
             }
-            else if (type.GetString() == "selection" && _expectSelection)
+            else if (type.GetString() == "selection" && _expectSelection && !IsChromeVisible)
             {
                 _expectSelection = false;
                 if (root.TryGetProperty("text", out var text) && text.GetString() is { Length: > 0 } selected)

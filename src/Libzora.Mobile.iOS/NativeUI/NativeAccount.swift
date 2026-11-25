@@ -145,6 +145,8 @@ struct NativeAccountPage: View {
                 Text(L("服务器区域"))
                     .font(NativeTheme.font())
                     .foregroundStyle(NativeTheme.ink)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.85)
                 Spacer(minLength: 12)
                 Picker(L("服务器区域"), selection: Binding(get: { store.account?.region ?? 0 }, set: { selectRegion($0) })) {
                     Text(L("中国区")).tag(0); Text(L("国际区")).tag(1)

@@ -109,6 +109,13 @@ public partial class ReaderPage
 
     public void SetChromeVisible(bool visible)
     {
+        if (visible)
+        {
+            _longPress.Stop();
+            _selectionArmed = false;
+            _expectSelection = false;
+            ClearSelection();
+        }
         if (_usesNativeFrontend)
         {
             _nativeChromeVisible = visible;
@@ -320,9 +327,13 @@ public partial class ReaderPage
         _selectionArmed = false;
         _expectSelection = false;
         _tapConsumed = false;
-        if (!IsMangaPannable)
+        if (MobileReaderPagingPolicy.AllowsSurfaceSelection(IsChromeVisible, IsMangaPannable))
         {
             _longPress.Start();
+        }
+        if (IsChromeVisible)
+        {
+            e.Handled = true;
         }
     }
 
@@ -336,6 +347,17 @@ public partial class ReaderPage
         CancelPendingDelayedTap();
     }
 
+    private void CancelSurfaceGesture(bool clearTouches = true)
+    {
+        CancelInteractiveDragImmediate();
+        CancelPress();
+        StopScrollInertia();
+        _pressMoved = false;
+        _panning = false;
+        _dragAttempted = false;
+        if (clearTouches) ResetTouches();
+    }
+
     /// <summary>
     /// A long press selects the character or word under the finger and opens
     /// the floating menu immediately. If the point has no text (a link,
@@ -344,7 +366,7 @@ public partial class ReaderPage
     private void OnLongPress(object? sender, EventArgs e)
     {
         _longPress.Stop();
-        if (_pressPoint is not { } point || _pressMoved) return;
+        if (_pressPoint is not { } point || _pressMoved || !MobileReaderPagingPolicy.AllowsSurfaceSelection(IsChromeVisible, IsMangaPannable)) return;
         _selectionArmed = true;
         if (_readerHost is not IReaderSelectionHost host) return;
 
@@ -385,6 +407,11 @@ public partial class ReaderPage
         {
             _pressMoved = true;
             _longPress.Stop();
+        }
+        if (IsChromeVisible)
+        {
+            e.Handled = true;
+            return;
         }
         if (IsPdfPannable)
         {
@@ -497,6 +524,10 @@ public partial class ReaderPage
             return;
         }
         _pressPoint = null;
+        if (IsChromeVisible)
+        {
+            e.Handled = true;
+        }
         if (_selectionArmed)
         {
             _selectionArmed = false;

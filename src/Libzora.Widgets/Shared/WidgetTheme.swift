@@ -356,6 +356,7 @@ struct KkStat: View {
                     .kkLabelFont(max(9, labelSize - 0.5), weight: .regular)
                     .foregroundStyle(KkTheme.secondaryInk(scheme))
                     .lineLimit(1)
+                    .minimumScaleFactor(0.75)
                     .fixedSize(horizontal: true, vertical: false)
             }
         } else {
@@ -376,6 +377,6 @@ struct KkStat: View {
             .kkLabelFont(labelSize, weight: .regular)
             .foregroundStyle(KkTheme.secondaryInk(scheme))
             .lineLimit(1)
-            .minimumScaleFactor(0.8)
+            .minimumScaleFactor(0.68)
     }
 }

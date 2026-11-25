@@ -24,6 +24,7 @@ public partial class ReaderPage
     private CancellationTokenSource? _speechCancellation;
     private bool _speechPreparing;
     private bool _speechExpanded;
+    private bool _speechSelectionOnly;
     private int _speechDockVersion;
     private double _speechSpeed = 1.0;
     private CancellationTokenSource? _speechSleepCts;
@@ -195,11 +196,13 @@ public partial class ReaderPage
         if (_disposed) return;
         cancellationToken.ThrowIfCancellationRequested();
         HideSelectionBar();
-        if (_speechPreparing || _tts is { State: not (TtsPlaybackState.Stopped or TtsPlaybackState.Error) })
+        var selectionPlaying = _tts?.IsSelectionPlayback == true || _speechSelectionOnly;
+        if (!selectionPlaying && (_speechPreparing || _tts is { State: not (TtsPlaybackState.Stopped or TtsPlaybackState.Error) }))
         {
             await NativeStopSpeechAsync();
             return;
         }
+        _speechSelectionOnly = false;
         if (_shell.Services is not { CreateTtsEngine: { } createEngine, CreateTtsPlayer: { } createPlayer })
         {
             _shell.ShowToast(UiText.Get("这台设备不支持朗读"));
@@ -391,15 +394,20 @@ public partial class ReaderPage
         }
 
         var active = e.State is not (TtsPlaybackState.Stopped or TtsPlaybackState.Error);
+        var isSelection = active && e.IsSelection;
+        _speechSelectionOnly = isSelection;
         if (!active)
         {
             _speechDockVersion++;
             _speechExpanded = false;
             ClearSpeechSleepTimer();
         }
-        SpeechBar.IsVisible = !_usesNativeFrontend && active && _speechExpanded;
-        SpeechDock.IsVisible = !_usesNativeFrontend && active && !_speechExpanded;
-        RefreshSpeechUiText(e.State, e.SegmentIndex, e.SegmentCount);
+        var showControls = active && !isSelection;
+        SpeechBar.IsVisible = !_usesNativeFrontend && showControls && _speechExpanded;
+        SpeechDock.IsVisible = !_usesNativeFrontend && showControls && !_speechExpanded;
+        RefreshSpeechUiText(isSelection ? TtsPlaybackState.Stopped : e.State,
+            isSelection ? 0 : e.SegmentIndex,
+            isSelection ? 0 : e.SegmentCount);
         if (this.TryFindResource(e.State == TtsPlaybackState.Paused ? "IconPlay" : "IconPause", out var icon)
             && icon is Avalonia.Media.Geometry geometry)
         {
@@ -718,9 +726,21 @@ public partial class ReaderPage
 
     private void OnSurfaceCaptureLost(object? sender, PointerCaptureLostEventArgs e)
     {
-        _touches.Remove(e.Pointer.Id);
-        if (_touches.Count == 0) _pinching = false;
-        CancelInteractiveDragImmediate();
+        var hadTouch = _touches.Remove(e.Pointer.Id);
+        // Normal pointer release already finalized the gesture before freeing
+        // host capture; keep _tapConsumed untouched so single taps still fire.
+        if (_pressPoint is null
+            && _interactiveDrag is null
+            && !_selectionArmed
+            && !_panning
+            && !_pinching
+            && !hadTouch
+            && _touches.Count == 0)
+        {
+            return;
+        }
+        CancelSurfaceGesture(clearTouches: _touches.Count == 0);
+        (_readerHost as NativePdfReaderHost)?.CancelPointerInteraction();
     }
 
     private void ResetTouches()

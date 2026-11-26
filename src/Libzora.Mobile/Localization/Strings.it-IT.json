@@ -1219,5 +1219,12 @@
   "（当前设备）": " (questo dispositivo)",
   "（页面位置 {0:0.0}%, {1:0.0}%）": " (posizione {0:0.0}%, {1:0.0}%)",
   "，评分 {0}": ", voto {0}",
-  "{0}\n\n继续后，这些删除会同步到其他设备。": "{0}\n\nSe continui, queste eliminazioni verranno sincronizzate con gli altri dispositivi."
+  "{0}\n\n继续后，这些删除会同步到其他设备。": "{0}\n\nSe continui, queste eliminazioni verranno sincronizzate con gli altri dispositivi.",
+  "AI 数据发送授权": "Consenso all'invio di dati all'IA",
+  "使用 AI 助手或 AI 翻译时，您的问题、对话上下文以及当前书籍的相关文本片段（或所选正文）将发送至您配置的第三方 AI 服务 {0}（模型：{1}）进行处理，可能产生服务费用。请勿发送无权提供的个人信息或保密内容。您可随时在“我的 → AI 接口”中修改或撤销授权。": "Quando usi l'assistente IA o la traduzione IA, le tue domande, il contesto della conversazione e i brani rilevanti (o il testo selezionato) del libro corrente verranno inviati al servizio IA di terze parti configurato {0} (modello: {1}). Potrebbero essere applicati costi. Non inviare dati personali o riservati senza autorizzazione. Puoi modificare o revocare il consenso in qualsiasi momento in Profilo → Endpoint IA.",
+  "同意并继续": "Accetta e continua",
+  "已取消 AI 授权，未发送任何内容。": "Consenso IA rifiutato. Non è stato inviato nulla.",
+  "撤销 AI 授权": "Revoca consenso IA",
+  "已撤销 AI 授权，下次使用 AI 功能时会重新确认。": "Consenso IA revocato. Ti verrà chiesta nuovamente conferma prima del prossimo utilizzo.",
+  "已授权向 {0} 发送阅读问题与相关片段。": "Autorizzato a inviare domande di lettura e brani pertinenti a {0}."
 }

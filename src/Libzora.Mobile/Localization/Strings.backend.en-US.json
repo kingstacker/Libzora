@@ -255,5 +255,9 @@
   "自定义同步": "Custom Sync",
   "请先登录当前区域的账号后领取免费试用。": "Sign in to an account in this region first to claim the free trial.",
   "远端清理未完成：{0}": "Remote cleanup incomplete: {0}",
-  "（页面位置 {0:0.0}%, {1:0.0}%）": " (page position {0:0.0}%, {1:0.0}%)"
+  "（页面位置 {0:0.0}%, {1:0.0}%）": " (page position {0:0.0}%, {1:0.0}%)",
+  "AI 数据发送授权": "AI Data Sharing Consent",
+  "使用 AI 助手或 AI 翻译时，您的问题、对话上下文以及当前书籍的相关文本片段（或所选正文）将发送至您配置的第三方 AI 服务 {0}（模型：{1}）进行处理，可能产生服务费用。请勿发送无权提供的个人信息或保密内容。您可随时在“我的 → AI 接口”中修改或撤销授权。": "When using AI Assistant or AI Translation, your questions, conversation context, and relevant excerpts (or selected text) from the current book will be sent to your configured third-party AI service {0} (model: {1}). Service fees may apply. Do not send personal or confidential information you are not authorized to share. You can change or revoke this consent anytime in Me → AI Endpoint.",
+  "同意并继续": "Agree and Continue",
+  "已取消 AI 授权，未发送任何内容。": "AI consent was declined. Nothing was sent."
 }

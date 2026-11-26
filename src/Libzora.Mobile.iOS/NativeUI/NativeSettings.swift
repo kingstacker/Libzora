@@ -540,11 +540,13 @@ struct NativeLibrarySettings: View {
 }
 
 struct NativeAiSettings: View {
+    private static let aiConsentKey = "libzora.ai.consent.destination.v1"
     @ObservedObject var store: NativeStore
     @State private var form = AiForm()
     @State private var busy = false
     @State private var loading = true
     @State private var status = ""
+    @State private var authorizedDestination = ""
     @State private var fetchedModels: [String] = []
     @State private var showModelPicker = false
     @State private var providerTask: Task<Void, Never>?
@@ -599,6 +601,25 @@ struct NativeAiSettings: View {
                     }
                 }
             }
+            if !authorizedDestination.isEmpty {
+                Section {
+                    Button(role: .destructive) {
+                        UserDefaults.standard.removeObject(forKey: Self.aiConsentKey)
+                        authorizedDestination = ""
+                        status = L("已撤销 AI 授权，下次使用 AI 功能时会重新确认。")
+                    } label: {
+                        HStack {
+                            Spacer()
+                            Text(L("撤销 AI 授权"))
+                            Spacer()
+                        }.frame(minHeight: 26).contentShape(Rectangle())
+                    }.accessibilityIdentifier("ai.revokeConsent")
+                } footer: {
+                    Text(L("已授权向 {0} 发送阅读问题与相关片段。", authorizedDestination))
+                        .font(NativeTheme.font(12, relativeTo: .caption))
+                        .foregroundStyle(store.preferences.colorfulMode ? NativeTheme.secondaryOnColorful : NativeTheme.secondary)
+                }
+            }
         }.disabled(loading || busy)
             .navigationTitle(L("AI 接口")).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false).modifier(NativeKeyboardDone())
             .nativeBackButton()
@@ -606,6 +627,7 @@ struct NativeAiSettings: View {
             .task {
                 loading = true
                 defer { loading = false }
+                authorizedDestination = UserDefaults.standard.string(forKey: Self.aiConsentKey) ?? ""
                 do { form = try await store.request("settings.ai.get") }
                 catch { if !Task.isCancelled { status = error.localizedDescription } }
             }

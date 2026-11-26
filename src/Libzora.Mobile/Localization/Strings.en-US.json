@@ -610,5 +610,8 @@
   "阅读用户协议": "User Agreement",
   "阅读隐私政策": "Privacy Policy",
   "同意并开始使用": "Agree & Continue",
-  "需勾选同意用户协议与隐私政策后方可继续使用": "Please agree to the User Agreement and Privacy Policy to continue"
+  "需勾选同意用户协议与隐私政策后方可继续使用": "Please agree to the User Agreement and Privacy Policy to continue",
+  "撤销 AI 授权": "Revoke AI Consent",
+  "已撤销 AI 授权，下次使用 AI 功能时会重新确认。": "AI consent revoked. You will be asked to confirm again before the next AI request.",
+  "已授权向 {0} 发送阅读问题与相关片段。": "Authorized to send reading questions and relevant excerpts to {0}."
 }

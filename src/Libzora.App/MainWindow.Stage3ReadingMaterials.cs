@@ -84,7 +84,7 @@ public partial class MainWindow
         return true;
     }
 
-    private async Task RefreshReadingMaterialsAsync()
+    private async Task RefreshReadingMaterialsCoreAsync()
     {
         var selectedKeys = _allStage3ReadingMaterials.Where(item => item.IsSelected)
             .Select(GetReadingMaterialSelectionKey).ToHashSet();
@@ -188,38 +188,7 @@ public partial class MainWindow
 
             if (CurrentDevice is { CanReadNotes: true } device && _kindle is not null)
             {
-                IReadOnlyList<KindleClipping>? clippings = null;
-                await TrackDeviceOperationAsync(async () =>
-                {
-                    if (_deviceClippingCache.TryGetValue(device.Identity, out var cached)
-                        && !cached.Any(clip => clip.IsReadOnly && clip.Type == KindleClippingType.Highlight && clip.SourceBook is null))
-                        clippings = cached;
-                    else
-                    {
-                        clippings = await _kindle.ReadClippingsAsync(
-                            device,
-                            _lifetimeCancellation.Token,
-                            MaxReadingMaterials + 1);
-                        _deviceClippingCache[device.Identity] = clippings;
-                    }
-                    if (clippings.Any(KindleAnnotationClippingTextResolver.NeedsResolution))
-                    {
-                        var booksToResolve = DeviceBooks.Select(card => card.Book).ToArray();
-                        var clippingsToResolve = clippings;
-                        await RunKindleAnnotationTaskAsync(
-                            T("读取 Kindle 划线原文"),
-                            cancellable: false,
-                            async (progress, _) =>
-                            {
-                                await KindleAnnotationClippingTextResolver.ResolveAsync(device,
-                                    booksToResolve, clippingsToResolve, _kindle,
-                                    _lifetimeCancellation.Token, progress);
-                                return true;
-                            },
-                            _lifetimeCancellation.Token);
-                    }
-                    await PersistDeviceAuxiliaryCacheAsync(device);
-                });
+                var clippings = await ReadKindleClippingsForDisplayAsync(device);
                 readingMaterialsTruncated |= (clippings?.Count ?? 0) > MaxReadingMaterials;
                 var clippingInput = (clippings ?? [])
                     .Take(MaxReadingMaterials + 1)
@@ -269,6 +238,10 @@ public partial class MainWindow
             // list must not wait for it. It handles its own errors.
             if (CurrentDevice is { CanReadNotes: true } currentDevice)
                 _ = PromptKindleAnnotationSyncIfNeededAsync(currentDevice);
+        }
+        catch (OperationCanceledException)
+        {
+            // Disconnect/eject and task-record cancellation stop the read-only scan.
         }
         catch (Exception exception)
         {
@@ -392,7 +365,11 @@ public partial class MainWindow
             group.IsExpanded = !group.IsExpanded;
     }
 
-    private void MarkReadingMaterialsDirty() => _readingMaterialsDirty = true;
+    private void MarkReadingMaterialsDirty()
+    {
+        _readingMaterialsDirty = true;
+        if (_readingMaterialsRefreshTask is { IsCompleted: false }) _readingMaterialsRefreshPending = true;
+    }
 
     private void RememberReadingMaterialGroupStates()
     {
@@ -638,8 +615,10 @@ public partial class MainWindow
 
     private async void RefreshReadingMaterialsButton_Click(object? sender, RoutedEventArgs e)
     {
-        if (CurrentDevice is { } currentDevice) _deviceClippingCache.Remove(currentDevice.Identity);
-        await RefreshDevicesAsync(scanBooks: false);
+        if (CurrentDevice is { } currentDevice) RequestKindleClippingReload(currentDevice, retryUnresolved: true);
+        // Refresh file version metadata too; an old shelf stamp cannot validate changed device books.
+        _deviceBooksDirty = true;
+        await RefreshDevicesAsync(scanBooks: true);
         await RefreshReadingMaterialsAsync();
     }
 
@@ -682,7 +661,7 @@ public partial class MainWindow
             {
                 await EnsureCurrentDeviceAsync(device);
                 await TrackDeviceOperationAsync(() => _kindle.DeleteClippingsAsync(device, kindleIds, _lifetimeCancellation.Token));
-                _deviceClippingCache.Remove(device.Identity);
+                RequestKindleClippingReload(device);
                 await PersistDeviceAuxiliaryCacheAsync(device);
             }
             foreach (var item in selected.Where(item => item.LocalAnnotation is not null))

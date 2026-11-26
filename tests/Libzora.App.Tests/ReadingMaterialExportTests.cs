@@ -81,7 +81,7 @@ public sealed partial class SettingsTests
         await using var scope = await TestWindow.Create();
         await LoadExportNotesAsync(scope);
         scope.Get<Button>("ExportReadingMaterialsToggleButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-        var message = scope.Call<Task>("ShowMessageAsync", "测试提示", "虚构提示内容", null);
+        var message = scope.Call<Task>("ShowMessageAsync", "测试提示", "虚构提示内容", null, null, null);
         await Until(() => scope.Get<Control>("MessageOverlay").IsVisible);
         scope.Window.KeyPress(Key.Escape, RawInputModifiers.None, PhysicalKey.Escape, null);
         scope.Window.KeyRelease(Key.Escape, RawInputModifiers.None, PhysicalKey.Escape, null);
@@ -191,7 +191,8 @@ public sealed partial class SettingsTests
         await Render();
 
         Assert.Contains("selected", card.Classes);
-        Assert.True(scope.Get<Button>("DeleteReadingMaterialsButton").IsEnabled);
+        // The Kobo fixture is read-only: selecting it must not enable deletion.
+        Assert.False(scope.Get<Button>("DeleteReadingMaterialsButton").IsEnabled);
 
         scope.Get<Button>("ExportReadingMaterialsToggleButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         await Render();

@@ -609,9 +609,14 @@ extension NativeStore {
             let theme = preferences.readerThemeFollowsAppearance
                 ? (appearance == .dark ? 5 : 0) : preferences.readerTheme
             let paper = UIColor(preferences.paper(for: theme, pureBlackOled: false))
+            let ambientWash = shouldUseReaderAmbient
+                ? window.flatMap { NativeAmbientPalette.renderWashImage(colors: ambient.colors, size: $0.bounds.size) }
+                : nil
+            let ambientOpacity = readerAmbientOpacity
             let handoff = window.flatMap { window in
                 NativeBookCloseTransition(window: window, readerView: readerPresentationView,
-                    fallback: { self.captureNavigationSnapshot() }, paper: paper, preparedSnapshot: pageSnapshot)
+                    fallback: { self.captureNavigationSnapshot() }, paper: paper, preparedSnapshot: pageSnapshot,
+                    ambientWash: ambientWash, ambientOpacity: ambientOpacity)
             }
             closingWindowTransition?.finish()
             closingWindowTransition = handoff

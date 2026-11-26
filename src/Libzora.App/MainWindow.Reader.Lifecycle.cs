@@ -107,7 +107,7 @@ public partial class MainWindow
             await SaveReaderCheckpointBeforeCloseAsync();
             await SaveReaderPreferencesBeforeCloseAsync();
 
-            StopReaderStatsTimer();
+            StopAndCaptureReaderReadingTime();
             // Reading time is accounted by the active-seconds flush (the stats
             // timer), matching the WinUI reference: time only accrues while the
             // window is active and the reader is visible.

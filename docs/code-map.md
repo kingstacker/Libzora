@@ -77,8 +77,8 @@ pattern: `MainWindow.<Area><Aspect>.cs`.
 | `MainWindow.Stage3DeviceTransfer*.cs` | Send books to Kindle over USB or email. |
 | `MainWindow.Stage3DeviceExport.cs` | Export and delete device books. |
 | `MainWindow.KindleAnnotationSync.cs` | Kindle USB highlights, notes and bookmarks sync UI. |
-| `MainWindow.KindleFullSync.cs` | Unified Kindle USB two-way sync (books, bookmarks, highlights, notes). |
-| `MainWindow.Stage3ReadingMaterials.cs` | Collected highlights and notes. |
+| `MainWindow.KindleFullSync.cs` | Unified Kindle USB two-way sync, rechecking bookmarks/highlights/notes for newly shared books after transfer. |
+| `MainWindow.Stage3ReadingMaterials.cs`, `MainWindow.Stage3ReadingMaterials.Kindle.cs` | Collected highlights and notes; coalesced page loads, cancellable Kindle text reads and version-checked persisted clipping reuse. |
 | `MainWindow.Stage3DeviceResources.cs` | Device fonts and dictionaries. |
 | `MainWindow.Stage3Dashboard.cs` | Reading dashboard, diagnostics, library trash. |
 | `MainWindow.Stage3ReaderAiSettings.cs` | Reader AI settings. |
@@ -137,12 +137,14 @@ Large services are split by responsibility so one change opens one file:
 | `S3SyncService.Database*.cs` | connection, snapshot, apply-remote (sync core), merge, dedupe, blobs, SQL, tombstones |
 | `SqliteBookLibraryService.*.cs` | queries, import, mutations, trash, collections, file paths, readers, schema |
 | `ReaderDataService.*.cs` | annotations, layout, stats, durable completion/migration (`.Completion.cs`), index, embeddings, search |
-| `ReadingTimeSlice.cs` (Core), `ReadingTimeSyncTracker*.cs` | effective UTC day splitting and grow-only visual/listening counters, including backward-compatible listening migration |
+| `ReadingTimeSlice.cs`, `ReadingActivityClock.cs` (Core), `ReadingTimeSyncTracker*.cs` | shared activity/listening clocks, UTC day splitting, accumulator and grow-only visual/listening counters, including backward-compatible listening migration |
 | `EpubReaderPreparationService.*.cs` | toc, navigation, chapter titles, duplicate cover normalization, index cache, extraction, XML, sanitizer, footnote-container detection |
 | `PluginBridge.*.cs` | dispatch, content, AI, network, decode |
 | `EpubTranslationService.*.cs` | translate, retry, render, documents, text tools, cache, types |
 | `PinyinBookService.*.cs` | generate, annotate, AI review, documents, cache, types |
 | `TtsService.*.cs` | startup, control, run, pipeline, lifecycle |
+| `KindleAnnotationSyncService*.cs`, `KindleAnnotationBookTextCache.cs`, `KindleAnnotationClippingTextResolver.cs`, `KindleBookTextService*.cs` | annotation reconciliation, exact-ID/point bookmark merging and repair (`.Bookmarks.cs`, `.BookmarkPositions.cs`), paragraph-bounded/image-safe bookmark anchors, shared bounded/single-flight text cache and exact-edition display reuse; write plans always read fresh text |
+| `ReaderContentPosition*.cs` (Core), `ReaderContentPositionJson.cs` | page-independent text/image positions and backward-compatible original-text evidence, persisted without new database columns |
 | `MtpKindleDeviceService.*.cs` | books, resources, annotations, scan, session |
 | `LibzoraMcpTools.*.cs` + `McpResults.cs` | library, collections, content, devices, validation, projection, result records |
 | `NativePdfReaderHost.*.cs` + `PdfReaderLayout.cs` | interaction, annotation callouts, search, rendering, pointer, layout, view, auto-crop, dark coloring |

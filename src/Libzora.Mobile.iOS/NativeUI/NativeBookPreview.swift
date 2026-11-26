@@ -13,6 +13,7 @@ struct NativeBookPreviewRequest: Identifiable {
     let book: LibraryBook
     var source: Source = .shelf
     var isListRow = false
+    var galleryMode = false
     /// The source card's frame in window coordinates.
     let sourceFrame: CGRect
     let coverWidth: CGFloat
@@ -129,7 +130,7 @@ struct NativeBookPreviewOverlay: View {
                             .frame(width: request.sourceFrame.width, alignment: .leading)
                     } else {
                         NativeBookTile(book: request.book, width: request.coverWidth, muted: request.muted,
-                                       galleryMode: request.source == .seriesStack,
+                                       galleryMode: request.galleryMode || request.source == .seriesStack,
                                        showRating: request.showRating, showSyncStatus: request.showSyncStatus,
                                        previewing: true)
                             .frame(width: request.coverWidth)

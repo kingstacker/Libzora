@@ -8,7 +8,9 @@ import UIKit
 final class NativeBookCloseTransition: UIView {
     private let dimming = UIView()
     private let shadow = UIView()
+    private let shadowWash = UIImageView()
     private let page = UIView()
+    private let pageWash = UIImageView()
     private let snapshot: UIView
     private let leaf = UIImageView()
     private let shading = UIView()
@@ -19,7 +21,7 @@ final class NativeBookCloseTransition: UIView {
     private var progress = 1.0
 
     init?(window: UIWindow, readerView: UIView?, fallback: () -> UIImage?, paper: UIColor,
-          preparedSnapshot: UIView?) {
+          preparedSnapshot: UIView?, ambientWash: UIImage? = nil, ambientOpacity: CGFloat = 0) {
         guard window.bounds.width > 10, window.bounds.height > 10 else { return nil }
         // A UIKit snapshot retains the compositor's Metal contents; drawing
         // just AvaloniaView into a bitmap can silently return blank paper.
@@ -50,9 +52,22 @@ final class NativeBookCloseTransition: UIView {
         addSubview(dimming)
         shadow.backgroundColor = paper
         shadow.layer.shadowColor = UIColor.black.cgColor
+        if let ambientWash, ambientOpacity > 0 {
+            shadowWash.image = ambientWash
+            shadowWash.contentMode = .scaleToFill
+            shadowWash.clipsToBounds = true
+            shadowWash.alpha = ambientOpacity
+            shadow.addSubview(shadowWash)
+        }
         addSubview(shadow)
         page.backgroundColor = paper
         page.clipsToBounds = true
+        if let ambientWash, ambientOpacity > 0 {
+            pageWash.image = ambientWash
+            pageWash.contentMode = .scaleToFill
+            pageWash.alpha = ambientOpacity
+            page.addSubview(pageWash)
+        }
         snapshot.isUserInteractionEnabled = false
         snapshot.frame = CGRect(origin: .zero, size: snapshotSize)
         page.addSubview(snapshot)
@@ -131,6 +146,10 @@ final class NativeBookCloseTransition: UIView {
                                height: max(1, size.height - shadowInset))
         shadow.center = center
         shadow.layer.cornerRadius = cornerRadius
+        if shadowWash.superview === shadow {
+            shadowWash.frame = shadow.bounds
+            shadowWash.layer.cornerRadius = cornerRadius
+        }
         shadow.layer.shadowOpacity = Float(flightShadow.opacity)
         shadow.layer.shadowRadius = flightShadow.radius
         shadow.layer.shadowOffset = CGSize(width: 0, height: flightShadow.y)
@@ -141,6 +160,9 @@ final class NativeBookCloseTransition: UIView {
         page.bounds = CGRect(origin: .zero, size: size)
         page.center = center
         page.layer.cornerRadius = cornerRadius
+        if pageWash.superview === page {
+            pageWash.frame = page.bounds
+        }
         let pageScale = size.width / max(1, snapshotSize.width)
         snapshot.transform = CGAffineTransform(scaleX: pageScale, y: pageScale)
         snapshot.center = CGPoint(x: size.width / 2, y: size.height / 2)

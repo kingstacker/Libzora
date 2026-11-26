@@ -283,11 +283,11 @@ struct NativeStateLogicTests {
                 source: .restore, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: pageAnimation) == .slide,
                 "Closing a launch-restored book slides back cleanly")
             check(NativeBookOpenTransitionPolicy.openAnimation(
-                source: .continueReading, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: pageAnimation) == .slide,
-                "Continue-reading entry always slides in from the right")
+                source: .continueReading, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: pageAnimation) == .cover,
+                "Continue-reading entry in the library uses the 3D cover animation")
             check(NativeBookOpenTransitionPolicy.closeAnimation(
-                source: .continueReading, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: pageAnimation) == .slide,
-                "Closing a continue-reading entry slides back cleanly")
+                source: .continueReading, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: pageAnimation) == .cover,
+                "Closing a continue-reading entry folds back to its cover in 3D")
             check(NativeBookOpenTransitionPolicy.openAnimation(
                 source: .materials, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: pageAnimation) == .slide,
                 "Reading materials entry always slides in directly from the right")

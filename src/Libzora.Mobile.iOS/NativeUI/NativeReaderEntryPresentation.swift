@@ -124,8 +124,11 @@ struct NativeReaderEntryPresentation: ViewModifier {
         let navigationRevision = store.widgetNavigationIntent.revision
         guard !Task.isCancelled, store.session.appearanceSessionId == sessionId,
               store.widgetNavigationIntent.isCurrent(navigationRevision) else { return }
-        if store.launchBrandActive && animation.isPageAnimation {
-            await store.waitForMinimumLaunchBrandHold()
+        if store.launchBrandActive {
+            if animation.isPageAnimation {
+                await store.waitForMinimumLaunchBrandHold()
+            }
+            await store.waitForInitialAmbientColorsIfNeeded()
             guard !Task.isCancelled, store.session.appearanceSessionId == sessionId,
               store.widgetNavigationIntent.isCurrent(navigationRevision) else { return }
         }

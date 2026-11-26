@@ -30,12 +30,22 @@ public sealed record Stage3DashboardDayViewModel(
     double BarOpacity)
 {
     public string DetailLabel { get; init; } = "";
+    public double ListeningBarHeight { get; init; }
+    public double VisualBarHeight => Math.Max(0d, BarHeight - ListeningBarHeight);
+    public bool HasListening => ListeningBarHeight > 0d;
+    public bool HasVisual => VisualBarHeight > 0d;
 }
 
 public sealed record Stage3DashboardBarViewModel(
     string Label,
     string ValueLabel,
-    double BarWidth);
+    double BarWidth)
+{
+    public double ListeningBarWidth { get; init; }
+    public double VisualBarWidth => Math.Max(0d, BarWidth - ListeningBarWidth);
+    public bool HasListening => ListeningBarWidth > 0d;
+    public bool HasVisual => VisualBarWidth > 0d;
+}
 
 public sealed record Stage3DashboardRecentViewModel(
     string Title,
@@ -45,9 +55,12 @@ public sealed record Stage3DashboardRecentViewModel(
 {
     public Guid BookId { get; init; }
     public Guid BookFileId { get; init; }
+    public long ListeningSeconds { get; init; }
     public string ProgressLabel => $"{ProgressPercent:0.#}%";
 
-    public string DurationLabel => FormatTime(Seconds);
+    public string DurationLabel => ListeningSeconds > 0
+        ? UiText.Get("{0}（含听书 {1}）", FormatTime(Seconds), FormatTime(ListeningSeconds))
+        : FormatTime(Seconds);
 
     public string UpdatedLabel => UpdatedAt.ToLocalTime().ToString("MM-dd HH:mm", CultureInfo.InvariantCulture);
 

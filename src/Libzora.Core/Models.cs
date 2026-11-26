@@ -360,6 +360,8 @@ public sealed class KindleClipping
     public long? EndPosition { get; set; }
     public bool IsTextResolved { get; set; }
     public int TextResolutionVersion { get; set; }
+    /// <summary>Exact book version for resolved text, or library version for a conclusive lookup failure.</summary>
+    public string? TextResolutionStamp { get; set; }
     /// <summary>Used by the reading-materials view when a Kindle note belongs to this highlight.</summary>
     public KindleClipping? PairedNote { get; set; }
     public string TypeLabel => Type switch

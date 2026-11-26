@@ -3,15 +3,60 @@ import UIKit
 import ImageIO
 
 final class NativeAmbientState: ObservableObject {
-    @Published var visibleColors: [NativeAmbientColor] = []
-    @Published var fallbackColors: [NativeAmbientColor] = []
+    private static let cacheKey = "libzora.ambient.lastPalette.v1"
+
+    private struct CachedPalette: Codable, Equatable {
+        let visible: [NativeAmbientColor]
+        let fallback: [NativeAmbientColor]
+    }
+
+    @Published var visibleColors: [NativeAmbientColor] = [] {
+        didSet { if !restoring && oldValue != visibleColors { persistCache() } }
+    }
+    @Published var fallbackColors: [NativeAmbientColor] = [] {
+        didSet { if !restoring && oldValue != fallbackColors { persistCache() } }
+    }
+    /// Shared per-cover color cache so launch pre-warming and `NativeLibraryPage`
+    /// reuse the same extracted samples without a second decode pass or delayed palette jump.
+    var sampledCoverColors: [NativeVisibleCover: NativeAmbientColor] = [:]
+    private var restoring = false
+
     var colors: [NativeAmbientColor] {
         visibleColors.isEmpty ? fallbackColors : visibleColors
+    }
+
+    init() {
+        guard let data = UserDefaults.standard.data(forKey: Self.cacheKey),
+              let cached = try? JSONDecoder().decode(CachedPalette.self, from: data) else { return }
+        restoring = true
+        visibleColors = cached.visible
+        fallbackColors = cached.fallback
+        restoring = false
+    }
+
+    func clear() {
+        restoring = true
+        if !visibleColors.isEmpty { visibleColors = [] }
+        if !fallbackColors.isEmpty { fallbackColors = [] }
+        restoring = false
+        sampledCoverColors.removeAll()
+        UserDefaults.standard.removeObject(forKey: Self.cacheKey)
+    }
+
+    private func persistCache() {
+        if visibleColors.isEmpty && fallbackColors.isEmpty {
+            UserDefaults.standard.removeObject(forKey: Self.cacheKey)
+            return
+        }
+        let payload = CachedPalette(visible: visibleColors, fallback: fallbackColors)
+        if let data = try? JSONEncoder().encode(payload) {
+            UserDefaults.standard.set(data, forKey: Self.cacheKey)
+        }
     }
 }
 
 /// Small RGB values can cross the background decoding task without carrying UI objects.
-struct NativeAmbientColor: Equatable {
+struct NativeAmbientColor: Equatable, Codable {
     let red: Double
     let green: Double
     let blue: Double
@@ -175,6 +220,53 @@ enum NativeAmbientPalette {
         default: return (brightness, p, q)
         }
     }
+
+    /// Renders the same ambient wash as `NativeAmbientWash` into a UIImage so
+    /// UIKit transition snapshots (3D book close, widget slide handoffs) keep
+    /// the colorful wash over opaque Metal reader pixels.
+    static func renderWashImage(colors: [NativeAmbientColor], size: CGSize) -> UIImage? {
+        guard !colors.isEmpty, size.width > 1, size.height > 1 else { return nil }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = false
+        return UIGraphicsImageRenderer(size: size, format: format).image { context in
+            let cg = context.cgContext
+            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            let middle = colors[colors.count / 2]
+            let linearColors: [CGColor] = [
+                UIColor(red: colors[0].red, green: colors[0].green, blue: colors[0].blue, alpha: 0.12 * colors[0].strength).cgColor,
+                UIColor(red: middle.red, green: middle.green, blue: middle.blue, alpha: 0.10 * middle.strength).cgColor,
+                UIColor(red: colors[colors.count - 1].red, green: colors[colors.count - 1].green, blue: colors[colors.count - 1].blue, alpha: 0.12 * colors[colors.count - 1].strength).cgColor
+            ]
+            let linearLocations: [CGFloat] = [0, 0.5, 1]
+            if let linear = CGGradient(colorsSpace: colorSpace, colors: linearColors as CFArray, locations: linearLocations) {
+                cg.drawLinearGradient(
+                    linear,
+                    start: .zero,
+                    end: CGPoint(x: size.width, y: size.height),
+                    options: [.drawsBeforeStartLocation, .drawsAfterEndLocation]
+                )
+            }
+            let radius = max(size.width * 0.55, size.height * 0.30)
+            let anchors = colors.count == 9 ? fieldCenters : [
+                UnitPoint(x: 0.15, y: 0.12), UnitPoint(x: 0.85, y: 0.4),
+                UnitPoint(x: 0.15, y: 0.72), UnitPoint(x: 0.8, y: 0.95)
+            ]
+            let radialLocations: [CGFloat] = [0, 0.55, 1]
+            for (index, item) in colors.enumerated() {
+                let anchor = anchors[index % anchors.count]
+                let center = CGPoint(x: size.width * anchor.x, y: size.height * anchor.y)
+                let radialColors: [CGColor] = [
+                    UIColor(red: item.red, green: item.green, blue: item.blue, alpha: 0.9 * item.strength).cgColor,
+                    UIColor(red: item.red, green: item.green, blue: item.blue, alpha: 0.62 * item.strength).cgColor,
+                    UIColor(red: item.red, green: item.green, blue: item.blue, alpha: 0).cgColor
+                ]
+                if let radial = CGGradient(colorsSpace: colorSpace, colors: radialColors as CFArray, locations: radialLocations) {
+                    cg.drawRadialGradient(radial, startCenter: center, startRadius: 0, endCenter: center, endRadius: radius, options: [])
+                }
+            }
+        }
+    }
 }
 
 /// Screen-anchored fields use the library palette, independent of scroll geometry.
@@ -238,6 +330,7 @@ struct NativeAmbientBackground: View {
     var body: some View {
         NativeAmbientBackgroundBody(
             colorfulMode: store.preferences.colorfulMode,
+            animateChanges: !store.launchBrandActive && !store.preparingLibrary,
             ambient: store.ambient,
             fallback: fallback,
             colorsOverride: colorsOverride)
@@ -247,6 +340,7 @@ struct NativeAmbientBackground: View {
 private struct NativeAmbientBackgroundBody: View {
     @Environment(\.colorScheme) private var scheme
     let colorfulMode: Bool
+    let animateChanges: Bool
     @ObservedObject var ambient: NativeAmbientState
     let fallback: Color
     let colorsOverride: [NativeAmbientColor]?
@@ -257,7 +351,147 @@ private struct NativeAmbientBackgroundBody: View {
             if colorfulMode && !colors.isEmpty {
                 NativeAmbientWash(colorsOverride: colors).opacity(scheme == .dark ? 0.36 : 0.34)
             }
-        }.animation(.easeInOut(duration: 0.8), value: colors)
+        }.animation(animateChanges ? .easeInOut(duration: 0.8) : nil, value: colors)
             .ignoresSafeArea().allowsHitTesting(false).accessibilityHidden(true)
+    }
+}
+
+@MainActor
+extension NativeStore {
+    /// Pre-extracts the initial ambient palette during cold launch while the
+    /// launch brand cover is still on screen, so neither the library nor a
+    /// widget target slides in white and flashes into colorful mode afterward.
+    func startInitialAmbientPreparation(viewport: CGSize) {
+        initialAmbientTask?.cancel()
+        guard preferences.colorfulMode else {
+            ambient.clear()
+            initialAmbientTask = nil
+            return
+        }
+        guard !library.isEmpty else {
+            ambient.clear()
+            initialAmbientTask = nil
+            return
+        }
+
+        let fallbackPaths: [String] = library
+            .filter { $0.coverPath != nil }
+            .sorted { $0.updatedAt == $1.updatedAt ? $0.id < $1.id : $0.updatedAt > $1.updatedAt }
+            .prefix(18)
+            .compactMap(\.coverPath)
+
+        var initialRegions: [NativeAmbientCoverRegion] = []
+        if !preferences.collectionsView {
+            let sorted = NativeBookOrder.sorted(library, sort: preferences.sort)
+            let displayed: [LibraryBook] = preferences.stackBookSeries
+                ? NativeBookSeries.entries(sorted).compactMap { entry in
+                    switch entry {
+                    case .book(let book): return book
+                    case .series(let series): return frontBook(for: series)
+                    }
+                }
+                : sorted
+            let effectiveWidth = viewport.width > 10 ? viewport.width : viewportRect.width
+            let effectiveHeight = viewport.height > 100 ? max(1, viewport.height - 49) : max(1, viewportRect.height - 49)
+            let pageWidth = NativeAdaptiveLayout.pageWidth(viewportWidth: effectiveWidth)
+            let hasContinue = continueBookId.flatMap { id in library.first { $0.id == id } } != nil
+            let headerHeight: CGFloat = 124 + (hasContinue ? 92 : 0)
+            let listView = preferences.listView
+            let gallery = preferences.galleryMode && !listView
+            let cols = listView ? 1 : max(1, NativeBookShelf.columnCount(pageWidth: pageWidth))
+            let coverW = NativeBookShelf.coverWidth(pageWidth: pageWidth)
+            let rowStride: CGFloat = listView ? 86 : coverW * 1.45 + (gallery ? 18 : 74)
+            let totalRows = (displayed.count + cols - 1) / cols
+            if totalRows > 0 {
+                let lastRow = max(0, min(totalRows - 1, Int(floor((effectiveHeight - headerHeight) / rowStride))))
+                initialRegions.reserveCapacity(9)
+                for rowIdx in 0...lastRow {
+                    let rowTop = headerHeight + CGFloat(rowIdx) * rowStride
+                    let rowBottom = rowTop + rowStride
+                    let visibleTop = max(0, rowTop)
+                    let visibleBottom = min(effectiveHeight, rowBottom)
+                    let fraction = Double(max(0, visibleBottom - visibleTop)) / Double(max(1, rowStride))
+                    let rowCenterY = (visibleTop + visibleBottom) / 2
+                    let bandRow = min(2, max(0, Int(rowCenterY / effectiveHeight * 3)))
+                    let visibility = max(0.25, (fraction * 4).rounded() / 4)
+                    for colIdx in 0..<cols {
+                        let idx = rowIdx * cols + colIdx
+                        guard idx < displayed.count else { break }
+                        guard let path = displayed[idx].coverPath else { continue }
+                        let bandCol = listView || cols <= 1 ? 1 : min(2, colIdx * 3 / cols)
+                        initialRegions.append(NativeAmbientCoverRegion(
+                            cover: NativeVisibleCover(path: path, version: displayed[idx].updatedAt),
+                            column: bandCol,
+                            row: bandRow,
+                            visibility: visibility
+                        ))
+                        if initialRegions.count == 9 { break }
+                    }
+                    if initialRegions.count == 9 { break }
+                }
+            }
+        }
+
+        let existingSamples = ambient.sampledCoverColors
+        let regionsSnapshot = initialRegions
+        let task = Task { @MainActor [weak self] in
+            let result = await Task.detached(priority: .userInitiated) {
+                () -> (fallback: [NativeAmbientColor], samples: [(NativeVisibleCover, NativeAmbientColor)], regional: [NativeAmbientColor]) in
+                let fallback = NativeAmbientPalette.extract(paths: fallbackPaths)
+                var extracted: [(NativeVisibleCover, NativeAmbientColor)] = []
+                var lookup = existingSamples
+                for region in regionsSnapshot where lookup[region.cover] == nil {
+                    if let color = NativeAmbientPalette.extract(paths: [region.cover.path]).first {
+                        lookup[region.cover] = color
+                        extracted.append((region.cover, color))
+                    }
+                }
+                let ambientSamples = regionsSnapshot.compactMap { region -> NativeAmbientSample? in
+                    guard let color = lookup[region.cover] else { return nil }
+                    return NativeAmbientSample(
+                        color: color,
+                        column: region.column,
+                        row: region.row,
+                        visibility: region.visibility
+                    )
+                }
+                let regional = NativeAmbientPalette.regionalColors(ambientSamples)
+                return (fallback, extracted, regional)
+            }.value
+            guard let self, !Task.isCancelled else { return }
+            defer { self.initialAmbientTask = nil }
+            guard self.preferences.colorfulMode else { return }
+            for (cover, color) in result.samples {
+                self.ambient.sampledCoverColors[cover] = color
+            }
+            if self.ambient.fallbackColors != result.fallback {
+                self.ambient.fallbackColors = result.fallback
+            }
+            if !result.regional.isEmpty && self.ambient.visibleColors != result.regional {
+                self.ambient.visibleColors = result.regional
+            }
+        }
+        initialAmbientTask = task
+    }
+
+    func waitForInitialAmbientColorsIfNeeded(maxWaitNanoseconds: UInt64 = 1_500_000_000) async {
+        guard preferences.colorfulMode else { return }
+        // If the last session's palette was already restored from cache, we do
+        // not need to block launch on cover decoding — the background task will
+        // still refresh the palette if any covers changed since last launch.
+        if ambient.colors.isEmpty, let task = initialAmbientTask {
+            await withTaskGroup(of: Void.self) { group in
+                group.addTask { await task.value }
+                group.addTask { try? await Task.sleep(nanoseconds: maxWaitNanoseconds) }
+                _ = await group.next()
+                group.cancelAll()
+            }
+        }
+        // Let SwiftUI commit the settled palette while the launch brand cover
+        // is still active (animateChanges == false), so dismissing the cover
+        // never coalesces with an initial empty -> colorful fade-in animation.
+        if !ambient.colors.isEmpty {
+            await NativeDisplayFrame.waitForCommit()
+        }
     }
 }

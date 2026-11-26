@@ -109,13 +109,15 @@ struct NativeShell: View {
         .disabled(store.restartRequired || store.dataBusy)
         .task(id: ambientKey) {
             guard store.preferences.colorfulMode else {
-                store.ambient.visibleColors = []; store.ambient.fallbackColors = []; return
+                store.ambient.clear(); return
             }
             if store.library.isEmpty { store.ambient.visibleColors = [] }
             let paths = ambientBooks.compactMap(\.coverPath)
             let colors = await Task.detached(priority: .utility) { NativeAmbientPalette.extract(paths: paths) }.value
             guard !Task.isCancelled else { return }
-            store.ambient.fallbackColors = colors
+            if store.ambient.fallbackColors != colors {
+                store.ambient.fallbackColors = colors
+            }
         }
         .onReceive(store.$requestedTab) { tab in
             if tab != nil { showRequestedTabIfPossible(isNewRequest: true) }
@@ -237,6 +239,7 @@ struct NativeShell: View {
             }
             if store.launchBrandActive {
                 await store.waitForMinimumLaunchBrandHold()
+                await store.waitForInitialAmbientColorsIfNeeded()
                 guard !Task.isCancelled else { return }
             }
             guard store.widgetNavigationIntent.isCurrent(revision), store.requestedTab != nil,

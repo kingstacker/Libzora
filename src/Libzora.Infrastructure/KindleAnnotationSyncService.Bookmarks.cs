@@ -6,210 +6,126 @@ namespace Libzora.Infrastructure;
 public sealed partial class KindleAnnotationSyncService
 {
     private const string BookmarkMetadata = "{\"mchl_color\":\"dark_blue\"}";
-    private const long BookmarkProximityBytes = 128;
 
-    private async Task<IReadOnlyList<ReaderBookmark>> ReadLocalBookmarksAsync(
-        Book book,
-        CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<ReaderBookmark>> ReadLocalBookmarksAsync(Book book, CancellationToken cancellationToken)
     {
         var bookmarks = new List<ReaderBookmark>();
         foreach (var file in book.Files)
-            bookmarks.AddRange(await _readerData.GetBookmarksAsync(
-                file.Id,
-                cancellationToken,
-                limit: 100_000));
+            bookmarks.AddRange(await _readerData.GetBookmarksAsync(file.Id, cancellationToken, limit: 100_000));
         return bookmarks;
     }
 
     private async Task PrepareBookmarksAsync(BookContext context, CancellationToken cancellationToken)
     {
-        var deviceBookmarks = context.DeviceRecords
-            .Where(record => record.Dataset == 2)
-            .OrderBy(record => record.Start)
-            .ThenBy(record => record.CreatedTime)
-            .ToArray();
+        var deviceBookmarks = context.DeviceRecords.Where(record => record.Dataset == 2)
+            .OrderBy(record => record.Start).ThenBy(record => record.CreatedTime).ToArray();
         context.DeviceBookmarks.AddRange(deviceBookmarks);
         if (deviceBookmarks.Length == 0 && context.LocalBookmarks.Count == 0) return;
-
-        var raw = context.RawText;
-        var localPositions = new Dictionary<Guid, long>();
-        if (raw is not null)
+        if (context.RawText is not { } raw)
         {
-            foreach (var local in context.LocalBookmarks)
+            context.UnsupportedCount += deviceBookmarks.Length + context.LocalBookmarks.Count;
+            return;
+        }
+        var resolved = new Dictionary<Guid, ResolvedBookmark>();
+        foreach (var local in context.LocalBookmarks)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (await ResolveLocalBookmarkAsync(context, local, raw, cancellationToken) is not { } bookmark) continue;
+            resolved[local.Id] = bookmark;
+            if (BookmarkNeedsRepair(bookmark)) QueueBookmarkImport(context, bookmark.Prepared);
+        }
+        var ownedRecords = deviceBookmarks.Select(record => (Id: OwnedBookmarkId(record.AnnotationId), Record: record))
+            .Where(item => item.Id.HasValue).GroupBy(item => item.Id!.Value)
+            .ToDictionary(group => group.Key, group => group.Select(item => item.Record).ToArray());
+        var byPoint = resolved.Values.GroupBy(bookmark => bookmark.DevicePosition)
+            .ToDictionary(group => group.Key, group => group.ToArray());
+        var matchedLocal = new HashSet<Guid>();
+        var handledRecords = new HashSet<string>(StringComparer.Ordinal);
+        var devicePoints = new HashSet<long>();
+
+        // Stable IDs are authoritative and must be reserved before any location matching.
+        foreach (var local in context.LocalBookmarks)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!ownedRecords.TryGetValue(local.Id, out var exact)) continue;
+            matchedLocal.Add(local.Id);
+            foreach (var device in exact) handledRecords.Add(device.AnnotationId);
+            if (exact.Length != 1 || !resolved.TryGetValue(local.Id, out var bookmark))
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                if (await TryResolveLocalBookmarkPositionAsync(context, local, raw, cancellationToken) is { } pos)
-                    localPositions[local.Id] = pos;
+                context.UnsupportedCount += exact.Length;
+                continue;
             }
+            var existing = exact[0];
+            devicePoints.Add(bookmark.DevicePosition);
+            if (!raw.ExtractBookmarkAnchorAt(existing.Start, out _, out _, out _, out var canonical)
+                || canonical != bookmark.DevicePosition)
+                context.BookmarksToDevice.Add(new(local, bookmark.DevicePosition, existing));
         }
 
-        var matchedLocal = new HashSet<Guid>();
         foreach (var device in deviceBookmarks)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            string deviceQuote = string.Empty, devicePrefix = string.Empty, deviceSuffix = string.Empty;
-            var hasAnchor = raw is not null
-                && raw.ExtractAnchorAt(device.Start, out deviceQuote, out devicePrefix, out deviceSuffix);
-            var deviceQuoteKey = hasAnchor ? TextKey(deviceQuote) : string.Empty;
-
-            var existing = context.LocalBookmarks.FirstOrDefault(local =>
-                !matchedLocal.Contains(local.Id)
-                && (device.AnnotationId == "libzora.bookmark." + local.Id.ToString("N")
-                    || device.AnnotationId == "kkindle.bookmark." + local.Id.ToString("N")
-                    || (localPositions.TryGetValue(local.Id, out var localPos)
-                        && Math.Abs(localPos - device.Start) <= BookmarkProximityBytes)
-                    || (deviceQuoteKey.Length >= 8
-                        && MatchesBookmarkQuote(TextKey(local.Quote), deviceQuoteKey))));
-            if (existing is not null)
-            {
-                matchedLocal.Add(existing.Id);
-                continue;
-            }
-
-            if (!hasAnchor)
+            if (handledRecords.Contains(device.AnnotationId)) continue;
+            if (!raw.ExtractBookmarkAnchorAt(device.Start, out var quote, out var prefix, out var suffix, out var point))
             {
                 context.UnsupportedCount++;
-                context.DeviceUnsupportedCount++;
                 continue;
             }
-
-            var imported = await CreateLocalBookmarkAsync(
-                context, device, deviceQuote, devicePrefix, deviceSuffix, cancellationToken);
+            // This set also includes planned owned-ID repairs and earlier imports in this batch.
+            if (!devicePoints.Add(point)) continue;
+            if (byPoint.TryGetValue(point, out var samePoint))
+            {
+                foreach (var bookmark in samePoint) matchedLocal.Add(bookmark.Source.Id);
+                continue;
+            }
+            var imported = await CreateLocalBookmarkAsync(context, device, quote, prefix, suffix, cancellationToken);
             if (imported is null)
             {
                 context.UnsupportedCount++;
-                context.DeviceUnsupportedCount++;
                 continue;
             }
-            context.BookmarksToComputer.Add(imported);
+            QueueBookmarkImport(context, imported);
         }
 
         foreach (var local in context.LocalBookmarks.Where(bookmark => !matchedLocal.Contains(bookmark.Id)))
         {
-            if (localPositions.TryGetValue(local.Id, out var pos))
-            {
-                context.BookmarksToDevice.Add(new DeviceBookmarkChange(local, pos));
-            }
-            else
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!resolved.TryGetValue(local.Id, out var bookmark))
             {
                 context.UnsupportedCount++;
+                continue;
             }
+            // Exact, proven points only: neither byte proximity nor quote prefixes imply equality.
+            if (devicePoints.Add(bookmark.DevicePosition))
+                context.BookmarksToDevice.Add(new(local, bookmark.DevicePosition));
         }
     }
 
-    private async Task<long?> TryResolveLocalBookmarkPositionAsync(
-        BookContext context,
-        ReaderBookmark local,
-        KindleRawBookText raw,
-        CancellationToken cancellationToken)
+    private static Guid? OwnedBookmarkId(string id)
     {
-        if (local.ContentPosition is { TextOffset: >= 0 } position)
-        {
-            var chapters = await GetReaderChaptersAsync(context, local.BookFileId, cancellationToken);
-            var chapter = chapters.FirstOrDefault(item =>
-                string.Equals(item.ChapterPath, local.ChapterPath, StringComparison.OrdinalIgnoreCase));
-            if (chapter is not null && position.TextOffset < chapter.Content.Length)
-            {
-                var start = position.TextOffset;
-                var quoteLength = Math.Min(48, chapter.Content.Length - start);
-                var quote = chapter.Content.Substring(start, quoteLength).Trim();
-                var prefixStart = Math.Max(0, start - 40);
-                var prefix = chapter.Content[prefixStart..start];
-                var suffixStart = Math.Min(chapter.Content.Length, start + quoteLength);
-                var suffix = chapter.Content[suffixStart..Math.Min(chapter.Content.Length, suffixStart + 40)];
-                if (raw.TryFindAnchorPosition(quote, prefix, suffix, out var resolved))
-                    return resolved;
-            }
-        }
-
-        if (!string.IsNullOrWhiteSpace(local.Quote)
-            && raw.TryFindAnchorPosition(local.Quote, null, null, out var fromQuote))
-            return fromQuote;
-
-        return null;
+        var start = id.StartsWith("libzora.bookmark.", StringComparison.Ordinal) ? "libzora.bookmark.".Length
+            : id.StartsWith("kkindle.bookmark.", StringComparison.Ordinal) ? "kkindle.bookmark.".Length : 0;
+        return start > 0 && Guid.TryParseExact(id.AsSpan(start), "N", out var guid) ? guid : null;
     }
 
-    private async Task<ReaderBookmark?> CreateLocalBookmarkAsync(
-        BookContext context,
-        KindleAnnotationRecord device,
-        string quote,
-        string prefix,
-        string suffix,
-        CancellationToken cancellationToken)
+    private static int BuildBookmarkMutations(BookContext context, JsonObject bookData, string bookId,
+        List<KindleAnnotationMutation> mutations, Dictionary<(string Id, string BookId), int> byKey)
     {
-        var chunks = await GetReaderChaptersAsync(context, null, cancellationToken);
-        if (chunks.Count == 0) return null;
-
-        LocatedQuote? location = null;
-        foreach (var length in new[] { 24, 12, 6, 0 })
-        {
-            var p = length > 0 && prefix.Length > length ? prefix[^length..] : length > 0 ? prefix : null;
-            var s = length > 0 && suffix.Length > length ? suffix[..length] : length > 0 ? suffix : null;
-            location = LocateQuoteWithContext(chunks, quote, p, s)
-                ?? (p is not null ? LocateQuoteWithContext(chunks, quote, p, null) : null)
-                ?? (s is not null ? LocateQuoteWithContext(chunks, quote, null, s) : null);
-            if (location is not null) break;
-        }
-        if (location is null && quote.Length > 16)
-            location = LocateQuote(chunks, quote[..16]);
-        if (location is null) return null;
-
-        var title = string.IsNullOrWhiteSpace(location.Chunk.ChapterTitle)
-            ? context.LocalBook.Title
-            : location.Chunk.ChapterTitle;
-        var displayQuote = location.SelectedText.Length > 80
-            ? location.SelectedText[..80]
-            : location.SelectedText;
-        return new ReaderBookmark
-        {
-            BookId = context.LocalBook.Id,
-            BookFileId = location.Chunk.BookFileId,
-            ChapterPath = location.Chunk.ChapterPath,
-            ChapterIndex = location.Chunk.ChapterIndex,
-            FlowMode = 0,
-            ContentPosition = new ReaderContentPosition { TextOffset = location.Start },
-            Title = title,
-            Quote = displayQuote,
-            CreatedAt = device.CreatedAt
-        };
-    }
-
-    private static int BuildBookmarkMutations(
-        BookContext context,
-        JsonObject bookData,
-        string bookId,
-        List<KindleAnnotationMutation> mutations,
-        Dictionary<(string Id, string BookId), int> byKey)
-    {
-        var count = 0;
         foreach (var change in context.BookmarksToDevice)
         {
+            if (change.ExistingDevice is { } existing)
+            {
+                // Keep original IDs, creation times, colors and unknown firmware metadata.
+                AddRelocatedMutation(mutations, byKey, existing, change.Position, change.Position);
+                continue;
+            }
             var created = change.Local.CreatedAt.ToUnixTimeMilliseconds();
             var modified = Math.Max(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), created);
-            var mutation = NewPayloadMutation(
-                "libzora.bookmark." + change.Local.Id.ToString("N"),
-                bookId,
-                2,
-                change.Position,
-                change.Position,
-                created,
-                modified,
-                "BOOKMARK",
-                BookmarkMetadata,
-                bookData);
-            AddMutation(mutations, byKey, mutation);
-            count++;
+            AddMutation(mutations, byKey, NewPayloadMutation("libzora.bookmark." + change.Local.Id.ToString("N"),
+                bookId, 2, change.Position, change.Position, created, modified, "BOOKMARK", BookmarkMetadata, bookData));
         }
-        return count;
+        return context.BookmarksToDevice.Count;
     }
 
-    private static bool MatchesBookmarkQuote(string localQuoteKey, string deviceQuoteKey)
-    {
-        if (localQuoteKey.Length < 8 || deviceQuoteKey.Length < 8) return false;
-        var compareLength = Math.Min(16, Math.Min(localQuoteKey.Length, deviceQuoteKey.Length));
-        return localQuoteKey.AsSpan(0, compareLength)
-            .Equals(deviceQuoteKey.AsSpan(0, compareLength), StringComparison.Ordinal);
-    }
-
-    private sealed record DeviceBookmarkChange(ReaderBookmark Local, long Position);
+    private sealed record DeviceBookmarkChange(ReaderBookmark Local, long Position, KindleAnnotationRecord? ExistingDevice = null);
 }

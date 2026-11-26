@@ -94,7 +94,8 @@ public partial class MainWindow
                     item.UpdatedAt)
                 {
                     BookId = item.BookId,
-                    BookFileId = item.BookFileId
+                    BookFileId = item.BookFileId,
+                    ListeningSeconds = item.ListeningSeconds
                 };
                 _readingDashboardItems.Add(recent);
             }
@@ -103,10 +104,11 @@ public partial class MainWindow
             _readingDashboardDailyReading = dashboard.DailyReading;
             PresentDashboardDays();
 
-            PopulateDashboardBars(DashboardBookTimes, dashboard.MostReadBooks
+            PopulateDashboardSplitBars(DashboardBookTimes, dashboard.MostReadBooks
                 .Select(item => (
                     BookTitle(item),
                     (double)item.CumulativeSeconds,
+                    (double)Math.Clamp(item.ListeningSeconds, 0, Math.Max(0, item.CumulativeSeconds)),
                     item.ListeningSeconds > 0
                         ? T("{0}（含听书 {1}）", FormatReadingTime(item.CumulativeSeconds), FormatReadingTime(item.ListeningSeconds))
                         : FormatReadingTime(item.CumulativeSeconds))));
@@ -160,11 +162,14 @@ public partial class MainWindow
             var detailTime = bucket.ListeningSeconds > 0
                 ? T("{0}（含听书 {1}）", timeLabel, FormatReadingTime(bucket.ListeningSeconds))
                 : timeLabel;
+            var barHeight = bucket.ActiveSeconds == 0 ? 4 : 10 + 170d * bucket.ActiveSeconds / maximumSeconds;
             DashboardDays.Add(new Stage3DashboardDayViewModel(showLabel ? dateLabel : "",
                 showLabel && bucket.ActiveSeconds > 0 ? timeLabel : "",
-                bucket.ActiveSeconds == 0 ? 4 : 10 + 170d * bucket.ActiveSeconds / maximumSeconds,
-                bucket.Contains(today) ? 1 : 0.3)
-            { DetailLabel = $"{bucket.StartDate:yyyy-MM-dd} — {bucket.EndDate:yyyy-MM-dd}: {detailTime}" });
+                barHeight,
+                bucket.Contains(today) ? 1 : 0.35)
+            {
+                DetailLabel = $"{bucket.StartDate:yyyy-MM-dd} — {bucket.EndDate:yyyy-MM-dd}: {detailTime}"
+            });
         }
     }
 
@@ -218,6 +223,26 @@ public partial class MainWindow
                 item.Value <= 0 ? 0 : Math.Max(8, 210d * item.Value / maximum)));
     }
 
+    private static void PopulateDashboardSplitBars(
+        ObservableCollection<Stage3DashboardBarViewModel> target,
+        IEnumerable<(string Label, double TotalValue, double ListeningValue, string ValueLabel)> values)
+    {
+        target.Clear();
+        var materialized = values.ToArray();
+        var maximum = Math.Max(1, materialized.Select(item => item.TotalValue).DefaultIfEmpty().Max());
+        foreach (var item in materialized)
+        {
+            var totalWidth = item.TotalValue <= 0 ? 0 : Math.Max(8, 210d * item.TotalValue / maximum);
+            var listeningWidth = item.TotalValue > 0 && item.ListeningValue > 0
+                ? Math.Clamp(totalWidth * item.ListeningValue / item.TotalValue, 2d, totalWidth)
+                : 0d;
+            target.Add(new Stage3DashboardBarViewModel(item.Label, item.ValueLabel, totalWidth)
+            {
+                ListeningBarWidth = listeningWidth
+            });
+        }
+    }
+
     private async void RefreshReadingDashboardButton_Click(object? sender, RoutedEventArgs e) =>
         await RefreshReadingDashboardAsync();
 
@@ -235,7 +260,7 @@ public partial class MainWindow
         var path = file?.TryGetLocalPath();
         if (string.IsNullOrWhiteSpace(path)) return;
 
-        var csv = new StringBuilder(T("书名,进度,阅读秒数,最近阅读") + "\r\n");
+        var csv = new StringBuilder(T("书名,进度,阅读秒数,听书秒数,最近阅读") + "\r\n");
         foreach (var item in _readingDashboardItems)
         {
             csv.Append('"')
@@ -244,6 +269,8 @@ public partial class MainWindow
                 .Append(item.ProgressPercent.ToString("0.##", CultureInfo.InvariantCulture))
                 .Append(',')
                 .Append(item.Seconds.ToString(CultureInfo.InvariantCulture))
+                .Append(',')
+                .Append(item.ListeningSeconds.ToString(CultureInfo.InvariantCulture))
                 .Append(',')
                 .AppendLine(item.UpdatedAt.ToString("O", CultureInfo.InvariantCulture));
         }

@@ -303,6 +303,7 @@ final class NativeStore: ObservableObject {
     /// Isolated from `NativeStore.objectWillChange` so scroll-driven palette
     /// updates only re-render ambient background layers, never the shelf grid.
     let ambient = NativeAmbientState()
+    var initialAmbientTask: Task<Void, Never>?
     @Published var preferences = MobilePreferences() {
         didSet {
             applyUiLanguage(NativeLocalization.resolvedLanguage(preferences.uiLanguage))
@@ -556,6 +557,9 @@ final class NativeStore: ObservableObject {
         let snapshotFolders = folders
         let snapshotPreferences = preferences
         let snapshotContinueBookId = continueBookId
+        if libraryLoaded {
+            startInitialAmbientPreparation(viewport: viewport)
+        }
         let canRestoreBook = canOpenReader
             && libraryLoaded
             && pendingOpenBookId == nil
@@ -578,6 +582,7 @@ final class NativeStore: ObservableObject {
             && (!canOpenReader || pendingOpenBookId == nil)
         if enteringMainUi {
             await waitForMinimumLaunchBrandHold()
+            await waitForInitialAmbientColorsIfNeeded()
         }
         let stillEnteringMainUi = !Task.isCancelled
             && !canRestoreBook

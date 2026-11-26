@@ -96,6 +96,10 @@ public sealed partial class SettingsTests
         var avgText = scope.Get<TextBlock>("DashboardDailyAverageText").Text ?? "";
         Assert.Contains(expectedToken, avgText, StringComparison.OrdinalIgnoreCase);
         Assert.Contains(expectedToken, scope.Window.DashboardBookTimes[0].ValueLabel, StringComparison.OrdinalIgnoreCase);
+        Assert.True(scope.Window.DashboardBookTimes[0].HasListening);
+        Assert.True(scope.Window.DashboardBookTimes[0].ListeningBarWidth > scope.Window.DashboardBookTimes[0].VisualBarWidth);
+        Assert.Equal(600, scope.Window.DashboardRecentItems[0].ListeningSeconds);
+        Assert.Contains(expectedToken, scope.Window.DashboardRecentItems[0].DurationLabel, StringComparison.OrdinalIgnoreCase);
         var todayColumn = Assert.Single(scope.Window.DashboardDays, day => !string.IsNullOrEmpty(day.TimeLabel));
         Assert.Contains(expectedToken, todayColumn.DetailLabel, StringComparison.OrdinalIgnoreCase);
     });

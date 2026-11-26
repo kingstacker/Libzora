@@ -446,6 +446,26 @@ public partial class MainWindow
                     }
                 }
 
+                // New shared books did not participate in the pre-transfer annotation preview.
+                // Re-analyze after successful transfers so one full sync also merges their bookmarks.
+                if (annotationSyncSupported && (booksSent > 0 || booksImported > 0))
+                {
+                    if (booksSent > 0)
+                    {
+                        await RefreshDeviceBooksAfterTransferAsync(device, _lifetimeCancellation.Token);
+                        if (_deviceBookScanFailed || _deviceBooksShowingCache || !_deviceBooksLoaded)
+                            throw new IOException(UiText.Localize(DevicePageStatusText.Text ?? string.Empty));
+                        deviceBooks = DeviceBooks.Select(card => card.Book).ToArray();
+                    }
+                    await EnsureCurrentDeviceAsync(device);
+                    annotationPreview = await RunKindleAnnotationTaskAsync(
+                        T("检查 Kindle 书签与批注差异"), cancellable: true,
+                        (progress, token) => Task.Run(() => _kindleAnnotationSync.AnalyzeAsync(
+                            device, deviceBooks, _kindle, token, progress), token),
+                        _lifetimeCancellation.Token);
+                    hasAnnotationChanges = annotationPreview.HasChanges;
+                }
+
                 // 3. Highlights, Notes, and Bookmarks bidirectional sync
                 if (annotationSyncSupported && hasAnnotationChanges)
                 {
@@ -500,6 +520,11 @@ public partial class MainWindow
         }
         catch (OperationCanceledException) when (_lifetimeCancellation.IsCancellationRequested)
         {
+        }
+        catch (OperationCanceledException)
+        {
+            HideKindleSyncBlockingOverlay();
+            DevicePageStatusText.Text = T("已取消双向同步检查。");
         }
         catch (Exception exception)
         {

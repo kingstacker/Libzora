@@ -1,4 +1,4 @@
-using Libzora.Mobile;
+using Libzora.Core;
 
 namespace Libzora.Tests;
 
@@ -61,5 +61,46 @@ public class MobileReadingActivityClockTests
         Assert.Equal(new long[] { 30, 30 }, clock.LastSlice!.SplitUtcDays().Select(day => day.ListeningSeconds));
         Assert.Equal(0, clock.SetPlaying(false, start.AddSeconds(60)));
         Assert.Equal(0, clock.CountUntil(start.AddHours(1)));
+    }
+
+    [Fact]
+    public void AccumulatorSplitsUtcDaysAndRestoresOnFailure()
+    {
+        var start = DateTimeOffset.Parse("2026-12-31T23:59:40Z");
+        var visual = new ReadingActivityClock(start);
+        var listening = new ListeningActivityClock();
+        var accumulator = new ReadingTimeAccumulator();
+
+        accumulator.Add(visual.Pause(start.AddSeconds(30)), visual.LastSlice);
+        listening.SetPlaying(true, start.AddSeconds(30));
+        accumulator.Add(listening.SetPlaying(false, start.AddSeconds(50)), listening.LastSlice, listening: true);
+
+        Assert.Equal(30, accumulator.PendingReadingSeconds);
+        Assert.Equal(20, accumulator.PendingListeningSeconds);
+        Assert.Equal(50, accumulator.PendingTotalSeconds);
+
+        var (readingSeconds, listeningSeconds, days) = accumulator.Drain(start.AddSeconds(50));
+        Assert.Equal(30, readingSeconds);
+        Assert.Equal(20, listeningSeconds);
+        Assert.Equal(0, accumulator.PendingTotalSeconds);
+        Assert.Collection(days,
+            day =>
+            {
+                Assert.Equal(new DateOnly(2026, 12, 31), day.Date);
+                Assert.Equal(20, day.ActiveSeconds);
+                Assert.Equal(0, day.ListeningSeconds);
+            },
+            day =>
+            {
+                Assert.Equal(new DateOnly(2027, 1, 1), day.Date);
+                Assert.Equal(30, day.ActiveSeconds);
+                Assert.Equal(20, day.ListeningSeconds);
+            });
+
+        accumulator.Restore(readingSeconds, listeningSeconds, days);
+        Assert.Equal(30, accumulator.PendingReadingSeconds);
+        Assert.Equal(20, accumulator.PendingListeningSeconds);
+        var reDrained = accumulator.Drain(start.AddSeconds(60));
+        Assert.Equal(days, reDrained.Days);
     }
 }

@@ -196,7 +196,7 @@ public partial class MainWindow
         const long paceLearningSeconds = 120;
         const double paceLearningProgress = 1;
         var stats = _readerBookReadingStats;
-        var totalSeconds = (stats?.CumulativeSeconds ?? 0) + _readerActiveSeconds;
+        var totalSeconds = (stats?.CumulativeSeconds ?? 0) + _readerTimeAccumulator.PendingTotalSeconds;
         var progress = Math.Clamp(CalculateReaderProgressPercent(), 0, 100);
         if (totalSeconds < paceLearningSeconds
             || stats is null

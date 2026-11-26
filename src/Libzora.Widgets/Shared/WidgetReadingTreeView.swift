@@ -67,35 +67,46 @@ struct KkReadingTreeWidgetView: View {
     }
 
     private var medium: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            heading
+        GeometryReader { proxy in
+            let spacing: CGFloat = proxy.size.width >= 310 ? 12 : 10
+            let treeWidth = min(168, max(128, (proxy.size.width - spacing) * 0.48))
 
-            HStack(alignment: .center, spacing: 14) {
+            HStack(alignment: .center, spacing: spacing) {
+                // Span the full widget height on the left and reuse the canvas's
+                // internal sky/ground margins so the 4x2 tree is visibly larger
+                // and broader than the 2x2 small widget.
                 KkReadingTreeCanvas(profile: profile)
-                    .frame(width: 124)
-                    .frame(maxHeight: .infinity)
+                    .padding(.leading, -6)
+                    .padding(.vertical, -6)
+                    .frame(width: treeWidth, height: proxy.size.height)
 
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(profile.localizedStageTitle(lang))
-                        .kkTitleFont(20)
-                        .foregroundStyle(KkTheme.ink(scheme))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
+                    heading
 
-                    Text(profile.localizedNextHint(lang))
-                        .kkBodyFont(10.5)
-                        .foregroundStyle(KkTheme.secondaryInk(scheme))
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.82)
-                        .padding(.top, 3)
+                    Spacer(minLength: 4)
 
-                    KkProgressBar(progress: profile.stageProgress * 100, height: 3)
-                        .padding(.top, 7)
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(profile.localizedStageTitle(lang))
+                            .kkTitleFont(19)
+                            .foregroundStyle(KkTheme.ink(scheme))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
 
-                    Spacer(minLength: 8)
+                        Text(profile.localizedNextHint(lang))
+                            .kkBodyFont(10.5)
+                            .foregroundStyle(KkTheme.secondaryInk(scheme))
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.82)
+                            .padding(.top, 2)
+
+                        KkProgressBar(progress: profile.stageProgress * 100, height: 3)
+                            .padding(.top, 6)
+                    }
+
+                    Spacer(minLength: 6)
 
                     let totalParts = KkFormat.localizedCompactHoursParts(profile.totalSeconds, language: lang)
-                    HStack(alignment: .top, spacing: 8) {
+                    HStack(alignment: .top, spacing: 6) {
                         KkStat(
                             value: totalParts.value,
                             label: WidgetLocalization.totalShort(lang),
@@ -103,7 +114,7 @@ struct KkReadingTreeWidgetView: View {
                             alignment: .leading,
                             valueSize: 15,
                             labelSize: 10,
-                            stackSpacing: 3,
+                            stackSpacing: 2,
                             expand: true,
                             subdued: profile.totalSeconds == 0)
                         KkStat(
@@ -112,7 +123,7 @@ struct KkReadingTreeWidgetView: View {
                             alignment: .center,
                             valueSize: 15,
                             labelSize: 10,
-                            stackSpacing: 3,
+                            stackSpacing: 2,
                             expand: true,
                             subdued: profile.booksFinished == 0)
                         KkStat(
@@ -121,15 +132,16 @@ struct KkReadingTreeWidgetView: View {
                             alignment: .trailing,
                             valueSize: 15,
                             labelSize: 10,
-                            stackSpacing: 3,
+                            stackSpacing: 2,
                             expand: true,
                             subdued: profile.annotationCount == 0)
                     }
                 }
+                .padding(.vertical, 2)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
     }
 }

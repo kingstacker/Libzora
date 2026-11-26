@@ -86,25 +86,48 @@ struct KkContinueWidgetView: View {
     }
 
     private func small(_ book: KkBook) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            heading
-            Spacer(minLength: 6)
-            HStack(alignment: .center, spacing: 10) {
-                KkCover(book: book, width: 56, height: 80, blankPlaceholder: entry.isPlaceholder)
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(book.title)
-                        .kkTitleFont(14)
-                        .foregroundStyle(KkTheme.ink(scheme))
-                        .lineLimit(3)
-                        .minimumScaleFactor(0.85)
-                    authors(book, size: 10.5)
+        GeometryReader { proxy in
+            let innerH = max(90, proxy.size.height - 24)
+            let titleReserve: CGFloat = innerH >= 130 ? 38 : 34
+            let coverHeight = min(100, max(72, innerH - titleReserve - 6))
+            let coverWidth = (coverHeight / 1.43).rounded(.down)
+
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .top, spacing: 10) {
+                    KkCover(book: book, width: coverWidth, height: coverHeight, blankPlaceholder: entry.isPlaceholder)
+
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(WidgetLocalization.continueTitle(lang))
+                            .kkTitleFont(11.5)
+                            .foregroundStyle(KkTheme.secondaryInk(scheme))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+
+                        Spacer(minLength: 4)
+
+                        KkStat(
+                            value: KkFormat.percent(book.progress),
+                            label: WidgetLocalization.readLabel(lang),
+                            alignment: .leading,
+                            valueSize: 16,
+                            labelSize: 10,
+                            stackSpacing: 2)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: coverHeight, alignment: .leading)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Spacer(minLength: 6)
+
+                Text(book.title)
+                    .kkTitleFont(13.5)
+                    .foregroundStyle(KkTheme.ink(scheme))
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.85)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-            Spacer(minLength: 6)
-            progress(book)
+            .padding(.horizontal, 13)
+            .padding(.vertical, 12)
         }
-        .padding(14)
     }
 
     /// Use the actual book count, not four permanent slots, while keeping each

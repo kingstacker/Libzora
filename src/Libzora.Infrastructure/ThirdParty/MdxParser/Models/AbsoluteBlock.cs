@@ -1,8 +1,9 @@
 ﻿using ICSharpCode.SharpZipLib.Checksum;
 using ICSharpCode.SharpZipLib.Zip.Compression.Streams;
 using MdxParser.encrypt;
-using MdxParser.encrypt;
 using System.Buffers;
+using System.Buffers.Binary;
+using System.IO.Compression;
 
 namespace MdxParser.Models
 {
@@ -32,12 +33,11 @@ namespace MdxParser.Models
         /// <returns></returns>
         public int readInt32(Stream stream, bool reversed = true)
         {
-            var intBuf = new byte[4];
+            Span<byte> intBuf = stackalloc byte[4];
             stream.ReadExactly(intBuf);
-            if (reversed)
-                return BitConverter.ToInt32(Enumerable.Reverse(intBuf).ToArray(), 0);
-            else
-                return BitConverter.ToInt32(intBuf.ToArray(), 0);
+            return reversed
+                ? BinaryPrimitives.ReadInt32BigEndian(intBuf)
+                : BinaryPrimitives.ReadInt32LittleEndian(intBuf);
         }
         /// <summary>
         /// little endian for 4 byte
@@ -47,12 +47,11 @@ namespace MdxParser.Models
         /// <returns></returns>
         public uint readUInt32(Stream stream, bool reversed = true)
         {
-            var intBuf = new byte[4];
+            Span<byte> intBuf = stackalloc byte[4];
             stream.ReadExactly(intBuf);
-            if (reversed)
-                return BitConverter.ToUInt32(Enumerable.Reverse(intBuf).ToArray(), 0);
-            else
-                return BitConverter.ToUInt32(intBuf.ToArray(), 0);
+            return reversed
+                ? BinaryPrimitives.ReadUInt32BigEndian(intBuf)
+                : BinaryPrimitives.ReadUInt32LittleEndian(intBuf);
         }
         /// <summary>
         /// little endian for 8 byte
@@ -61,9 +60,9 @@ namespace MdxParser.Models
         /// <returns></returns>
         public long readInt64(Stream stream)
         {
-            var intBuf = new byte[8];
+            Span<byte> intBuf = stackalloc byte[8];
             stream.ReadExactly(intBuf);
-            return BitConverter.ToInt64(Enumerable.Reverse(intBuf).ToArray(), 0);
+            return BinaryPrimitives.ReadInt64BigEndian(intBuf);
         }
         public void readBytes(Stream stream, byte[] data)
         {
@@ -99,13 +98,26 @@ namespace MdxParser.Models
             var encrypor = salsa20.CreateEncryptor(encrypt_key, new byte[] { 0, 0, 0, 0, 0, 0, 0, 0 });
             return encrypor.TransformFinalBlock(cipher, 0, cipher.Length);
         }
-        protected byte[] ZipDecompress(byte[] data)
+        protected byte[] ZipDecompress(byte[] data, int expectedSize = 0)
         {
-            MemoryStream compressed = new MemoryStream(data);
-            MemoryStream decompressed = new MemoryStream();
-            InflaterInputStream inputStream = new InflaterInputStream(compressed);
-            inputStream.CopyTo(decompressed);
-            return decompressed.ToArray();
+            try
+            {
+                using var compressed = new MemoryStream(data, writable: false);
+                using var zlib = new ZLibStream(compressed, CompressionMode.Decompress);
+                using var decompressed = expectedSize > 0 ? new MemoryStream(expectedSize) : new MemoryStream();
+                zlib.CopyTo(decompressed);
+                return decompressed.Length == decompressed.Capacity && decompressed.TryGetBuffer(out var segment) && segment.Offset == 0 && segment.Count == segment.Array!.Length
+                    ? segment.Array
+                    : decompressed.ToArray();
+            }
+            catch (InvalidDataException)
+            {
+                using var compressed = new MemoryStream(data, writable: false);
+                using var decompressed = expectedSize > 0 ? new MemoryStream(expectedSize) : new MemoryStream();
+                using var inputStream = new InflaterInputStream(compressed);
+                inputStream.CopyTo(decompressed);
+                return decompressed.ToArray();
+            }
         }
         protected uint adler32Compute(byte[] data)
         {

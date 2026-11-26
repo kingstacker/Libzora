@@ -34,4 +34,52 @@ public sealed class DictionaryHtmlRendererTests
         Assert.Contains("&lt;script&gt;example&lt;/script&gt;", html);
         Assert.Contains("&lt;b&gt;name&lt;/b&gt;", html);
     }
+
+    [Fact]
+    public void BuiltInStyleModeOverridesExternalCssAndInlinePresentationalAttributes()
+    {
+        var html = DictionaryHtmlRenderer.Render(
+            [new("apple", "苹果", "朗文", """
+                <style>.entry{color:red}</style>
+                <div class="entry" style="background:yellow"><font color="red"><span class="hwd">apple</span></font>
+                <span class="def" style="font-size:40px">苹果</span></div>
+                """, ".sense{display:block;color:blue}")],
+            styleMode: DictionaryEntryStyleMode.BuiltIn);
+
+        var doc = new HtmlDocument();
+        doc.LoadHtml(html);
+        Assert.DoesNotContain(".sense{display:block;color:blue}", html);
+        Assert.DoesNotContain(".entry{color:red}", html);
+        Assert.Contains(".libzora-plain-headword", html);
+        Assert.Null(doc.DocumentNode.SelectSingleNode("//div[@class='entry']/@style"));
+        Assert.Null(doc.DocumentNode.SelectSingleNode("//font/@color"));
+        Assert.NotNull(doc.DocumentNode.SelectSingleNode("//div[@class='entry']//span[@class='hwd']"));
+    }
+
+    [Fact]
+    public void BuiltInStyleModeFormatsPlainEntriesWithStructuredHeadwordAndParagraphs()
+    {
+        var html = DictionaryHtmlRenderer.Render(
+            [new("apple", "n. 苹果\n\n一种水果", "简明词典")],
+            styleMode: DictionaryEntryStyleMode.BuiltIn);
+
+        Assert.Contains("libzora-plain-headword", html);
+        Assert.Contains("libzora-plain-def", html);
+        Assert.Contains("<p>n. 苹果</p>", html);
+        Assert.Contains("<p>一种水果</p>", html);
+    }
+
+    [Fact]
+    public void FastToReadableTextStripsMarkupDecodesEntitiesAndNormalizesLines()
+    {
+        var readable = DictionaryService.ToReadableText("""
+            <head><style>.x{color:red}</style></head>
+            <div class="entry"><script>ignored()</script><b>apple</b>&nbsp;&amp;&nbsp;pie<br/>  line   two  </div>
+            <p>line three</p>
+            """);
+
+        var lines = readable.Split(Environment.NewLine);
+        Assert.Equal(["apple & pie", "line two", "line three"], lines);
+        Assert.Equal("@@@LINK=target", DictionaryService.ToReadableText("  @@@LINK=target  "));
+    }
 }

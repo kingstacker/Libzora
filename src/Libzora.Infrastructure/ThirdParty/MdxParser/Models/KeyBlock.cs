@@ -103,37 +103,11 @@ namespace MdxParser.Models
                 m_DecompressData = m_DecryptedData;
             else if (EncryptedType == EncryptionType.ZlibAndHashed || EncryptedType == EncryptionType.ZlibAndSalsa)
             {
-                m_DecompressData = ZipDecompress(m_DecryptedData);
+                m_DecompressData = ZipDecompress(m_DecryptedData, (int)Math.Min(m_DecompressedSize, int.MaxValue));
             }
             else
                 throw new Exception(string.Format("compression method {0} not supported", EncryptedType));
             return m_DecompressData;
-            // 3.0版本起已废弃lzo压缩格式
-            //else if (compression_method == 1)
-            //{
-
-            //    byte[] compressedBlock = new byte[5 + decryptedBlock.Length];
-            //    compressedBlock[0] = (byte)0xf0;
-            //    Array.Copy(BitConverter.GetBytes(size).Reverse().ToArray(), 0, compressedBlock, 1, 4);
-            //    Array.Copy(decryptedBlock, 0, compressedBlock, 5, decryptedBlock.Length);
-            //    decompressedBlock = LzoDecompress(decryptedBlock);
-
-            //}
-            //else { throw new Exception(string.Format("compression method {0} not supported", compression_method)); }
-
-
-
-            //# check adler checksum over decompressed data
-            //if self._version < 3:
-            //    assert(hex(adler32) == hex(zlib.adler32(decompressed_block) & 0xffffffff))
-        }
-        private byte[] ZipDecompress(byte[] data)
-        {
-            MemoryStream compressed = new MemoryStream(data);
-            MemoryStream decompressed = new MemoryStream();
-            InflaterInputStream inputStream = new InflaterInputStream(compressed);
-            inputStream.CopyTo(decompressed);
-            return decompressed.ToArray();
         }
         public int EncryptedSize
         {

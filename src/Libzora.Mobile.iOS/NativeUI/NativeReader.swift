@@ -404,7 +404,17 @@ struct NativeReaderPage: View {
                     NavigationView {
                         panelContent(panel)
                             .navigationTitle(panel == .toc ? book.title : panel.title).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
-                            .toolbar { ToolbarItem(placement: .cancellationAction) { Button(L("完成")) { self.panel = nil } } }
+                            .toolbar {
+                                ToolbarItem(placement: .cancellationAction) {
+                                    Button {
+                                        self.panel = nil
+                                        self.assistantOpen = false
+                                    } label: {
+                                        Image(systemName: "xmark")
+                                    }
+                                    .accessibilityLabel(L("关闭"))
+                                }
+                            }
                     }.navigationViewStyle(.stack)
                         .modifier(NativeReaderTocSheetBackground(
                             enabled: panel == .toc, paper: paper,

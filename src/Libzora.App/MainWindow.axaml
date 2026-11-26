@@ -532,6 +532,8 @@
                                         IsVisible="False"
                                         Click="UpdateBadgeButton_Click"
                                         Cursor="Hand"
+                                        Height="31"
+                                        MinHeight="31"
                                         Padding="3"
                                         Background="Transparent"
                                         BorderThickness="0"
@@ -2825,6 +2827,7 @@
                                         <TextBox x:Name="TranslationGoogleProxyBox"
                                                  Grid.Column="1"
                                                  PlaceholderText="http://127.0.0.1:7890"
+                                                 ToolTip.Tip="{DynamicResource Ui.Auto.8B7B5D7E5F3A1C20}"
                                                  AutomationProperties.Name="{DynamicResource Ui.Auto.4D6C4A7B0E6E3A11}"
                                                  FontSize="14" />
                                     </Grid>

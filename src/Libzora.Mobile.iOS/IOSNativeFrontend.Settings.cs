@@ -17,7 +17,7 @@ internal sealed partial class IOSNativeFrontend
     {
         using var operation = BeginOperation();
         var modules = _shell.Modules;
-        if (command == "dictionary.wikipedia")
+        if (command is "dictionary.wikipedia" or "dictionary.ai")
             return await DispatchDictionaryAsync(command, args, token);
         if (command.StartsWith("dictionary.", StringComparison.Ordinal))
         {
@@ -302,6 +302,21 @@ internal sealed partial class IOSNativeFrontend
                 return wikipediaArticle is null
                     ? Array.Empty<WikipediaArticle>()
                     : new[] { wikipediaArticle };
+            case "dictionary.ai":
+            {
+                var term = Text(args, "term").Trim();
+                if (term.Length == 0) return Data(("text", string.Empty));
+                var ai = await _shell.Modules.Ai.Settings.LoadAsync(token);
+                if (!ai.IsConfigured) throw new InvalidOperationException(UiText.Get("请先在“我的”中设置 AI 接口。"));
+                if (!await EnsureAiConsentAsync(ai, token))
+                    throw new InvalidOperationException(UiText.Get("已取消 AI 授权，未发送任何内容。"));
+                var instructions = UiText.CurrentLanguage == "zh-CN"
+                    ? "你是简洁准确的词典助手。请用中文解释用户查询的词语或短语：给出音标/词性（如适用）、核心释义与 1–2 个简短例句，直接输出，不要寒暄。"
+                    : $"You are a concise dictionary assistant. Explain the queried word or phrase in {UiText.CurrentLanguage}: provide pronunciation/part of speech if applicable, core meanings, and 1-2 brief examples directly without preamble.";
+                var answer = await _shell.Modules.Ai.ChatClient.CompleteAsync(
+                    ai, instructions, term, Array.Empty<AiConversationTurn>(), token);
+                return Data(("text", answer));
+            }
             case "dictionary.toggle": await dictionary.SetEnabledAsync(Text(args, "id"), Flag(args, "enabled"), token); break;
             case "dictionary.remove":
                 if (await ConfirmAsync(UiText.Get("移除词典"), UiText.Get("移除后可以重新导入。"), UiText.Get("移除"))) await dictionary.RemoveAsync(Text(args, "id"), token);

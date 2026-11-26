@@ -86,6 +86,7 @@ private struct NativeDictionaryWebView: UIViewRepresentable {
                 return
             }
             if url.absoluteString == "https://libzora.invalid/dictionary/"
+                || url.absoluteString.hasPrefix("https://libzora.invalid/dictionary/#")
                 || url.scheme == "about"
                 || url.absoluteString.lowercased().hasPrefix("data:text/html") {
                 decisionHandler(.allow)
@@ -195,6 +196,8 @@ struct NativeDictionary: View {
             Section {
                 HStack {
                     TextField(L("查询词语"), text: $term)
+                        .textInputAutocapitalization(.never)
+                        .disableAutocorrection(true)
                         .onSubmit { lookup() }
                         .accessibilityIdentifier("reader.dictionary.query")
                     if !term.isEmpty {
@@ -343,11 +346,16 @@ struct NativeFloatingDictionaryCard: View {
     @State private var entries: [DictionaryEntry] = []
     @State private var renderedHtml: String?
     @State private var wikipedia: WikipediaArticle?
+    @State private var aiText = ""
+    @State private var aiQueriedTerm = ""
     @State private var localBusy = false
+    @State private var aiBusy = false
     @State private var wikipediaBusy = false
     @State private var localStatus = ""
+    @State private var aiStatus = ""
     @State private var wikipediaStatus = ""
     @State private var lookupRevision = 0
+    @State private var aiRevision = 0
 
     init(store: NativeStore, initialTerm: String, close: @escaping () -> Void) {
         self.store = store
@@ -357,38 +365,14 @@ struct NativeFloatingDictionaryCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                HStack(spacing: 6) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 14, weight: .regular))
-                        .foregroundStyle(NativeTheme.muted)
-                    TextField(L("查询词语"), text: $term)
-                        .font(NativeTheme.font(15, relativeTo: .body))
-                        .submitLabel(.search)
-                        .onSubmit { lookup() }
-                        .accessibilityIdentifier("reader.dictionary.query")
-                    if !term.isEmpty {
-                        Button(action: clearLookup) {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 15))
-                                .foregroundStyle(NativeTheme.muted)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(L("清空查询"))
-                        .accessibilityIdentifier("reader.dictionary.clear")
-                    }
+            HStack(spacing: 10) {
+                Picker("", selection: $activeTab) {
+                    Text(L("本地词典")).tag(0)
+                    Text(L("AI 查词")).tag(1)
+                    Text(L("维基百科")).tag(2)
                 }
-                .padding(.horizontal, 10)
-                .frame(height: 36)
-                .background(NativeTheme.sunk, in: RoundedRectangle(cornerRadius: 10))
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(NativeTheme.divider, lineWidth: 0.5))
-
-                Button(L("查询")) { lookup() }
-                    .font(NativeTheme.font(14, relativeTo: .subheadline))
-                    .foregroundStyle(NativeTheme.ink)
-                    .buttonStyle(.plain)
-                    .padding(.horizontal, 6)
-                    .frame(height: 36)
+                .pickerStyle(.segmented)
+                .accessibilityIdentifier("reader.dictionary.tabs")
 
                 Button(action: close) {
                     Image(systemName: "xmark")
@@ -401,13 +385,6 @@ struct NativeFloatingDictionaryCard: View {
                 .accessibilityLabel(L("关闭"))
                 .accessibilityIdentifier("reader.dictionary.close")
             }
-
-            Picker("", selection: $activeTab) {
-                Text(L("本地词典")).tag(0)
-                Text(L("维基百科")).tag(1)
-            }
-            .pickerStyle(.segmented)
-            .accessibilityIdentifier("reader.dictionary.tabs")
 
             Group {
                 if activeTab == 0, let renderedHtml {
@@ -424,6 +401,8 @@ struct NativeFloatingDictionaryCard: View {
                         VStack(alignment: .leading, spacing: 12) {
                             if activeTab == 0 {
                                 localContent
+                            } else if activeTab == 1 {
+                                aiContent
                             } else {
                                 wikipediaContent
                             }
@@ -436,7 +415,7 @@ struct NativeFloatingDictionaryCard: View {
                 }
             }
             .frame(minHeight: 150, maxHeight: 240)
-            .accessibilityIdentifier(activeTab == 1 ? "reader.dictionary.wikipedia" : "reader.dictionary.local")
+            .accessibilityIdentifier(activeTab == 2 ? "reader.dictionary.wikipedia" : activeTab == 1 ? "reader.dictionary.ai" : "reader.dictionary.local")
         }
         .padding(16)
         .modifier(NativeFloatingSurface())
@@ -444,6 +423,9 @@ struct NativeFloatingDictionaryCard: View {
         .accessibilityIdentifier("reader.dictionary.card")
         .task {
             if !term.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { lookup() }
+        }
+        .onChange(of: activeTab) { tab in
+            if tab == 1 { lookupAiIfNeeded() }
         }
         .onChange(of: colorScheme) { _ in
             if renderedHtml != nil && !term.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -480,6 +462,29 @@ struct NativeFloatingDictionaryCard: View {
                 .font(NativeTheme.font(13, relativeTo: .footnote))
                 .foregroundStyle(NativeTheme.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    @ViewBuilder private var aiContent: some View {
+        if aiBusy {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text(L("正在使用 AI 查词…"))
+                    .font(NativeTheme.font(13, relativeTo: .footnote))
+                    .foregroundStyle(NativeTheme.secondary)
+            }
+        } else if !aiText.isEmpty {
+            NativeMarkdownView(aiText, fontSize: 15)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else if !aiStatus.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(aiStatus)
+                    .font(NativeTheme.font(13, relativeTo: .footnote))
+                    .foregroundStyle(NativeTheme.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Button(L("重试")) { lookupAiIfNeeded(force: true) }
+                    .font(NativeTheme.font(13, relativeTo: .footnote))
+            }
         }
     }
 
@@ -538,10 +543,15 @@ struct NativeFloatingDictionaryCard: View {
         entries = []
         renderedHtml = nil
         wikipedia = nil
+        aiText = ""
+        aiQueriedTerm = ""
+        aiStatus = ""
+        aiBusy = false
         localBusy = true
         wikipediaBusy = true
         localStatus = L("正在查本地词典…")
         wikipediaStatus = L("正在查询维基百科…")
+        if activeTab == 1 { lookupAiIfNeeded(force: true) }
         let palette = dictionaryHtmlPalette(colorScheme: colorScheme, isCard: true)
         Task { @MainActor in
             do {
@@ -574,16 +584,32 @@ struct NativeFloatingDictionaryCard: View {
         }
     }
 
-    private func clearLookup() {
-        lookupRevision += 1
-        term = ""
-        entries = []
-        renderedHtml = nil
-        wikipedia = nil
-        localBusy = false
-        wikipediaBusy = false
-        localStatus = ""
-        wikipediaStatus = ""
+    private func lookupAiIfNeeded(force: Bool = false) {
+        let query = term.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return }
+        if !force, aiQueriedTerm == query, (!aiText.isEmpty || aiBusy) { return }
+        aiRevision += 1
+        let revision = aiRevision
+        aiQueriedTerm = query
+        aiText = ""
+        aiStatus = ""
+        aiBusy = true
+        Task { @MainActor in
+            do {
+                let value: TextResult = try await store.request("dictionary.ai", ["term": query])
+                guard revision == aiRevision else { return }
+                let trimmed = value.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.isEmpty {
+                    aiStatus = L("未获取到 AI 释义。")
+                } else {
+                    aiText = trimmed
+                }
+            } catch {
+                guard !Task.isCancelled, revision == aiRevision else { return }
+                aiStatus = L("AI 查词失败：{0}", error.localizedDescription)
+            }
+            if revision == aiRevision { aiBusy = false }
+        }
     }
 }
 

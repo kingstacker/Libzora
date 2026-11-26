@@ -97,7 +97,10 @@ extension NativeStore {
         guard let bookId = pendingOpenBookId, libraryLoaded, !preparingLibrary,
               txtReview == nil, !txtPresentationActive,
               !openingReader, !closingReader, !restartRequired else { return }
-        if pendingOpenSource == .widget && !launchBrandActive && widgetEntrySnapshotCover == nil {
+        // When a reader is already open, let `closeReader` capture the real
+        // rendered Metal page before mounting the cover overlay; snapshotting
+        // the window early would capture a blank white Metal surface and flash.
+        if readerBook == nil && pendingOpenSource == .widget && !launchBrandActive && widgetEntrySnapshotCover == nil {
             beginWidgetEntrySnapshotCover()
         }
         if readerBook != nil {

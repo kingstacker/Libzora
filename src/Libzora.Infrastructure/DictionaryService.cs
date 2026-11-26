@@ -14,11 +14,7 @@ public sealed record DictionaryImportProgress(string Stage, int EntryCount = 0, 
 public sealed partial class DictionaryService
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
-    private static readonly HashSet<string> BlockElements = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "address", "article", "blockquote", "dd", "div", "dl", "dt", "figcaption", "footer",
-        "h1", "h2", "h3", "h4", "h5", "h6", "header", "li", "main", "p", "section", "table", "tr"
-    };
+    private static readonly JsonSerializerOptions CompactJsonOptions = new() { WriteIndented = false };
     private readonly AppPaths _paths;
     private readonly IBookFormatConverter? _formatConverter;
 
@@ -113,8 +109,10 @@ public sealed partial class DictionaryService
                         catch (UnauthorizedAccessException) { }
                     }
                 }
-                await SaveRichEntriesAsync(ResolveSafePath(existing.RelativePath), richEntries, sourcePath, cancellationToken);
-                await LookupIndexedAsync(ResolveSafePath(existing.RelativePath), "", cancellationToken);
+                var existingPath = ResolveSafePath(existing.RelativePath);
+                await Task.WhenAll(
+                    SaveRichEntriesAsync(existingPath, richEntries, sourcePath, cancellationToken),
+                    BuildLookupIndexAsync(existingPath, entries, cancellationToken));
                 progress?.Report(new("导入完成", entries.Count, 100));
                 return existing;
             }
@@ -125,11 +123,14 @@ public sealed partial class DictionaryService
         progress?.Report(new("保存词条", entries.Count));
         var id = Guid.NewGuid().ToString("N");
         var relativePath = $"{id}.json";
-        await using (var stream = File.Create(Path.Combine(_paths.Dictionaries, relativePath)))
-            await JsonSerializer.SerializeAsync(stream, entries, JsonOptions, cancellationToken);
+        var fullPath = ResolveSafePath(relativePath);
+        await using (var stream = new FileStream(fullPath, FileMode.Create, FileAccess.Write, FileShare.None, bufferSize: 65536, useAsync: true))
+            await JsonSerializer.SerializeAsync(stream, entries, CompactJsonOptions, cancellationToken);
         var definition = new DictionaryDefinition(id, displayName, relativePath, entries.Count, DateTimeOffset.UtcNow, SourceFormat: extension.TrimStart('.').ToUpperInvariant());
-        await SaveRichEntriesAsync(ResolveSafePath(relativePath), richEntries, sourcePath, cancellationToken);
-        await LookupIndexedAsync(ResolveSafePath(relativePath), "", cancellationToken);
+        progress?.Report(new("建立查询索引", entries.Count));
+        await Task.WhenAll(
+            SaveRichEntriesAsync(fullPath, richEntries, sourcePath, cancellationToken),
+            BuildLookupIndexAsync(fullPath, entries, cancellationToken));
         progress?.Report(new("保存词典目录", entries.Count));
         manifest.Add(definition);
         await SaveManifestAsync(manifest, cancellationToken);
@@ -284,10 +285,76 @@ public sealed partial class DictionaryService
             return await Task.Run(() =>
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var result = new Dictionary<string, string>(StringComparer.CurrentCultureIgnoreCase);
-                using var stream = File.OpenRead(path);
+                using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 65536);
                 progress?.Report(new("读取 MDX 索引"));
                 var document = new MdxDocument(stream);
+                var keys = document.KeyDatas;
+                var recordBlocks = document.Blocks[MdxParser.Models.BlockType.RecordData].KeyBlocks;
+                var result = new Dictionary<string, string>(keys.Count, StringComparer.CurrentCultureIgnoreCase);
+                if (richEntries is not null) richEntries.EnsureCapacity(keys.Count);
+                var encoding = document.Encoding;
+
+                if (recordBlocks.Count > 0 && recordBlocks.All(block => block.DecompressedSize > 0))
+                {
+                    var blockRanges = new (long Offset, int KeyStart, int KeyEnd)[recordBlocks.Count];
+                    long runningOffset = 0;
+                    int keyCursor = 0;
+                    for (int b = 0; b < recordBlocks.Count; b++)
+                    {
+                        var blockSize = recordBlocks[b].DecompressedSize;
+                        int start = keyCursor;
+                        while (keyCursor < keys.Count && keys[keyCursor].Id - runningOffset < blockSize)
+                            keyCursor++;
+                        blockRanges[b] = (runningOffset, start, keyCursor);
+                        runningOffset += blockSize;
+                    }
+
+                    var parsedBlocks = new List<(string Key, string Readable, string Raw)>[recordBlocks.Count];
+                    var completedBlocks = 0;
+                    var parsedEntries = 0;
+                    var parallelOptions = new ParallelOptions { CancellationToken = cancellationToken };
+
+                    Parallel.For(0, recordBlocks.Count, parallelOptions, b =>
+                    {
+                        var (offset, keyStart, keyEnd) = blockRanges[b];
+                        if (keyStart >= keyEnd)
+                        {
+                            parsedBlocks[b] = [];
+                            return;
+                        }
+                        var recordData = recordBlocks[b].getDecompressedData();
+                        var list = new List<(string Key, string Readable, string Raw)>(keyEnd - keyStart);
+                        for (int i = keyStart; i < keyEnd; i++)
+                        {
+                            var key = keys[i];
+                            if (key.Text.StartsWith('\\')) continue;
+                            long startIndex = key.Id;
+                            long endIndex = i < keys.Count - 1 ? keys[i + 1].Id : recordData.Length + offset;
+                            int localStart = (int)(startIndex - offset);
+                            int localLength = (int)Math.Min(endIndex - startIndex, recordData.Length - localStart);
+                            if (localStart < 0 || localLength <= 0) continue;
+                            var rawText = encoding.GetString(recordData, localStart, localLength);
+                            list.Add((key.Text, ToReadableText(rawText), rawText));
+                        }
+                        parsedBlocks[b] = list;
+                        var done = Interlocked.Increment(ref completedBlocks);
+                        var count = Interlocked.Add(ref parsedEntries, list.Count);
+                        if (done == recordBlocks.Count || (done & 7) == 0)
+                            progress?.Report(new("解析 MDX 词条", count, Math.Min(99, done * 100.0 / recordBlocks.Count)));
+                    });
+
+                    foreach (var list in parsedBlocks)
+                    {
+                        if (list is null) continue;
+                        foreach (var (key, readable, raw) in list)
+                        {
+                            AddEntry(result, key, readable);
+                            if (richEntries is not null) AddEntry(richEntries, key, raw);
+                        }
+                    }
+                    return result;
+                }
+
                 var records = 0;
                 foreach (var record in document.RecordDatas)
                 {
@@ -448,16 +515,36 @@ public sealed partial class DictionaryService
     }
 
 
+    private static bool IsRedirectDefinition(string value) =>
+        value.TrimStart().StartsWith("@@@LINK=", StringComparison.OrdinalIgnoreCase);
+
     private static void AddEntry(IDictionary<string, string> entries, string? term, string? definition)
     {
         term = WebUtility.HtmlDecode(term ?? string.Empty).Trim().Trim('\0');
         definition = definition?.Trim();
         if (term.Length == 0 || string.IsNullOrWhiteSpace(definition)) return;
-        if (entries.TryGetValue(term, out var existing)
-            && !existing.Contains(definition, StringComparison.CurrentCultureIgnoreCase))
-            entries[term] = existing + Environment.NewLine + Environment.NewLine + definition;
+        if (entries.TryGetValue(term, out var existing))
+        {
+            var existingIsRedirect = IsRedirectDefinition(existing);
+            var incomingIsRedirect = IsRedirectDefinition(definition);
+            // A real definition (e.g. "man") must never be hidden behind an
+            // earlier case-variant redirect (e.g. "Man" -> "@@@LINK=Isle of Man").
+            if (existingIsRedirect && !incomingIsRedirect)
+            {
+                entries[term] = definition;
+                return;
+            }
+            if (incomingIsRedirect)
+            {
+                return;
+            }
+            if (!existing.Contains(definition, StringComparison.CurrentCultureIgnoreCase))
+                entries[term] = existing + Environment.NewLine + Environment.NewLine + definition;
+        }
         else
+        {
             entries[term] = definition;
+        }
     }
 
     private static bool DictionaryEntriesEqual(
@@ -481,41 +568,169 @@ public sealed partial class DictionaryService
         return definition[term.Length..].TrimStart(' ', '\t', '\r', '\n', ':', '：', '-', '—');
     }
 
-    private static string ToReadableText(string? html)
+    internal static string ToReadableText(string? html)
     {
         if (string.IsNullOrWhiteSpace(html)) return string.Empty;
-        var document = new HtmlDocument();
-        document.LoadHtml(html);
-        var builder = new StringBuilder();
-        AppendReadableText(document.DocumentNode, builder);
-        var decoded = WebUtility.HtmlDecode(builder.ToString()).Replace('\u00A0', ' ');
-        var lines = decoded.Replace("\r\n", "\n", StringComparison.Ordinal)
-            .Replace('\r', '\n')
-            .Split('\n')
-            .Select(line => string.Join(' ', line.Split([' ', '\t'], StringSplitOptions.RemoveEmptyEntries)))
-            .Where(line => line.Length > 0);
-        return string.Join(Environment.NewLine, lines);
-    }
+        var span = html.AsSpan();
+        var hasMarkup = span.IndexOfAny('<', '&') >= 0;
+        if (!hasMarkup)
+            return NormalizeReadableWhitespace(span);
 
-    private static void AppendReadableText(HtmlNode node, StringBuilder builder)
-    {
-        var name = LocalName(node.Name);
-        if (name.Equals("head", StringComparison.OrdinalIgnoreCase)
-            || name.Equals("script", StringComparison.OrdinalIgnoreCase)
-            || name.Equals("style", StringComparison.OrdinalIgnoreCase))
-            return;
-        if (name.Equals("br", StringComparison.OrdinalIgnoreCase))
+        var raw = new StringBuilder(span.Length);
+        var skipDepth = 0;
+        var i = 0;
+        while (i < span.Length)
         {
-            builder.AppendLine();
-            return;
+            var lt = span[i..].IndexOf('<');
+            if (lt < 0)
+            {
+                if (skipDepth == 0) AppendDecodedText(span[i..], raw);
+                break;
+            }
+            if (lt > 0 && skipDepth == 0)
+                AppendDecodedText(span.Slice(i, lt), raw);
+
+            var tagStart = i + lt;
+            if (tagStart + 3 < span.Length && span[tagStart + 1] == '!' && span[tagStart + 2] == '-' && span[tagStart + 3] == '-')
+            {
+                var commentEnd = span[(tagStart + 4)..].IndexOf("-->");
+                i = commentEnd < 0 ? span.Length : tagStart + 4 + commentEnd + 3;
+                continue;
+            }
+
+            var tagEnd = FindTagClose(span, tagStart + 1);
+            if (tagEnd < 0)
+            {
+                if (skipDepth == 0) AppendDecodedText(span[tagStart..], raw);
+                break;
+            }
+
+            var tagContent = span.Slice(tagStart + 1, tagEnd - tagStart - 1).Trim();
+            i = tagEnd + 1;
+            if (tagContent.IsEmpty || tagContent[0] == '!' || tagContent[0] == '?')
+                continue;
+
+            var isClosing = tagContent[0] == '/';
+            if (isClosing) tagContent = tagContent[1..].TrimStart();
+            var isSelfClosing = !isClosing && tagContent.Length > 0 && tagContent[^1] == '/';
+
+            var nameEnd = 0;
+            while (nameEnd < tagContent.Length && !char.IsWhiteSpace(tagContent[nameEnd]) && tagContent[nameEnd] != '/')
+                nameEnd++;
+            var tagName = tagContent[..nameEnd];
+            var colon = tagName.LastIndexOf(':');
+            if (colon >= 0) tagName = tagName[(colon + 1)..];
+
+            if (IsSkippedContainerTag(tagName))
+            {
+                if (isClosing) skipDepth = Math.Max(0, skipDepth - 1);
+                else if (!isSelfClosing) skipDepth++;
+                continue;
+            }
+
+            if (skipDepth > 0) continue;
+
+            if (tagName.Equals("br", StringComparison.OrdinalIgnoreCase))
+            {
+                raw.Append('\n');
+            }
+            else if (IsBlockElement(tagName))
+            {
+                if (raw.Length > 0) raw.Append('\n');
+            }
         }
 
-        var isBlock = BlockElements.Contains(name);
-        if (isBlock && builder.Length > 0) builder.AppendLine();
-        if (node.NodeType == HtmlNodeType.Text) builder.Append(node.InnerText);
+        return NormalizeReadableWhitespace(raw.ToString().AsSpan());
+    }
+
+    private static int FindTagClose(ReadOnlySpan<char> span, int start)
+    {
+        char quote = '\0';
+        for (int idx = start; idx < span.Length; idx++)
+        {
+            var ch = span[idx];
+            if (quote != '\0')
+            {
+                if (ch == quote) quote = '\0';
+            }
+            else if (ch is '"' or '\'')
+            {
+                quote = ch;
+            }
+            else if (ch == '>')
+            {
+                return idx;
+            }
+        }
+        return -1;
+    }
+
+    private static bool IsSkippedContainerTag(ReadOnlySpan<char> name) =>
+        name.Equals("head", StringComparison.OrdinalIgnoreCase)
+        || name.Equals("script", StringComparison.OrdinalIgnoreCase)
+        || name.Equals("style", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsBlockElement(ReadOnlySpan<char> name)
+    {
+        if (name.Length is < 1 or > 10) return false;
+        Span<char> lower = stackalloc char[name.Length];
+        for (int i = 0; i < name.Length; i++) lower[i] = char.ToLowerInvariant(name[i]);
+        return lower switch
+        {
+            "address" or "article" or "blockquote" or "dd" or "div" or "dl" or "dt"
+            or "figcaption" or "footer" or "h1" or "h2" or "h3" or "h4" or "h5" or "h6"
+            or "header" or "li" or "main" or "p" or "section" or "table" or "tr" => true,
+            _ => false
+        };
+    }
+
+    private static void AppendDecodedText(ReadOnlySpan<char> text, StringBuilder builder)
+    {
+        if (text.IndexOf('&') >= 0)
+            builder.Append(WebUtility.HtmlDecode(text.ToString()));
         else
-            foreach (var child in node.ChildNodes) AppendReadableText(child, builder);
-        if (isBlock) builder.AppendLine();
+            builder.Append(text);
+    }
+
+    private static string NormalizeReadableWhitespace(ReadOnlySpan<char> text)
+    {
+        var result = new StringBuilder(text.Length);
+        var lineHasContent = false;
+        var pendingSpace = false;
+
+        for (int i = 0; i < text.Length; i++)
+        {
+            var ch = text[i];
+            if (ch == '\u00A0') ch = ' ';
+            if (ch is '\r' or '\n')
+            {
+                if (lineHasContent)
+                {
+                    result.Append(Environment.NewLine);
+                    lineHasContent = false;
+                }
+                pendingSpace = false;
+            }
+            else if (ch is ' ' or '\t')
+            {
+                if (lineHasContent) pendingSpace = true;
+            }
+            else
+            {
+                if (pendingSpace)
+                {
+                    result.Append(' ');
+                    pendingSpace = false;
+                }
+                result.Append(ch);
+                lineHasContent = true;
+            }
+        }
+
+        var nl = Environment.NewLine;
+        if (result.Length >= nl.Length && !lineHasContent)
+            result.Length -= nl.Length;
+        return result.ToString();
     }
 
     private static string LocalName(string name)

@@ -105,7 +105,7 @@ namespace MdxParser.Models
                 case EncryptionType.Zlib:
                 case EncryptionType.ZlibAndSalsa:
                 case EncryptionType.ZlibAndHashed:
-                    m_DecompressData = ZipDecompress(m_DecryptedData);
+                    m_DecompressData = ZipDecompress(m_DecryptedData, (int)Math.Min(m_DecompressedSize, int.MaxValue));
                     break;
                 case EncryptionType.None:
                     m_DecompressData = m_DecryptedData;

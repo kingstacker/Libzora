@@ -1226,5 +1226,9 @@
   "已取消 AI 授权，未发送任何内容。": "KI-Einwilligung abgelehnt. Es wurden keine Daten gesendet.",
   "撤销 AI 授权": "KI-Einwilligung widerrufen",
   "已撤销 AI 授权，下次使用 AI 功能时会重新确认。": "KI-Einwilligung widerrufen. Vor der nächsten KI-Anfrage wird erneut um Bestätigung gebeten.",
-  "已授权向 {0} 发送阅读问题与相关片段。": "Autorisiert, Lesefragen und relevante Auszüge an {0} zu senden."
+  "已授权向 {0} 发送阅读问题与相关片段。": "Autorisiert, Lesefragen und relevante Auszüge an {0} zu senden.",
+  "AI 查词": "KI-Suche",
+  "正在使用 AI 查词…": "Suche mit KI…",
+  "未获取到 AI 释义。": "Keine KI-Definition erhalten.",
+  "AI 查词失败：{0}": "KI-Suche fehlgeschlagen: {0}"
 }

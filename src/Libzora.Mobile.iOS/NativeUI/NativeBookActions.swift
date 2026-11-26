@@ -12,18 +12,10 @@ struct NativeBookFilesSnapshot: Decodable {
     let files: [NativeBookFileRecord]
     let preferredFileId: String?
 }
-enum NativeBookFileAction: String, Identifiable {
-    case read, export
-    var id: String { rawValue }
-    var title: String { self == .read ? L("选择阅读格式") : L("导出原书") }
-}
-
 struct NativeBookFilePicker: View {
     @ObservedObject var store: NativeStore
     @Environment(\.dismiss) private var dismiss
     let bookId: String
-    let action: NativeBookFileAction
-    let onRead: (String) -> Void
     @State private var snapshot: NativeBookFilesSnapshot?
     @State private var loading = true
     @State private var busy = false
@@ -35,10 +27,9 @@ struct NativeBookFilePicker: View {
             NativeForm {
                 if loading { ProgressView() }
                 if let snapshot {
-                    ForEach(snapshot.files.filter { action == .export || $0.readable }) { file in
+                    ForEach(snapshot.files) { file in
                         Button {
-                            if action == .read { onRead(file.id); dismiss() }
-                            else { export(file) }
+                            export(file)
                         } label: {
                             HStack(spacing: 12) {
                                 VStack(alignment: .leading, spacing: 5) {
@@ -48,10 +39,7 @@ struct NativeBookFilePicker: View {
                                     if !file.local { Text(L("未下载")).font(NativeTheme.font(12)).foregroundStyle(NativeTheme.muted) }
                                 }
                                 Spacer()
-                                if action == .read && file.id == snapshot.preferredFileId {
-                                    Image(systemName: "checkmark").foregroundStyle(NativeTheme.ink)
-                                }
-                                if action == .export { Image(systemName: "square.and.arrow.up") }
+                                Image(systemName: "square.and.arrow.up")
                             }.padding(.vertical, 4).contentShape(Rectangle())
                         }.accessibilityIdentifier("book.file.\(file.id)")
                     }
@@ -63,7 +51,7 @@ struct NativeBookFilePicker: View {
                 }
             }
             .disabled(busy || loading)
-            .navigationTitle(action.title).navigationBarTitleDisplayMode(.inline)
+            .navigationTitle(L("导出原书")).navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button(L("取消")) { dismiss() }.disabled(busy) } }
         }.navigationViewStyle(.stack).interactiveDismissDisabled(busy)
             .task { await load() }

@@ -266,6 +266,8 @@ struct NativeReaderPage: View {
                 containerFrame: containerFrame,
                 colorScheme: readerColorScheme,
                 paper: paper,
+                usesAmbient: !powerSavingActive && store.preferences.readerThemeFollowsAppearance && store.preferences.colorfulMode,
+                ambientOpacity: appColorScheme == .dark ? 0.14 : 0.10,
                 content: ZStack(alignment: .topLeading) {
                     paper
                     ReaderSurface(controller: store.readerController)

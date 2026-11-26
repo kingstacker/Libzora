@@ -11,6 +11,7 @@ struct NativeBookOpenTransition: Identifiable, Equatable {
     let isCentered: Bool
     let coverImage: UIImage?
     var pageSnapshot: UIImage? = nil
+    var pageSnapshotView: UIView? = nil
 
     static func == (lhs: NativeBookOpenTransition, rhs: NativeBookOpenTransition) -> Bool {
         lhs.id == rhs.id
@@ -372,6 +373,8 @@ private struct NativeBookOpenCardShadowLayer: View {
     let isCentered: Bool
     let colorScheme: ColorScheme
     let paper: Color
+    let usesAmbient: Bool
+    let ambientOpacity: Double
     let progress: Double
 
     var body: some View {
@@ -399,6 +402,13 @@ private struct NativeBookOpenCardShadowLayer: View {
 
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             .fill(paper)
+            .overlay {
+                if usesAmbient {
+                    NativeAmbientWash()
+                        .opacity(ambientOpacity)
+                        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                }
+            }
             .frame(width: max(1, curW - inset), height: max(1, curH - inset))
             .shadow(color: .black.opacity(shadow.opacity), radius: shadow.radius, x: 0, y: shadow.y)
             .scaleEffect(cardScale, anchor: .center)
@@ -510,6 +520,8 @@ struct NativeBookOpenTransitionHost<Content: View>: View {
     let containerFrame: CGRect
     let colorScheme: ColorScheme
     let paper: Color
+    let usesAmbient: Bool
+    let ambientOpacity: Double
     let content: Content
 
     var body: some View {
@@ -524,6 +536,8 @@ struct NativeBookOpenTransitionHost<Content: View>: View {
                     isCentered: transition.isCentered,
                     colorScheme: colorScheme,
                     paper: paper,
+                    usesAmbient: usesAmbient,
+                    ambientOpacity: ambientOpacity,
                     progress: effectiveProgress
                 )
             }
@@ -551,6 +565,51 @@ struct NativeBookOpenTransitionHost<Content: View>: View {
     }
 }
 
+private struct NativeSnapshotViewBox: UIViewRepresentable {
+    let snapshotView: UIView
+
+    final class ContainerView: UIView {
+        weak var hostedSnapshot: UIView?
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            guard let hostedSnapshot, bounds.width > 0, bounds.height > 0 else { return }
+            let origSize = hostedSnapshot.bounds.size
+            guard origSize.width > 0, origSize.height > 0 else { return }
+            let scale = max(bounds.width / origSize.width, bounds.height / origSize.height)
+            hostedSnapshot.center = CGPoint(x: bounds.midX, y: bounds.midY)
+            hostedSnapshot.transform = CGAffineTransform(scaleX: scale, y: scale)
+        }
+    }
+
+    func makeUIView(context: Context) -> ContainerView {
+        let container = ContainerView()
+        container.backgroundColor = .clear
+        container.clipsToBounds = true
+        container.isUserInteractionEnabled = false
+        attach(snapshotView, to: container)
+        return container
+    }
+
+    func updateUIView(_ uiView: ContainerView, context: Context) {
+        if uiView.hostedSnapshot !== snapshotView {
+            attach(snapshotView, to: uiView)
+        }
+        uiView.setNeedsLayout()
+        uiView.layoutIfNeeded()
+    }
+
+    private func attach(_ snapshot: UIView, to container: ContainerView) {
+        container.subviews.forEach { $0.removeFromSuperview() }
+        snapshot.transform = .identity
+        snapshot.isUserInteractionEnabled = false
+        container.addSubview(snapshot)
+        container.hostedSnapshot = snapshot
+        container.setNeedsLayout()
+        container.layoutIfNeeded()
+    }
+}
+
 /// Single-progress book flip scene used by the 3D close animation (`1 → 0`).
 /// Uses a pre-resolved cover image and interpolates the frame size directly so
 /// the cover scales smoothly with zero aspect-ratio jump or placeholder flash.
@@ -558,9 +617,12 @@ private struct NativeBookFlipScene: View {
     let book: LibraryBook
     let coverImage: UIImage?
     let pageSnapshot: UIImage?
+    let pageSnapshotView: UIView?
     let sourceFrame: CGRect
     let isCentered: Bool
     let paper: Color
+    let usesAmbient: Bool
+    let ambientOpacity: Double
     let progress: Double
 
     @Environment(\.colorScheme) private var colorScheme
@@ -610,19 +672,35 @@ private struct NativeBookFlipScene: View {
                     // Dedicated resting/flight shadow caster behind the 3D cover leaf.
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                         .fill(paper)
+                        .overlay {
+                            if usesAmbient {
+                                NativeAmbientWash()
+                                    .opacity(ambientOpacity)
+                                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                            }
+                        }
                         .frame(width: max(1, curW - shadowInset), height: max(1, curH - shadowInset))
                         .shadow(color: .black.opacity(shadow.opacity), radius: shadow.radius, x: 0, y: shadow.y)
 
                     // Captured reader page (or paper fallback) crossfading into the cover.
                     ZStack(alignment: .leading) {
                         paper
-                        if let pageSnapshot {
+                        if let pageSnapshotView {
+                            NativeSnapshotViewBox(snapshotView: pageSnapshotView)
+                                .frame(width: curW, height: curH)
+                                .clipped()
+                                .opacity(min(1.0, t / 0.65))
+                        } else if let pageSnapshot {
                             Image(uiImage: pageSnapshot)
                                 .resizable()
                                 .scaledToFill()
                                 .frame(width: curW, height: curH)
                                 .clipped()
                                 .opacity(min(1.0, t / 0.65))
+                        }
+                        if usesAmbient {
+                            NativeAmbientWash()
+                                .opacity(ambientOpacity)
                         }
                     }
                     .frame(width: curW, height: curH)
@@ -681,7 +759,10 @@ private struct NativeBookFlipScene: View {
 /// (no fade-to-empty-hole flicker).
 struct NativeBookCloseOverlay: View {
     let transition: NativeBookOpenTransition
+    let readyId: UUID?
     let paper: Color
+    let usesAmbient: Bool
+    let ambientOpacity: Double
     let onFinished: () -> Void
 
     @StateObject private var driver = NativeBookTransitionDriver(initialProgress: 1)
@@ -691,26 +772,34 @@ struct NativeBookCloseOverlay: View {
             book: transition.book,
             coverImage: transition.coverImage,
             pageSnapshot: transition.pageSnapshot,
+            pageSnapshotView: transition.pageSnapshotView,
             sourceFrame: transition.sourceFrame,
             isCentered: transition.isCentered,
             paper: paper,
+            usesAmbient: usesAmbient,
+            ambientOpacity: ambientOpacity,
             progress: driver.progress
         )
         .onAppear {
-            start(for: transition)
+            startIfReady()
         }
         .onChange(of: transition.id) { _ in
-            start(for: transition)
+            driver.prepare(progress: 1)
+            startIfReady()
+        }
+        .onChange(of: readyId) { _ in
+            startIfReady()
         }
         .onDisappear {
             driver.cancel()
         }
     }
 
-    private func start(for current: NativeBookOpenTransition) {
-        let duration = current.isCentered
+    private func startIfReady() {
+        guard readyId == transition.id else { return }
+        let duration = transition.isCentered
             ? NativeBookOpenTransitionPolicy.closeToCenterDuration
             : NativeBookOpenTransitionPolicy.closeToCoverDuration
-        driver.start(id: current.id, from: 1, to: 0, duration: duration, onComplete: onFinished)
+        driver.start(id: transition.id, from: 1, to: 0, duration: duration, onComplete: onFinished)
     }
 }

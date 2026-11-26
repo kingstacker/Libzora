@@ -2,10 +2,10 @@ import QuartzCore
 import SwiftUI
 import UIKit
 
-/// Pure UIKit brand cover rendered synchronously on frame 0 when a widget deep
-/// link arrives, avoiding the one-frame transparent delay of UIHostingController.
+/// Pure UIKit brand cover rendered synchronously on frame 0 during cold launch
+/// and cold widget deep links, avoiding the one-frame transparent delay of UIHostingController.
 @MainActor
-private final class NativeWidgetBrandOverlayView: UIView {
+private final class NativeLaunchBrandOverlayView: UIView {
     private static let appIconImage: UIImage? = {
         if let icons = Bundle.main.infoDictionary?["CFBundleIcons"] as? [String: Any],
            let primary = icons["CFBundlePrimaryIcon"] as? [String: Any],
@@ -32,6 +32,7 @@ private final class NativeWidgetBrandOverlayView: UIView {
     private let iconContainer = UIView()
     private let iconImageView = UIImageView()
     private let titleLabel = UILabel()
+    private let progressIndicator = UIActivityIndicatorView(style: .medium)
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -76,6 +77,29 @@ private final class NativeWidgetBrandOverlayView: UIView {
             stack.addArrangedSubview(iconContainer)
         }
 
+        stack.addArrangedSubview(titleLabel)
+
+        progressIndicator.hidesWhenStopped = true
+        progressIndicator.isHidden = true
+        stack.addArrangedSubview(progressIndicator)
+
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.centerXAnchor.constraint(equalTo: centerXAnchor),
+            stack.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+        refreshAppearance()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        updateBorderColor()
+    }
+
+    func refreshAppearance() {
         let baseFont = NativeTheme.uiKitFont(24)
         let scaledFont = UIFontMetrics(forTextStyle: .title2).scaledFont(for: baseFont)
         titleLabel.attributedText = NSAttributedString(
@@ -86,22 +110,17 @@ private final class NativeWidgetBrandOverlayView: UIView {
                 .foregroundColor: Self.inkColor,
             ]
         )
-        stack.addArrangedSubview(titleLabel)
-
-        addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.centerXAnchor.constraint(equalTo: centerXAnchor),
-            stack.centerYAnchor.constraint(equalTo: centerYAnchor),
-        ])
+        progressIndicator.color = Self.inkColor
         updateBorderColor()
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError() }
-
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-        updateBorderColor()
+    func setShowProgress(_ visible: Bool) {
+        progressIndicator.isHidden = !visible
+        if visible {
+            progressIndicator.startAnimating()
+        } else {
+            progressIndicator.stopAnimating()
+        }
     }
 
     private func updateBorderColor() {
@@ -114,25 +133,37 @@ private final class NativeWidgetBrandOverlayView: UIView {
 
 @MainActor
 extension NativeStore {
-    private static let minimumWidgetBrandHoldNs: UInt64 = 380_000_000
+    private static let minimumLaunchBrandHoldNs: UInt64 = 380_000_000
 
-    func beginWidgetBrandCover() {
+    var launchBrandPageColor: UIColor? {
+        let style: UIUserInterfaceStyle
+        switch preferences.themeMode {
+        case 1: style = .light
+        case 2: style = .dark
+        default: style = navigationWindow?.traitCollection.userInterfaceStyle ?? .light
+        }
+        return style == .dark
+            ? UIColor(red: 0x12 / 255.0, green: 0x12 / 255.0, blue: 0x12 / 255.0, alpha: 1)
+            : .white
+    }
+
+    func beginLaunchBrandCover(resetTimer: Bool = true) {
         widgetTabTransition?.finish()
         widgetTabTransition = nil
-        widgetHandoffStartedNs = DispatchTime.now().uptimeNanoseconds
-        widgetColdLaunch = true
-        showsLaunchAnimation = false
-        guard let window = navigationWindow else { return }
-        _ = ensureWidgetBrandOverlay(in: window)
+        if resetTimer || launchBrandStartedNs == nil {
+            launchBrandStartedNs = DispatchTime.now().uptimeNanoseconds
+        }
+        launchBrandActive = true
+        guard !restartRequired, !dataBusy, let window = navigationWindow else { return }
+        _ = ensureLaunchBrandOverlay(in: window)
         CATransaction.flush()
     }
 
     func beginWidgetTabSlideTransition() {
         widgetTabTransition?.finish()
         widgetTabTransition = nil
-        dismissWidgetBrandCover()
+        dismissLaunchBrandCover()
         dismissWidgetEntrySnapshotCover()
-        showsLaunchAnimation = false
         let canAnimate = !UIAccessibility.isReduceMotionEnabled
             && !preferences.isPowerSaving(systemLowPower: ProcessInfo.processInfo.isLowPowerModeEnabled)
         guard canAnimate, let window = navigationWindow else { return }
@@ -223,9 +254,20 @@ extension NativeStore {
         }
     }
 
-    func keepWidgetBrandOverlayOnTop() {
-        guard widgetColdLaunch, let window = navigationWindow else { return }
-        _ = ensureWidgetBrandOverlay(in: window)
+    func keepLaunchBrandOverlayOnTop() {
+        guard launchBrandActive, !restartRequired, !dataBusy, let window = navigationWindow else { return }
+        _ = ensureLaunchBrandOverlay(in: window)
+    }
+
+    func refreshLaunchBrandAppearance() {
+        guard let overlay = launchBrandOverlay as? NativeLaunchBrandOverlayView else { return }
+        applyBrandOverlayStyle(overlay)
+        overlay.refreshAppearance()
+    }
+
+    func setLaunchBrandProgressVisible(_ visible: Bool) {
+        guard let overlay = launchBrandOverlay as? NativeLaunchBrandOverlayView else { return }
+        overlay.setShowProgress(visible)
     }
 
     private func applyBrandOverlayStyle(_ view: UIView) {
@@ -236,10 +278,11 @@ extension NativeStore {
         }
     }
 
-    private func ensureWidgetBrandOverlay(in window: UIWindow) -> UIView {
-        if let existing = widgetBrandOverlay {
+    private func ensureLaunchBrandOverlay(in window: UIWindow) -> UIView {
+        if let existing = launchBrandOverlay as? NativeLaunchBrandOverlayView {
             existing.frame = window.bounds
             applyBrandOverlayStyle(existing)
+            existing.refreshAppearance()
             if existing.superview !== window {
                 window.addSubview(existing)
             }
@@ -247,37 +290,38 @@ extension NativeStore {
             existing.layoutIfNeeded()
             return existing
         }
-        let overlay = NativeWidgetBrandOverlayView(frame: window.bounds)
+        let overlay = NativeLaunchBrandOverlayView(frame: window.bounds)
         applyBrandOverlayStyle(overlay)
         window.addSubview(overlay)
         window.bringSubviewToFront(overlay)
         overlay.layoutIfNeeded()
-        widgetBrandOverlay = overlay
+        launchBrandOverlay = overlay
         return overlay
     }
 
-    func waitForMinimumWidgetBrandHold() async {
-        guard widgetColdLaunch,
+    func waitForMinimumLaunchBrandHold() async {
+        guard launchBrandActive,
               !UIAccessibility.isReduceMotionEnabled,
               !preferences.isPowerSaving(systemLowPower: ProcessInfo.processInfo.isLowPowerModeEnabled),
-              let started = widgetHandoffStartedNs else { return }
+              let started = launchBrandStartedNs else { return }
         let elapsed = DispatchTime.now().uptimeNanoseconds &- started
-        if elapsed < Self.minimumWidgetBrandHoldNs {
-            try? await Task.sleep(nanoseconds: Self.minimumWidgetBrandHoldNs - elapsed)
+        if elapsed < Self.minimumLaunchBrandHoldNs {
+            try? await Task.sleep(nanoseconds: Self.minimumLaunchBrandHoldNs - elapsed)
         }
     }
 
-    func captureWidgetBrandSnapshot() -> UIImage? {
+    func captureLaunchBrandSnapshot() -> UIImage? {
         guard let window = navigationWindow,
               window.bounds.width > 10, window.bounds.height > 10 else { return nil }
         let sourceView: UIView
-        if let overlay = widgetBrandOverlay {
+        if let overlay = launchBrandOverlay as? NativeLaunchBrandOverlayView {
             overlay.frame = window.bounds
             applyBrandOverlayStyle(overlay)
+            overlay.refreshAppearance()
             overlay.layoutIfNeeded()
             sourceView = overlay
         } else {
-            let overlay = NativeWidgetBrandOverlayView(frame: window.bounds)
+            let overlay = NativeLaunchBrandOverlayView(frame: window.bounds)
             applyBrandOverlayStyle(overlay)
             overlay.layoutIfNeeded()
             sourceView = overlay
@@ -290,23 +334,23 @@ extension NativeStore {
         }
     }
 
-    func createWidgetBrandSlideTransition(paper: UIColor? = nil) -> NativePageSlideTransition? {
+    func createLaunchBrandSlideTransition(paper: UIColor? = nil) -> NativePageSlideTransition? {
         let window = navigationWindow
         let canAnimate = !UIAccessibility.isReduceMotionEnabled
             && !preferences.isPowerSaving(systemLowPower: ProcessInfo.processInfo.isLowPowerModeEnabled)
         guard canAnimate else { return nil }
-        let snapshot = captureWidgetBrandSnapshot()
+        let snapshot = captureLaunchBrandSnapshot()
         return NativePageSlideTransition(
             window: window,
             snapshot: snapshot,
-            paper: paper ?? window?.backgroundColor ?? .systemBackground
+            paper: paper ?? launchBrandPageColor ?? window?.backgroundColor ?? .systemBackground
         )
     }
 
-    func dismissWidgetBrandCover() {
-        widgetBrandOverlay?.removeFromSuperview()
-        widgetBrandOverlay = nil
-        widgetHandoffStartedNs = nil
-        widgetColdLaunch = false
+    func dismissLaunchBrandCover() {
+        launchBrandOverlay?.removeFromSuperview()
+        launchBrandOverlay = nil
+        launchBrandStartedNs = nil
+        launchBrandActive = false
     }
 }

@@ -103,36 +103,28 @@ final class NativeDataSafetyUITests: XCTestCase {
         capture("阅读资料-删除失败记录仍可操作")
     }
 
-    func testManualStatusAndBookFileActionsAreConnected() {
+    func testManualStatusUpdatesBookDetailLabel() {
         openDetails()
         reveal(app.buttons["book.readingStatus"]); app.buttons["book.readingStatus"].tap()
         app.buttons["book.status.2"].tap()
         XCTAssertTrue(wait { self.app.buttons["book.readingStatus"].label == "读完" })
         app.buttons["book.readingStatus"].tap(); app.buttons["book.status.0"].tap()
         XCTAssertTrue(wait { self.app.buttons["book.readingStatus"].label == "待读" })
-        capture("书籍详情-手动阅读状态与文件操作")
-        app.buttons["book.chooseFile"].tap()
+        app.buttons["书籍选项"].tap()
+        XCTAssertFalse(app.buttons["选择阅读格式"].exists)
+        app.buttons["导出原书"].tap()
         let files = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'book.file.'"))
-        let pdf = files.matching(NSPredicate(format: "label CONTAINS[c] 'pdf'")).firstMatch
-        XCTAssertTrue(pdf.waitForExistence(timeout: 15))
+        XCTAssertTrue(files.firstMatch.waitForExistence(timeout: 15))
         XCTAssertGreaterThanOrEqual(files.count, 2)
-        capture("书籍-按文件选择阅读格式")
-        pdf.tap()
-        let position = app.staticTexts["reader.position"]
-        XCTAssertTrue(wait { position.exists && position.label.contains("1 / 1") && position.label.contains("100%") },
-                      "The selected PDF must finish rendering.\n\(app.debugDescription)")
-        closeReader()
-        let read = app.buttons["book.read"]
-        XCTAssertTrue(wait { read.isHittable && read.isEnabled })
-        read.tap()
-        XCTAssertTrue(wait { position.exists && position.label.contains("1 / 1") && position.label.contains("100%") },
-                      "Ordinary reopen must retain the most recently read PDF.\n\(app.debugDescription)")
-        capture("书籍-普通打开继续最近PDF")
+        capture("书籍详情-手动阅读状态与原书导出列表")
     }
 
     func testExportBookOpensTheSystemShareSheet() {
         openDetails()
-        reveal(app.buttons["book.export"]); app.buttons["book.export"].tap()
+        app.buttons["书籍选项"].tap()
+        let exportAction = app.buttons["导出原书"]
+        XCTAssertTrue(exportAction.waitForExistence(timeout: 5))
+        exportAction.tap()
         let file = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'book.file.'")).firstMatch
         XCTAssertTrue(file.waitForExistence(timeout: 15)); file.tap()
         let shared = wait(timeout: 15) {

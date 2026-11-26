@@ -38,8 +38,8 @@ struct NativeReaderEntryPresentation: ViewModifier {
             .overlay {
                 if !prepared && animation != .cover {
                     Group {
-                        if store.widgetColdLaunch {
-                            NativeWidgetLaunchBrandView(showProgress: loadingFeedback)
+                        if store.launchBrandActive {
+                            NativeLaunchBrandView(showProgress: loadingFeedback)
                         } else {
                             ZStack {
                                 paper
@@ -82,9 +82,13 @@ struct NativeReaderEntryPresentation: ViewModifier {
                 try? await Task.sleep(nanoseconds: NativeReaderPresentationPolicy.loadingFeedbackDelay)
                 guard !Task.isCancelled, !prepared else { return }
                 loadingFeedback = true
-                if store.session.appearanceSessionId == sessionId && !store.widgetColdLaunch {
-                    store.dismissWidgetEntrySnapshotCover()
-                    store.restoringReader = false
+                if store.session.appearanceSessionId == sessionId {
+                    if store.launchBrandActive {
+                        store.setLaunchBrandProgressVisible(true)
+                    } else {
+                        store.dismissWidgetEntrySnapshotCover()
+                        store.restoringReader = false
+                    }
                 }
             }
             .task(id: key) {
@@ -105,11 +109,16 @@ struct NativeReaderEntryPresentation: ViewModifier {
 
     private func revealReader() async {
         guard !Task.isCancelled, store.session.appearanceSessionId == sessionId else { return }
+        if store.launchBrandActive && animation.isPageAnimation {
+            await store.waitForMinimumLaunchBrandHold()
+            guard !Task.isCancelled, store.session.appearanceSessionId == sessionId else { return }
+        }
         let window = store.navigationWindow
         let handoff: NativePageSlideTransition?
-        if store.widgetColdLaunch {
-            let snapshot = store.captureWidgetBrandSnapshot() ?? store.readerEntrySnapshot
-            handoff = NativePageSlideTransition(window: window, snapshot: snapshot, paper: UIColor(paper))
+        if store.launchBrandActive {
+            let snapshot = store.captureLaunchBrandSnapshot() ?? store.readerEntrySnapshot
+            let transitionPaper = animation.isPageAnimation ? (store.launchBrandPageColor ?? UIColor(paper)) : UIColor(paper)
+            handoff = NativePageSlideTransition(window: window, snapshot: snapshot, paper: transitionPaper)
         } else if !loadingFeedback, let oldView = store.takeWidgetEntrySnapshotCover() {
             handoff = NativePageSlideTransition(window: window, oldPageView: oldView, paper: UIColor(paper))
         } else {
@@ -117,14 +126,14 @@ struct NativeReaderEntryPresentation: ViewModifier {
             handoff = NativePageSlideTransition(window: window, snapshot: snapshot, paper: UIColor(paper))
         }
         transition = handoff
-        store.dismissWidgetBrandCover()
+        store.dismissLaunchBrandCover()
         store.dismissWidgetEntrySnapshotCover()
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) { prepared = true }
         await NativeDisplayFrame.waitForCommit()
         guard !Task.isCancelled, store.session.appearanceSessionId == sessionId else { handoff?.finish(); return }
-        let duration = store.readerOpenSource == .widget
+        let duration = store.readerOpenSource == .widget || store.readerOpenSource == .restore
             ? NativeReaderPresentationPolicy.widgetTransitionDuration
             : NativeBookOpenTransitionPolicy.pageTransitionDuration
         await handoff?.show(store.readerPresentationView, animation: animation, duration: duration)

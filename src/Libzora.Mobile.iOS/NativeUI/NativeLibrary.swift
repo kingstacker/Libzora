@@ -54,8 +54,7 @@ struct NativeBookDetailPage: View {
     @State private var reflectionEditor = false
     @State private var reflection: BookReflectionRecord?
     @State private var reflectionLoaded = false
-    @State private var fileAction: NativeBookFileAction?
-    @State private var pendingReadFileId: String?
+    @State private var exportingBook = false
     @State private var statusPicker = false
     @State private var busy = false
     @State private var expanded = false
@@ -80,8 +79,7 @@ struct NativeBookDetailPage: View {
                             Button(L("编辑书籍信息")) { editor = true }; Button(L("加入收藏夹")) { folders = true }
                             Button(L("重命名")) { rename = true }; Button(L("发送到 Kindle")) { action("kindle") }
                             Button(L("阅读状态")) { statusPicker = true }
-                            Button(L("选择阅读格式")) { fileAction = .read }
-                            Button(L("导出原书")) { fileAction = .export }
+                            Button(L("导出原书")) { exportingBook = true }
                             Button(L("移到回收站"), role: .destructive) { action("delete") }
                         } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }
                             .buttonStyle(.plain).disabled(busy).accessibilityLabel(L("书籍选项"))
@@ -139,13 +137,8 @@ struct NativeBookDetailPage: View {
                     }
                 }
             }
-            .sheet(item: $fileAction, onDismiss: {
-                if let fileId = pendingReadFileId, let book {
-                    pendingReadFileId = nil
-                    store.perform { try await store.openReader(book, source: .library, bookFileId: fileId) }
-                }
-            }) { target in
-                NativeBookFilePicker(store: store, bookId: bookId, action: target) { pendingReadFileId = $0 }
+            .sheet(isPresented: $exportingBook) {
+                NativeBookFilePicker(store: store, bookId: bookId)
             }
             .sheet(isPresented: $statusPicker) { NativeBookReadingStatusPicker(store: store, bookId: bookId) }
             .task(id: bookId) { await loadReflection() }
@@ -194,13 +187,6 @@ struct NativeBookDetailPage: View {
                         Text([L("待读"), L("在读"), L("读完")][NativeBookReadingStatus.value(book)])
                     }.buttonStyle(.plain).accessibilityIdentifier("book.readingStatus")
                 }
-                HStack(spacing: 12) {
-                    Button(L("选择阅读格式")) { fileAction = .read }
-                        .accessibilityIdentifier("book.chooseFile")
-                    Spacer()
-                    Button(L("导出原书")) { fileAction = .export }
-                        .accessibilityIdentifier("book.export")
-                }.buttonStyle(.plain)
                 fact(L("评分"), book.onlineRating.map { String(format: "%.1f", $0) })
                 fact(L("丛书"), book.series); fact(L("出版社"), book.publisher); fact(L("出版日期"), book.publishDate)
                 fact("ISBN", book.isbn); fact(L("页数"), book.pageCount); fact(L("装帧"), book.binding)

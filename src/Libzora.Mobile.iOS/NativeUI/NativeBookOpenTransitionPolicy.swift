@@ -54,7 +54,7 @@ enum NativeBookOpenAnimation: Equatable {
 /// Pure geometry and visibility rules shared by book open/close transitions
 /// and verified by host-side logic tests.
 enum NativeBookOpenTransitionPolicy {
-    static let openFromCoverDuration: Double = 0.68
+    static let openFromCoverDuration: Double = 0.56
     static let openFromCoverMountDelay = openFromCoverDuration - 0.04
     static let openFromCoverCleanupDelay = openFromCoverDuration + 0.04
 
@@ -62,10 +62,10 @@ enum NativeBookOpenTransitionPolicy {
     static let openFromCenterMountDelay: Double = openFromCoverMountDelay
     static let openFromCenterCleanupDelay: Double = openFromCoverCleanupDelay
 
-    static let closeToCoverDuration: Double = 0.59
+    static let closeToCoverDuration: Double = 0.48
     static let closeToCoverCleanupDelay = closeToCoverDuration + 0.04
 
-    static let closeToCenterDuration: Double = 0.54
+    static let closeToCenterDuration: Double = 0.44
     static let closeToCenterCleanupDelay = closeToCenterDuration + 0.04
 
     static let coverAspectRatio: CGFloat = 1.45
@@ -167,7 +167,7 @@ enum NativeBookOpenTransitionPolicy {
     ) -> NativeBookOpenAnimation {
         guard animated, !reduceMotion, !powerSaving else { return .none }
         if source == .library || source == .dashboard { return .cover }
-        if source == .widget || source == .continueReading || source == .materials { return .slide }
+        if source == .widget || source == .continueReading || source == .materials || source == .restore { return .slide }
         switch pageAnimation {
         case 0: return .none
         case 1: return .fade

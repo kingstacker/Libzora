@@ -218,7 +218,7 @@ struct NativeStateLogicTests {
         check(!NativeBookOpenTransitionPolicy.isVisibleFrame(buriedTabBarFrame, in: viewport),
               "Cover mostly buried below the bottom tab bar is rejected")
 
-        for source in [NativeBookOpenSource.external, .restore, .other] {
+        for source in [NativeBookOpenSource.external, .other] {
             check(NativeBookOpenTransitionPolicy.openAnimation(
                 source: source, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: 3) == .slide,
                 "Non-cover page entries use the configured slide")
@@ -243,6 +243,12 @@ struct NativeStateLogicTests {
                 source: .widget, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: pageAnimation) == .slide,
                 "A widget-opened book closes with a page slide, never a cover flip")
             check(NativeBookOpenTransitionPolicy.openAnimation(
+                source: .restore, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: pageAnimation) == .slide,
+                "Cold-launch reader restore always slides in from the icon page")
+            check(NativeBookOpenTransitionPolicy.closeAnimation(
+                source: .restore, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: pageAnimation) == .slide,
+                "Closing a launch-restored book slides back cleanly")
+            check(NativeBookOpenTransitionPolicy.openAnimation(
                 source: .continueReading, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: pageAnimation) == .slide,
                 "Continue-reading entry always slides in from the right")
             check(NativeBookOpenTransitionPolicy.closeAnimation(
@@ -260,6 +266,12 @@ struct NativeStateLogicTests {
                 source: source, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: 3) == .slide,
                 "Non-cover close keeps its real entry source")
         }
+        check(NativeBookOpenTransitionPolicy.openAnimation(
+            source: .restore, animated: true, reduceMotion: true, powerSaving: false, pageAnimation: 3) == .none,
+            "Cold-launch reader restore respects Reduce Motion")
+        check(NativeBookOpenTransitionPolicy.openAnimation(
+            source: .restore, animated: true, reduceMotion: false, powerSaving: true, pageAnimation: 3) == .none,
+            "Cold-launch reader restore respects power saving")
         check(NativeBookOpenTransitionPolicy.openAnimation(
             source: .widget, animated: true, reduceMotion: true, powerSaving: false, pageAnimation: 3) == .none,
             "Widget navigation respects Reduce Motion")

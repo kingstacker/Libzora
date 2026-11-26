@@ -33,10 +33,11 @@ final class ReaderMediaTests: XCTestCase {
         app.terminate()
         app.launchArguments = []
         app.launch()
+        XCTAssertFalse(app.staticTexts["launch.slogan"].exists)
         XCTAssertTrue(position.waitForExistence(timeout: 40), app.debugDescription)
         XCTAssertEqual(position.label, savedPosition)
+        XCTAssertFalse(app.otherElements["launch.screen"].exists)
         XCTAssertFalse(app.staticTexts["launch.brand"].exists)
-        XCTAssertFalse(app.staticTexts["launch.slogan"].exists)
         XCTAssertFalse(app.tabBars.buttons["书库"].isHittable)
         checkpoint("直接恢复阅读及原页码")
     }

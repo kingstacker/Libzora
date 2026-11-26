@@ -247,10 +247,9 @@ final class NativeReaderSession: ObservableObject {
 final class NativeStore: ObservableObject {
     let handler: ManagedRequest
     let readerController: UIViewController
-    /// Only shown on an ordinary cold launch into the library (~1s), never on resume/reader-restore/widget deep-links.
-    @Published var showsLaunchAnimation: Bool
-    /// Shown during cold widget deep-links so the Libzora icon stays visible while the destination loads concurrently.
-    @Published var widgetColdLaunch = false
+    /// Shown during cold launch (into library, restored reader, or widget target)
+    /// so the Libzora icon page stays visible until the destination slides in.
+    @Published var launchBrandActive = true
     @Published var openingBookTransition: NativeBookOpenTransition?
     @Published var openingBookReadyId: UUID?
     @Published var readerEntrySnapshot: UIImage?
@@ -258,8 +257,8 @@ final class NativeStore: ObservableObject {
     var readerOpenSource: NativeBookOpenSource = .other
     var readerInitialTopSafeInset: CGFloat = 0
     @Published var closingBookTransition: NativeBookOpenTransition?
-    @Published var closingBookBackdrop = false
-    @Published var closingBookSnapshot: UIImage?
+    @Published var closingBookReadyId: UUID?
+    var closingFreezeCover: UIView?
     var closingTransitionWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
     var activeTab = 0
     private(set) var viewportRect: CGRect = UIScreen.main.bounds
@@ -269,9 +268,9 @@ final class NativeStore: ObservableObject {
     var widgetTabTransition: NativePageSlideTransition?
     var widgetTabTask: Task<Void, Never>?
     weak var rootViewController: UIViewController?
-    var widgetBrandOverlay: UIView?
+    var launchBrandOverlay: UIView?
     var widgetEntrySnapshotCover: UIView?
-    var widgetHandoffStartedNs: UInt64?
+    var launchBrandStartedNs: UInt64?
     var pendingWidgetReaderSnapshot: UIImage?
     @Published var closingReader = false
     var openingReaderBookId: String?
@@ -303,6 +302,7 @@ final class NativeStore: ObservableObject {
         didSet {
             applyUiLanguage(NativeLocalization.resolvedLanguage(preferences.uiLanguage))
             applyUiFont(preferences.uiFont)
+            refreshLaunchBrandAppearance()
         }
     }
     @Published private(set) var uiLanguage = NativeLocalization.language
@@ -351,7 +351,6 @@ final class NativeStore: ObservableObject {
     @Published var syncStatus = ""
     @Published var requestedTab: Int?
     static let lastReaderKey = "libzora.reader.lastBookId"
-    private static let coldLaunchBrandingDurationNs: UInt64 = 1_000_000_000
     var pendingReaderRestore: String?
     var pendingOpenBookId: String?
     /// Bumped whenever a widget link supersedes the reader that is opening.
@@ -381,7 +380,8 @@ final class NativeStore: ObservableObject {
         self.readerController = readerController
         let savedReader = ProcessInfo.processInfo.arguments.contains("--libzora-disable-restore")
             ? nil : UserDefaults.standard.string(forKey: Self.lastReaderKey)
-        showsLaunchAnimation = savedReader == nil
+        launchBrandActive = true
+        launchBrandStartedNs = DispatchTime.now().uptimeNanoseconds
         pendingReaderRestore = savedReader
         restoringReader = savedReader != nil
     }
@@ -487,7 +487,10 @@ final class NativeStore: ObservableObject {
         case "txtImportDismissed":
             if txtReview?.id == event.id { txtReview = nil }
             if nextTxtReview?.id == event.id { nextTxtReview = nil }
-        case "dataBusy": dataBusy = event.busy ?? false; busyMessage = event.message ?? ""
+        case "dataBusy":
+            dataBusy = event.busy ?? false
+            busyMessage = event.message ?? ""
+            launchBrandOverlay?.isHidden = dataBusy
         case "status": if event.channel == "sync" { syncStatus = event.message ?? "" }
         case "aiText":
             if let id = event.sessionId {
@@ -498,7 +501,9 @@ final class NativeStore: ObservableObject {
                     status: event.status ?? "",
                     sources: event.sources ?? [])
             }
-        case "restart": restartRequired = true
+        case "restart":
+            restartRequired = true
+            dismissLaunchBrandCover()
         case "toast": showToast(event.message ?? "")
         case "accountInvalidated": account = nil
         case "openBook", "openWidgetBook":
@@ -520,7 +525,7 @@ final class NativeStore: ObservableObject {
                 if useBrandCover {
                     widgetTabTask?.cancel()
                     widgetTabTask = nil
-                    beginWidgetBrandCover()
+                    beginLaunchBrandCover(resetTimer: false)
                     requestedTab = tab
                     restoringReader = false
                     dismissReaderForTab()
@@ -560,15 +565,13 @@ final class NativeStore: ObservableObject {
     }
 
     /// The root owns startup, rather than waiting for a tab's onAppear. Cold
-    /// launch plays a 1s branding animation concurrently while the shelf loads;
-    /// restoring a reading session or opening a widget link skips it and
-    /// enters the target view directly without flashing the library.
+    /// launch keeps the Libzora icon page visible while the shelf loads, then
+    /// slides left into the main interface or directly into the restored book
+    /// (or widget target) without flashing the library.
     func prepareLaunch(viewport: CGSize) async {
         guard !launchStarted else { return }
         launchStarted = true
-        let brandingDelay: Task<Void, Never>? = showsLaunchAnimation
-            ? Task { try? await Task.sleep(nanoseconds: Self.coldLaunchBrandingDurationNs) }
-            : nil
+        keepLaunchBrandOverlayOnTop()
         do {
             try await refreshLibrary(timeoutNanoseconds: 30_000_000_000)
             try Task.checkCancellation()
@@ -581,7 +584,14 @@ final class NativeStore: ObservableObject {
         let snapshotFolders = folders
         let snapshotPreferences = preferences
         let snapshotContinueBookId = continueBookId
-        if libraryLoaded && !snapshotBooks.isEmpty && pendingOpenBookId == nil {
+        let canRestoreBook = canOpenReader
+            && libraryLoaded
+            && pendingOpenBookId == nil
+            && requestedTab == nil
+            && txtReview == nil
+            && !txtPresentationActive
+            && pendingReaderRestore.flatMap { id in snapshotBooks.first(where: { $0.id == id }) } != nil
+        if libraryLoaded && !snapshotBooks.isEmpty && pendingOpenBookId == nil && !canRestoreBook {
             Task {
                 await NativeCoverCache.prepareLibrary(
                     books: snapshotBooks,
@@ -591,21 +601,50 @@ final class NativeStore: ObservableObject {
                     viewport: viewport)
             }
         }
-        if showsLaunchAnimation && pendingOpenBookId == nil && requestedTab == nil && !Task.isCancelled {
-            await brandingDelay?.value
-        } else {
-            brandingDelay?.cancel()
-            showsLaunchAnimation = false
+        let enteringMainUi = !canRestoreBook
+            && requestedTab == nil
+            && (!canOpenReader || pendingOpenBookId == nil)
+        if enteringMainUi {
+            await waitForMinimumLaunchBrandHold()
         }
-        if pendingOpenBookId == nil && requestedTab == nil {
-            dismissWidgetBrandCover()
-        }
-        preparingLibrary = false
-        if libraryLoaded && !Task.isCancelled {
-            openPendingReaderIfNeeded()
-            restorePendingReaderIfNeeded()
+        let stillEnteringMainUi = !Task.isCancelled
+            && !canRestoreBook
+            && requestedTab == nil
+            && (!canOpenReader || pendingOpenBookId == nil)
+        if stillEnteringMainUi {
+            if libraryLoaded && !snapshotBooks.isEmpty,
+               let restoreId = pendingReaderRestore,
+               !snapshotBooks.contains(where: { $0.id == restoreId }) {
+                pendingReaderRestore = nil
+                UserDefaults.standard.removeObject(forKey: Self.lastReaderKey)
+            }
+            let handoff = createLaunchBrandSlideTransition()
+            dismissLaunchBrandCover()
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                preparingLibrary = false
+                restoringReader = false
+            }
+            await NativeDisplayFrame.waitForCommit()
+            if Task.isCancelled {
+                handoff?.finish()
+            } else {
+                await handoff?.show(
+                    navigationWindow?.rootViewController?.view,
+                    animation: .slide,
+                    duration: NativeBookOpenTransitionPolicy.pageTransitionDuration
+                )
+            }
         } else {
-            releaseLaunchRestore()
+            preparingLibrary = false
+            if libraryLoaded && !Task.isCancelled {
+                openPendingReaderIfNeeded()
+                restorePendingReaderIfNeeded()
+            } else if pendingOpenBookId == nil && requestedTab == nil {
+                dismissLaunchBrandCover()
+                releaseLaunchRestore()
+            }
         }
         if libraryChangedDuringLaunch {
             libraryChangedDuringLaunch = false

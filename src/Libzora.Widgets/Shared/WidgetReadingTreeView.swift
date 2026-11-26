@@ -13,6 +13,13 @@ struct KkReadingTreeWidgetView: View {
         KkReadingTreeProfile(snapshot: snapshot, date: entry.date, isPreview: entry.isPlaceholder || !entry.hasData)
     }
     private var isFullColor: Bool { renderingMode == .fullColor }
+    private var streakDotColor: Color {
+        let active = profile.streakDays > 0 || profile.hasReadToday
+        if isFullColor {
+            return active ? KkTheme.treeLeafAccent(scheme) : KkTheme.faintInk(scheme)
+        }
+        return Color.primary.opacity(active ? 0.75 : 0.4)
+    }
 
     var body: some View {
         Group {
@@ -32,30 +39,25 @@ struct KkReadingTreeWidgetView: View {
 
     private var small: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .center, spacing: 4) {
+            HStack(alignment: .center, spacing: 0) {
                 Text(WidgetLocalization.treeTitle(lang))
                     .kkLabelFont(11, weight: .medium)
                     .foregroundStyle(KkTheme.secondaryInk(scheme))
                     .lineLimit(1)
-                    .minimumScaleFactor(0.78)
-                Spacer(minLength: 4)
-                if profile.streakDays > 0 {
-                    HStack(spacing: 3) {
-                        Circle()
-                            .fill(isFullColor ? KkTheme.treeLeafAccent(scheme) : Color.primary.opacity(0.7))
-                            .frame(width: 5, height: 5)
-                        Text(WidgetLocalization.shortDays(profile.streakDays, lang))
-                            .kkLabelFont(9.5, weight: .medium)
-                            .foregroundStyle(KkTheme.secondaryInk(scheme))
-                            .monospacedDigit()
-                            .lineLimit(1)
-                    }
-                    .fixedSize(horizontal: true, vertical: false)
-                } else if profile.hasReadToday {
+                    .minimumScaleFactor(0.68)
+                Spacer(minLength: 6)
+                HStack(spacing: 3) {
                     Circle()
-                        .fill(isFullColor ? KkTheme.treeLeafAccent(scheme) : Color.primary.opacity(0.7))
+                        .fill(streakDotColor)
                         .frame(width: 5, height: 5)
+                    Text(WidgetLocalization.shortDays(profile.streakDays, lang))
+                        .kkLabelFont(9.5, weight: .medium)
+                        .foregroundStyle(KkTheme.secondaryInk(scheme))
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
                 }
+                .layoutPriority(1)
             }
 
             KkReadingTreeCanvas(profile: profile)
@@ -96,13 +98,13 @@ struct KkReadingTreeWidgetView: View {
                 .frame(maxHeight: .infinity)
 
             VStack(alignment: .leading, spacing: 0) {
-                HStack(alignment: .center, spacing: 6) {
+                HStack(alignment: .center, spacing: 0) {
                     Text(WidgetLocalization.treeTitle(lang))
                         .kkLabelFont(11, weight: .medium)
                         .foregroundStyle(KkTheme.secondaryInk(scheme))
                         .lineLimit(1)
-                        .minimumScaleFactor(0.78)
-                    Spacer(minLength: 4)
+                        .minimumScaleFactor(0.68)
+                    Spacer(minLength: 6)
                     vitalityBadge
                 }
 
@@ -167,31 +169,21 @@ struct KkReadingTreeWidgetView: View {
         .padding(.vertical, 13)
     }
 
-    @ViewBuilder
     private var vitalityBadge: some View {
-        let labelText: String? = if profile.streakDays > 0 {
-            WidgetLocalization.streakBadge(profile.streakDays, lang)
-        } else if profile.hasReadToday {
-            WidgetLocalization.readToday(lang)
-        } else {
-            nil
+        HStack(spacing: 3.5) {
+            Circle()
+                .fill(streakDotColor)
+                .frame(width: 5, height: 5)
+            Text(WidgetLocalization.streakBadge(profile.streakDays, lang))
+                .kkLabelFont(9.5, weight: .medium)
+                .foregroundStyle(KkTheme.secondaryInk(scheme))
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
         }
-
-        if let labelText {
-            HStack(spacing: 4) {
-                Circle()
-                    .fill(isFullColor ? KkTheme.treeLeafAccent(scheme) : Color.primary.opacity(0.75))
-                    .frame(width: 5, height: 5)
-                Text(labelText)
-                    .kkLabelFont(9.5, weight: .medium)
-                    .foregroundStyle(KkTheme.secondaryInk(scheme))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.78)
-            }
-            .fixedSize(horizontal: true, vertical: false)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(KkTheme.track(scheme), in: Capsule())
-        }
+        .layoutPriority(1)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2.5)
+        .background(KkTheme.track(scheme), in: Capsule())
     }
 }

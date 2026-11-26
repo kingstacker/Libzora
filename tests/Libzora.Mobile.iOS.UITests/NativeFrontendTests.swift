@@ -2817,17 +2817,19 @@ final class NativeFrontendTests: XCTestCase {
     }
 
     func testColdLaunchSplashAndDirectReaderRestore() throws {
-        // Part 1: Cold launch into library plays branding (~1s) without "正在载入书库…".
+        // Part 1: Cold launch into library shows the icon brand cover and slides left without "正在载入书库…".
         app.terminate()
         app.launchArguments = ["--libzora-disable-restore", "--libzora-enable-registration"]
         app.launch()
+        XCTAssertFalse(app.staticTexts["launch.slogan"].exists)
         XCTAssertFalse(app.staticTexts["正在载入书库…"].exists)
         XCTAssertTrue(app.tabBars.buttons["书库"].waitForExistence(timeout: 40))
         XCTAssertTrue(app.scrollViews["library.ready"].waitForExistence(timeout: 10))
         XCTAssertFalse(app.staticTexts["正在载入书库…"].exists)
         XCTAssertFalse(app.otherElements["launch.screen"].exists)
+        XCTAssertFalse(app.staticTexts["launch.brand"].exists)
 
-        // Open a book so lastReaderKey is saved, then cold-relaunch to verify direct reader entry.
+        // Open a book so lastReaderKey is saved, then cold-relaunch to verify icon launch -> slide into reader.
         try openBook(containing: "Native UI EPUB", revealControls: false)
         let position = app.staticTexts["reader.position"]
         XCTAssertTrue(position.waitForExistence(timeout: 40))
@@ -2835,10 +2837,11 @@ final class NativeFrontendTests: XCTestCase {
         app.terminate()
         app.launchArguments = ["--libzora-enable-registration"]
         app.launch()
-        XCTAssertFalse(app.staticTexts["launch.brand"].exists)
         XCTAssertFalse(app.staticTexts["launch.slogan"].exists)
         XCTAssertFalse(app.staticTexts["正在载入书库…"].exists)
         XCTAssertTrue(position.waitForExistence(timeout: 40), app.debugDescription)
+        XCTAssertFalse(app.otherElements["launch.screen"].exists)
+        XCTAssertFalse(app.staticTexts["launch.brand"].exists)
         XCTAssertFalse(app.tabBars.buttons["书库"].isHittable)
         attachScreenshot("直接进入阅读界面")
     }

@@ -71,7 +71,7 @@ struct NativeShell: View {
             .onAppear {
                 store.activeTab = selectedTab
                 store.updateSafeInsets(geometry.safeAreaInsets)
-                store.keepWidgetBrandOverlayOnTop()
+                store.keepLaunchBrandOverlayOnTop()
             }
             .onChange(of: geometry.safeAreaInsets) { updated in
                 store.updateSafeInsets(updated)
@@ -161,30 +161,20 @@ struct NativeShell: View {
                 VStack(spacing: 18) { ProgressView(); Text(store.busyMessage).foregroundStyle(.secondary) }
                     .frame(maxWidth: .infinity, maxHeight: .infinity).background(.regularMaterial)
             } else if showingLaunch {
-                if store.widgetColdLaunch {
-                    NativeWidgetLaunchBrandView()
-                } else if store.showsLaunchAnimation {
-                    NativeLaunchPage()
-                        .transition(.opacity)
-                } else {
-                    readerPaper
-                        .ignoresSafeArea()
-                        .accessibilityElement(children: .contain)
-                        .accessibilityIdentifier("launch.screen")
-                }
+                NativeLaunchBrandView()
+                    .transition(.identity)
             } else if showingWelcome {
                 NativeWelcomeView(store: store)
                     .transition(
                         UIAccessibility.isReduceMotionEnabled
                             ? .opacity
-                            : .asymmetric(insertion: .opacity, removal: .move(edge: .leading))
+                            : .asymmetric(insertion: .identity, removal: .move(edge: .leading))
                     )
             }
         }
-        .animation(store.showsLaunchAnimation && !store.restoringReader ? .easeOut(duration: 0.2) : nil, value: showingLaunch)
         .animation(
             showingWelcome
-                ? .easeOut(duration: 0.22)
+                ? nil
                 : .timingCurve(0.22, 1, 0.36, 1, duration: 0.34),
             value: showingWelcome
         )
@@ -212,21 +202,17 @@ struct NativeShell: View {
         }
         .overlay {
             if let transition = store.closingBookTransition {
-                NativeBookCloseOverlay(transition: transition, paper: readerPaper) {
+                NativeBookCloseOverlay(
+                    transition: transition,
+                    readyId: store.closingBookReadyId,
+                    paper: readerPaper,
+                    usesAmbient: store.preferences.readerThemeFollowsAppearance
+                        && store.preferences.colorfulMode
+                        && !store.preferences.isPowerSaving(systemLowPower: systemLowPowerMode),
+                    ambientOpacity: appColorScheme == .dark ? 0.14 : 0.10
+                ) {
                     store.finishClosingBookTransition(id: transition.id)
                 }
-            } else if store.closingBookBackdrop {
-                ZStack {
-                    readerPaper
-                    if let snapshot = store.closingBookSnapshot {
-                        Image(uiImage: snapshot)
-                            .resizable()
-                            .scaledToFill()
-                    }
-                }
-                .ignoresSafeArea()
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
             }
         }
         // Include presented readers, sheets and standalone overlays without
@@ -251,15 +237,15 @@ struct NativeShell: View {
                 transaction.disablesAnimations = true
                 withTransaction(transaction) { selectedTab = tab }
             }
-            if store.widgetColdLaunch {
-                await store.waitForMinimumWidgetBrandHold()
+            if store.launchBrandActive {
+                await store.waitForMinimumLaunchBrandHold()
                 guard !Task.isCancelled else { return }
             }
             guard store.requestedTab != nil,
                   !store.preparingLibrary, !store.closingReader, !store.openingReader,
                   store.readerBook == nil, !store.readerPresentationActive else {
                 if store.pendingOpenBookId == nil && store.requestedTab == nil {
-                    store.dismissWidgetBrandCover()
+                    store.dismissLaunchBrandCover()
                     store.widgetTabTransition?.finish()
                     store.widgetTabTransition = nil
                 }
@@ -267,9 +253,9 @@ struct NativeShell: View {
             }
             store.requestedTab = nil
             let handoff: NativePageSlideTransition?
-            if store.widgetColdLaunch {
-                handoff = store.createWidgetBrandSlideTransition()
-                store.dismissWidgetBrandCover()
+            if store.launchBrandActive {
+                handoff = store.createLaunchBrandSlideTransition()
+                store.dismissLaunchBrandCover()
             } else {
                 handoff = store.takeWidgetTabTransition()
             }
@@ -283,7 +269,7 @@ struct NativeShell: View {
     }
 }
 
-struct NativeWidgetLaunchBrandView: View {
+struct NativeLaunchBrandView: View {
     var showProgress = false
     @Environment(\.locale) private var uiLocale
     @Environment(\.nativeUiFont) private var uiFont
@@ -332,51 +318,6 @@ struct NativeWidgetLaunchBrandView: View {
         .background(NativeTheme.page.ignoresSafeArea())
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("launch.screen")
-    }
-}
-
-private struct NativeLaunchPage: View {
-    @Environment(\.locale) private var uiLocale
-    @Environment(\.nativeUiFont) private var uiFont
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var revealed = false
-
-    private var isEnglish: Bool {
-        uiLocale.identifier.lowercased().hasPrefix("en")
-    }
-
-    var body: some View {
-        let _ = uiLocale
-        let _ = uiFont
-
-        VStack(spacing: 0) {
-            Spacer()
-            VStack(spacing: 20) {
-                Text("Libzora")
-                    .font(NativeTheme.font(34, relativeTo: .largeTitle)).tracking(isEnglish ? 3.5 : 4)
-                    .accessibilityIdentifier("launch.brand")
-                Text(L("为学日益，为道日损。"))
-                    .font(NativeTheme.font(isEnglish ? 19 : 22, relativeTo: .title2))
-                    .tracking(isEnglish ? 0.4 : 1.5)
-                    .lineSpacing(isEnglish ? 6 : 0)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(isEnglish ? 2 : 1)
-                    .minimumScaleFactor(isEnglish ? 0.8 : 0.65)
-                    .accessibilityIdentifier("launch.slogan")
-            }
-            .foregroundStyle(NativeTheme.ink)
-            .opacity(revealed ? 1 : 0)
-            .offset(y: revealed || reduceMotion ? 0 : 10)
-            Spacer()
-        }
-        .padding(.horizontal, 32).padding(.top, 32).padding(.bottom, 36)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(NativeTheme.page.ignoresSafeArea())
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("launch.screen")
-        .onAppear {
-            withAnimation(.easeOut(duration: 0.35)) { revealed = true }
-        }
     }
 }
 

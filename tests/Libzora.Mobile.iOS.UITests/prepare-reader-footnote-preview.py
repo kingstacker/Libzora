@@ -167,7 +167,9 @@ def main():
     # Preferences belong exclusively to this synthetic fixture bundle.
     preferences = app_root / "mobile-preferences.json"
     previous = json.loads(preferences.read_text()) if preferences.exists() else {}
-    previous.update({"UiLanguage": "zh-CN", "ThemeMode": 1, "ReaderTheme": 0,
+    # This synthetic reader fixture exercises navigation, not first-run consent.
+    previous.update({"OnboardingAccepted": True,
+                     "UiLanguage": "zh-CN", "ThemeMode": 1, "ReaderTheme": 0,
                      "ReaderThemeFollowsAppearance": False, "ReaderFontScale": 1.35,
                      "ReaderBodyPadding": 24, "ReaderParagraphIndent": False,
                      "ReaderVerticalWriting": False, "ReaderPageAnimation": args.page_animation})

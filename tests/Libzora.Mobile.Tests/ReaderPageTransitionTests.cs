@@ -8,6 +8,7 @@ using Libzora.ApplicationServices;
 using Libzora.Core;
 using Libzora.Infrastructure;
 using Libzora.Mobile.Views;
+using SkiaSharp;
 using Xunit;
 
 namespace Libzora.Mobile.Tests;
@@ -82,6 +83,16 @@ public sealed class ReaderPageTransitionTests(MobileUiSession session)
                 Assert.Equal(844, paperGrid.Bounds.Height, 1);
                 Assert.Equal(350, host.Bounds.Width, 1);
                 Assert.Equal(844 - 44 - 34, host.Bounds.Height, 1);
+                var snapshot = await reader.NativeCapturePageAsync(CancellationToken.None);
+                Assert.True(snapshot.HasValue);
+                var captured = snapshot.GetValueOrDefault();
+                Assert.Equal(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }, captured.Image.Take(8));
+                Assert.Equal(20, captured.Frame.X, 1);
+                Assert.Equal(44, captured.Frame.Y, 1);
+                Assert.Equal(host.Bounds.Size, captured.Frame.Size);
+                using var pixels = SKBitmap.Decode(captured.Image);
+                Assert.Contains(pixels.Pixels, pixel => pixel.Red < 128 && pixel.Green < 128 && pixel.Blue < 128);
+                Assert.Equal(0, host.CurrentPage);
 
                 // Short slow drag (< 25% width) snaps back to page 0.
                 window.MouseDown(new Point(320, 400), MouseButton.Left);

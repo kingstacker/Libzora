@@ -309,6 +309,36 @@ struct KkProgressBar: View {
     }
 }
 
+/// Shared masthead: every home-screen widget starts at the same inset, with
+/// a readable title and optional, plain-language context rather than a badge.
+struct KkWidgetHeading: View {
+    let title: String
+    var detail: String? = nil
+    var size: CGFloat = 12
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(title)
+                .kkTitleFont(size)
+                .foregroundStyle(KkTheme.ink(scheme))
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
+                .layoutPriority(1)
+            if let detail {
+                Spacer(minLength: 0)
+                Text(detail)
+                    .kkBodyFont(10)
+                    .foregroundStyle(KkTheme.secondaryInk(scheme))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.82)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+    }
+}
+
 struct KkStat: View {
     let value: String
     let label: String
@@ -319,6 +349,7 @@ struct KkStat: View {
     var labelSize: CGFloat = 10
     var stackSpacing: CGFloat = 4
     var expand = false
+    var subdued = false
     @Environment(\.colorScheme) private var scheme
 
     private var frameAlignment: Alignment {
@@ -351,7 +382,7 @@ struct KkStat: View {
     private var valueWithUnit: some View {
         if let unit, !unit.isEmpty {
             HStack(alignment: .firstTextBaseline, spacing: 2) {
-                valueText.kkNumberFont(valueSize ?? 19)
+                valueText.kkNumberFont(valueSize ?? (inline ? 13 : 19))
                 Text(unit)
                     .kkLabelFont(max(9, labelSize - 0.5), weight: .regular)
                     .foregroundStyle(KkTheme.secondaryInk(scheme))
@@ -366,10 +397,9 @@ struct KkStat: View {
 
     private var valueText: some View {
         Text(value)
-            .foregroundStyle(KkTheme.ink(scheme))
-            .monospacedDigit()
+            .foregroundStyle(subdued ? KkTheme.secondaryInk(scheme) : KkTheme.ink(scheme))
             .lineLimit(1)
-            .minimumScaleFactor(0.7)
+            .minimumScaleFactor(0.8)
     }
 
     private var labelText: some View {

@@ -10,8 +10,6 @@ struct NativeBookOpenTransition: Identifiable, Equatable {
     let sourceKey: String?
     let isCentered: Bool
     let coverImage: UIImage?
-    var pageSnapshot: UIImage? = nil
-    var pageSnapshotView: UIView? = nil
 
     static func == (lhs: NativeBookOpenTransition, rhs: NativeBookOpenTransition) -> Bool {
         lhs.id == rhs.id
@@ -229,6 +227,7 @@ final class NativeBookTransitionDriver: NSObject, ObservableObject {
     private var toValue: Double = 1
     private var awaitingTerminalCommit = false
     private var onComplete: (() -> Void)?
+    private var onProgress: ((Double) -> Void)?
 
     init(initialProgress: Double = 0) {
         self.progress = initialProgress
@@ -245,6 +244,7 @@ final class NativeBookTransitionDriver: NSObject, ObservableObject {
         from: Double,
         to: Double,
         duration: Double,
+        onProgress: ((Double) -> Void)? = nil,
         onComplete: @escaping () -> Void
     ) {
         guard activeToken != id else { return }
@@ -257,6 +257,8 @@ final class NativeBookTransitionDriver: NSObject, ObservableObject {
         startTimestamp = nil
         awaitingTerminalCommit = false
         self.onComplete = onComplete
+        self.onProgress = onProgress
+        onProgress?(from)
 
         let proxy = DisplayLinkProxy(owner: self)
         let displayLink = CADisplayLink(target: proxy, selector: #selector(DisplayLinkProxy.tick(_:)))
@@ -281,6 +283,7 @@ final class NativeBookTransitionDriver: NSObject, ObservableObject {
         startTimestamp = nil
         awaitingTerminalCommit = false
         onComplete = nil
+        onProgress = nil
     }
 
     private func tick(_ displayLink: CADisplayLink) {
@@ -308,6 +311,7 @@ final class NativeBookTransitionDriver: NSObject, ObservableObject {
             progress = toValue
             awaitingTerminalCommit = true
         }
+        onProgress?(progress)
     }
 }
 
@@ -364,6 +368,35 @@ struct NativeBookOpenPageTransform: ViewModifier {
     }
 }
 
+/// Lightweight GPU-only ambient tint used during 60/120Hz 3D open/close
+/// animations. Avoids `NativeAmbientWash`'s `.drawingGroup` Metal texture
+/// reallocation on every resizing frame.
+private struct NativeBookTransitionAmbientTint: View {
+    @EnvironmentObject private var store: NativeStore
+    let opacity: Double
+
+    var body: some View {
+        let colors = store.ambient.colors
+        if !colors.isEmpty {
+            let first = colors[0]
+            let middle = colors[colors.count / 2]
+            let last = colors[colors.count - 1]
+            LinearGradient(
+                stops: [
+                    .init(color: first.color.opacity(0.65 * first.strength), location: 0),
+                    .init(color: middle.color.opacity(0.55 * middle.strength), location: 0.5),
+                    .init(color: last.color.opacity(0.65 * last.strength), location: 1)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .opacity(opacity)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+        }
+    }
+}
+
 /// Lightweight card shadow rendered behind the book page/cover so resting
 /// `BookCover` shadows match seamlessly at `t = 0` without forcing an offscreen
 /// shadow rasterization pass over the live reader surface or 3D cover leaf.
@@ -404,8 +437,7 @@ private struct NativeBookOpenCardShadowLayer: View {
             .fill(paper)
             .overlay {
                 if usesAmbient {
-                    NativeAmbientWash()
-                        .opacity(ambientOpacity)
+                    NativeBookTransitionAmbientTint(opacity: ambientOpacity)
                         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                 }
             }
@@ -562,244 +594,5 @@ struct NativeBookOpenTransitionHost<Content: View>: View {
             }
         }
         .frame(width: max(1, containerFrame.width), height: max(1, containerFrame.height))
-    }
-}
-
-private struct NativeSnapshotViewBox: UIViewRepresentable {
-    let snapshotView: UIView
-
-    final class ContainerView: UIView {
-        weak var hostedSnapshot: UIView?
-
-        override func layoutSubviews() {
-            super.layoutSubviews()
-            guard let hostedSnapshot, bounds.width > 0, bounds.height > 0 else { return }
-            let origSize = hostedSnapshot.bounds.size
-            guard origSize.width > 0, origSize.height > 0 else { return }
-            let scale = max(bounds.width / origSize.width, bounds.height / origSize.height)
-            hostedSnapshot.center = CGPoint(x: bounds.midX, y: bounds.midY)
-            hostedSnapshot.transform = CGAffineTransform(scaleX: scale, y: scale)
-        }
-    }
-
-    func makeUIView(context: Context) -> ContainerView {
-        let container = ContainerView()
-        container.backgroundColor = .clear
-        container.clipsToBounds = true
-        container.isUserInteractionEnabled = false
-        attach(snapshotView, to: container)
-        return container
-    }
-
-    func updateUIView(_ uiView: ContainerView, context: Context) {
-        if uiView.hostedSnapshot !== snapshotView {
-            attach(snapshotView, to: uiView)
-        }
-        uiView.setNeedsLayout()
-        uiView.layoutIfNeeded()
-    }
-
-    private func attach(_ snapshot: UIView, to container: ContainerView) {
-        container.subviews.forEach { $0.removeFromSuperview() }
-        snapshot.transform = .identity
-        snapshot.isUserInteractionEnabled = false
-        container.addSubview(snapshot)
-        container.hostedSnapshot = snapshot
-        container.setNeedsLayout()
-        container.layoutIfNeeded()
-    }
-}
-
-/// Single-progress book flip scene used by the 3D close animation (`1 → 0`).
-/// Uses a pre-resolved cover image and interpolates the frame size directly so
-/// the cover scales smoothly with zero aspect-ratio jump or placeholder flash.
-private struct NativeBookFlipScene: View {
-    let book: LibraryBook
-    let coverImage: UIImage?
-    let pageSnapshot: UIImage?
-    let pageSnapshotView: UIView?
-    let sourceFrame: CGRect
-    let isCentered: Bool
-    let paper: Color
-    let usesAmbient: Bool
-    let ambientOpacity: Double
-    let progress: Double
-
-    @Environment(\.colorScheme) private var colorScheme
-
-    var body: some View {
-        GeometryReader { proxy in
-            let container = proxy.frame(in: .global)
-            let targetW = max(1, proxy.size.width)
-            let targetH = max(1, proxy.size.height)
-            let localSource = CGRect(
-                x: sourceFrame.minX - container.minX,
-                y: sourceFrame.minY - container.minY,
-                width: max(28, sourceFrame.width),
-                height: max(38, sourceFrame.height)
-            )
-
-            let t = min(max(progress, 0), 1)
-            let curW = lerp(localSource.width, targetW, t)
-            let curH = lerp(localSource.height, targetH, t)
-            let cx = lerp(localSource.midX, targetW / 2, t)
-            let cy = lerp(localSource.midY, targetH / 2, t)
-
-            // Centered transitions (off-screen fallback) softly dissolve near
-            // t = 0 so the cover never pops into thin air.
-            let rawReveal = isCentered ? min(1.0, t / 0.18) : 1.0
-            let smoothReveal = rawReveal * rawReveal * (3.0 - 2.0 * rawReveal)
-            let cardScale = isCentered ? lerp(0.88, 1.0, smoothReveal) : 1.0
-            let cardOpacity = isCentered ? smoothReveal : 1.0
-
-            // Exact 6pt radius at t = 0 matching BookCover → 0pt at full screen.
-            let cornerRadius = lerp(6.0, 0.0, t)
-
-            // Reverse the full 3D spine flip (-104°) from captured reader page into resting shelf cover.
-            let flipT = min(max((t - 0.06) / 0.86, 0), 1)
-            let angle = -104.0 * flipT
-            let coverOpacity = NativeBookOpenTransitionPolicy.coverLeafOpacity(flipProgress: flipT)
-            let coverShading = 0.26 * sin(min(1, flipT / 0.85) * .pi * 0.5)
-            let shadowInset = NativeBookOpenTransitionPolicy.shadowBackdropInset(progress: t)
-            let shadow = NativeBookOpenTransitionPolicy.flightShadow(progress: t, isDark: colorScheme == .dark)
-
-            ZStack {
-                // Softly dim the underlying screen as the book shrinks back to the shelf.
-                Color.black
-                    .opacity(NativeBookOpenTransitionPolicy.dimmingOpacity(progress: t))
-
-                ZStack {
-                    // Dedicated resting/flight shadow caster behind the 3D cover leaf.
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .fill(paper)
-                        .overlay {
-                            if usesAmbient {
-                                NativeAmbientWash()
-                                    .opacity(ambientOpacity)
-                                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                            }
-                        }
-                        .frame(width: max(1, curW - shadowInset), height: max(1, curH - shadowInset))
-                        .shadow(color: .black.opacity(shadow.opacity), radius: shadow.radius, x: 0, y: shadow.y)
-
-                    // Captured reader page (or paper fallback) crossfading into the cover.
-                    ZStack(alignment: .leading) {
-                        paper
-                        if let pageSnapshotView {
-                            NativeSnapshotViewBox(snapshotView: pageSnapshotView)
-                                .frame(width: curW, height: curH)
-                                .clipped()
-                                .opacity(min(1.0, t / 0.65))
-                        } else if let pageSnapshot {
-                            Image(uiImage: pageSnapshot)
-                                .resizable()
-                                .scaledToFill()
-                                .frame(width: curW, height: curH)
-                                .clipped()
-                                .opacity(min(1.0, t / 0.65))
-                        }
-                        if usesAmbient {
-                            NativeAmbientWash()
-                                .opacity(ambientOpacity)
-                        }
-                    }
-                    .frame(width: curW, height: curH)
-                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                    .opacity(NativeBookOpenTransitionPolicy.pageBackingOpacity(progress: t))
-
-                    // Front hardcover leaf settling cleanly onto the shelf frame.
-                    Group {
-                        if let coverImage {
-                            Image(uiImage: coverImage)
-                                .resizable()
-                                .scaledToFill()
-                        } else {
-                            ZStack {
-                                NativeTheme.sunk
-                                Text(String(book.title.prefix(1)))
-                                    .font(NativeTheme.font(curW * 0.27))
-                                    .foregroundStyle(NativeTheme.muted)
-                            }
-                        }
-                    }
-                    .frame(width: curW, height: curH)
-                    .clipped()
-                    .overlay {
-                        Color.black.opacity(coverShading)
-                    }
-                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                    .rotation3DEffect(
-                        .degrees(angle),
-                        axis: (x: 0, y: 1, z: 0),
-                        anchor: .leading,
-                        anchorZ: 0,
-                        perspective: 0.32
-                    )
-                    .opacity(coverOpacity)
-                }
-                .frame(width: curW, height: curH)
-                .scaleEffect(cardScale, anchor: .center)
-                .opacity(cardOpacity)
-                .position(x: cx, y: cy)
-            }
-            .frame(width: targetW, height: targetH)
-        }
-        .ignoresSafeArea()
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
-    }
-
-    private func lerp(_ a: CGFloat, _ b: CGFloat, _ t: Double) -> CGFloat {
-        a + (b - a) * CGFloat(t)
-    }
-}
-
-/// Reverse cover-shut overlay played over `NativeShell` when returning from the reader.
-/// Lands pixel-identically on the shelf cover before handing off in a single frame
-/// (no fade-to-empty-hole flicker).
-struct NativeBookCloseOverlay: View {
-    let transition: NativeBookOpenTransition
-    let readyId: UUID?
-    let paper: Color
-    let usesAmbient: Bool
-    let ambientOpacity: Double
-    let onFinished: () -> Void
-
-    @StateObject private var driver = NativeBookTransitionDriver(initialProgress: 1)
-
-    var body: some View {
-        NativeBookFlipScene(
-            book: transition.book,
-            coverImage: transition.coverImage,
-            pageSnapshot: transition.pageSnapshot,
-            pageSnapshotView: transition.pageSnapshotView,
-            sourceFrame: transition.sourceFrame,
-            isCentered: transition.isCentered,
-            paper: paper,
-            usesAmbient: usesAmbient,
-            ambientOpacity: ambientOpacity,
-            progress: driver.progress
-        )
-        .onAppear {
-            startIfReady()
-        }
-        .onChange(of: transition.id) { _ in
-            driver.prepare(progress: 1)
-            startIfReady()
-        }
-        .onChange(of: readyId) { _ in
-            startIfReady()
-        }
-        .onDisappear {
-            driver.cancel()
-        }
-    }
-
-    private func startIfReady() {
-        guard readyId == transition.id else { return }
-        let duration = transition.isCentered
-            ? NativeBookOpenTransitionPolicy.closeToCenterDuration
-            : NativeBookOpenTransitionPolicy.closeToCoverDuration
-        driver.start(id: transition.id, from: 1, to: 0, duration: duration, onComplete: onFinished)
     }
 }

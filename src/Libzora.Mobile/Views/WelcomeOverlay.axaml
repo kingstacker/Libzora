@@ -59,7 +59,7 @@
         <StackPanel Spacing="12" MaxWidth="440" HorizontalAlignment="Center">
           <CheckBox Name="AgreeCheckBox" IsCheckedChanged="OnAgreeChanged">
             <TextBlock Name="AgreeText"
-                       Text="我已阅读并同意《用户协议》和《隐私政策》"
+                       Text="我已阅读并同意《用户协议》和《隐私政策》，并确认仅导入本人拥有合法权利的电子书"
                        FontSize="13"
                        TextWrapping="Wrap"
                        Foreground="{DynamicResource TextPrimaryBrush}" />

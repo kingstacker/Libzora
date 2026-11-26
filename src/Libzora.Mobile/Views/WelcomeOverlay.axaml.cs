@@ -38,7 +38,7 @@ public partial class WelcomeOverlay : UserControl
             : "统一管理划线笔记、读后思考与阅读数据，支持自备 S3 / WebDAV 端到端加密同步。");
         Feature3Title.Text = UiText.Get("隐私优先");
         Feature3Detail.Text = UiText.Get("书库与同步密钥仅保存在你的设备中，无广告、无第三方追踪，离线即可使用。");
-        AgreeText.Text = UiText.Get("我已阅读并同意《用户协议》和《隐私政策》");
+        AgreeText.Text = UiText.Get("我已阅读并同意《用户协议》和《隐私政策》，并确认仅导入本人拥有合法权利的电子书");
         TermsButton.Content = UiText.Get("阅读用户协议");
         PrivacyButton.Content = UiText.Get("阅读隐私政策");
         AcceptButton.Content = UiText.Get("同意并开始使用");

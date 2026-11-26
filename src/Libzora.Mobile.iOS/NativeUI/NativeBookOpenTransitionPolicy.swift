@@ -62,10 +62,10 @@ enum NativeBookOpenTransitionPolicy {
     static let openFromCenterMountDelay: Double = openFromCoverMountDelay
     static let openFromCenterCleanupDelay: Double = openFromCoverCleanupDelay
 
-    static let closeToCoverDuration: Double = 0.48
+    static let closeToCoverDuration: Double = 0.52
     static let closeToCoverCleanupDelay = closeToCoverDuration + 0.04
 
-    static let closeToCenterDuration: Double = 0.44
+    static let closeToCenterDuration: Double = 0.48
     static let closeToCenterCleanupDelay = closeToCenterDuration + 0.04
 
     static let coverAspectRatio: CGFloat = 1.45
@@ -105,15 +105,30 @@ enum NativeBookOpenTransitionPolicy {
         return 1.5 * CGFloat(max(0.0, 1.0 - t / 0.12))
     }
 
-    /// Evaluates the cubic Bezier timing curve `(0.22, 1.0, 0.36, 1.0)` so
-    /// CADisplayLink-driven open and close transitions share the exact curve at
-    /// 60Hz, 120Hz, and any higher display refresh rate.
+    /// Evaluates the cubic Bezier timing curve `(0.22, 1.0, 0.36, 1.0)` for
+    /// opening transitions so CADisplayLink-driven open animations share the
+    /// exact snappy lift curve at 60Hz, 120Hz, and any higher display refresh rate.
     static func timingCurveValue(at fraction: Double) -> Double {
+        cubicBezierValue(at: fraction, p1x: 0.22, p1y: 1.0, p2x: 0.36, p2y: 1.0)
+    }
+
+    /// Evaluates a balanced ease-in-out cubic Bezier `(0.36, 0.05, 0.24, 1.0)` for
+    /// closing transitions (`from > to`) so the 3D cover-shut swing through `t = 0.77 → 0.15`
+    /// spans the middle of the flight instead of collapsing in the opening frames.
+    static func closeTimingCurveValue(at fraction: Double) -> Double {
+        cubicBezierValue(at: fraction, p1x: 0.36, p1y: 0.05, p2x: 0.24, p2y: 1.0)
+    }
+
+    private static func cubicBezierValue(
+        at fraction: Double,
+        p1x: Double,
+        p1y: Double,
+        p2x: Double,
+        p2y: Double
+    ) -> Double {
         let x = min(max(fraction, 0), 1)
         if x <= 0 { return 0 }
         if x >= 1 { return 1 }
-        let p1x = 0.22
-        let p2x = 0.36
         let cx = 3.0 * p1x
         let bx = 3.0 * (p2x - p1x) - cx
         let ax = 1.0 - cx - bx
@@ -126,15 +141,37 @@ enum NativeBookOpenTransitionPolicy {
             if abs(derivative) < 1e-6 { break }
             s = min(max(s - currentX / derivative, 0), 1)
         }
-        // P1.y = 1.0, P2.y = 1.0 => cy = 3, by = -3, ay = 1
-        let y = ((1.0 * s - 3.0) * s + 3.0) * s * s
+        let cy = 3.0 * p1y
+        let by = 3.0 * (p2y - p1y) - cy
+        let ay = 1.0 - cy - by
+        let y = ((ay * s + by) * s + cy) * s
         return min(max(y, 0), 1)
     }
 
     static func frameProgress(elapsed: Double, duration: Double, from: Double, to: Double) -> Double {
         let u = duration > 0 ? min(max(elapsed / duration, 0), 1) : 1
-        let eased = timingCurveValue(at: u)
+        let eased = from > to ? closeTimingCurveValue(at: u) : timingCurveValue(at: u)
         return from + (to - from) * eased
+    }
+
+    /// Shared close-flight geometry. The captured page is uniformly scaled
+    /// inside this frame; only the outer clip changes its aspect ratio.
+    static func closeGeometry(
+        sourceFrame: CGRect,
+        viewport: CGRect,
+        progress: Double,
+        isCentered: Bool
+    ) -> (frame: CGRect, scale: CGFloat, opacity: Double) {
+        let t = CGFloat(min(max(progress, 0), 1))
+        let frame = CGRect(
+            x: sourceFrame.minX + (viewport.minX - sourceFrame.minX) * t,
+            y: sourceFrame.minY + (viewport.minY - sourceFrame.minY) * t,
+            width: sourceFrame.width + (viewport.width - sourceFrame.width) * t,
+            height: sourceFrame.height + (viewport.height - sourceFrame.height) * t
+        )
+        let reveal = isCentered ? min(1.0, Double(t) / 0.18) : 1.0
+        let opacity = reveal * reveal * (3 - 2 * reveal)
+        return (frame, CGFloat(0.88 + 0.12 * opacity), opacity)
     }
 
     static func initialFrameStep(targetTimestamp: Double, timestamp: Double) -> Double {

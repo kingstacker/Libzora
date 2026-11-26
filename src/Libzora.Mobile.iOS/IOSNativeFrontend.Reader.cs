@@ -119,6 +119,15 @@ internal sealed partial class IOSNativeFrontend
                 _readerCancellation?.Token ?? CancellationToken.None);
             switch (command)
             {
+                case "reader.snapshot":
+                    if (!string.Equals(_readerSessionId, Text(args, "sessionId"), StringComparison.Ordinal))
+                        return Data();
+                    var pageSnapshot = await reader.NativeCapturePageAsync(session.Token);
+                    return pageSnapshot is { } page
+                        ? Data(("image", Convert.ToBase64String(page.Image)),
+                            ("x", page.Frame.X), ("y", page.Frame.Y),
+                            ("width", page.Frame.Width), ("height", page.Frame.Height))
+                        : Data();
                 case "reader.state": return reader.GetNativeState();
                 case "reader.toc": return reader.GetNativeToc();
                 case "reader.jump": await reader.NativeJumpToTocAsync(Number(args, "id")); break;

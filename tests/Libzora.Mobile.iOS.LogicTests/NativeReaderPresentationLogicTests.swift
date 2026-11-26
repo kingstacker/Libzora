@@ -50,6 +50,28 @@ struct NativeReaderPresentationLogicTests {
         check(!NativeWidgetNavigationPolicy.shouldUseLaunchBrandCover(
             preparingLibrary: false, libraryLoaded: true, restoringReader: false),
             "Warm widget tap slides directly from the current page without the icon cover")
+        var navigation = NativeWidgetNavigationIntent()
+        let dashboardRequest = navigation.begin(.tab(2))
+        check(navigation.isCurrent(dashboardRequest) && navigation.isTabPresentationPending,
+              "A new dashboard intent is pending until its actual slide completes")
+        let samePageRequest = navigation.begin(.tab(0))
+        check(!navigation.isCurrent(dashboardRequest) && navigation.destination == .tab(0),
+              "A same-page link cancels the previous different destination rather than being ignored")
+        check(!navigation.markPresented(dashboardRequest) && navigation.isTabPresentationPending,
+              "A stale completion cannot release a newer page's presentation barrier")
+        check(navigation.markPresented(samePageRequest) && !navigation.isTabPresentationPending,
+              "An already visible page releases its barrier without replaying an animation")
+        let bookRequest = navigation.begin(.book("b1"))
+        check(!navigation.isCurrent(samePageRequest) && !navigation.isTabPresentationPending,
+              "A book link supersedes tabs without waiting for a tab-only handoff")
+        let latest = navigation.begin(.tab(1))
+        check(!navigation.markPresented(bookRequest) && navigation.isCurrent(latest),
+              "The latest materials link wins over an older book callback")
+        check(NativeWidgetNavigationPolicy.canPresentTab(libraryPreparing: false, readerVisible: false),
+              "A dismissed reader can reveal a tab while its backend is still opening or closing")
+        check(!NativeWidgetNavigationPolicy.canPresentTab(libraryPreparing: true, readerVisible: false)
+                && !NativeWidgetNavigationPolicy.canPresentTab(libraryPreparing: false, readerVisible: true),
+              "Neither an unprepared shell nor a live modal can be exposed prematurely")
         print("Passed \(assertions) reader presentation and widget navigation assertions.")
     }
 }

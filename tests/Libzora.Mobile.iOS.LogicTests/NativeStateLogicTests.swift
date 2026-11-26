@@ -170,6 +170,16 @@ struct NativeStateLogicTests {
         }
         check(NativeBookOpenTransitionPolicy.timingCurveValue(at: 0.25) > 0.25,
               "Ease-out curve advances smoothly from the opening frame")
+        var previousCloseCurve = -1.0
+        for step in 0...120 {
+            let u = Double(step) / 120.0
+            let v = NativeBookOpenTransitionPolicy.closeTimingCurveValue(at: u)
+            check(v >= previousCloseCurve && v >= 0 && v <= 1,
+                  "Close curve stays strictly monotonic and bounded across 60Hz/120Hz steps")
+            previousCloseCurve = v
+        }
+        check(NativeBookOpenTransitionPolicy.frameProgress(elapsed: 0.13, duration: 0.52, from: 1, to: 0) > 0.5,
+              "Close curve keeps the 3D cover flip active across the middle of the transition")
         check(NativeBookOpenTransitionPolicy.frameProgress(elapsed: 0, duration: 0.68, from: 0, to: 1) == 0
                 && NativeBookOpenTransitionPolicy.frameProgress(elapsed: 0.68, duration: 0.68, from: 0, to: 1) == 1
                 && NativeBookOpenTransitionPolicy.frameProgress(elapsed: 0, duration: 0.59, from: 1, to: 0) == 1
@@ -208,6 +218,30 @@ struct NativeStateLogicTests {
               "Centered hero cover preserves the shelf cover aspect ratio")
 
         let visibleShelfFrame = CGRect(x: 20, y: 260, width: 110, height: 159.5)
+        for centeredClose in [false, true] {
+            let initial = NativeBookOpenTransitionPolicy.closeGeometry(
+                sourceFrame: visibleShelfFrame, viewport: viewport, progress: 1, isCentered: centeredClose)
+            let terminal = NativeBookOpenTransitionPolicy.closeGeometry(
+                sourceFrame: visibleShelfFrame, viewport: viewport, progress: 0, isCentered: centeredClose)
+            check(initial.frame == viewport && initial.scale == 1 && initial.opacity == 1,
+                  "Close begins with the exact full-screen reader snapshot, without a white handoff")
+            check(terminal.frame == visibleShelfFrame && terminal.opacity == (centeredClose ? 0 : 1),
+                  "Close lands on the live shelf cover or dissolves only for the centered fallback")
+            for step in 1..<120 {
+                let p = NativeBookOpenTransitionPolicy.frameProgress(
+                    elapsed: Double(step) / 120 * 0.52, duration: 0.52, from: 1, to: 0)
+                let flight = NativeBookOpenTransitionPolicy.closeGeometry(
+                    sourceFrame: visibleShelfFrame, viewport: viewport, progress: p, isCentered: centeredClose)
+                check(flight.frame.width >= visibleShelfFrame.width && flight.frame.width <= viewport.width
+                        && flight.scale > 0 && flight.opacity >= 0 && flight.opacity <= 1,
+                      "Every 120Hz close flight frame stays within the reader-to-cover geometry")
+            }
+        }
+        let midClose = NativeBookOpenTransitionPolicy.closeGeometry(
+            sourceFrame: visibleShelfFrame, viewport: viewport, progress: 0.5, isCentered: false)
+        check(abs(midClose.frame.midX - (visibleShelfFrame.midX + viewport.midX) / 2) < 0.001
+                && midClose.opacity == 1 && midClose.scale == 1,
+              "A visible-cover close keeps the captured reader opaque and undistorted during the flight")
         let offscreenShelfFrame = CGRect(x: 20, y: -220, width: 110, height: 159.5)
         let buriedTabBarFrame = CGRect(x: 20, y: 810, width: 110, height: 159.5)
         let continueFrame = CGRect(x: 20, y: 140, width: 48, height: 68)

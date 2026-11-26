@@ -224,7 +224,7 @@
   "统一管理划线笔记、读后思考与阅读数据，支持 iCloud 与自备 S3 / WebDAV 端到端加密同步。": "Organize highlights, reflections, and reading stats with optional end-to-end encrypted iCloud, S3, or WebDAV sync.",
   "隐私优先": "Privacy First",
   "书库与同步密钥仅保存在你的设备中，无广告、无第三方追踪，离线即可使用。": "Your books and sync keys stay on your device. No ads, no tracking, works offline.",
-  "我已阅读并同意《用户协议》和《隐私政策》": "I have read and agree to the User Agreement and Privacy Policy",
+  "我已阅读并同意《用户协议》和《隐私政策》，并确认仅导入本人拥有合法权利的电子书": "I have read and agree to the User Agreement and Privacy Policy, and confirm I have the legal right to use the eBooks I import",
   "阅读用户协议": "User Agreement",
   "阅读隐私政策": "Privacy Policy",
   "同意并开始使用": "Agree & Continue",

@@ -8,7 +8,6 @@ struct NativeShell: View {
     @ObservedObject private var previewCenter = NativeBookPreviewCenter.shared
     @ObservedObject private var seriesCenter = NativeBookSeriesCenter.shared
     @State private var selectedTab = 0
-    @State private var widgetNavigationTask: Task<Void, Never>?
     @State private var systemLowPowerMode = ProcessInfo.processInfo.isLowPowerModeEnabled
     @Environment(\.colorScheme) private var systemColorScheme
     private var appColorScheme: ColorScheme {
@@ -17,14 +16,6 @@ struct NativeShell: View {
         case 2: return .dark
         default: return systemColorScheme
         }
-    }
-    private var readerPaper: Color {
-        let powerSaving = store.preferences.isPowerSaving(systemLowPower: systemLowPowerMode)
-        if powerSaving { return .black }
-        let theme = store.preferences.readerThemeFollowsAppearance
-            ? (appColorScheme == .dark ? 5 : 0)
-            : store.preferences.readerTheme
-        return store.preferences.paper(for: theme, pureBlackOled: powerSaving)
     }
     private var ambientBooks: [LibraryBook] {
         Array(store.library.filter { $0.coverPath != nil }
@@ -148,7 +139,6 @@ struct NativeShell: View {
             .receive(on: DispatchQueue.main)) { _ in
             systemLowPowerMode = ProcessInfo.processInfo.isLowPowerModeEnabled
         }
-        .environmentObject(store)
         .overlay {
             if store.restartRequired {
                 VStack(spacing: 16) {
@@ -200,23 +190,9 @@ struct NativeShell: View {
                     .ignoresSafeArea().allowsHitTesting(false).accessibilityHidden(true)
             }
         }
-        .overlay {
-            if let transition = store.closingBookTransition {
-                NativeBookCloseOverlay(
-                    transition: transition,
-                    readyId: store.closingBookReadyId,
-                    paper: readerPaper,
-                    usesAmbient: store.preferences.readerThemeFollowsAppearance
-                        && store.preferences.colorfulMode
-                        && !store.preferences.isPowerSaving(systemLowPower: systemLowPowerMode),
-                    ambientOpacity: appColorScheme == .dark ? 0.14 : 0.10
-                ) {
-                    store.finishClosingBookTransition(id: transition.id)
-                }
-            }
-        }
         // Include presented readers, sheets and standalone overlays without
         // changing view identity or resetting their navigation/session state.
+        .environmentObject(store)
         .environment(\.locale, Locale(identifier: store.uiLanguage))
         .environment(\.nativeUiFont, store.uiFont)
     }
@@ -225,25 +201,46 @@ struct NativeShell: View {
         // Readiness notifications fire while an already-accepted handoff waits
         // for a display commit; do not cancel the in-flight slide transition.
         guard isNewRequest || store.requestedTab != nil else { return }
-        widgetNavigationTask?.cancel()
-        widgetNavigationTask = Task { @MainActor in
+        store.widgetNavigationTask?.cancel()
+        let revision = store.widgetNavigationIntent.revision
+        store.widgetNavigationTask = Task { @MainActor in
             // @Published delivers before its stored value changes.
             await Task.yield()
-            guard store.requestedTab != nil, !store.preparingLibrary, !store.closingReader,
-                  !store.openingReader, store.readerBook == nil, !store.readerPresentationActive else { return }
+            // A target tab needs the modal gone, not a completed database
+            // save. Book opens still serialize behind closingReader separately.
+            guard store.widgetNavigationIntent.isCurrent(revision), store.requestedTab != nil,
+                  NativeWidgetNavigationPolicy.canPresentTab(libraryPreparing: store.preparingLibrary,
+                      readerVisible: store.readerBook != nil || store.readerPresentationActive) else { return }
             // Switch the tab quietly under the active snapshot/icon overlay while the destination loads.
             if let tab = store.requestedTab {
                 var transaction = Transaction()
                 transaction.disablesAnimations = true
-                withTransaction(transaction) { selectedTab = tab }
+                withTransaction(transaction) {
+                    selectedTab = tab
+                    store.activeTab = tab
+                }
+            }
+            // Cold targets keep the icon page until their first content load
+            // settles. Warm targets with retained content are already ready.
+            let readinessStarted = CACurrentMediaTime()
+            let readinessDeadline = readinessStarted + 10
+            var showedLoading = false
+            while store.launchBrandActive, let tab = store.requestedTab, !store.isWidgetTabReady(tab),
+                  !Task.isCancelled, store.widgetNavigationIntent.isCurrent(revision),
+                  CACurrentMediaTime() < readinessDeadline {
+                if !showedLoading, CACurrentMediaTime() - readinessStarted >= 0.75 {
+                    store.setLaunchBrandProgressVisible(true)
+                    showedLoading = true
+                }
+                await NativeDisplayFrame.waitForCommit()
             }
             if store.launchBrandActive {
                 await store.waitForMinimumLaunchBrandHold()
                 guard !Task.isCancelled else { return }
             }
-            guard store.requestedTab != nil,
-                  !store.preparingLibrary, !store.closingReader, !store.openingReader,
-                  store.readerBook == nil, !store.readerPresentationActive else {
+            guard store.widgetNavigationIntent.isCurrent(revision), store.requestedTab != nil,
+                  NativeWidgetNavigationPolicy.canPresentTab(libraryPreparing: store.preparingLibrary,
+                      readerVisible: store.readerBook != nil || store.readerPresentationActive) else {
                 if store.pendingOpenBookId == nil && store.requestedTab == nil {
                     store.dismissLaunchBrandCover()
                     store.widgetTabTransition?.finish()
@@ -259,12 +256,16 @@ struct NativeShell: View {
             } else {
                 handoff = store.takeWidgetTabTransition()
             }
-            await NativeDisplayFrame.waitForCommit()
-            guard !Task.isCancelled else {
-                handoff?.finish(); return
+            store.activeWidgetTabTransition = handoff
+            defer {
+                handoff?.finish()
+                if store.activeWidgetTabTransition === handoff { store.activeWidgetTabTransition = nil }
             }
+            await NativeDisplayFrame.waitForCommit()
+            guard !Task.isCancelled, store.widgetNavigationIntent.isCurrent(revision) else { return }
             await handoff?.show(store.navigationWindow?.rootViewController?.view, animation: .slide,
                                 duration: NativeReaderPresentationPolicy.widgetTransitionDuration)
+            if !Task.isCancelled { store.widgetNavigationIntent.markPresented(revision) }
         }
     }
 }

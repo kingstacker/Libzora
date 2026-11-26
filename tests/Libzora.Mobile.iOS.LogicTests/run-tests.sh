@@ -42,6 +42,7 @@ xcrun --sdk macosx swiftc -swift-version 5 -parse-as-library \
 
 xcrun --sdk macosx swiftc -swift-version 5 -parse-as-library \
   "$root/src/Libzora.Widgets/Shared/WidgetModels.swift" \
+  "$root/src/Libzora.Widgets/Shared/WidgetContinueBooksLayout.swift" \
   "$root/src/Libzora.Widgets/Shared/WidgetReadingTreeModel.swift" \
   "$root/tests/Libzora.Mobile.iOS.LogicTests/WidgetReadingTreeLogicTests.swift" \
   -o "$output/widget-tree-tests"

@@ -142,7 +142,7 @@ struct NativeMaterials: View {
         }
             .background(NativeAmbientBackground()).navigationBarHidden(true)
             .overlay(alignment: .top) { NativeStatusBarGlass() }
-            .task(id: store.uiLanguage) { _ = await load() }
+            .task(id: "\(store.uiLanguage):\(store.readerCloseRevision)") { _ = await load() }
             .onChange(of: store.activeTab) { tab in
                 openedEntryId = nil
                 if tab == 1 { Task { _ = await load() } }
@@ -238,7 +238,10 @@ struct NativeMaterials: View {
 
     @discardableResult
     private func load() async -> Bool {
-        defer { loading = false }
+        defer {
+            loading = false
+            if !Task.isCancelled { store.readyWidgetTabs.insert(1) }
+        }
         do {
             let loaded: [MaterialRecord] = try await store.request("materials.get")
             let visible = loaded.filter { item in
@@ -358,7 +361,7 @@ struct NativeReadingDashboard: View {
             }.refreshable { await load() }
                 .background(NativeAmbientBackground()).navigationBarHidden(true)
                 .overlay(alignment: .top) { NativeStatusBarGlass() }
-                .task(id: "\(period):\(store.uiLanguage)") { await load() }
+                .task(id: "\(period):\(store.uiLanguage):\(store.readerCloseRevision)") { await load() }
                 .onChange(of: store.activeTab) { tab in
                     if tab == 2 { Task { await load() } }
                 }
@@ -508,6 +511,7 @@ struct NativeReadingDashboard: View {
         }.padding(16).background(NativeTheme.sunk, in: RoundedRectangle(cornerRadius: 18))
     }
     private func load() async {
+        defer { if !Task.isCancelled { store.readyWidgetTabs.insert(2) } }
         do {
             let result: DashboardSnapshot = try await store.request("dashboard.get", ["period": period])
             if !Task.isCancelled {

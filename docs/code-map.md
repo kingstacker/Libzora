@@ -173,18 +173,19 @@ Large services are split by responsibility so one change opens one file:
   library, reader (`NativeReader.swift`, `NativeReaderAssistant.swift`,
   `NativeBookReflection.swift`, `NativeBookReflectionPolicy.swift`,
   `NativeMarkdownParser.swift`, `NativeMarkdown.swift`,
-  `NativeBookOpenTransition.swift`,
+  `NativeBookOpenTransition.swift`, `NativeBookCloseTransition.swift` (window-level captured-reader close flight),
   `NativeBookOpenTransitionPolicy.swift`, `NativeSwipeDeletePolicy.swift`,
   `NativeLibraryBatchPolicy.swift`, `NativeLibraryBatchSelection.swift`,
   `NativeReaderHighlightPalette.swift`,
   `NativeReaderAdvancedTypography.swift`, `NativeReaderLatinFontPicker.swift`),
   settings, account, membership, theme, widgets.
 - `NativeUI/NativeBridge.swift` — store, bridge requests/events, preferences and library refresh;
+  `NativeBridge.Library.swift` — series front-cover and display ordering helpers;
   `NativeBridge.Reader.swift` — session-identified reader presentations (including same-book reopens), restore, widget links, queued opens and teardown;
   `NativeReaderOpenPolicy.swift` — revision-safe latest-intent queue and active-open deduplication.
 - `NativeReaderEntryPresentation.swift`, `NativeReaderPresentationPolicy.swift` — first-drawn-frame and viewport acknowledgement gating, stable loading cover and cancellation.
-- `NativePageSlideTransition.swift`, `NativeDisplayFrame.swift` — native display commits and GPU-composited page snapshots; only library and reading-dashboard sessions use 3D book animations.
-- `NativeBridge.Navigation.swift`, `NativeWidgetNavigationPolicy.swift` — fast widget tab handoffs without resetting the live tab/navigation trees.
+- `NativePageSlideTransition.swift`, `NativeDisplayFrame.swift`, `NativeReaderSnapshot.swift` — native display commits and renderer-owned pixel snapshots for GPU-composited reader slides and cover closes; only library and reading-dashboard sessions use 3D book animations.
+- `NativeBridge.Navigation.swift`, `NativeWidgetNavigationPolicy.swift` — latest-intent widget link routing, icon-first cold entry and tab handoffs that finish before backend teardown, without resetting live tab/navigation trees.
 - `Libzora.Reader/Native{Pdf,}ReaderHost.Presentation.cs` — optional Core presentation-frame capability, notifying only after the current page was drawn.
 - `EpubReaderPreparationService.Auxiliary.cs` — marks footnote/endnote-only
   spine documents so they stay resolvable but never count as a page, a chapter
@@ -221,7 +222,7 @@ Large services are split by responsibility so one change opens one file:
 | Backup and encryption | `MainWindow.Stage3Backup.cs`, `src/Libzora.Infrastructure/` |
 | SQLite schema or queries | `src/Libzora.Infrastructure/SqliteBookLibraryService*.cs` |
 | iOS screen | `src/Libzora.Mobile.iOS/NativeUI/`, `IOSNativeFrontend.*.cs` |
-| Widgets | `src/Libzora.Widgets/`, `NativeWidgets.swift` |
+| Widgets | `src/Libzora.Widgets/Shared/WidgetViews.swift` (continue/stats/empty states), `WidgetTheme.swift` (shared heading/fonts/metrics), `WidgetContinueBooksLayout.swift` (adaptive book slots), `WidgetReadingTreeView.swift`, `NativeWidgets.swift` |
 | Plugin API | `docs/plugins.md`, `src/Libzora.Core/` plugin contracts |
 
 ## Build and test

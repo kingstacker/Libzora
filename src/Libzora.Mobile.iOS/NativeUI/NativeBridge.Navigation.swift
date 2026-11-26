@@ -135,6 +135,94 @@ private final class NativeLaunchBrandOverlayView: UIView {
 extension NativeStore {
     private static let minimumLaunchBrandHoldNs: UInt64 = 380_000_000
 
+    func openRequestedTab(_ tab: Int) {
+        // Same-page links must cancel pending different destinations too.
+        let revision = beginWidgetNavigation(.tab(tab))
+        pendingReaderRestore = nil
+        pendingOpenBookId = nil
+        queuedReaderOpen.clear()
+        let alreadyVisible = !preparingLibrary && libraryLoaded && activeTab == tab
+            && !launchBrandActive && !restoringReader
+            && readerBook == nil && !readerPresentationActive
+        guard !alreadyVisible else {
+            if openingReader { dismissReaderForTab() }
+            widgetNavigationIntent.markPresented(revision)
+            dismissWidgetEntrySnapshotCover()
+            if !restoringReader { dismissLaunchBrandCover() }
+            return
+        }
+        let useBrandCover = NativeWidgetNavigationPolicy.shouldUseLaunchBrandCover(
+            preparingLibrary: preparingLibrary, libraryLoaded: libraryLoaded, restoringReader: restoringReader
+        )
+        if useBrandCover {
+            beginLaunchBrandCover(resetTimer: false)
+            requestedTab = tab
+            restoringReader = false
+            dismissReaderForTab()
+        } else {
+            widgetTabTask = Task { @MainActor [weak self] in
+                guard let self else { return }
+                defer {
+                    if self.widgetNavigationIntent.isCurrent(revision) { self.widgetTabTask = nil }
+                }
+                await self.waitForWidgetForegroundCommit()
+                guard !Task.isCancelled, self.widgetNavigationIntent.isCurrent(revision),
+                      self.pendingOpenBookId == nil else { return }
+                let stillVisible = !self.preparingLibrary && self.libraryLoaded && self.activeTab == tab
+                    && !self.launchBrandActive && !self.restoringReader
+                    && self.readerBook == nil && !self.readerPresentationActive
+                guard !stillVisible else {
+                    self.widgetNavigationIntent.markPresented(revision)
+                    return
+                }
+                await self.beginWidgetTabSlideTransition(revision: revision)
+                guard !Task.isCancelled, self.widgetNavigationIntent.isCurrent(revision) else { return }
+                self.requestedTab = tab
+                self.restoringReader = false
+                self.dismissReaderForTab()
+            }
+        }
+    }
+
+    @discardableResult
+    func beginWidgetNavigation(_ destination: NativeWidgetNavigationIntent.Destination) -> Int {
+        let revision = widgetNavigationIntent.begin(destination)
+        // Finish the old flight BEFORE capturing a new starting page, otherwise
+        // a quick second link freezes an intermediate, half-slid composition.
+        widgetTabTask?.cancel()
+        widgetTabTask = nil
+        widgetNavigationTask?.cancel()
+        widgetNavigationTask = nil
+        widgetTabTransition?.finish()
+        widgetTabTransition = nil
+        activeWidgetTabTransition?.finish()
+        activeWidgetTabTransition = nil
+        readerEntryTransition?.finish()
+        readerEntryTransition = nil
+        if let closing = closingBookTransition { finishClosingBookTransition(id: closing.id) }
+        requestedTab = nil
+        return revision
+    }
+
+    func isWidgetTabReady(_ tab: Int) -> Bool {
+        switch tab {
+        case 0: return libraryLoaded
+        case 1, 2: return readyWidgetTabs.contains(tab)
+        default: return true
+        }
+    }
+
+    /// Let the destination slide in before save/dispose work can block the UI.
+    /// The backend remains serialized; only presentation is allowed to finish early.
+    func waitForWidgetTabPresentation() async {
+        let deadline = CACurrentMediaTime() + 12
+        while widgetNavigationIntent.isTabPresentationPending,
+              UIApplication.shared.applicationState == .active,
+              CACurrentMediaTime() < deadline, !Task.isCancelled {
+            try? await Task.sleep(nanoseconds: 16_666_667)
+        }
+    }
+
     var launchBrandPageColor: UIColor? {
         let style: UIUserInterfaceStyle
         switch preferences.themeMode {
@@ -159,7 +247,8 @@ extension NativeStore {
         CATransaction.flush()
     }
 
-    func beginWidgetTabSlideTransition() {
+    func beginWidgetTabSlideTransition(revision: Int) async {
+        guard widgetNavigationIntent.isCurrent(revision), !Task.isCancelled else { return }
         widgetTabTransition?.finish()
         widgetTabTransition = nil
         dismissLaunchBrandCover()
@@ -167,28 +256,33 @@ extension NativeStore {
         let canAnimate = !UIAccessibility.isReduceMotionEnabled
             && !preferences.isPowerSaving(systemLowPower: ProcessInfo.processInfo.isLowPowerModeEnabled)
         guard canAnimate, let window = navigationWindow else { return }
-        if let oldView = window.snapshotView(afterScreenUpdates: false) {
+        while closingWindowTransition != nil, !Task.isCancelled, widgetNavigationIntent.isCurrent(revision) {
+            await NativeDisplayFrame.waitForCommit()
+        }
+        let oldView = readerBook != nil
+            ? await captureReaderPresentationSnapshot()
+            : window.snapshotView(afterScreenUpdates: false)
+        guard widgetNavigationIntent.isCurrent(revision), !Task.isCancelled else { return }
+        if let oldView {
             widgetTabTransition = NativePageSlideTransition(
-                window: window,
-                oldPageView: oldView,
+                window: window, oldPageView: oldView,
                 paper: window.backgroundColor ?? .systemBackground
             )
         } else {
             widgetTabTransition = NativePageSlideTransition(
-                window: window,
-                snapshot: captureNavigationSnapshot(),
+                window: window, snapshot: captureNavigationSnapshot(),
                 paper: window.backgroundColor ?? .systemBackground
             )
         }
         CATransaction.flush()
     }
 
-    func beginWidgetEntrySnapshotCover() {
+    func beginWidgetEntrySnapshotCover(snapshot preparedSnapshot: UIView? = nil) {
         dismissWidgetEntrySnapshotCover()
         guard let window = navigationWindow,
               window.bounds.width > 10, window.bounds.height > 10 else { return }
         let snapshotView: UIView
-        if let live = window.snapshotView(afterScreenUpdates: false) {
+        if let live = preparedSnapshot ?? window.snapshotView(afterScreenUpdates: false) {
             snapshotView = live
         } else {
             let imageView = UIImageView(image: captureNavigationSnapshot())
@@ -227,6 +321,13 @@ extension NativeStore {
     }
 
     func waitForWidgetForegroundCommit() async {
+#if DEBUG
+        // Deterministic latest-intent regression window; absent from release.
+        if ProcessInfo.processInfo.arguments.contains("--libzora-test-slow-widget-navigation") {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+        }
+#endif
+        guard !Task.isCancelled else { return }
         if UIApplication.shared.applicationState != .active {
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                 var observer: NSObjectProtocol?

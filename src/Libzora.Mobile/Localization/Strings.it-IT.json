@@ -517,7 +517,7 @@
   "恢复 Libzora 备份": "Ripristina backup Libzora",
   "恢复备份": "Ripristina backup",
   "恢复将覆盖当前整个书库，包括书籍、封面和阅读记录。建议先导出备份。恢复成功后需要完全关闭并重新打开应用。": "Il ripristino sovrascriverà l’intera libreria (libri, copertine e cronologia). Esporta prima un backup e riavvia l’app dopo il ripristino.",
-  "我已阅读并同意《用户协议》和《隐私政策》": "Ho letto e accetto i Termini di servizio e l’Informativa sulla privacy",
+  "我已阅读并同意《用户协议》和《隐私政策》，并确认仅导入本人拥有合法权利的电子书": "Ho letto e accetto i Termini di servizio e l’Informativa sulla privacy e confermo di importare solo eBook sui quali detengo diritti legittimi",
   "我的": "Profilo",
   "所有方案均不提供官方云存储或官方云同步；存储与流量费用由用户承担。": "Nessun piano include cloud ospitato. I costi di archiviazione e traffico sono a carico dell’utente.",
   "所选书籍已在书库中": "Questi libri sono già nella libreria",

@@ -25,17 +25,18 @@ extension NativeStore {
     /// while another book is open. Keep the request until a fresh library
     /// snapshot can resolve it and the reader is free.
     func openRequestedBook(_ bookId: String, source: NativeBookOpenSource) {
-        widgetTabTask?.cancel()
-        widgetTabTask = nil
-        widgetTabTransition?.finish()
-        widgetTabTransition = nil
-        requestedTab = nil
-        pendingReaderRestore = nil
-        if NativeReaderOpenPolicy.isDuplicate(
+        let duplicate = NativeReaderOpenPolicy.isDuplicate(
             bookId: bookId, openingBookId: openingReaderBookId, openingGeneration: openingReaderGeneration,
             currentGeneration: readerOpenGeneration, readerBookId: readerBook?.id,
             closing: closingReader, hasPending: pendingOpenBookId != nil || queuedReaderOpen.pending != nil
-        ) { return }
+        )
+        // Repeated taps on the same active book should not cut its current
+        // entry flight, but a pending tab intent still has to be superseded.
+        if duplicate, widgetNavigationIntent.destination == .book(bookId),
+           requestedTab == nil, widgetTabTask == nil { return }
+        beginWidgetNavigation(.book(bookId))
+        pendingReaderRestore = nil
+        if duplicate { return }
         let useBrandCover = NativeWidgetNavigationPolicy.shouldUseLaunchBrandCover(
             preparingLibrary: preparingLibrary,
             libraryLoaded: libraryLoaded,
@@ -82,7 +83,11 @@ extension NativeStore {
         queuedReaderOpen.clear()
         readerOpenGeneration += 1
         restoringReader = false
-        if readerBook != nil && !openingReader {
+        if openingReader {
+            openingBookReadyId = nil
+            openingBookTransition = nil
+            dismissReaderPresentation()
+        } else if readerBook != nil {
             perform { await self.closeReader(animated: false, preserveWidgetCover: true) }
         }
     }
@@ -216,20 +221,22 @@ extension NativeStore {
     }
 
     func finishClosingBookTransition(id: UUID) {
-        if closingBookTransition?.id == id {
-            closingBookTransition = nil
+        guard closingBookTransition?.id == id else { return }
+        closingBookTransition = nil
+        let handoff = closingWindowTransition
+        Task { @MainActor in
+            // SwiftUI unhides the real cover on its next display commit. Keep
+            // the landed replacement over it until that commit, avoiding a hole.
+            await NativeDisplayFrame.waitForCommit()
+            if closingWindowTransition === handoff { closingWindowTransition = nil }
+            handoff?.finish()
+            closingTransitionWaiters.removeValue(forKey: id)?.resume()
         }
-        if closingBookReadyId == id {
-            closingBookReadyId = nil
-        }
-        let waiter = closingTransitionWaiters.removeValue(forKey: id)
-        waiter?.resume()
     }
 
     private func clearClosingBookTransition() {
-        closingFreezeCover?.removeFromSuperview()
-        closingFreezeCover = nil
-        closingBookReadyId = nil
+        closingWindowTransition?.finish()
+        closingWindowTransition = nil
         closingBookTransition = nil
         let waiters = closingTransitionWaiters
         closingTransitionWaiters.removeAll()
@@ -286,6 +293,9 @@ extension NativeStore {
                 sourceFrame: sourceFrame, sourceKey: sourceKey, source: source, bookFileId: bookFileId))
             restoringReader = false
             return
+        }
+        if source != .widget, source != .restore, widgetNavigationIntent.isTabPresentationPending {
+            beginWidgetNavigation(.book(book.id))
         }
         if openingReader || closingReader || readerPresentationActive || readerBook != nil {
             if NativeReaderOpenPolicy.isDuplicate(
@@ -565,6 +575,7 @@ extension NativeStore {
         openingBookReadyId = nil
         openingBookTransition = nil
         let closingBook = readerBook
+        let navigationRevision = widgetNavigationIntent.revision
         let closingProgress = session.state.progress
         let powerSaving = preferences.isPowerSaving(systemLowPower: ProcessInfo.processInfo.isLowPowerModeEnabled)
         let closeAnimation = NativeBookOpenTransitionPolicy.closeAnimation(
@@ -575,6 +586,14 @@ extension NativeStore {
             pageAnimation: preferences.readerPageAnimation
         )
         let shouldAnimateClose = closeAnimation == .cover
+        var pageSnapshot: UIView?
+        if shouldAnimateClose || closeAnimation.isPageAnimation || (preservePendingOpen && pendingOpenSource == .widget) {
+            pageSnapshot = await captureReaderPresentationSnapshot()
+        }
+        if preservePendingOpen, pendingOpenSource == .widget, pendingOpenBookId != nil,
+           widgetNavigationIntent.isCurrent(navigationRevision), let pageSnapshot {
+            beginWidgetEntrySnapshotCover(snapshot: pageSnapshot)
+        }
         let preferredKey = (lastBookOpenOrigin?.bookId == closingBook?.id) ? lastBookOpenOrigin?.sourceKey : nil
         let preferredCoverWidth = NativeBookOpenTransitionPolicy.centeredFrame(in: viewportRect).width
         async let preloadedCover: UIImage? = {
@@ -585,34 +604,39 @@ extension NativeStore {
         let closeWaitDuration: Double
         if shouldAnimateClose, let book = closingBook {
             lastBookOpenOrigin = nil
-            let freezeWindow = navigationWindow
-            let freezeCover: UIView? = {
-                guard let freezeWindow,
-                      freezeWindow.bounds.width > 10, freezeWindow.bounds.height > 10,
-                      let snap = freezeWindow.snapshotView(afterScreenUpdates: false) else { return nil }
-                snap.frame = freezeWindow.bounds
-                snap.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-                snap.isUserInteractionEnabled = false
-                snap.isAccessibilityElement = false
-                snap.accessibilityElementsHidden = true
-                snap.layer.zPosition = 10_000
-                freezeWindow.addSubview(snap)
-                freezeWindow.bringSubviewToFront(snap)
-                CATransaction.flush()
-                return snap
-            }()
-            closingFreezeCover?.removeFromSuperview()
-            closingFreezeCover = freezeCover
-            defer {
-                if closingFreezeCover === freezeCover {
-                    closingFreezeCover = nil
-                }
-                freezeCover?.removeFromSuperview()
-                UIView.setAnimationsEnabled(true)
+            let window = navigationWindow
+            let appearance = readerController.traitCollection.userInterfaceStyle
+            let theme = preferences.readerThemeFollowsAppearance
+                ? (appearance == .dark ? 5 : 0) : preferences.readerTheme
+            let paper = UIColor(preferences.paper(for: theme, pureBlackOled: false))
+            let handoff = window.flatMap { window in
+                NativeBookCloseTransition(window: window, readerView: readerPresentationView,
+                    fallback: { self.captureNavigationSnapshot() }, paper: paper, preparedSnapshot: pageSnapshot)
             }
+            closingWindowTransition?.finish()
+            closingWindowTransition = handoff
+            defer {
+                if closingWindowTransition === handoff { closingWindowTransition = nil }
+                handoff?.finish()
+            }
+            // Commit the original rendered reader above the modal before
+            // dismissing it, so neither an empty Metal surface nor the shelf
+            // can flash through the handoff.
+            await NativeDisplayFrame.waitForCommit()
 
-            let pageSnapshotView = readerController.viewIfLoaded?.snapshotView(afterScreenUpdates: false)
-            let pageSnapshot = pageSnapshotView == nil ? captureReaderSnapshot() : nil
+            if closingProgress < 99.5, continueBookId != book.id,
+               library.contains(where: { $0.id == book.id }) {
+                continueBookId = book.id
+            }
+            dismissReaderPresentation()
+            // A display interval alone does not acknowledge fullScreenCover's
+            // dismissal. Keep the original page visible until UIKit releases it.
+            let dismissalDeadline = CACurrentMediaTime() + 1.5
+            while readerPresentationActive && CACurrentMediaTime() < dismissalDeadline && !Task.isCancelled {
+                await NativeDisplayFrame.waitForCommit()
+            }
+            await NativeDisplayFrame.waitForCommit()
+
             let frontBookId = seriesFrontBookId(for: book)
             let topInset = max(40, NativeTheme.statusBarHeight + 16)
             let bottomInset = max(52, NativeTheme.bottomTabBarInset + 8)
@@ -631,46 +655,37 @@ extension NativeStore {
                 sourceFrame: target.frame,
                 sourceKey: target.sourceKey,
                 isCentered: target.isCentered,
-                coverImage: coverImage,
-                pageSnapshot: pageSnapshot,
-                pageSnapshotView: pageSnapshotView
+                coverImage: coverImage
             )
-            closingBookReadyId = nil
-            closingBookTransition = transition
-
-            if closingProgress < 99.5, continueBookId != book.id,
-               library.contains(where: { $0.id == book.id }) {
-                continueBookId = book.id
+            if let handoff, !Task.isCancelled, widgetNavigationIntent.isCurrent(navigationRevision) {
+                closingBookTransition = transition
+                handoff.prepare(transition)
+                await NativeDisplayFrame.waitForCommit()
+                handoff.start { [weak self] in
+                    self?.finishClosingBookTransition(id: transition.id)
+                }
+                let closeDuration = target.isCentered
+                    ? NativeBookOpenTransitionPolicy.closeToCenterDuration
+                    : NativeBookOpenTransitionPolicy.closeToCoverDuration
+                await awaitClosingBookTransition(id: transition.id, maxWait: closeDuration + 0.75)
             }
-            var transaction = Transaction()
-            transaction.disablesAnimations = true
-            UIView.setAnimationsEnabled(false)
-            withTransaction(transaction) {
-                readerBook = nil
-            }
-            // Start backend teardown immediately without blocking the shrink animation.
-            let closeBackend = Task { @MainActor in
-                do { try await self.closeReaderBackend() }
-                catch { if !Task.isCancelled { self.failure = error.localizedDescription } }
-            }
-            await NativeDisplayFrame.waitForCommit()
-            UIView.setAnimationsEnabled(true)
-            if closingFreezeCover === freezeCover {
-                closingFreezeCover = nil
-            }
-            freezeCover?.removeFromSuperview()
-            closingBookReadyId = transition.id
-            let closeDuration = target.isCentered
-                ? NativeBookOpenTransitionPolicy.closeToCenterDuration
-                : NativeBookOpenTransitionPolicy.closeToCoverDuration
-            await awaitClosingBookTransition(id: transition.id, maxWait: closeDuration + 0.45)
-            _ = await closeBackend.value
+            handoff?.finish()
+            if closingWindowTransition === handoff { closingWindowTransition = nil }
+            // Saving/disposing the Metal reader can block the main thread.
+            // Only start it once the final cover frame has been handed off.
+            do { try await closeReaderBackend() }
+            catch { if !Task.isCancelled { failure = error.localizedDescription } }
             closeWaitDuration = 0
         } else {
             let window = navigationWindow
-            let handoff = closeAnimation.isPageAnimation
-                ? NativePageSlideTransition(window: window, snapshot: captureNavigationSnapshot(),
+            let handoff = closeAnimation.isPageAnimation && widgetNavigationIntent.isCurrent(navigationRevision)
+                ? NativePageSlideTransition(window: window, oldPageView: pageSnapshot ?? window?.snapshotView(afterScreenUpdates: false),
                     paper: window?.backgroundColor ?? .systemBackground) : nil
+            if let handoff { readerEntryTransition = handoff }
+            defer {
+                handoff?.finish()
+                if readerEntryTransition === handoff { readerEntryTransition = nil }
+            }
             lastBookOpenOrigin = nil
             dismissReaderPresentation()
             if let handoff {
@@ -681,13 +696,16 @@ extension NativeStore {
                         : NativeBookOpenTransitionPolicy.pageTransitionDuration,
                     reverse: true)
             }
-            // Keep teardown serialized, but don't do save/sync work during the
-            // GPU-only slide: the original page has already been snapshotted.
+            // Tab presentation is independent of backend lifetime. Let its
+            // snapshot handoff finish before save/dispose work can stall frames.
+            if preserveWidgetCover { await waitForWidgetTabPresentation() }
+            // Keep teardown serialized; queued book opens still wait for it.
             do { try await closeReaderBackend() }
             catch { if !Task.isCancelled { failure = error.localizedDescription } }
             closeWaitDuration = 0
         }
         session.reset()
+        readerCloseRevision += 1
         UserDefaults.standard.removeObject(forKey: Self.lastReaderKey)
         if closeWaitDuration > 0 {
             // Wait for the cover-shut animation to land on its shelf slot
@@ -745,17 +763,6 @@ extension NativeStore {
         keepLaunchBrandOverlayOnTop()
         DispatchQueue.main.async {
             UIView.setAnimationsEnabled(true)
-        }
-    }
-
-    private func captureReaderSnapshot() -> UIImage? {
-        guard let view = readerController.viewIfLoaded,
-              view.bounds.width > 10, view.bounds.height > 10 else { return nil }
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = min(UIScreen.main.scale, 2.0)
-        format.opaque = false
-        return UIGraphicsImageRenderer(bounds: view.bounds, format: format).image { _ in
-            view.drawHierarchy(in: view.bounds, afterScreenUpdates: false)
         }
     }
 

@@ -5,20 +5,11 @@ struct KkReadingTreeWidgetView: View {
     let entry: KkEntry
     @Environment(\.widgetFamily) private var family
     @Environment(\.colorScheme) private var scheme
-    @Environment(\.widgetRenderingMode) private var renderingMode
 
     private var lang: WidgetLanguage { WidgetLocalization.current }
     private var snapshot: KkSnapshot { entry.snapshot ?? KkSnapshot.sample(language: lang) }
     private var profile: KkReadingTreeProfile {
         KkReadingTreeProfile(snapshot: snapshot, date: entry.date, isPreview: entry.isPlaceholder || !entry.hasData)
-    }
-    private var isFullColor: Bool { renderingMode == .fullColor }
-    private var streakDotColor: Color {
-        let active = profile.streakDays > 0 || profile.hasReadToday
-        if isFullColor {
-            return active ? KkTheme.treeLeafAccent(scheme) : KkTheme.faintInk(scheme)
-        }
-        return Color.primary.opacity(active ? 0.75 : 0.4)
     }
 
     var body: some View {
@@ -37,153 +28,108 @@ struct KkReadingTreeWidgetView: View {
         .lzWidgetURL(URL(string: "libzora://dashboard"))
     }
 
+    private var heading: some View {
+        KkWidgetHeading(
+            title: WidgetLocalization.treeTitle(lang),
+            detail: WidgetLocalization.streakBadge(profile.streakDays, lang))
+    }
+
     private var small: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .center, spacing: 0) {
-                Text(WidgetLocalization.treeTitle(lang))
-                    .kkLabelFont(11, weight: .medium)
-                    .foregroundStyle(KkTheme.secondaryInk(scheme))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.68)
-                Spacer(minLength: 6)
-                HStack(spacing: 3) {
-                    Circle()
-                        .fill(streakDotColor)
-                        .frame(width: 5, height: 5)
-                    Text(WidgetLocalization.shortDays(profile.streakDays, lang))
-                        .kkLabelFont(9.5, weight: .medium)
-                        .foregroundStyle(KkTheme.secondaryInk(scheme))
-                        .monospacedDigit()
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.72)
-                }
-                .layoutPriority(1)
-            }
+            heading
 
             KkReadingTreeCanvas(profile: profile)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding(.vertical, -3)
+                // Reuse the canvas's sky/ground margins, keeping the tree's
+                // proportions intact while giving it more width and height.
+                .padding(.horizontal, -4)
+                .padding(.vertical, -4)
 
-            HStack(alignment: .center, spacing: 4) {
-                Text(KkFormat.localizedCompactHours(profile.totalSeconds, language: lang))
-                    .kkLabelFont(9.5, weight: .medium)
-                    .foregroundStyle(KkTheme.secondaryInk(scheme))
-                    .monospacedDigit()
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
-                Spacer(minLength: 4)
-                HStack(spacing: 3) {
-                    Circle()
-                        .fill(isFullColor ? KkTheme.treeYellowAccent(scheme) : Color.primary.opacity(0.7))
-                        .frame(width: 5, height: 5)
-                    let countText = KkFormat.localizedCompactCount(profile.booksFinished, language: lang)
-                    Text(WidgetLocalization.treeBooksCount(countText, rawCount: profile.booksFinished, lang))
-                        .kkLabelFont(9.5, weight: .medium)
-                        .foregroundStyle(KkTheme.secondaryInk(scheme))
-                        .monospacedDigit()
-                        .lineLimit(1)
-                }
-                .fixedSize(horizontal: true, vertical: false)
+            let duration = KkFormat.localizedCompactHours(profile.totalSeconds, language: lang)
+            let countText = KkFormat.localizedCompactCount(profile.booksFinished, language: lang)
+            let books = WidgetLocalization.treeBooksCount(countText, rawCount: profile.booksFinished, lang)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(duration)
+                    .accessibilityLabel("\(WidgetLocalization.totalTime(lang)) \(duration)")
+                Spacer(minLength: 0)
+                Text(books)
+                    .accessibilityLabel("\(WidgetLocalization.finishedLabel(lang)) \(books)")
             }
+            .kkLabelFont(10.5, weight: .medium)
+            .foregroundStyle(KkTheme.secondaryInk(scheme))
+            .lineLimit(1)
+            .minimumScaleFactor(0.85)
         }
-        .padding(.horizontal, 13)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 14)
+        .padding(.top, 14)
+        .padding(.bottom, 10)
         .accessibilityElement(children: .combine)
     }
 
     private var medium: some View {
-        HStack(alignment: .center, spacing: 10) {
-            KkReadingTreeCanvas(profile: profile)
-                .frame(width: 134)
-                .frame(maxHeight: .infinity)
+        VStack(alignment: .leading, spacing: 8) {
+            heading
 
-            VStack(alignment: .leading, spacing: 0) {
-                HStack(alignment: .center, spacing: 0) {
-                    Text(WidgetLocalization.treeTitle(lang))
-                        .kkLabelFont(11, weight: .medium)
-                        .foregroundStyle(KkTheme.secondaryInk(scheme))
+            HStack(alignment: .center, spacing: 14) {
+                KkReadingTreeCanvas(profile: profile)
+                    .frame(width: 124)
+                    .frame(maxHeight: .infinity)
+
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(profile.localizedStageTitle(lang))
+                        .kkTitleFont(20)
+                        .foregroundStyle(KkTheme.ink(scheme))
                         .lineLimit(1)
-                        .minimumScaleFactor(0.68)
-                    Spacer(minLength: 6)
-                    vitalityBadge
+                        .minimumScaleFactor(0.8)
+
+                    Text(profile.localizedNextHint(lang))
+                        .kkBodyFont(10.5)
+                        .foregroundStyle(KkTheme.secondaryInk(scheme))
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.82)
+                        .padding(.top, 3)
+
+                    KkProgressBar(progress: profile.stageProgress * 100, height: 3)
+                        .padding(.top, 7)
+
+                    Spacer(minLength: 8)
+
+                    let totalParts = KkFormat.localizedCompactHoursParts(profile.totalSeconds, language: lang)
+                    HStack(alignment: .top, spacing: 8) {
+                        KkStat(
+                            value: totalParts.value,
+                            label: WidgetLocalization.totalShort(lang),
+                            unit: totalParts.unit,
+                            alignment: .leading,
+                            valueSize: 15,
+                            labelSize: 10,
+                            stackSpacing: 3,
+                            expand: true,
+                            subdued: profile.totalSeconds == 0)
+                        KkStat(
+                            value: KkFormat.localizedCompactCount(profile.booksFinished, language: lang),
+                            label: WidgetLocalization.finishedLabel(lang),
+                            alignment: .center,
+                            valueSize: 15,
+                            labelSize: 10,
+                            stackSpacing: 3,
+                            expand: true,
+                            subdued: profile.booksFinished == 0)
+                        KkStat(
+                            value: KkFormat.localizedCompactCount(profile.annotationCount, language: lang),
+                            label: WidgetLocalization.treeNotes(lang),
+                            alignment: .trailing,
+                            valueSize: 15,
+                            labelSize: 10,
+                            stackSpacing: 3,
+                            expand: true,
+                            subdued: profile.annotationCount == 0)
+                    }
                 }
-
-                Spacer(minLength: 4)
-
-                Text(profile.localizedStageTitle(lang))
-                    .kkTitleFont(19)
-                    .foregroundStyle(KkTheme.ink(scheme))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
-
-                Text(profile.localizedNextHint(lang))
-                    .kkBodyFont(10)
-                    .foregroundStyle(KkTheme.secondaryInk(scheme))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.72)
-                    .padding(.top, 2)
-
-                KkProgressBar(progress: profile.stageProgress * 100, height: 3)
-                    .padding(.top, 6)
-
-                Spacer(minLength: 6)
-
-                Rectangle()
-                    .fill(KkTheme.hairline(scheme))
-                    .frame(height: 0.5)
-                    .accessibilityHidden(true)
-
-                let totalParts = KkFormat.localizedCompactHoursParts(profile.totalSeconds, language: lang)
-                HStack(alignment: .top, spacing: 4) {
-                    KkStat(
-                        value: totalParts.value,
-                        label: WidgetLocalization.totalShort(lang),
-                        unit: totalParts.unit,
-                        alignment: .leading,
-                        valueSize: 13.5,
-                        labelSize: 9.5,
-                        stackSpacing: 2)
-                    Spacer(minLength: 4)
-                    KkStat(
-                        value: KkFormat.localizedCompactCount(profile.booksFinished, language: lang),
-                        label: WidgetLocalization.finishedLabel(lang),
-                        alignment: .center,
-                        valueSize: 13.5,
-                        labelSize: 9.5,
-                        stackSpacing: 2)
-                    Spacer(minLength: 4)
-                    KkStat(
-                        value: KkFormat.localizedCompactCount(profile.annotationCount, language: lang),
-                        label: WidgetLocalization.treeNotes(lang),
-                        alignment: .trailing,
-                        valueSize: 13.5,
-                        labelSize: 9.5,
-                        stackSpacing: 2)
-                }
-                .padding(.top, 8)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
-        .padding(.leading, 10)
-        .padding(.trailing, 14)
-        .padding(.vertical, 13)
-    }
-
-    private var vitalityBadge: some View {
-        HStack(spacing: 3.5) {
-            Circle()
-                .fill(streakDotColor)
-                .frame(width: 5, height: 5)
-            Text(WidgetLocalization.streakBadge(profile.streakDays, lang))
-                .kkLabelFont(9.5, weight: .medium)
-                .foregroundStyle(KkTheme.secondaryInk(scheme))
-                .monospacedDigit()
-                .lineLimit(1)
-                .minimumScaleFactor(0.72)
-        }
-        .layoutPriority(1)
-        .padding(.horizontal, 6)
-        .padding(.vertical, 2.5)
-        .background(KkTheme.track(scheme), in: Capsule())
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
     }
 }

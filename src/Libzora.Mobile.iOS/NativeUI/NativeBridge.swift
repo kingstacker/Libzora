@@ -257,14 +257,18 @@ final class NativeStore: ObservableObject {
     var readerOpenSource: NativeBookOpenSource = .other
     var readerInitialTopSafeInset: CGFloat = 0
     @Published var closingBookTransition: NativeBookOpenTransition?
-    @Published var closingBookReadyId: UUID?
-    var closingFreezeCover: UIView?
+    var closingWindowTransition: NativeBookCloseTransition?
     var closingTransitionWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
     var activeTab = 0
     private(set) var viewportRect: CGRect = UIScreen.main.bounds
     private(set) var windowSafeAreaInsets = EdgeInsets()
     var lastBookOpenOrigin: (bookId: String, sourceKey: String)?
     @Published var readerPresentationActive = false
+    var widgetNavigationIntent = NativeWidgetNavigationIntent()
+    var readyWidgetTabs: Set<Int> = []
+    var widgetNavigationTask: Task<Void, Never>?
+    var activeWidgetTabTransition: NativePageSlideTransition?
+    var readerEntryTransition: NativePageSlideTransition?
     var widgetTabTransition: NativePageSlideTransition?
     var widgetTabTask: Task<Void, Never>?
     weak var rootViewController: UIViewController?
@@ -273,6 +277,7 @@ final class NativeStore: ObservableObject {
     var launchBrandStartedNs: UInt64?
     var pendingWidgetReaderSnapshot: UIImage?
     @Published var closingReader = false
+    @Published var readerCloseRevision = 0
     var openingReaderBookId: String?
     var openingReaderGeneration: Int?
     var queuedReaderOpen = NativeReaderOpenQueue<NativeReaderOpenRequest>()
@@ -384,6 +389,16 @@ final class NativeStore: ObservableObject {
         launchBrandStartedNs = DispatchTime.now().uptimeNanoseconds
         pendingReaderRestore = savedReader
         restoringReader = savedReader != nil
+#if DEBUG
+        // XCTest.open(URL) can omit launch arguments. This isolated fixture
+        // hook enters the same widget pipeline before the first library load.
+        let arguments = ProcessInfo.processInfo.arguments
+        if Bundle.main.bundleIdentifier == "com.kingstacker.libzora.readerfootnotepreview",
+           let index = arguments.firstIndex(of: "--libzora-test-cold-widget-book"), index + 1 < arguments.count,
+           let bookId = UUID(uuidString: arguments[index + 1])?.uuidString.lowercased() {
+            openRequestedBook(bookId, source: .widget)
+        }
+#endif
     }
 
     func request<Value: Decodable>(_ command: String, _ args: [String: Any] = [:],
@@ -510,53 +525,10 @@ final class NativeStore: ObservableObject {
             if let id = event.bookId {
                 openRequestedBook(id, source: event.type == "openWidgetBook" ? .widget : .external)
             }
-        case "openTab":
-            if let tab = event.tab {
-                let alreadyVisible = !preparingLibrary && libraryLoaded && activeTab == tab
-                    && readerBook == nil && !readerPresentationActive && !closingReader && !openingReader
-                guard !alreadyVisible else { return }
-                let useBrandCover = NativeWidgetNavigationPolicy.shouldUseLaunchBrandCover(
-                    preparingLibrary: preparingLibrary,
-                    libraryLoaded: libraryLoaded,
-                    restoringReader: restoringReader
-                )
-                pendingReaderRestore = nil
-                pendingOpenBookId = nil
-                if useBrandCover {
-                    widgetTabTask?.cancel()
-                    widgetTabTask = nil
-                    beginLaunchBrandCover(resetTimer: false)
-                    requestedTab = tab
-                    restoringReader = false
-                    dismissReaderForTab()
-                } else {
-                    widgetTabTask?.cancel()
-                    widgetTabTask = Task { @MainActor [weak self] in
-                        await self?.waitForWidgetForegroundCommit()
-                        guard let self, !Task.isCancelled, self.pendingOpenBookId == nil else { return }
-                        let stillVisible = !self.preparingLibrary && self.libraryLoaded && self.activeTab == tab
-                            && self.readerBook == nil && !self.readerPresentationActive
-                            && !self.closingReader && !self.openingReader
-                        guard !stillVisible else { return }
-                        self.beginWidgetTabSlideTransition()
-                        self.requestedTab = tab
-                        self.restoringReader = false
-                        self.dismissReaderForTab()
-                    }
-                }
-            }
+        case "openTab": if let tab = event.tab { openRequestedTab(tab) }
         case "closeReader": if readerBook != nil { perform { await self.closeReader() } }
         default: break
         }
-    }
-
-    func frontBook(for series: NativeBookSeries) -> LibraryBook? {
-        let mostRecentlyOpened = series.books.max { (bookOpenOrder[$0.id] ?? 0) < (bookOpenOrder[$1.id] ?? 0) }
-        return mostRecentlyOpened.flatMap { bookOpenOrder[$0.id] == nil ? nil : $0 } ?? series.books.first
-    }
-
-    func booksInDisplayOrder(for series: NativeBookSeries) -> [LibraryBook] {
-        series.booksByPromoting(frontBook(for: series)?.id)
     }
 
     func seriesSnapshot(for id: NativeBookSeries.ID) -> NativeBookSeries? {

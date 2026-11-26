@@ -44,6 +44,8 @@ internal sealed partial class IOSNativeFrontend
         if (!Enum.IsDefined(status)) throw new InvalidOperationException(UiText.Get("无效的阅读状态。"));
         book.ReadingStatus = status;
         await _shell.Modules.Library.Books.UpdateMetadataAsync(book, token);
+        if (status == LibraryReadingStatus.Finished)
+            await _shell.Modules.Reader.Data.MarkBookFinishedAsync(book, token);
         _shell.Preferences.UpdateAndSave(value => value.WithManualReadingStatus(book.Id, status));
         Publish(Data(("type", "libraryChanged")));
     }

@@ -121,6 +121,7 @@ public partial class ReaderPage : UserControl
         Guid? preferredFileId = null)
     {
         _book = book;
+        _activityClock.Pause(DateTimeOffset.UtcNow);
         _jump = jump;
         _preferredFileId = preferredFileId;
         _modules = modules;

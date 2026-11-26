@@ -244,6 +244,8 @@ public sealed partial class ReaderDataService
             await ReaderAnnotationCascade.EnsureAsync(connection, cancellationToken);
             await ReaderReadingHistory.EnsureAsync(connection, cancellationToken);
 
+            await EnsureListeningTimeColumnsAsync(connection, cancellationToken);
+            await EnsureCompletionColumnAsync(connection, cancellationToken);
             await using (var syncTransaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken))
             {
                 await ReadingTimeSyncTracker.EnsureSchemaAsync(connection, syncTransaction, cancellationToken);

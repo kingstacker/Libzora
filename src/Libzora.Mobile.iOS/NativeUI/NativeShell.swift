@@ -91,6 +91,7 @@ struct NativeShell: View {
         }
         .font(NativeTheme.font()).foregroundStyle(NativeTheme.ink).tint(NativeTheme.ink)
         .environment(\.symbolVariants, .none)
+        .statusBarHidden(store.openingReader || store.openingBookTransition != nil)
         .background(NativeAmbientBackground()).preferredColorScheme(store.preferences.colorScheme)
         .fullScreenCover(item: $store.readerPresentation, onDismiss: store.readerPresentationDismissed) { presentation in
             NativeReaderPage(store: store, session: store.session, book: presentation.book,

@@ -136,7 +136,8 @@ Large services are split by responsibility so one change opens one file:
 | --- | --- |
 | `S3SyncService.Database*.cs` | connection, snapshot, apply-remote (sync core), merge, dedupe, blobs, SQL, tombstones |
 | `SqliteBookLibraryService.*.cs` | queries, import, mutations, trash, collections, file paths, readers, schema |
-| `ReaderDataService.*.cs` | annotations, layout, stats, index, embeddings, search |
+| `ReaderDataService.*.cs` | annotations, layout, stats, durable completion/migration (`.Completion.cs`), index, embeddings, search |
+| `ReadingTimeSlice.cs` (Core), `ReadingTimeSyncTracker*.cs` | effective UTC day splitting and grow-only visual/listening counters, including backward-compatible listening migration |
 | `EpubReaderPreparationService.*.cs` | toc, navigation, chapter titles, duplicate cover normalization, index cache, extraction, XML, sanitizer, footnote-container detection |
 | `PluginBridge.*.cs` | dispatch, content, AI, network, decode |
 | `EpubTranslationService.*.cs` | translate, retry, render, documents, text tools, cache, types |
@@ -152,7 +153,7 @@ Large services are split by responsibility so one change opens one file:
 | `KindleDeviceService.*.cs` | detection, books, transfer, resources, annotations, files, native |
 | `HorizontalComposer.*.cs` | line breaking, Knuth-Plass, images, tables, table layout |
 | `GlyphShaper.cs` + `GlyphShaper.Variants.cs` | HarfBuzz shaping, system font loading, paired Latin/monospace and true Bold/Italic variants |
-| `ReaderPage.*.cs` (Mobile) | navigation (request generations and exact chapter matching), position, input, selection, footnote/figure detours and durable body progress, chrome, lifecycle, native (actions, search), native presentation (revision-safe first drawn page) |
+| `ReaderPage.*.cs` (Mobile) | navigation (request generations and exact chapter matching), position, input, selection, footnote/figure detours and durable body progress, reading-time day accumulation/recovery (`.ReadingTime.cs`), chrome, lifecycle, native (actions, search), native presentation (revision-safe first drawn page) |
 | `BookReflectionService.cs` + `BookReflectionFormatting.cs` | book-level reflection persistence, Markdown normalization, preview and citation helpers |
 | `BookReflectionPage.axaml.cs` + `BookReflectionCitationSheet.axaml.cs` (Mobile) | mobile reflection editor, Markdown preview and annotation citation picker |
 | `MobileShell.*.cs` | shell state, sheets, bars |
@@ -204,6 +205,7 @@ Large services are split by responsibility so one change opens one file:
 - `NativeSyncSettings.swift`, `IOSNativeFrontend.Import.cs` — native sync form and serialized book/TXT imports, including optional rule previews.
 - `NativeUI/NativeWelcomeView.swift`, `src/Libzora.Mobile/Views/WelcomeOverlay.axaml` — first-launch mobile welcome guide requiring explicit acceptance of the bundled User Agreement and Privacy Policy.
 - `NativeUI/NativeAppleSignIn.swift` — native Sign in with Apple coordinator (SHA-256 nonce) and HIG button used by `NativeAccount.swift` for sign-in and Apple ID linking.
+- `tests/Libzora.Mobile.iOS.UITests/NativeReadingStatsTests.swift` / `prepare-reading-stats-preview.py` — independent covered-book reading/listening palette captures and entry status-bar timing regressions.
 - `tests/Libzora.Mobile.iOS.UITests/` and `.LogicTests/` — behaviour contracts; `NativeDataSafetyUITests` / `prepare-ios-safety-preview.py` use an independent covered-book/PDF/TXT fixture bundle for deletion, onboarding, editing and file-action regressions.
 
 ## Where to look for common tasks

@@ -534,9 +534,12 @@ struct NativeStateLogicTests {
         check(NativeBookOpenTransitionPolicy.shouldShowReaderTopBar(
                   chromeVisible: true, ready: true, searching: false, hasError: false, loadingChromeVisible: false),
               "Tapping the page reveals the top toolbar normally once ready")
-        check(!NativeBookOpenTransitionPolicy.shouldHideReaderStatusBar(
+        check(NativeBookOpenTransitionPolicy.shouldHideReaderStatusBar(
                   chromeVisible: false, hasOpenTransition: true),
-              "Status bar remains unchanged during an active 3D cover-open transition so safe-area layout cannot shift")
+              "Status bar is already hidden during an active 3D cover-open transition")
+        check(NativeBookOpenTransitionPolicy.shouldHideReaderStatusBar(
+                  chromeVisible: true, hasOpenTransition: true),
+              "Loading chrome cannot reveal the status bar before the cover-open flight ends")
         check(NativeBookOpenTransitionPolicy.shouldHideReaderStatusBar(
                   chromeVisible: false, hasOpenTransition: false),
               "Status bar hides once the 3D cover-open transition completes")

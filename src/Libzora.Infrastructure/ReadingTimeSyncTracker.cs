@@ -10,7 +10,7 @@ namespace Libzora.Infrastructure;
 // additive even when the same device reimports a book. The shared legacy component imports
 // pre-counter totals once, using max rather than counting the same historical
 // time on every device.
-internal static class ReadingTimeSyncTracker
+internal static partial class ReadingTimeSyncTracker
 {
     public static async Task EnsureSchemaAsync(
         SqliteConnection connection,
@@ -62,6 +62,7 @@ internal static class ReadingTimeSyncTracker
                 END;
             """, ("$device", Guid.NewGuid().ToString("N")));
         await schema.ExecuteNonQueryAsync(cancellationToken);
+        await EnsureListeningCountersAsync(connection, transaction, cancellationToken);
     }
 
     public static async Task ConfigureDeviceAsync(
@@ -107,6 +108,7 @@ internal static class ReadingTimeSyncTracker
         var total = Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken));
         var counters = await CaptureAsync(connection, transaction, fileId, total, cancellationToken);
         await UpdateTotalAsync(connection, transaction, fileId, Total(counters), cancellationToken);
+        await RecordListeningTotalAsync(connection, transaction, fileId, cancellationToken);
     }
 
     public static async Task<long> MergeAsync(
@@ -229,24 +231,31 @@ internal static class ReadingTimeSyncTracker
     {
         await RecordCurrentTotalAsync(connection, transaction, sourceFileId, cancellationToken);
         await RecordCurrentTotalAsync(connection, transaction, targetFileId, cancellationToken);
+        var listening = await ReadListeningAsync(connection, transaction, sourceFileId, cancellationToken);
+        foreach (var (device, seconds) in listening)
+            await SetListeningMaximumAsync(connection, transaction, targetFileId, device, seconds, cancellationToken);
         var source = await ReadAsync(connection, transaction, sourceFileId, cancellationToken);
         foreach (var (deviceId, seconds) in source)
             await SetMaximumAsync(connection, transaction, targetFileId, deviceId, seconds, cancellationToken);
 
-        var dayRows = new List<(string Date, string DeviceId, long Seconds)>();
+        var dayRows = new List<(string Date, string DeviceId, long Seconds, long Listening)>();
         using (var readDays = Command(connection, transaction, """
-            SELECT ReadingDate, DeviceId, Seconds
+            SELECT ReadingDate, DeviceId, Seconds, ListeningSeconds
             FROM S3SyncReadingDayCounters
             WHERE BookFileId = $file;
             """, ("$file", sourceFileId.ToString())))
         await using (var reader = await readDays.ExecuteReaderAsync(cancellationToken))
         {
             while (await reader.ReadAsync(cancellationToken))
-                dayRows.Add((reader.GetString(0), reader.GetString(1), reader.GetInt64(2)));
+                dayRows.Add((reader.GetString(0), reader.GetString(1), reader.GetInt64(2), reader.GetInt64(3)));
         }
         foreach (var row in dayRows)
+        {
             await SetReadingDayMaximumAsync(
                 connection, transaction, targetFileId, row.Date, row.DeviceId, row.Seconds, cancellationToken);
+            await MergeListeningDaysAsync(connection, transaction, targetFileId,
+                new Dictionary<string, Dictionary<string, long>> { [row.DeviceId] = new() { [row.Date] = row.Listening } }, cancellationToken);
+        }
         using (var deleteDays = Command(
                    connection,
                    transaction,
@@ -323,6 +332,7 @@ internal static class ReadingTimeSyncTracker
             await UpdateTotalAsync(
                 connection, transaction, item.BookFileId, item.CumulativeSeconds, cancellationToken);
         }
+        await CaptureAllListeningAsync(connection, transaction, stats, cancellationToken);
     }
 
     private static async Task<Dictionary<Guid, Dictionary<string, long>>> ReadAllAsync(

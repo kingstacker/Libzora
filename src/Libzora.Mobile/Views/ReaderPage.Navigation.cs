@@ -189,6 +189,7 @@ public partial class ReaderPage
         UpdateEpubLabels();
         LoadingPanel.IsVisible = false;
         _ready = true;
+        if (_isReaderForeground && !_listeningClock.IsPlaying) _activityClock.Resume(DateTimeOffset.UtcNow);
         RequestNativePresentationFrame();
         NotifyNativeState();
         host.CompleteLayoutInBackground();
@@ -290,6 +291,7 @@ public partial class ReaderPage
         UpdatePdfLabels();
         LoadingPanel.IsVisible = false;
         _ready = true;
+        if (_isReaderForeground && !_listeningClock.IsPlaying) _activityClock.Resume(DateTimeOffset.UtcNow);
         RequestNativePresentationFrame();
         NotifyNativeState();
     }

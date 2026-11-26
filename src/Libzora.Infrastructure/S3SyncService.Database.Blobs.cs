@@ -112,6 +112,14 @@ public sealed partial class S3SyncService
             "TwoPageMode",
             "ParagraphIndent",
             "UpdatedAt");
+        var preserveCompletion = commandCache.Get("""
+            UPDATE ReaderReadingStats SET HasFinished=MAX(HasFinished,COALESCE(
+                (SELECT HasFinished FROM ReaderReadingStats WHERE BookFileId=$source),0))
+            WHERE BookFileId=$target;
+            """);
+        AddParameter(preserveCompletion, "$source", sourceFileId.ToString());
+        AddParameter(preserveCompletion, "$target", targetFileId.ToString());
+        await preserveCompletion.ExecuteNonQueryAsync(cancellationToken);
         await MergeVersionedFileRowAsync(
             connection,
             transaction,
@@ -122,6 +130,8 @@ public sealed partial class S3SyncService
             commandCache,
             cancellationToken,
             "CumulativeSeconds",
+            "ListeningSeconds",
+            "HasFinished",
             "ProgressPercent",
             "CompletedChapters",
             "TotalChapters",
@@ -161,8 +171,9 @@ public sealed partial class S3SyncService
         var columnList = string.Join(", ", columns);
         var assignments = string.Join(
             ", ",
-            columns.Select(column =>
-                $"{column} = (SELECT {column} FROM {table} WHERE BookFileId = $source)"));
+            columns.Select(column => column == "HasFinished"
+                ? $"HasFinished = MAX(HasFinished,(SELECT HasFinished FROM {table} WHERE BookFileId=$source))"
+                : $"{column} = (SELECT {column} FROM {table} WHERE BookFileId = $source)"));
 
         var copy = commandCache.Get(
             $"""

@@ -69,6 +69,8 @@ def main() -> int:
         # Review regressions need the fictional AI/dictionary/PDF-zoom fixture
         # described in the class doc comment; select them with --only.
         command.append("-skip-testing:NativeFrontendUITests/NativeReviewRegressionTests")
+        # Statistics/entry captures require their own covered-book demo bundle.
+        command.append("-skip-testing:NativeFrontendUITests/NativeReadingStatsTests")
         command.append("-skip-testing:NativeFrontendUITests/NativeDataSafetyUITests")
         # Home-screen widgets require explicitly installed preview widgets and
         # prepared pages, so do not run this visual suite with app-only fixtures.

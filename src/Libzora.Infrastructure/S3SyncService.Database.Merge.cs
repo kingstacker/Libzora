@@ -210,6 +210,18 @@ public sealed partial class S3SyncService
                     mergedDates[date] = Math.Max(mergedDates.GetValueOrDefault(date), seconds);
             }
         }
+        var listening = new Dictionary<string, long>(StringComparer.Ordinal);
+        var listeningDays = new Dictionary<string, Dictionary<string, long>>(StringComparer.Ordinal);
+        foreach (var row in rows)
+        {
+            foreach (var (device, seconds) in row.ListeningSecondsByDevice ?? [])
+                listening[device] = Math.Max(listening.GetValueOrDefault(device), seconds);
+            foreach (var (device, dates) in row.ListeningSecondsByDateByDevice ?? [])
+            {
+                if (!listeningDays.TryGetValue(device, out var merged)) listeningDays[device] = merged = new(StringComparer.Ordinal);
+                foreach (var (date, seconds) in dates) merged[date] = Math.Max(merged.GetValueOrDefault(date), seconds);
+            }
+        }
         var titleSource = rows
             .Where(row => !string.IsNullOrWhiteSpace(row.BookTitle))
             .OrderBy(row => row, Comparer<S3SyncReadingStats>.Create((left, right) =>
@@ -227,6 +239,8 @@ public sealed partial class S3SyncService
             FileSha256 = rows.Select(row => row.FileSha256).FirstOrDefault(IsSha256) ?? string.Empty,
             CumulativeSeconds = ReadingTimeSyncTracker.Total(counters), SecondsByDevice = counters,
             SecondsByDateByDevice = dailyCounters,
+            ListeningSecondsByDevice = listening, ListeningSecondsByDateByDevice = listeningDays,
+            HasFinished = rows.Any(row => row.HasFinished || row.ProgressPercent >= 99.5),
             ProgressPercent = latest.ProgressPercent, CompletedChapters = latest.CompletedChapters,
             TotalChapters = latest.TotalChapters, UpdatedAt = latest.UpdatedAt,
             SyncVersion = latest.SyncVersion

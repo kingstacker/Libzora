@@ -377,6 +377,7 @@ public sealed record ReadingDashboard(
 public sealed record ReadingDashboardBook(Guid BookId, Guid BookFileId, double ProgressPercent, long CumulativeSeconds, DateTimeOffset UpdatedAt)
 {
     public long ListeningSeconds { get; init; }
+    public bool HasFinished { get; init; }
     public string Title { get; init; } = string.Empty;
     public bool IsInLibrary { get; init; }
 }

@@ -30,6 +30,13 @@ public partial class ReaderPage
     // The caller owns an operation lease for the entire save.
     private async Task<bool> SaveProgressCoreAsync(bool force)
     {
+        await _progressSaveGate.WaitAsync();
+        try { return await SaveProgressLockedAsync(force); }
+        finally { _progressSaveGate.Release(); }
+    }
+
+    private async Task<bool> SaveProgressLockedAsync(bool force)
+    {
         if (!_ready || _bookFile is null || _readerHost is null) return true;
         var now = DateTimeOffset.UtcNow;
         CountReadingTime(now);
@@ -39,6 +46,7 @@ public partial class ReaderPage
 
         long readingSeconds = 0;
         long listeningSeconds = 0;
+        IReadOnlyList<ReadingDashboardDay> days = [];
         try
         {
             var token = force ? CancellationToken.None : _lifetime.Token;
@@ -68,22 +76,21 @@ public partial class ReaderPage
             readingSeconds = Interlocked.Exchange(ref _unsavedSeconds, 0);
             listeningSeconds = Interlocked.Exchange(ref _unsavedListeningSeconds, 0);
             var totalSeconds = readingSeconds + listeningSeconds;
+            days = DrainReadingDays(totalSeconds, listeningSeconds, now);
             var chapters = _isPdf ? _pdfPageCount : _epubDocument?.Chapters.Count ?? 0;
             await _modules.Reader.Data.AddReadingTimeAsync(
                 _book.Id, _bookFile.Id, totalSeconds, progress.ProgressPercent, progress.ChapterIndex, chapters,
-                listeningSeconds, token);
+                listeningSeconds, days, now, token);
             return true;
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
         {
-            Interlocked.Add(ref _unsavedSeconds, readingSeconds);
-            Interlocked.Add(ref _unsavedListeningSeconds, listeningSeconds);
+            RestoreReadingTime(readingSeconds, listeningSeconds, days);
             return false;
         }
         catch
         {
-            Interlocked.Add(ref _unsavedSeconds, readingSeconds);
-            Interlocked.Add(ref _unsavedListeningSeconds, listeningSeconds);
+            RestoreReadingTime(readingSeconds, listeningSeconds, days);
             // Progress is best-effort; a transient database error must not
             // close the reading surface.
             return false;
@@ -93,8 +100,8 @@ public partial class ReaderPage
     /// <summary>Time since the last interaction counts, capped so an idle phone adds nothing.</summary>
     private void CountReadingTime(DateTimeOffset now)
     {
-        Interlocked.Add(ref _unsavedSeconds, _activityClock.CountUntil(now));
-        Interlocked.Add(ref _unsavedListeningSeconds, _listeningClock.CountUntil(now));
+        AddCountedReadingTime(_activityClock.CountUntil(now), _activityClock.LastSlice);
+        AddCountedReadingTime(_listeningClock.CountUntil(now), _listeningClock.LastSlice, listening: true);
     }
 
     private void ShowError(Func<string> message)

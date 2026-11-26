@@ -63,6 +63,8 @@ public sealed partial class S3SyncService
         await ReaderReadingHistory.EnsureAsync(connection, cancellationToken);
         await ReadingMaterialBookSchema.EnsureAsync(connection, cancellationToken);
         await ReaderSyncedPositionMarkerStore.EnsureSchemaAsync(connection, null, cancellationToken);
+        await ReaderDataService.EnsureListeningTimeColumnsAsync(connection, cancellationToken);
+        await ReaderDataService.EnsureCompletionColumnAsync(connection, cancellationToken);
         await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
         using (var control = CreateCommand(connection, transaction, """
             CREATE TABLE IF NOT EXISTS S3SyncDeletionControl (

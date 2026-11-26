@@ -425,7 +425,7 @@ struct NativeReadingDashboard: View {
         let listeningSeconds = min(totalSeconds, max(0, item.listeningSeconds ?? 0))
         let visualSeconds = max(0, totalSeconds - listeningSeconds)
         let maxTotal = Double(dashboard?.mostReadBooks.map(\.cumulativeSeconds).max() ?? 1)
-        let listeningColor = Color(uiColor: .systemBlue).opacity(0.75)
+        let listeningColor = NativeTheme.listeningInk
 
         if let book = store.library.first(where: { $0.id == item.bookId }) {
             let coverKey = "dashboardMostRead:\(book.id)"
@@ -488,7 +488,7 @@ struct NativeReadingDashboard: View {
         HStack(spacing: 5) {
             Circle()
                 .fill(color)
-                .frame(width: 6, height: 6)
+                .frame(width: 8, height: 8)
             Text(text)
         }
     }
@@ -497,7 +497,7 @@ struct NativeReadingDashboard: View {
             Text(L("进度分布")).font(NativeTheme.font(16, relativeTo: .headline))
             Text(L("平均 {0}% · 共 {1} 本", String(format: "%.0f", locale: NativeLocalization.locale, dashboard?.averageProgress ?? 0), books.count)).font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary)
             ForEach(0..<5) { index in
-                let count = books.filter { ($0.progressPercent >= 99.5 ? 4 : min(3, Int($0.progressPercent / 25))) == index }.count
+                let count = books.filter { ($0.isFinished ? 4 : min(3, max(0, Int($0.progressPercent / 25)))) == index }.count
                 HStack {
                     Text(index == 4 ? L("已读完") : "\(index * 25)–\(index * 25 + 24)%")
                         .frame(minWidth: 70, alignment: .leading)
@@ -545,6 +545,9 @@ private struct NativeSplitReadingProgress: View {
                     if listeningWidth > 0 {
                         listeningColor.frame(width: listeningWidth)
                     }
+                }
+                if readingWidth >= 2 && listeningWidth >= 2 {
+                    NativeTheme.sunk.frame(width: 2).offset(x: readingWidth - 1)
                 }
             }
             .clipShape(Capsule())

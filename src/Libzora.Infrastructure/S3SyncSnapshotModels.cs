@@ -207,6 +207,9 @@ internal sealed class S3SyncReadingStats : S3SyncVersionedData
     public Dictionary<string, long> SecondsByDevice { get; set; } = new(StringComparer.Ordinal);
     public Dictionary<string, Dictionary<string, long>> SecondsByDateByDevice { get; set; } =
         new(StringComparer.Ordinal);
+    public Dictionary<string, long> ListeningSecondsByDevice { get; set; } = new(StringComparer.Ordinal);
+    public Dictionary<string, Dictionary<string, long>> ListeningSecondsByDateByDevice { get; set; } = new(StringComparer.Ordinal);
+    public bool HasFinished { get; set; }
     public double ProgressPercent { get; set; }
     public int CompletedChapters { get; set; }
     public int TotalChapters { get; set; }

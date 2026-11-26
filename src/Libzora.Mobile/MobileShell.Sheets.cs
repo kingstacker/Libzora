@@ -40,7 +40,13 @@ public partial class MobileShell
         // A failed attempt (locked database, full disk) is retried on the next
         // open instead of failing every reader for the rest of the session.
         if (_readerDataReady is { IsFaulted: true } or { IsCanceled: true }) _readerDataReady = null;
-        return _readerDataReady ??= _modules.Reader.Data.InitializeAsync();
+        return _readerDataReady ??= InitializeReaderDataAsync();
+    }
+
+    private async Task InitializeReaderDataAsync()
+    {
+        await _modules.Reader.Data.InitializeAsync();
+        await _modules.Reader.ReadingTimeRecovery.InitializeAsync();
     }
 
     public void ShowLibrary() => ShowRoot(ShellTab.Library, new LibraryPage(_modules, _services, this));

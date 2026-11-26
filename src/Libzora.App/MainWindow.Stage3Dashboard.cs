@@ -111,7 +111,7 @@ public partial class MainWindow
                         ? T("{0}（含听书 {1}）", FormatReadingTime(item.CumulativeSeconds), FormatReadingTime(item.ListeningSeconds))
                         : FormatReadingTime(item.CumulativeSeconds))));
 
-            var progressValues = dashboard.Books.Select(item => item.ProgressPercent).ToArray();
+            var progressValues = dashboard.Books.Select(item => item.HasFinished ? 100d : Math.Min(item.ProgressPercent, 99.49)).ToArray();
             PopulateDashboardBars(DashboardProgressBuckets,
             [
                 ("0–24%", (double)progressValues.Count(value => value < 25), T("{0} 本", progressValues.Count(value => value < 25))),

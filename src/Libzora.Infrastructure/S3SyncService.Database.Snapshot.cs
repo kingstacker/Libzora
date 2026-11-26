@@ -278,7 +278,7 @@ public sealed partial class S3SyncService
             """
             SELECT s.BookId, s.BookFileId, s.CumulativeSeconds, s.ProgressPercent,
                    s.CompletedChapters, s.TotalChapters, s.UpdatedAt,
-                   COALESCE(h.Title, ''), COALESCE(h.Sha256, '')
+                   COALESCE(h.Title, ''), COALESCE(h.Sha256, ''), s.HasFinished
             FROM ReaderReadingStats s
             LEFT JOIN ReaderReadingHistory h ON h.BookFileId = s.BookFileId;
             """
@@ -296,7 +296,8 @@ public sealed partial class S3SyncService
                     TotalChapters = reader.GetInt32(5),
                     UpdatedAt = ParseTimestamp(reader.GetString(6)),
                     BookTitle = reader.GetString(7),
-                    FileSha256 = reader.GetString(8)
+                    FileSha256 = reader.GetString(8),
+                    HasFinished = reader.GetInt32(9) != 0
                 });
         }
 
@@ -749,7 +750,7 @@ public sealed partial class S3SyncService
         using (var command = CreateCommand(connection, transaction, """
             SELECT s.BookId, s.BookFileId, s.CumulativeSeconds, s.ProgressPercent,
                    s.CompletedChapters, s.TotalChapters, s.UpdatedAt,
-                   COALESCE(h.Title, ''), COALESCE(h.Sha256, '')
+                   COALESCE(h.Title, ''), COALESCE(h.Sha256, ''), s.HasFinished
             FROM ReaderReadingStats s
             LEFT JOIN ReaderReadingHistory h ON h.BookFileId = s.BookFileId;
             """))
@@ -766,7 +767,8 @@ public sealed partial class S3SyncService
                     TotalChapters = reader.GetInt32(5),
                     UpdatedAt = ParseTimestamp(reader.GetString(6)),
                     BookTitle = reader.GetString(7),
-                    FileSha256 = reader.GetString(8)
+                    FileSha256 = reader.GetString(8),
+                    HasFinished = reader.GetInt32(9) != 0
                 });
         }
         await ReadingTimeSyncTracker.CaptureAllAsync(

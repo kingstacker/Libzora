@@ -50,6 +50,18 @@ struct NativeReaderPresentationLogicTests {
         check(!NativeWidgetNavigationPolicy.shouldUseLaunchBrandCover(
             preparingLibrary: false, libraryLoaded: true, restoringReader: false),
             "Warm widget tap slides directly from the current page without the icon cover")
+        check(NativeWidgetNavigationPolicy.shouldAwaitForegroundBeforeBookOpen(
+            isWidgetSource: true, useBrandCover: false, isApplicationActive: false),
+            "Warm widget book links from background wait for foreground commit before snapshotting")
+        check(!NativeWidgetNavigationPolicy.shouldAwaitForegroundBeforeBookOpen(
+            isWidgetSource: true, useBrandCover: false, isApplicationActive: true),
+            "Active foreground widget book links snapshot immediately without extra wait")
+        check(!NativeWidgetNavigationPolicy.shouldAwaitForegroundBeforeBookOpen(
+            isWidgetSource: true, useBrandCover: true, isApplicationActive: false),
+            "Cold widget launches use the brand cover instead of waiting for a live background snapshot")
+        check(!NativeWidgetNavigationPolicy.shouldAwaitForegroundBeforeBookOpen(
+            isWidgetSource: false, useBrandCover: false, isApplicationActive: false),
+            "Non-widget book opens do not wait for widget foreground commits")
         var navigation = NativeWidgetNavigationIntent()
         let dashboardRequest = navigation.begin(.tab(2))
         check(navigation.isCurrent(dashboardRequest) && navigation.isTabPresentationPending,

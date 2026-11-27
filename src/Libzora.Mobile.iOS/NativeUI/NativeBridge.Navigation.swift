@@ -191,6 +191,7 @@ extension NativeStore {
         // a quick second link freezes an intermediate, half-slid composition.
         widgetTabTask?.cancel()
         widgetTabTask = nil
+        awaitingWidgetBookForeground = false
         widgetNavigationTask?.cancel()
         widgetNavigationTask = nil
         widgetTabTransition?.finish()
@@ -306,6 +307,7 @@ extension NativeStore {
         let cover = widgetEntrySnapshotCover
         widgetEntrySnapshotCover = nil
         cover?.removeFromSuperview()
+        cover?.layer.zPosition = 0
         return cover
     }
 

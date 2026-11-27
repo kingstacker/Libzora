@@ -50,4 +50,13 @@ enum NativeWidgetNavigationPolicy {
                                           restoringReader: Bool) -> Bool {
         preparingLibrary || !libraryLoaded || restoringReader
     }
+
+    /// Warm widget book opens arriving while waking from background must wait
+    /// until the live foreground scene commits before snapshotting or mounting
+    /// the reader; otherwise the snapshot captures a blank white surface.
+    static func shouldAwaitForegroundBeforeBookOpen(isWidgetSource: Bool,
+                                                    useBrandCover: Bool,
+                                                    isApplicationActive: Bool) -> Bool {
+        isWidgetSource && !useBrandCover && !isApplicationActive
+    }
 }

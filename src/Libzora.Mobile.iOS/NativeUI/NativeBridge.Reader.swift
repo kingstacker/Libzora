@@ -33,8 +33,8 @@ extension NativeStore {
         // Repeated taps on the same active book should not cut its current
         // entry flight, but a pending tab intent still has to be superseded.
         if duplicate, widgetNavigationIntent.destination == .book(bookId),
-           requestedTab == nil, widgetTabTask == nil { return }
-        beginWidgetNavigation(.book(bookId))
+           requestedTab == nil, (widgetTabTask == nil || awaitingWidgetBookForeground) { return }
+        let revision = beginWidgetNavigation(.book(bookId))
         pendingReaderRestore = nil
         if duplicate { return }
         let useBrandCover = NativeWidgetNavigationPolicy.shouldUseLaunchBrandCover(
@@ -62,7 +62,28 @@ extension NativeStore {
         } else if openingReader {
             readerOpenGeneration += 1
         } else if libraryLoaded {
-            openPendingReaderIfNeeded()
+            if NativeWidgetNavigationPolicy.shouldAwaitForegroundBeforeBookOpen(
+                isWidgetSource: source == .widget,
+                useBrandCover: useBrandCover,
+                isApplicationActive: UIApplication.shared.applicationState == .active
+            ) {
+                awaitingWidgetBookForeground = true
+                widgetTabTask = Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    defer {
+                        if self.widgetNavigationIntent.isCurrent(revision) {
+                            self.widgetTabTask = nil
+                            self.awaitingWidgetBookForeground = false
+                        }
+                    }
+                    await self.waitForWidgetForegroundCommit()
+                    guard !Task.isCancelled, self.widgetNavigationIntent.isCurrent(revision) else { return }
+                    self.awaitingWidgetBookForeground = false
+                    self.openPendingReaderIfNeeded()
+                }
+            } else {
+                openPendingReaderIfNeeded()
+            }
         } else {
             perform { try await self.refreshLibrary() }
         }
@@ -95,6 +116,7 @@ extension NativeStore {
     func openPendingReaderIfNeeded() {
         guard canOpenReader else { restoringReader = false; return }
         guard let bookId = pendingOpenBookId, libraryLoaded, !preparingLibrary,
+              !awaitingWidgetBookForeground,
               txtReview == nil, !txtPresentationActive,
               !openingReader, !closingReader, !restartRequired else { return }
         // When a reader is already open, let `closeReader` capture the real

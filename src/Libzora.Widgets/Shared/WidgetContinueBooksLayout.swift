@@ -1,26 +1,28 @@
 import CoreGraphics
 
-/// Fixed widget chrome, flexible book slots. Keep the title, captions and
-/// progress inside the actual widget bounds instead of assuming four books.
+/// Fixed four-column shelf geometry for the medium (2x1) continue-reading widget.
+/// Up to four books sit left-aligned in equal slots so covers and captions stay
+/// aligned regardless of how many books are currently in progress.
 struct KkContinueBooksLayout {
-    static let horizontalPadding: CGFloat = 16
-    static let verticalPadding: CGFloat = 14
-    static let spacing: CGFloat = 12
+    static let horizontalPadding: CGFloat = 14
+    static let verticalPadding: CGFloat = 12
+    static let spacing: CGFloat = 10
+    static let maxSlots = 4
 
     let slotCount: Int
     let slotWidth: CGFloat
     let coverWidth: CGFloat
     let coverHeight: CGFloat
+    let slotHeight: CGFloat
 
     init(size: CGSize, bookCount: Int) {
-        slotCount = min(4, max(1, bookCount))
-        let count = CGFloat(slotCount)
+        slotCount = min(Self.maxSlots, max(1, bookCount))
         let width = max(0, size.width - Self.horizontalPadding * 2)
-        let gaps = Self.spacing * (count - 1)
-        slotWidth = max(0, (width - gaps) / count)
+        slotWidth = max(0, (width - Self.spacing * CGFloat(Self.maxSlots - 1)) / CGFloat(Self.maxSlots))
         let height = max(0, size.height - Self.verticalPadding * 2)
-        // Reserve a masthead and two caption lines before sizing the covers.
-        coverHeight = floor(min(max(0, height - 60), min(72, slotWidth) / 0.70))
+        let maxCoverHeight = max(0, height - 44)
+        coverHeight = floor(min(maxCoverHeight, floor(slotWidth / 0.70)))
         coverWidth = floor(coverHeight * 0.70)
+        slotHeight = maxCoverHeight > 0 ? maxCoverHeight + 40 : 0
     }
 }

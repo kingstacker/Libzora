@@ -271,6 +271,7 @@ final class NativeStore: ObservableObject {
     var readerEntryTransition: NativePageSlideTransition?
     var widgetTabTransition: NativePageSlideTransition?
     var widgetTabTask: Task<Void, Never>?
+    var awaitingWidgetBookForeground = false
     weak var rootViewController: UIViewController?
     var launchBrandOverlay: UIView?
     var widgetEntrySnapshotCover: UIView?

@@ -168,6 +168,7 @@ public partial class ReaderPage
     {
         MobilePageAnimation.None => ReaderTransitionPlayer.AnimationNone,
         MobilePageAnimation.Fade => ReaderTransitionPlayer.AnimationFade,
+        MobilePageAnimation.Curl => ReaderTransitionPlayer.AnimationCurl,
         _ => ReaderTransitionPlayer.AnimationPush
     };
 
@@ -184,7 +185,7 @@ public partial class ReaderPage
         _scrollInertiaVelocityY = initialVelocity;
         _scrollInertiaTimer ??= new DispatcherTimer(TimeSpan.FromMilliseconds(16), DispatcherPriority.Render, (_, _) =>
         {
-            if (_disposed || _turning || !IsContinuousVerticalScroll || IsMangaZoomed
+            if (_disposed || (_turning && !IsEpubScrollMode) || !IsContinuousVerticalScroll || IsMangaZoomed
                 || _readerHost is not NativeReaderHost scrollHost)
             {
                 StopScrollInertia();
@@ -479,7 +480,7 @@ public partial class ReaderPage
         var animation = IsPowerSavingActive
             ? ReaderTransitionPlayer.AnimationNone
             : ResolveTransitionAnimation(_shell.Preferences.Current.ReaderPageAnimation);
-        if (IsEpubScrollMode || animation != ReaderTransitionPlayer.AnimationPush)
+        if (IsEpubScrollMode || animation is not (ReaderTransitionPlayer.AnimationPush or ReaderTransitionPlayer.AnimationCurl))
             return;
 
         var direction = MobileReaderPagingPolicy.SwipeDirection(dx, _layout.VerticalWriting, _isPdf, IsRightToLeftPaging);
@@ -743,16 +744,11 @@ public partial class ReaderPage
         if (IsChromeVisible) SetChromeVisible(false);
         else
         {
-            if (IsContinuousVerticalScroll && _readerHost is NativeReaderHost scrollHost)
+            if (IsContinuousVerticalScroll)
             {
                 if (ratio is >= 1d / 3 and <= 2d / 3)
                 {
                     SetChromeVisible(true);
-                }
-                else
-                {
-                    var step = Math.Max(120, ReaderHostSlot.Bounds.Height * 0.85);
-                    scrollHost.ScrollByPixel(ratio < 1d / 3 ? -step : step);
                 }
                 return;
             }
@@ -854,7 +850,7 @@ public partial class ReaderPage
         }
     }
 
-    private async Task GoToChapterAsync(NativeReaderHost host, int chapter, bool fromEnd, int direction)
+    private async Task GoToChapterAsync(NativeReaderHost host, int chapter, bool fromEnd, int direction, double carryOffset = 0, double carryUpDelta = 0)
     {
         ClearActiveSyncedMarker();
         HideSelectionBar();
@@ -864,12 +860,29 @@ public partial class ReaderPage
         chapter = ResolveReadingChapter(chapter, direction < 0 ? -1 : 1);
         if (chapter < 0 || chapter >= _epubDocument.Chapters.Count)
         {
+            StopScrollInertia();
             ShowEdgeNotice(direction);
             return;
         }
 
-        if (!await NavigateToChapterAsync(host, chapter, new Uri(_epubDocument.Chapters[chapter]))) return;
-        if (fromEnd)
+        var continuousHandoffDown = IsContinuousVerticalScroll && !fromEnd && direction > 0;
+        var continuousHandoffUp = IsContinuousVerticalScroll && fromEnd && direction < 0 && carryUpDelta > 0;
+        if (continuousHandoffDown)
+        {
+            host.PrepareContinuousScrollHandoff(handoffDown: true, carryDownOffset: carryOffset);
+        }
+        else if (continuousHandoffUp)
+        {
+            host.PrepareContinuousScrollHandoff(carryUpDelta: carryUpDelta);
+        }
+
+        if (!await NavigateToChapterAsync(
+                host,
+                chapter,
+                new Uri(_epubDocument.Chapters[chapter]),
+                allowPartialCompose: !(continuousHandoffDown || continuousHandoffUp)))
+            return;
+        if (fromEnd && !continuousHandoffUp)
         {
             await EnsureLayoutCompleteAsync();
             host.SeekToBoundary(toEnd: true);

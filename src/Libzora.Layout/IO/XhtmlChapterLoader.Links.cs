@@ -29,7 +29,7 @@ public sealed partial class XhtmlChapterLoader
                 || second.Items.Count == 0
                 || first.PageBreakAfter
                 || second.PageBreakBefore
-                || (first.HeadingLevel > 0 && second.HeadingLevel > 0 && second.HeadingLevel < first.HeadingLevel))
+                || (first.HeadingLevel > 0 && second.HeadingLevel > 0 && second.HeadingLevel != first.HeadingLevel))
             {
                 index++;
                 continue;
@@ -78,6 +78,111 @@ public sealed partial class XhtmlChapterLoader
             };
             _blocks.RemoveAt(index + 1);
         }
+    }
+
+    /// <summary>
+    /// Some EPUBs place a footnote link directly after a heading or paragraph
+    /// element (for example <c>&lt;h3&gt;Title&lt;/h3&gt;&lt;a class="footnote"&gt;...&lt;/a&gt;</c>),
+    /// which flushes as a standalone block containing only footnote markers.
+    /// Attach such orphan marker blocks back onto the preceding text block so
+    /// the marker never occupies its own empty line or vertical column.
+    /// </summary>
+    private void AttachOrphanFootnoteBlocks()
+    {
+        for (var index = 0; index + 1 < _blocks.Count;)
+        {
+            var first = _blocks[index];
+            var second = _blocks[index + 1];
+            if (first.Kind is not (BlockKind.Heading or BlockKind.Paragraph or BlockKind.Blockquote or BlockKind.ListItem)
+                || first.Items.Count == 0
+                || first.PageBreakAfter
+                || second.PageBreakBefore
+                || second.Items.Count == 0
+                || !IsFootnoteMarkerOnlyBlock(second))
+            {
+                index++;
+                continue;
+            }
+
+            var items = new List<InlineItem>(first.Items.Count + second.Items.Count);
+            items.AddRange(first.Items);
+            foreach (var item in second.Items)
+            {
+                if (item.Kind == InlineKind.FootnoteMarker || item.FootnoteHref is not null)
+                {
+                    items.Add(item);
+                }
+            }
+
+            var fragmentIds = first.FragmentIds
+                .Concat(second.FragmentIds)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            var refIds = first.FootnoteReferenceFragmentIds
+                .Concat(second.FootnoteReferenceFragmentIds)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+
+            _blocks[index] = new ContentBlock
+            {
+                Kind = first.Kind,
+                ElementId = first.ElementId ?? second.ElementId,
+                FragmentIds = fragmentIds,
+                FootnoteReferenceFragmentIds = refIds,
+                Style = first.Style,
+                Center = first.Center,
+                AlignRight = first.AlignRight,
+                Justify = first.Justify,
+                TextIndentEm = first.TextIndentEm,
+                ExplicitTextIndent = first.ExplicitTextIndent,
+                SpaceBeforeLines = first.SpaceBeforeLines,
+                SpaceAfterLines = first.SpaceAfterLines,
+                ListMarker = first.ListMarker,
+                ListLevel = first.ListLevel,
+                LineHeightFactor = first.LineHeightFactor,
+                MarginTopEm = first.MarginTopEm,
+                MarginBottomEm = first.MarginBottomEm,
+                MarginLeftEm = first.MarginLeftEm,
+                MarginRightEm = first.MarginRightEm,
+                PaddingLeftEm = first.PaddingLeftEm,
+                PaddingRightEm = first.PaddingRightEm,
+                BorderLeftEm = first.BorderLeftEm,
+                HeadingLevel = first.HeadingLevel,
+                PageBreakBefore = first.PageBreakBefore,
+                PageBreakAfter = second.PageBreakAfter,
+                KeepWithNext = first.KeepWithNext,
+                IsCaption = first.IsCaption,
+                Items = items,
+            };
+            _blocks.RemoveAt(index + 1);
+        }
+    }
+
+    private static bool IsFootnoteMarkerOnlyBlock(ContentBlock block)
+    {
+        if (block.Kind is not (BlockKind.Paragraph or BlockKind.Heading))
+        {
+            return false;
+        }
+
+        var hasMarker = false;
+        foreach (var item in block.Items)
+        {
+            if (item.Kind == InlineKind.FootnoteMarker || item.FootnoteHref is not null)
+            {
+                hasMarker = true;
+                continue;
+            }
+
+            if (item.Kind == InlineKind.Text && string.IsNullOrWhiteSpace(item.Text))
+            {
+                continue;
+            }
+
+            return false;
+        }
+
+        return hasMarker;
     }
 
     private void PromoteLeadingTitle()

@@ -396,7 +396,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
             // Figures wait for a double-tap before opening; tables open on
             // single tap, so single-tap fallback is managed by ReaderPage.
         }
-        else if (clickSide is not null)
+        else if (clickSide is not null && !IsScroll)
         {
             _lastImageTapAt = DateTimeOffset.MinValue;
             var overBlockImage = releasedMap is { } imageMap

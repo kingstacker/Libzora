@@ -606,6 +606,39 @@ struct NativeStateLogicTests {
         )
         check(bolded.text == "这里**加粗**", "Bold wraps selected substring")
 
+        // Live Markdown editor codec & UTF-16 range parser.
+        let imageSample = "前文\n![图](data:image/png;base64,ABCDEF123456)\n后文**重点**"
+        let codecParsed = NativeReflectionDocumentCodec.parseImages(in: imageSample)
+        check(codecParsed.tokens.count == 1, "Codec extracts inline base64 image token")
+        check(codecParsed.displayText == "前文\n\u{FFFC}\n后文**重点**", "Codec replaces image token with single attachment char")
+        let afterImgDisplay = (codecParsed.displayText as NSString).range(of: "后文")
+        let mappedRaw = NativeReflectionDocumentCodec.rawRange(
+            fromDisplayRange: afterImgDisplay,
+            tokens: codecParsed.tokens,
+            rawLength: (imageSample as NSString).length
+        )
+        check((imageSample as NSString).substring(with: mappedRaw) == "后文",
+              "Display-to-raw selection mapping stays exact after embedded image")
+        let mappedBack = NativeReflectionDocumentCodec.displayRange(
+            fromRawRange: mappedRaw,
+            tokens: codecParsed.tokens,
+            displayLength: (codecParsed.displayText as NSString).length
+        )
+        check(mappedBack == afterImgDisplay, "Raw-to-display selection mapping round-trips")
+
+        let mdDoc = "# 主标题\n> 引用一段\n- 列表项\n1. 编号项\n---\n包含**粗体**、*斜体*、~~删~~、`code`和[链接](https://example.com)"
+        let parsedLines = NativeReflectionMarkdownRanges.parseLines(in: mdDoc)
+        check(parsedLines.count == 6, "Markdown range parser splits all six lines")
+        if case let .heading(level, _, _) = parsedLines[0].kind {
+            check(level == 1, "Heading level 1 parsed")
+        } else { check(false, "First line must be heading") }
+        if case .quote = parsedLines[1].kind { check(true, "") } else { check(false, "Second line must be quote") }
+        if case .unorderedList = parsedLines[2].kind { check(true, "") } else { check(false, "Third line must be unordered list") }
+        if case .orderedList = parsedLines[3].kind { check(true, "") } else { check(false, "Fourth line must be ordered list") }
+        if case .rule = parsedLines[4].kind { check(true, "") } else { check(false, "Fifth line must be rule") }
+        let inlineSpans = NativeReflectionMarkdownRanges.parseInlineSpans(in: mdDoc, within: parsedLines[5].contentRange)
+        check(inlineSpans.count == 5, "Inline parser finds bold, italic, strikethrough, code and link")
+
         // Selection toolbar vertical scaling respects actual bottomInset (0 when footer fits in margin).
         let tallBounds = NativeSelectionBounds(x: 120, y: 700, bottom: 724, viewportWidth: 840, viewportHeight: 1000)
         let posNoInset = NativeSelectionToolbarLayout.position(

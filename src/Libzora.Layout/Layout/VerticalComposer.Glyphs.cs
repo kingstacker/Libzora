@@ -74,6 +74,39 @@ internal sealed partial class VerticalComposer
             ? Math.Min(CellPitch * 0.5f, Math.Max(1f, CellPitch - 1f))
             : 0f;
 
+    /// <summary>
+    /// Opening CJK brackets (〔 「 『 （ 《 【 〈) place their vertical glyph ink in
+    /// the lower half of the 1-em square. When one starts a vertical column,
+    /// trim its built-in upper-half whitespace so the column's visual top edge
+    /// aligns flush with neighboring columns.
+    /// </summary>
+    private float GetLeadingOpeningSqueeze(LayoutCell cell)
+    {
+        if (cell.Sideways || cell.Combined || cell.ImagePath is not null
+            || !TypesetText.IsOpeningPunctuation(cell.Text))
+        {
+            return 0f;
+        }
+
+        if (GetUprightGlyphInkBounds(cell) is not { } bounds || bounds.Height <= 0f)
+        {
+            return 0f;
+        }
+
+        // Compute where the glyph's ink top would land inside a normal CellPitch
+        // box without squeezing: topMargin = CellPitch/2 + (Ascent-Descent)/2 + bounds.Top.
+        var baselineOffset = CellPitch / 2f + (cell.Ascent - cell.Descent) / 2f;
+        var inkTopInCell = baselineOffset + bounds.Top;
+        var targetTopMargin = Math.Max(1f, CellPitch * 0.08f);
+        var excessTop = inkTopInCell - targetTopMargin;
+        if (excessTop <= 1.5f)
+        {
+            return 0f;
+        }
+
+        return Math.Min(excessTop, CellPitch * 0.45f);
+    }
+
     private void PlaceCell(
         LayoutCell cell,
         float colCenter,
@@ -91,15 +124,15 @@ internal sealed partial class VerticalComposer
         var footnoteMarker = cell.FootnoteMarker && cell.Superscript;
         var superscriptShift = cell.Superscript
             ? -(footnoteMarker
-                ? _context.Options.BaseFontSize * 0.10f
+                ? _context.Options.BaseFontSize * 0.14f
                 : Math.Max(_context.Options.BaseFontSize * 0.38f, cell.FontSize * 0.45f))
             : 0f;
         var subscriptShift = cell.Subscript ? cell.FontSize * 0.20f : 0f;
         var flowShift = superscriptShift + subscriptShift;
         float MarkerShiftX(float freeSpace) => footnoteMarker
             ? Math.Min(
-                _context.Options.BaseFontSize * 0.22f,
-                Math.Max(0f, freeSpace) * 0.45f)
+                _context.Options.BaseFontSize * 0.28f,
+                Math.Max(0f, freeSpace) * 0.48f)
             : 0f;
 
         if (!cell.IsSpace && _context.Options.CollectDebugBoxes)
@@ -255,14 +288,15 @@ internal sealed partial class VerticalComposer
                     || TypesetText.TryGetFirstScalar(cell.Text, out var scalar)
                     && TypesetText.IsCjk(scalar))
                 {
-                    glyphOffsetX = BodyColumnWidth / 2f - (bounds.Left + bounds.Right) / 2f;
+                    glyphOffsetX = BodyColumnWidth / 2f - (bounds.Left + bounds.Right) / 2f
+                        + MarkerShiftX(BodyColumnWidth - bounds.Width);
                 }
                 baselineCorrection = -(cell.Ascent - cell.Descent) / 2f
                     - (bounds.Top + bounds.Bottom) / 2f;
             }
 
             var baseline = paintY
-                + flowAdvance / 2f
+                + (flowAdvance + topHang) / 2f
                 + (cell.Ascent - cell.Descent) / 2f
                 + baselineCorrection
                 + flowShift;

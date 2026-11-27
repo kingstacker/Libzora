@@ -449,12 +449,6 @@ struct NativeAboutPage: View {
                 }
             }
             Section {
-                Button { tapVersion() } label: {
-                    NativeSettingsRow(title: L("版本"), value: version, chevron: false, verticalPadding: 2)
-                }.buttonStyle(.plain).accessibilityIdentifier("profile.about.version")
-                NativeSettingsRow(title: L("开发者"), value: "kingstacker", chevron: false, verticalPadding: 2)
-            }
-            Section {
                 NavigationLink {
                     NativeLegalDocumentPage(store: store, kind: .terms)
                 } label: {
@@ -465,6 +459,12 @@ struct NativeAboutPage: View {
                 } label: {
                     NativeSettingsRow(title: L("隐私政策"), chevron: false, verticalPadding: 2)
                 }.accessibilityIdentifier("profile.about.privacy")
+            }
+            Section {
+                Button { tapVersion() } label: {
+                    NativeSettingsRow(title: L("版本"), value: version, chevron: false, verticalPadding: 2)
+                }.buttonStyle(.plain).accessibilityIdentifier("profile.about.version")
+                NativeSettingsRow(title: L("开发者"), value: "kingstacker", chevron: false, verticalPadding: 2)
             }
         }
         .navigationTitle(L("关于")).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)

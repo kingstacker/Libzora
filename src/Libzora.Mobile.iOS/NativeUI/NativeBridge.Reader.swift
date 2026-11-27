@@ -502,7 +502,8 @@ extension NativeStore {
         let isPdfOrManga = isPdfOnly || preferences.mangaMode
         let footerVisible = preferences.readerProgressDisplay != 4
         let bodyInset = min(64, max(16, preferences.readerBodyPadding))
-        let extraFooter: CGFloat = isPdfOnly ? (footerVisible ? 24 : 0)
+        let isContinuousScroll = !isPdfOrManga && preferences.readerFlowMode == 0 && !preferences.readerVerticalWriting
+        let extraFooter: CGFloat = (isPdfOnly || isContinuousScroll) ? (footerVisible ? 24 : 0)
             : (preferences.mangaMode || !footerVisible ? 0 : max(0, 24 - CGFloat(bodyInset)))
         let isRegularWidth = window.traitCollection.horizontalSizeClass == .regular
         let topInset: CGFloat = isRegularWidth ? max(0, 24 - CGFloat(bodyInset)) : safe.top

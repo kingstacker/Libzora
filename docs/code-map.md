@@ -174,7 +174,7 @@ Large services are split by responsibility so one change opens one file:
 
 - `src/Libzora.Mobile.iOS/NativeUI/*.swift` — SwiftUI screens: bookshelf,
   library, reader (`NativeReader.swift`, `NativeReaderAssistant.swift`,
-  `NativeBookReflection.swift`, `NativeBookReflectionPolicy.swift`,
+  `NativeBookReflection.swift`, `NativeBookReflectionPolicy.swift`, `NativeReflectionLiveEditor.swift`,
   `NativeMarkdownParser.swift`, `NativeMarkdown.swift`,
   `NativeBookOpenTransition.swift`, `NativeBookCloseTransition.swift` (window-level captured-reader close flight),
   `NativeBookOpenTransitionPolicy.swift`, `NativeSwipeDeletePolicy.swift`,

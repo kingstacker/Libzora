@@ -95,31 +95,31 @@ struct NativeStoragePage: View {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(alignment: .firstTextBaseline) {
                     Text(L("总占用"))
-                        .font(NativeTheme.font(14, relativeTo: .subheadline))
+                        .font(NativeTheme.font(13, relativeTo: .subheadline))
                         .foregroundStyle(secondaryColor)
                     Spacer()
                     Text(data.totalText)
-                        .font(NativeTheme.font(24, relativeTo: .title2).weight(.semibold))
+                        .font(NativeTheme.font(20, relativeTo: .title3).weight(.semibold))
                         .foregroundStyle(NativeTheme.ink)
                         .monospacedDigit()
                 }
 
                 StorageSegmentedBar(categories: nonZero, totalBytes: data.totalBytes, colorForKey: color(for:))
-                    .frame(height: 22)
+                    .frame(height: 18)
 
                 if !nonZero.isEmpty {
                     LazyVGrid(
-                        columns: [GridItem(.adaptive(minimum: 96), alignment: .leading)],
+                        columns: [GridItem(.adaptive(minimum: 92), alignment: .leading)],
                         alignment: .leading,
                         spacing: 8
                     ) {
                         ForEach(nonZero) { item in
-                            HStack(spacing: 6) {
+                            HStack(spacing: 5) {
                                 Circle()
                                     .fill(color(for: item.key))
-                                    .frame(width: 8, height: 8)
+                                    .frame(width: 7, height: 7)
                                 Text(label(for: item.key))
-                                    .font(NativeTheme.font(12, relativeTo: .caption))
+                                    .font(NativeTheme.font(11.5, relativeTo: .caption2))
                                     .foregroundStyle(secondaryColor)
                                     .lineLimit(1)
                             }
@@ -127,7 +127,7 @@ struct NativeStoragePage: View {
                     }
                 }
             }
-            .padding(16)
+            .padding(14)
         }
     }
 
@@ -143,29 +143,29 @@ struct NativeStoragePage: View {
                         Rectangle()
                             .fill(cardDividerColor)
                             .frame(height: 0.5)
-                            .padding(.leading, 40)
+                            .padding(.leading, 38)
                     }
-                    HStack(spacing: 12) {
-                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    HStack(spacing: 11) {
+                        RoundedRectangle(cornerRadius: 3.5, style: .continuous)
                             .fill(color(for: item.key))
-                            .frame(width: 12, height: 12)
+                            .frame(width: 10, height: 10)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(label(for: item.key))
-                                .font(NativeTheme.font(16))
+                                .font(NativeTheme.font(14))
                                 .foregroundStyle(NativeTheme.ink)
                             Text(subtitle(for: item, totalBytes: data.totalBytes))
-                                .font(NativeTheme.font(12, relativeTo: .caption))
+                                .font(NativeTheme.font(11.5, relativeTo: .caption))
                                 .foregroundStyle(detailColor)
                                 .monospacedDigit()
                         }
                         Spacer(minLength: 8)
                         Text(item.sizeText)
-                            .font(NativeTheme.font(15).weight(.medium))
+                            .font(NativeTheme.font(13.5))
                             .foregroundStyle(item.bytes > 0 ? NativeTheme.ink : detailColor)
                             .monospacedDigit()
                     }
                     .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
+                    .padding(.vertical, 10)
                 }
             }
         }
@@ -177,10 +177,10 @@ struct NativeStoragePage: View {
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(L("可清理缓存"))
-                            .font(NativeTheme.font(16))
+                            .font(NativeTheme.font(14))
                             .foregroundStyle(NativeTheme.ink)
                         Text(data.clearableCacheText)
-                            .font(NativeTheme.font(12, relativeTo: .caption))
+                            .font(NativeTheme.font(11.5, relativeTo: .caption))
                             .foregroundStyle(detailColor)
                             .monospacedDigit()
                     }
@@ -193,10 +193,10 @@ struct NativeStoragePage: View {
                                 .frame(minWidth: 64)
                         } else {
                             Text(L("清理缓存"))
-                                .font(NativeTheme.font(14).weight(.medium))
+                                .font(NativeTheme.font(13).weight(.medium))
                                 .foregroundStyle(data.clearableCacheBytes > 0 ? NativeTheme.page : detailColor)
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 7)
+                                .padding(.horizontal, 13)
+                                .padding(.vertical, 6)
                                 .background(
                                     data.clearableCacheBytes > 0 ? NativeTheme.ink : NativeTheme.sunk,
                                     in: Capsule()
@@ -208,10 +208,10 @@ struct NativeStoragePage: View {
                     .accessibilityIdentifier("storage.clearCache")
                 }
                 .padding(.horizontal, 16)
-                .padding(.vertical, 12)
+                .padding(.vertical, 10)
             }
             Text(L("清理阅读排版缓存与日志，不会影响书籍、批注、词典和封面。"))
-                .font(NativeTheme.font(12, relativeTo: .caption))
+                .font(NativeTheme.font(11.5, relativeTo: .caption))
                 .foregroundStyle(detailColor)
                 .padding(.horizontal, 12)
         }

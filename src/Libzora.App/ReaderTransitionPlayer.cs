@@ -43,6 +43,7 @@ internal static class ReaderTransitionPlayer
     internal const int AnimationWave = 3;
     internal const int AnimationPush = 4;
     internal const int AnimationCover = 5;
+    internal const int AnimationCurl = 6;
 
     private const int FallbackIntervalMs = 16;
 
@@ -62,11 +63,14 @@ internal static class ReaderTransitionPlayer
     private const double SlideDurationMs = 430;
     private const double PushDurationMs = 410;
     private const double CoverDurationMs = 420;
+    private const double CurlDurationMs = 460;
     private const double SlideShadowWidthRatio = 0.025;
     private const double SlideShadowMinWidth = 6;
     private const double SlideShadowMaxWidth = 14;
     private const byte LightShadowAlpha = 20;
     private const byte DarkShadowAlpha = 52;
+    private const byte LightCurlCastAlpha = 46;
+    private const byte DarkCurlCastAlpha = 104;
     private const double LightCoverDimOpacity = 0.055;
     private const double DarkCoverDimOpacity = 0.22;
     private const double WaveSweepMs = 368;
@@ -88,6 +92,8 @@ internal static class ReaderTransitionPlayer
     private static readonly LinearGradientBrush LightShadowLeft = CreateHorizontalShadowGradient(false, LightShadowAlpha);
     private static readonly LinearGradientBrush DarkShadowRight = CreateHorizontalShadowGradient(true, DarkShadowAlpha);
     private static readonly LinearGradientBrush DarkShadowLeft = CreateHorizontalShadowGradient(false, DarkShadowAlpha);
+    private static readonly LinearGradientBrush LightCurlCastRight = CreateHorizontalShadowGradient(true, LightCurlCastAlpha);
+    private static readonly LinearGradientBrush DarkCurlCastRight = CreateHorizontalShadowGradient(true, DarkCurlCastAlpha);
     private static readonly LinearGradientBrush WaveBandBrush = CreateWaveBandBrush(WaveLeadBandAlpha);
 
     public static async Task<T> RunAsync<T>(
@@ -155,7 +161,7 @@ internal static class ReaderTransitionPlayer
         int animation,
         int visualDirection)
     {
-        if (animation is not (AnimationPush or AnimationCover or AnimationSlide))
+        if (animation is not (AnimationPush or AnimationCover or AnimationSlide or AnimationCurl))
             return null;
 
         Reset(surface);
@@ -390,6 +396,7 @@ internal static class ReaderTransitionPlayer
             AnimationSlide => DrawTimedProgress(surface, animation, visualDirection, elapsed, SlideDurationMs),
             AnimationPush => DrawTimedProgress(surface, animation, visualDirection, elapsed, PushDurationMs),
             AnimationCover => DrawTimedProgress(surface, animation, visualDirection, elapsed, CoverDurationMs),
+            AnimationCurl => DrawTimedProgress(surface, animation, visualDirection, elapsed, CurlDurationMs),
             AnimationWave => DrawWaveFrame(surface, visualDirection, elapsed),
             _ => false
         };
@@ -427,6 +434,9 @@ internal static class ReaderTransitionPlayer
                 break;
             case AnimationSlide:
                 DrawSlideProgress(surface, visualDirection, progress);
+                break;
+            case AnimationCurl:
+                DrawCurlProgress(surface, visualDirection, progress);
                 break;
         }
     }
@@ -554,6 +564,175 @@ internal static class ReaderTransitionPlayer
             opaqueAtStart: true,
             dark,
             EdgeFadeEnvelope(p));
+    }
+
+    /// <summary>Realistic paper-curl turn (仿真): clips the turning sheet along
+    /// the moving fold line, renders a curved paper back-flap with cylindrical
+    /// highlight/shading matched to the active paper tone, and casts a soft
+    /// shadow onto the revealed underlying page.</summary>
+    private static void DrawCurlProgress(
+        ReaderTransitionSurface surface,
+        int visualDirection,
+        double p)
+    {
+        var forward = visualDirection >= 0;
+        var width = surface.SnapshotSource.Bounds.Width;
+        var height = surface.SnapshotSource.Bounds.Height;
+        if (width <= 1 || height <= 1) return;
+
+        var dark = IsDarkPaper(surface.BackdropSource);
+        var paperColor = ResolvePaperColor(surface.BackdropSource, dark);
+        var dimPeak = dark ? DarkCoverDimOpacity : LightCoverDimOpacity;
+        var envelope = Math.Sin(Math.Clamp(p, 0d, 1d) * Math.PI);
+        var shadowEnvelope = EdgeFadeEnvelope(p);
+        var castWidth = Math.Clamp(width * 0.085, 22d, 44d);
+
+        if (forward || surface.IncomingSheet is null)
+        {
+            var spineX = width * (1d - p);
+            surface.Snapshot.ZIndex = ZSnapshot;
+            surface.Snapshot.RenderTransform = null;
+            surface.Snapshot.Clip = new RectangleGeometry(new Rect(0, 0, Math.Max(0, spineX), height));
+
+            if (surface.IncomingSheet is { } incoming)
+            {
+                incoming.ZIndex = ZContent;
+                incoming.RenderTransform = null;
+                incoming.Clip = null;
+            }
+
+            // Ambient shadow over the newly exposed right side fades as the page clears.
+            var dim = surface.Trail;
+            dim.ZIndex = ZDimBetween;
+            dim.Fill = BlackDimBrush;
+            dim.Width = Math.Max(0, width - spineX);
+            dim.Height = height;
+            SetTranslateX(dim, spineX);
+            dim.Opacity = dimPeak * (1d - p);
+            dim.IsVisible = dim.Opacity > 0.002 && dim.Width > 0.5;
+
+            var flapWidth = Math.Min(width * 0.22, Math.Max(0, spineX)) * Math.Pow(Math.Max(0, envelope), 0.42);
+            ConfigureCurlBackFlap(surface.Front, spineX, flapWidth, height, paperColor, dark);
+            ConfigureCurlCastShadow(surface.Edge, spineX, castWidth, height, dark, shadowEnvelope);
+            return;
+        }
+
+        // Backward curl: incoming page unrolls from the left (0 -> width) over the stationary outgoing snapshot.
+        var incomingSheet = surface.IncomingSheet;
+        var backSpineX = width * p;
+
+        surface.Snapshot.ZIndex = ZSnapshotBehind;
+        surface.Snapshot.RenderTransform = null;
+        surface.Snapshot.Clip = null;
+
+        EnsureIncomingPaperBacking(incomingSheet, surface.BackdropSource);
+        incomingSheet.ZIndex = ZIncomingCover;
+        incomingSheet.RenderTransform = null;
+        incomingSheet.Clip = new RectangleGeometry(new Rect(0, 0, Math.Max(0, backSpineX), height));
+
+        var veil = surface.Trail;
+        veil.ZIndex = ZDimBetween;
+        veil.Fill = BlackDimBrush;
+        veil.Width = Math.Max(0, width - backSpineX);
+        veil.Height = height;
+        SetTranslateX(veil, backSpineX);
+        veil.Opacity = dimPeak * p * 0.8;
+        veil.IsVisible = veil.Opacity > 0.002 && veil.Width > 0.5;
+
+        var backFlapWidth = Math.Min(width * 0.22, Math.Max(0, backSpineX)) * Math.Pow(Math.Max(0, envelope), 0.42);
+        ConfigureCurlBackFlap(surface.Front, backSpineX, backFlapWidth, height, paperColor, dark);
+        ConfigureCurlCastShadow(surface.Edge, backSpineX, castWidth, height, dark, shadowEnvelope);
+    }
+
+    private static void ConfigureCurlBackFlap(
+        Rectangle flap,
+        double spineX,
+        double flapWidth,
+        double height,
+        Color paperColor,
+        bool dark)
+    {
+        if (flapWidth <= 1.5)
+        {
+            flap.IsVisible = false;
+            return;
+        }
+
+        flap.ZIndex = ZTop - 1;
+        flap.Fill = CreateCurlBackBrush(paperColor, dark);
+        flap.Width = flapWidth;
+        flap.Height = height;
+        flap.Opacity = 1;
+        SetTranslateX(flap, spineX - flapWidth);
+        flap.IsVisible = true;
+    }
+
+    private static void ConfigureCurlCastShadow(
+        Rectangle edge,
+        double spineX,
+        double castWidth,
+        double height,
+        bool dark,
+        double opacity)
+    {
+        if (opacity <= 0.005)
+        {
+            edge.IsVisible = false;
+            return;
+        }
+
+        edge.ZIndex = ZTop;
+        edge.Fill = dark ? DarkCurlCastRight : LightCurlCastRight;
+        edge.Width = castWidth;
+        edge.Height = height;
+        edge.Opacity = opacity;
+        SetTranslateX(edge, spineX);
+        edge.IsVisible = true;
+    }
+
+    private static LinearGradientBrush CreateCurlBackBrush(Color paper, bool dark)
+    {
+        static Color Shade(Color c, double factor)
+        {
+            byte Scale(byte channel) => (byte)Math.Clamp(Math.Round(channel * factor), 0, 255);
+            return Color.FromArgb(255, Scale(c.R), Scale(c.G), Scale(c.B));
+        }
+
+        static Color Lift(Color c, double amount)
+        {
+            byte Mix(byte channel) => (byte)Math.Clamp(Math.Round(channel + (255 - channel) * amount), 0, 255);
+            return Color.FromArgb(255, Mix(c.R), Mix(c.G), Mix(c.B));
+        }
+
+        var brush = new LinearGradientBrush
+        {
+            StartPoint = new RelativePoint(0, 0.5, RelativeUnit.Relative),
+            EndPoint = new RelativePoint(1, 0.5, RelativeUnit.Relative)
+        };
+        if (dark)
+        {
+            brush.GradientStops.Add(new GradientStop(Shade(paper, 0.72), 0.00));
+            brush.GradientStops.Add(new GradientStop(Lift(paper, 0.06), 0.24));
+            brush.GradientStops.Add(new GradientStop(Lift(paper, 0.14), 0.48));
+            brush.GradientStops.Add(new GradientStop(Lift(paper, 0.04), 0.80));
+            brush.GradientStops.Add(new GradientStop(Shade(paper, 0.58), 1.00));
+        }
+        else
+        {
+            brush.GradientStops.Add(new GradientStop(Shade(paper, 0.86), 0.00));
+            brush.GradientStops.Add(new GradientStop(Shade(paper, 0.94), 0.20));
+            brush.GradientStops.Add(new GradientStop(Lift(paper, 0.35), 0.44));
+            brush.GradientStops.Add(new GradientStop(Shade(paper, 0.93), 0.78));
+            brush.GradientStops.Add(new GradientStop(Shade(paper, 0.80), 1.00));
+        }
+        return brush;
+    }
+
+    private static Color ResolvePaperColor(Panel backdropSource, bool dark)
+    {
+        if (backdropSource.Background is ISolidColorBrush solid)
+            return solid.Color;
+        return dark ? Color.FromRgb(0x16, 0x16, 0x16) : Color.FromRgb(0xFF, 0xFF, 0xFF);
     }
 
     private static void DrawSlideProgress(
@@ -762,11 +941,11 @@ internal static class ReaderTransitionPlayer
             surface.Trail.Opacity = 1;
             surface.Trail.IsVisible = true;
         }
-        else if (animation is AnimationPush or AnimationCover
+        else if (animation is AnimationPush or AnimationCover or AnimationCurl
                  && surface.IncomingSheet is { } incoming)
         {
             EnsureIncomingPaperBacking(incoming, surface.BackdropSource);
-            if (animation == AnimationCover && visualDirection < 0)
+            if ((animation is AnimationCover or AnimationCurl) && visualDirection < 0)
             {
                 // Keep snapshot on top during async loading until DrawProgress
                 // takes over once the incoming page is ready.
@@ -791,6 +970,7 @@ internal static class ReaderTransitionPlayer
         if (surface.IncomingSheet is { } incoming)
         {
             incoming.RenderTransform = null;
+            incoming.Clip = null;
             incoming.ZIndex = ZContent;
             if (incoming is ContentControl content)
                 content.Background = Brushes.Transparent;

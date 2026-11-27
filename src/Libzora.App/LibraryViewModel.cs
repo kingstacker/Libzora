@@ -491,7 +491,8 @@ public sealed class LibraryViewModel : ObservableObject, IDisposable
                     .ToArray()),
             card => card.Book.Id.ToString("N"),
             (card, key, title, members) => card.SetSeriesMembers(key, title, members),
-            _seriesFronts);
+            _seriesFronts,
+            card => card.Book.ReadingStatus == LibraryReadingStatus.Reading ? card.Book.UpdatedAt : null);
         ShelfBooks.ReplaceAll(shelf);
     }
 }

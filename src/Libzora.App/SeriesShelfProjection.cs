@@ -15,7 +15,8 @@ internal static class SeriesShelfProjection
         Func<T, BookSeriesCandidate> candidate,
         Func<T, string> id,
         Action<T, string?, string?, IReadOnlyList<T>?> assign,
-        IDictionary<string, string> promotedFrontIds)
+        IDictionary<string, string> promotedFrontIds,
+        Func<T, DateTimeOffset?>? readingSince = null)
         where T : class
     {
         foreach (var item in items)
@@ -49,7 +50,20 @@ internal static class SeriesShelfProjection
             var members = stack.Members
                 .Select(member => byId[member.Id])
                 .ToArray();
+            // The stack shows the volume that is being read; volumes without a
+            // reading marker fall back to the first one in series order.
             var front = members[0];
+            if (readingSince is not null)
+            {
+                DateTimeOffset? latest = null;
+                foreach (var member in members)
+                {
+                    if (readingSince(member) is not { } since) continue;
+                    if (latest is not null && since <= latest.Value) continue;
+                    latest = since;
+                    front = member;
+                }
+            }
             if (promotedFrontIds.TryGetValue(stack.Key, out var frontId)
                 && byId.TryGetValue(frontId, out var promoted)
                 && members.Contains(promoted))

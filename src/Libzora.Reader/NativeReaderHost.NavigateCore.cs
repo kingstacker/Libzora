@@ -98,10 +98,26 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         _searchHits = null;
         _speechHighlight = null;
         InvalidateSpeechTextSnapshot();
-        if (readingAnchor is null)
+        var handoffDown = _handoffScrollDown;
+        var handoffScrollOffset = _handoffScrollOffset;
+        var handoffFromNextDelta = _handoffFromNextChapterDelta;
+        _handoffScrollDown = false;
+        _handoffScrollOffset = null;
+        _handoffFromNextChapterDelta = null;
+        if (handoffDown)
         {
-            _pageIndex = 0;
-            _scrollOffset = 0;
+            _activeHandoffDirection = 1;
+        }
+        else if (handoffFromNextDelta.HasValue)
+        {
+            _activeHandoffDirection = -1;
+            _activeHandoffCarryUp = Math.Max(_activeHandoffCarryUp, handoffFromNextDelta.Value);
+        }
+        else
+        {
+            _activeHandoffDirection = 0;
+            _activeHandoffOverflowDown = 0;
+            _activeHandoffCarryUp = 0;
         }
         _pendingScrollOffset = null;
 
@@ -123,6 +139,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         _navigationTask = completion.Task;
         var navigationFragments = SnapshotNavigationFragments();
         var companionChapterPath = _spreadCompanionChapterPath;
+        var scrollNextChapterPath = _scrollNextChapterPath;
         var isSpread = IsSpread;
         _ = Dispatcher.UIThread.InvokeAsync(async () =>
         {
@@ -154,7 +171,12 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
                         layout,
                         navigationEngine,
                         navigationToken);
-                    return (content, options, layout, companionLayout);
+                    var scrollNextLayout = ComposeScrollNextChapter(
+                        scrollNextChapterPath,
+                        options,
+                        navigationEngine,
+                        navigationToken);
+                    return (content, options, layout, companionLayout, scrollNextLayout);
                 }, navigationToken);
 
                 navigationToken.ThrowIfCancellationRequested();
@@ -166,6 +188,25 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
                 if (readingAnchor is not null && _layout is { Pages.Count: > 0 }
                     && (_pageIndex != initialPage || Math.Abs(_scrollOffset - initialScroll) > 0.001))
                     _pendingReadingAnchor = CaptureViewportReadingAnchor();
+
+                double? resolvedCarryDown = null;
+                double? resolvedCarryUp = null;
+                if (handoffDown && IsContinuousProseScroll)
+                {
+                    // Measure live overshoot into the pre-composed next chapter
+                    // right at commit time so drags and inertia during load stay
+                    // pixel-locked across the swap.
+                    resolvedCarryDown = _scrollNextChapterLayout is { Pages.Count: > 0 }
+                        ? Math.Max(0.0, _scrollOffset - ContinuousNextChapterStartY) + _activeHandoffOverflowDown
+                        : Math.Max(0.0, (handoffScrollOffset ?? 0.0) + _activeHandoffOverflowDown);
+                }
+                else if (handoffFromNextDelta.HasValue && IsContinuousProseScroll)
+                {
+                    resolvedCarryUp = Math.Max(4.0, _activeHandoffCarryUp);
+                }
+                _activeHandoffDirection = 0;
+                _activeHandoffOverflowDown = 0;
+                _activeHandoffCarryUp = 0;
 
                 lock (_engineGate)
                 {
@@ -180,12 +221,29 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
                 _options = composed.options;
                 _layout = composed.layout;
                 _spreadCompanionLayout = composed.companionLayout;
+                _scrollNextChapterLayout = composed.scrollNextLayout;
+                _scrollNextChapterLayoutPath = composed.scrollNextLayout is not null ? scrollNextChapterPath : null;
                 RetainInstalledLayoutFonts();
                 InvalidateSpeechTextSnapshot();
                 _loadedParagraphIndent = settings.ParagraphIndent;
                 _composePending = false;
                 _bitmapDirty = true;
                 _pageIndex = 0;
+                if (resolvedCarryDown is { } carryDown)
+                {
+                    _scrollOffset = ClampLiveScrollOffset(carryDown);
+                }
+                else if (resolvedCarryUp is { } carryUp && IsContinuousProseScroll)
+                {
+                    var targetOffset = _scrollNextChapterLayout is { Pages.Count: > 0 }
+                        ? Math.Max(0.0, ContinuousNextChapterStartY - carryUp)
+                        : Math.Max(0.0, ComputeContinuousContentHeight() + 48.0 - ScrollPageHeight);
+                    _scrollOffset = ClampScrollOffset(targetOffset);
+                }
+                else if (readingAnchor is null)
+                {
+                    _scrollOffset = 0;
+                }
                 _lastPrefetchedSlice = -1;
                 ResetMangaZoom();
                 var (currentWidth, currentHeight) = ResolveComposeViewportSize();
@@ -228,6 +286,12 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
             }
             finally
             {
+                if (version == Volatile.Read(ref _navigationVersion))
+                {
+                    _activeHandoffDirection = 0;
+                    _activeHandoffOverflowDown = 0;
+                    _activeHandoffCarryUp = 0;
+                }
                 navigationEngine?.Dispose();
                 fontUse?.Dispose();
                 completion.TrySetResult(false);
@@ -282,6 +346,34 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
 
         var content = new XhtmlChapterLoader(options.ParagraphIndent).Load(companionPath, cancellationToken);
         return engine.Compose(content, options, cancellationToken);
+    }
+
+    private static ChapterLayout? ComposeScrollNextChapter(
+        string? nextChapterPath,
+        TypesetLayoutOptions options,
+        TypesetEngine engine,
+        CancellationToken cancellationToken)
+    {
+        if (!options.ContinuousScroll
+            || string.IsNullOrWhiteSpace(nextChapterPath)
+            || !File.Exists(nextChapterPath))
+        {
+            return null;
+        }
+
+        try
+        {
+            var content = new XhtmlChapterLoader(options.ParagraphIndent).Load(nextChapterPath, cancellationToken);
+            return engine.Compose(content, options, cancellationToken, stopAfterTextOffset: 6000);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private ChapterLayout Compose(
@@ -570,8 +662,9 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
     {
         var mangaMode = settings.MangaMode;
         var vertical = !mangaMode && settings.VerticalWriting;
+        var continuousScroll = !mangaMode && !vertical && settings.FlowMode == 0;
         var horizontalInset = mangaMode ? 0 : Math.Max(0, settings.BodyPadding);
-        var verticalInset = mangaMode ? 0 : settings.BodyPadding;
+        var verticalInset = (mangaMode || continuousScroll) ? 0 : settings.BodyPadding;
         if (!mangaMode && vertical)
         {
             (horizontalInset, verticalInset) = ReaderPlatformLayoutPolicy.GetVerticalPageInsets(
@@ -608,11 +701,12 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
             MangaMode = mangaMode,
             MangaAutoCrop = mangaMode && settings.MangaAutoCrop,
             SeamlessImageScroll = mangaMode && settings.FlowMode == 0,
+            ContinuousScroll = continuousScroll,
             ViewportWidth = (float)width,
             ViewportHeight = (float)height,
             InsetHorizontal = (float)horizontalInset,
             InsetVertical = (float)verticalInset,
-            InsetBottom = mangaMode ? 0f : (float?)settings.BodyBottomPadding,
+            InsetBottom = (mangaMode || continuousScroll) ? 0f : (float?)settings.BodyBottomPadding,
             CollectDebugBoxes = collectDebugBoxes,
             NavigationFragments = navigationFragments,
         };

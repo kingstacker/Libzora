@@ -41,6 +41,7 @@ public partial class ReaderSettingsSheet : UserControl
         AnimationNone.Classes.Set("on", current.ReaderPageAnimation == MobilePageAnimation.None);
         AnimationFade.Classes.Set("on", current.ReaderPageAnimation == MobilePageAnimation.Fade);
         AnimationPush.Classes.Set("on", current.ReaderPageAnimation == MobilePageAnimation.Push);
+        AnimationCurl.Classes.Set("on", current.ReaderPageAnimation == MobilePageAnimation.Curl);
         ProgressPages.Classes.Set("on", current.ReaderProgressDisplay == MobileReaderProgressDisplay.Pages);
         ProgressChapters.Classes.Set("on", current.ReaderProgressDisplay == MobileReaderProgressDisplay.Chapters);
         ProgressBookTime.Classes.Set("on", current.ReaderProgressDisplay == MobileReaderProgressDisplay.BookTimeRemaining);
@@ -119,6 +120,7 @@ public partial class ReaderSettingsSheet : UserControl
         {
             Button { Name: nameof(AnimationNone) } => MobilePageAnimation.None,
             Button { Name: nameof(AnimationFade) } => MobilePageAnimation.Fade,
+            Button { Name: nameof(AnimationCurl) } => MobilePageAnimation.Curl,
             _ => MobilePageAnimation.Push
         };
         Change(value => value with { ReaderPageAnimation = animation });

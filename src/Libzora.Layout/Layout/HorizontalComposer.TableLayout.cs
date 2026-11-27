@@ -13,11 +13,57 @@ internal sealed partial class HorizontalComposer
     /// A tap target is kept for the visible part so the wide table viewer is
     /// still reachable on a phone.
     /// </summary>
-    private void PlaceTableFallback(ContentBlock block)
+    private void PlaceTableFallback(ContentBlock block, bool followsHeading = false, bool followsImage = false)
     {
         var pageIndex = _pages.CurrentPageIndex;
         var top = _cursorY;
-        PlaceTextBlock(block, false);
+        if (IsNavigationLinkTable(block) && block.Table is { Rows.Count: > 0 } navTable)
+        {
+            // Lay out each TOC row as its own un-hyphenated, left-aligned entry
+            // with tighter intra-title line height and a subtle gap between rows
+            // so wrapped chapter titles visually stay grouped together.
+            for (var r = 0; r < navTable.Rows.Count; r++)
+            {
+                var rowItems = new List<InlineItem>();
+                foreach (var cell in navTable.Rows[r].Cells)
+                {
+                    if (cell.Items.Count > 0) rowItems.AddRange(cell.Items);
+                }
+                if (rowItems.Count == 0) continue;
+
+                var isFirst = r == 0;
+                var isLast = r == navTable.Rows.Count - 1;
+                var rowBlock = new ContentBlock
+                {
+                    Kind = BlockKind.Table,
+                    ElementId = isFirst ? block.ElementId : null,
+                    FragmentIds = isFirst ? block.FragmentIds : Array.Empty<string>(),
+                    Style = block.Style,
+                    Center = block.Center,
+                    AlignRight = block.AlignRight,
+                    Justify = false,
+                    SpaceBeforeLines = isFirst ? block.SpaceBeforeLines : 0f,
+                    SpaceAfterLines = isLast ? block.SpaceAfterLines : 0f,
+                    MarginTopEm = isFirst ? block.MarginTopEm : 0f,
+                    MarginBottomEm = isLast ? block.MarginBottomEm : 0.42f,
+                    MarginLeftEm = block.MarginLeftEm,
+                    MarginRightEm = block.MarginRightEm,
+                    PaddingLeftEm = block.PaddingLeftEm,
+                    PaddingRightEm = block.PaddingRightEm,
+                    Items = rowItems,
+                };
+                PlaceTextBlock(
+                    rowBlock,
+                    followsHeading: isFirst && followsHeading,
+                    followsImage: isFirst && followsImage,
+                    allowHyphenation: false,
+                    compactNavigationEntry: true);
+            }
+        }
+        else
+        {
+            PlaceTextBlock(block, followsHeading, followsImage: followsImage);
+        }
         if (pageIndex == _pages.CurrentPageIndex && _cursorY > top)
         {
             _pages.AddTable(new PlacedTable
@@ -26,6 +72,19 @@ internal sealed partial class HorizontalComposer
                 Block = block,
             });
         }
+    }
+
+    private static bool IsNavigationLinkTable(ContentBlock block)
+    {
+        var linkItems = 0;
+        foreach (var item in block.Items)
+        {
+            if (item.Kind == InlineKind.LineBreak || item.Ghost) continue;
+            if (string.IsNullOrWhiteSpace(item.Text)) continue;
+            if (string.IsNullOrWhiteSpace(item.LinkHref)) return false;
+            linkItems++;
+        }
+        return linkItems >= 2;
     }
 
     private void PlaceTableCell(
@@ -554,6 +613,55 @@ internal sealed partial class HorizontalComposer
                 extra += OpticalTrailingProtrusion;
             }
 
+            if (extra < -0.01f)
+            {
+                if (!naturalLatin)
+                {
+                    return true;
+                }
+
+                while (end > 0 && Cells[end - 1].IsSpace)
+                {
+                    end--;
+                }
+
+                var shrinkStart = 0;
+                while (shrinkStart < end && Cells[shrinkStart].TextStart < 0 && Cells[shrinkStart].Style.NoWrap) shrinkStart++;
+                var minSpaceWidth = fontSize * 0.20f;
+                var totalShrinkCap = 0f;
+                for (var index = shrinkStart; index < end; index++)
+                {
+                    var cell = Cells[index];
+                    if (cell.IsSpace)
+                    {
+                        totalShrinkCap += Math.Max(0f, cell.Advance - minSpaceWidth);
+                    }
+                }
+
+                if (totalShrinkCap <= 0.01f)
+                {
+                    return true;
+                }
+
+                var neededShrink = Math.Min(-extra, totalShrinkCap);
+                var shrinkFraction = neededShrink / totalShrinkCap;
+                var shrunk = 0f;
+                for (var index = shrinkStart; index < end; index++)
+                {
+                    var cell = Cells[index];
+                    if (cell.IsSpace)
+                    {
+                        var room = Math.Max(0f, cell.Advance - minSpaceWidth);
+                        var delta = room * shrinkFraction;
+                        Cells[index] = cell with { Advance = cell.Advance - delta };
+                        shrunk += delta;
+                    }
+                }
+
+                _advance -= shrunk;
+                return shrunk >= -extra - 0.01f;
+            }
+
             if (extra <= 0.01f)
             {
                 return true;
@@ -617,11 +725,11 @@ internal sealed partial class HorizontalComposer
                 var perSpace = extra / spaceCount;
                 if (naturalLatin)
                 {
-                    // Expand word spaces up to the safe typographic cap (0.65em)
-                    // without ever pulling apart letters inside English words.
-                    // If the remaining unabsorbed slack is still large (e.g. a
-                    // short line before an unbreakable word), leave the line
-                    // cleanly ragged instead of creating loose half-stretched gaps.
+                    // Expand word spaces up to the safe typographic cap (0.65em).
+                    // If a small residual gap remains (e.g. a narrow mobile line
+                    // with only 3-5 spaces), absorb it via subtle micro-tracking
+                    // (<= 0.045em per letter gap) so the right margin stays flush
+                    // without creating rivers or visibly pulling letters apart.
                     var maxSpaceWidth = fontSize * 0.65f;
                     var maxSpaceGain = 0f;
                     for (var index = start; index < end; index++)
@@ -633,18 +741,45 @@ internal sealed partial class HorizontalComposer
                         }
                     }
 
-                    if (extra - maxSpaceGain > fontSize * 2.5f)
+                    var unabsorbed = extra - maxSpaceGain;
+                    var trackGaps = unabsorbed > 0.01f ? CountLineMicroTrackGaps(start, end) : 0;
+                    var maxTrackPerGap = fontSize * 0.045f;
+                    if (unabsorbed > 0.01f && trackGaps > 0 && unabsorbed <= trackGaps * maxTrackPerGap + 0.01f)
+                    {
+                        var spaceAdded = 0f;
+                        for (var index = start; index < end; index++)
+                        {
+                            var cell = Cells[index];
+                            if (cell.IsSpace)
+                            {
+                                var expansion = Math.Max(0f, maxSpaceWidth - cell.Advance);
+                                Cells[index] = cell with { Advance = cell.Advance + expansion };
+                                spaceAdded += expansion;
+                            }
+                        }
+
+                        var residual = Math.Max(0f, extra - spaceAdded);
+                        var perTrack = residual / trackGaps;
+                        var trackAdded = ApplyLineMicroTracking(start, end, perTrack);
+                        _advance += spaceAdded + trackAdded;
+                        return spaceAdded + trackAdded >= extra - 0.01f;
+                    }
+
+                    if (unabsorbed > fontSize * 5.0f)
                     {
                         return false;
                     }
 
+                    var effectiveMaxSpace = unabsorbed > fontSize * 2.5f
+                        ? fontSize * 0.55f
+                        : maxSpaceWidth;
                     var added = 0f;
                     for (var index = start; index < end; index++)
                     {
                         var cell = Cells[index];
                         if (cell.IsSpace)
                         {
-                            var expansion = Math.Min(perSpace, Math.Max(0f, maxSpaceWidth - cell.Advance));
+                            var expansion = Math.Min(perSpace, Math.Max(0f, effectiveMaxSpace - cell.Advance));
                             Cells[index] = cell with { Advance = cell.Advance + expansion };
                             added += expansion;
                         }
@@ -669,12 +804,22 @@ internal sealed partial class HorizontalComposer
                 return legacyAdded >= extra - 0.01f;
             }
 
-            // A reference superscript sits next to its base text, even on
-            // a justified line.
-            var gaps = totalGlyphs - 1;
-            for (var index = start + 1; index < end; index++)
+            // Never stretch the gap before a footnote marker or closing/sentence
+            // punctuation (。，、；：！？）」』》】〕), or after opening punctuation
+            // (（「『《【〔), so marks stay attached to their host characters.
+            var gaps = 0;
+            for (var index = start; index < end; index++)
             {
-                if (Cells[index].FootnoteMarker) gaps--;
+                var cell = Cells[index];
+                var glyphCount = Math.Max(1, cell.Glyphs.Length);
+                if (!cell.JustifyAsUnit && glyphCount > 1)
+                {
+                    gaps += glyphCount - 1;
+                }
+                if (index + 1 < end && CanExpandGapBetween(cell, Cells[index + 1]))
+                {
+                    gaps++;
+                }
             }
             if (gaps <= 0)
             {
@@ -682,7 +827,7 @@ internal sealed partial class HorizontalComposer
             }
 
             var perGap = extra / gaps;
-            if (perGap > fontSize * 1.5f)
+            if (perGap > fontSize * 0.55f)
             {
                 return false;
             }
@@ -711,7 +856,7 @@ internal sealed partial class HorizontalComposer
 
                 var glyphCount = Math.Max(1, cell.Glyphs.Length);
                 var gapsAfter = cell.JustifyAsUnit ? 0 : glyphCount - 1;
-                if (index + 1 < end && !Cells[index + 1].FootnoteMarker) gapsAfter++;
+                if (index + 1 < end && CanExpandGapBetween(cell, Cells[index + 1])) gapsAfter++;
                 Cells[index] = cell with
                 {
                     GlyphX = shiftedX,
@@ -722,6 +867,104 @@ internal sealed partial class HorizontalComposer
             _advance += extra;
             return true;
         }
+
+        internal static int CountMicroTrackGaps(LayoutCell cell)
+        {
+            if (cell.IsSpace || cell.FootnoteMarker || cell.RubyAnnotation is not null || cell.ImagePath is not null)
+            {
+                return 0;
+            }
+
+            var glyphCount = cell.GlyphX.Length;
+            if (glyphCount <= 1)
+            {
+                return 0;
+            }
+
+            var gaps = 0;
+            var hasClusters = cell.Clusters.Length == glyphCount;
+            for (var i = 1; i < glyphCount; i++)
+            {
+                if (!hasClusters || cell.Clusters[i] != cell.Clusters[i - 1])
+                {
+                    gaps++;
+                }
+            }
+
+            return gaps;
+        }
+
+        private int CountLineMicroTrackGaps(int start, int end)
+        {
+            var gaps = 0;
+            for (var index = start; index < end; index++)
+            {
+                var cell = Cells[index];
+                gaps += CountMicroTrackGaps(cell);
+                if (index + 1 < end
+                    && !cell.IsSpace
+                    && !Cells[index + 1].IsSpace
+                    && CanExpandGapBetween(cell, Cells[index + 1]))
+                {
+                    gaps++;
+                }
+            }
+
+            return gaps;
+        }
+
+        private float ApplyLineMicroTracking(int start, int end, float perGap)
+        {
+            var added = 0f;
+            for (var index = start; index < end; index++)
+            {
+                var cell = Cells[index];
+                var internalGaps = CountMicroTrackGaps(cell);
+                var afterGap = index + 1 < end
+                    && !cell.IsSpace
+                    && !Cells[index + 1].IsSpace
+                    && CanExpandGapBetween(cell, Cells[index + 1])
+                    ? 1
+                    : 0;
+                if (internalGaps == 0 && afterGap == 0)
+                {
+                    continue;
+                }
+
+                var glyphCount = cell.GlyphX.Length;
+                var shiftedX = cell.GlyphX;
+                if (internalGaps > 0)
+                {
+                    shiftedX = new float[glyphCount];
+                    var hasClusters = cell.Clusters.Length == glyphCount;
+                    var cumulative = 0;
+                    shiftedX[0] = cell.GlyphX[0];
+                    for (var i = 1; i < glyphCount; i++)
+                    {
+                        if (!hasClusters || cell.Clusters[i] != cell.Clusters[i - 1])
+                        {
+                            cumulative++;
+                        }
+                        shiftedX[i] = cell.GlyphX[i] + perGap * cumulative;
+                    }
+                }
+
+                var delta = perGap * (internalGaps + afterGap);
+                Cells[index] = cell with
+                {
+                    GlyphX = shiftedX,
+                    Advance = cell.Advance + delta,
+                };
+                added += delta;
+            }
+
+            return added;
+        }
+
+        private static bool CanExpandGapBetween(LayoutCell left, LayoutCell right) =>
+            !right.FootnoteMarker
+            && !TypesetText.IsProhibitedAtLineStart(right.Text)
+            && !TypesetText.IsOpeningPunctuation(left.Text);
     }
 
     /// <summary>Accumulates consecutive compatible cells into one placed run.</summary>

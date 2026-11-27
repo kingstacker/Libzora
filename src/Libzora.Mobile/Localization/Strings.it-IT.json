@@ -1244,5 +1244,6 @@
   "清理阅读排版缓存与日志，不会影响书籍、批注、词典和封面。": "Svuota cache di impaginazione e log senza influire su libri, note, dizionari o copertine.",
   "已清理缓存": "Cache svuotata",
   "{0} 个文件": "{0} file",
-  "暂无存储数据": "Nessun dato di archiviazione"
+  "暂无存储数据": "Nessun dato di archiviazione",
+  "仿真": "Sfoglia"
 }

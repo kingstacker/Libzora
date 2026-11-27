@@ -53,7 +53,7 @@ struct MobilePreferences: Codable, Equatable {
     var readerHyphenation = true
     var readerAlignLeft = false
     var readerCjkLatinSpacing = true
-    var readerAvoidWidowsAndOrphans = true
+    var readerAvoidWidowsAndOrphans = false
     var readerVerticalWriting = false
     var readerFlowMode = 1
     var readerTwoPageInLandscape = true

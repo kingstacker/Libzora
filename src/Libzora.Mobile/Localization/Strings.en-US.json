@@ -632,5 +632,6 @@
   "清理阅读排版缓存与日志，不会影响书籍、批注、词典和封面。": "Clears layout cache and logs without affecting books, annotations, dictionaries, or covers.",
   "已清理缓存": "Cache cleared",
   "{0} 个文件": "{0} files",
-  "暂无存储数据": "No storage data available"
+  "暂无存储数据": "No storage data available",
+  "仿真": "Curl"
 }

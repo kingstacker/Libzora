@@ -28,8 +28,12 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         // The worker's composition scope spans shaping through installation,
         // so deferred cleanup cannot unload its unpublished layout either.
         var fonts = FontLibrary;
-        fonts.SetRetainedFontPaths(_layout!.Pages.SelectMany(page => page.Runs)
-            .Select(run => run.FontPath));
+        var retained = _layout!.Pages.SelectMany(page => page.Runs).Select(run => run.FontPath);
+        if (_scrollNextChapterLayout is { Pages.Count: > 0 } nextLayout)
+        {
+            retained = retained.Concat(nextLayout.Pages.SelectMany(page => page.Runs).Select(run => run.FontPath));
+        }
+        fonts.SetRetainedFontPaths(retained);
         fonts.ReleaseSystemFontsExcept(fonts.MainFontPath);
     }
 
@@ -60,6 +64,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         var settings = _settings;
         var options = BuildOptions(settings, width, height, _showVerticalDebugBoxes, SnapshotNavigationFragments());
         var companionPath = _spreadCompanionChapterPath;
+        var scrollNextPath = _scrollNextChapterPath;
         var isSpread = IsSpread;
         _relayoutCts?.Cancel();
         using var request = new CancellationTokenSource();
@@ -91,7 +96,12 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
                     layout,
                     workerEngine,
                     token);
-                return (layout, companionLayout);
+                var scrollNextLayout = ComposeScrollNextChapter(
+                    scrollNextPath,
+                    options,
+                    workerEngine,
+                    token);
+                return (layout, companionLayout, scrollNextLayout);
             }, token);
             if (_disposed || token.IsCancellationRequested || !ReferenceEquals(content, _content)) return;
             if (_layout is { Pages.Count: > 0 }
@@ -105,6 +115,8 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
                 _options = options;
                 _layout = result.layout;
                 _spreadCompanionLayout = result.companionLayout;
+                _scrollNextChapterLayout = result.scrollNextLayout;
+                _scrollNextChapterLayoutPath = result.scrollNextLayout is not null ? scrollNextPath : null;
                 previous?.Dispose();
                 RetainInstalledLayoutFonts();
             }

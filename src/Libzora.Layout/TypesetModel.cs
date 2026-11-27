@@ -258,7 +258,7 @@ public sealed class TypesetLayoutOptions
     /// that need the raw word grid opt in explicitly.
     /// </summary>
     public bool HyphenateEnglish { get; init; }
-    public bool AvoidWidowsAndOrphans { get; init; } = true;
+    public bool AvoidWidowsAndOrphans { get; init; } = false;
     /// <summary>Left-align horizontal body prose instead of justifying both edges.</summary>
     public bool AlignLeft { get; init; }
     /// <summary>Insert a subtle visual gap between adjacent CJK and Latin/numeric runs.</summary>
@@ -271,6 +271,8 @@ public sealed class TypesetLayoutOptions
     public bool MangaAutoCrop { get; init; }
     /// <summary>Seamless vertical strip stacking (Webtoon) with zero inter-panel gap.</summary>
     public bool SeamlessImageScroll { get; init; }
+    /// <summary>Continuous vertical scroll layout for horizontal prose without inter-page gaps or page breaks.</summary>
+    public bool ContinuousScroll { get; init; }
     public float ViewportWidth { get; init; } = 800f;
     public float ViewportHeight { get; init; } = 600f;
     public float InsetHorizontal { get; init; } = 24f;

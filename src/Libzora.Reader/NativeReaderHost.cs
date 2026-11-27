@@ -89,6 +89,15 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
     private ChapterLayout? _layout;
     private string? _spreadCompanionChapterPath;
     private ChapterLayout? _spreadCompanionLayout;
+    private string? _scrollNextChapterPath;
+    private string? _scrollNextChapterLayoutPath;
+    private ChapterLayout? _scrollNextChapterLayout;
+    private bool _handoffScrollDown;
+    private double? _handoffScrollOffset;
+    private double? _handoffFromNextChapterDelta;
+    private int _activeHandoffDirection;
+    private double _activeHandoffOverflowDown;
+    private double _activeHandoffCarryUp;
     private TypesetLayoutOptions? _options;
     private ReaderLayoutSettings _settings = new();
     private ReaderAppearanceSettings _appearance = new();

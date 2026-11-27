@@ -1244,5 +1244,6 @@
   "清理阅读排版缓存与日志，不会影响书籍、批注、词典和封面。": "Limpa o cache de diagramação e registros sem afetar livros, anotações, dicionários ou capas.",
   "已清理缓存": "Cache limpo",
   "{0} 个文件": "{0} arquivos",
-  "暂无存储数据": "Sem dados de armazenamento"
+  "暂无存储数据": "Sem dados de armazenamento",
+  "仿真": "Dobrar"
 }

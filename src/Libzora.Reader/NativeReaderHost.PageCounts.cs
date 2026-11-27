@@ -343,7 +343,14 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         {
             if (_pendingScrollOffset is { } scroll) _scrollOffset = ClampScrollOffset(scroll);
             else if (_pendingRestoreOffset is { } offset)
+            {
                 page = _layout.GetPageIndexOfOffset(Math.Clamp(offset, 0, Math.Max(0, _layout.BodyTextLength - 1)));
+                if (IsScroll && page >= 0)
+                {
+                    _scrollOffset = ClampScrollOffset(ComputeScrollOffsetForTextOffset(page, offset));
+                    page = -1;
+                }
+            }
             else if (_pendingRestorePage is { } restorePage)
                 page = Math.Clamp(restorePage, 0, _layout.Pages.Count - 1);
             else if (_pendingRestoreRatio is { } ratio)
@@ -360,7 +367,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         }
         if (page >= 0)
         {
-            if (IsScroll) _scrollOffset = ClampScrollOffset(page * Math.Max(1, Bounds.Height));
+            if (IsScroll) _scrollOffset = ClampScrollOffset(page * ScrollPageHeight);
             else _pageIndex = IsSpread ? page - page % 2 : page;
         }
 
@@ -491,18 +498,82 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         return (page >= 0 ? page : Math.Clamp(anchor.PageIndex, 0, _layout!.Pages.Count - 1), null);
     }
 
+    private static double DefaultScrollJumpTargetY(double viewportHeight, double fontSize) =>
+        Math.Clamp(viewportHeight * 0.25, Math.Max(48.0, fontSize * 2.2), Math.Max(48.0, viewportHeight * 0.35));
+
+    private (int PageIndex, PlacedRun Run)? FindRunForOffset(int preferredPage, int offset)
+    {
+        if (_layout is null || _layout.Pages.Count == 0 || offset < 0) return null;
+        var clampedPage = Math.Clamp(preferredPage, 0, _layout.Pages.Count - 1);
+
+        int[] candidatePages = [clampedPage, clampedPage - 1, clampedPage + 1];
+        foreach (var pageIndex in candidatePages)
+        {
+            if (pageIndex < 0 || pageIndex >= _layout.Pages.Count) continue;
+            var exact = _layout.Pages[pageIndex].Runs.FirstOrDefault(run =>
+                run.TextStart >= 0 && run.TextLength > 0
+                && run.TextStart <= offset && run.TextStart + run.TextLength > offset);
+            if (exact is not null) return (pageIndex, exact);
+        }
+
+        PlacedRun? after = null;
+        PlacedRun? before = null;
+        foreach (var run in _layout.Pages[clampedPage].Runs)
+        {
+            if (run.TextStart < 0 || run.TextLength <= 0) continue;
+            if (run.TextStart >= offset)
+            {
+                if (after is null || run.TextStart < after.TextStart) after = run;
+            }
+            else
+            {
+                if (before is null || run.TextStart > before.TextStart) before = run;
+            }
+        }
+        var fallback = after ?? before;
+        return fallback is not null ? (clampedPage, fallback) : null;
+    }
+
+    private double ComputeScrollOffsetForTextOffset(int page, int offset)
+    {
+        var height = ScrollPageHeight;
+        if (FindRunForOffset(page, offset) is { } matched)
+        {
+            var targetY = DefaultScrollJumpTargetY(height, matched.Run.FontSize);
+            return Math.Max(0.0, matched.PageIndex * height + matched.Run.OriginY - targetY);
+        }
+        return Math.Max(0.0, Math.Max(0, page) * height);
+    }
+
     private void RestoreViewportReadingAnchor(ViewportReadingAnchor anchor)
     {
         if (_layout is null || _layout.Pages.Count == 0) return;
         var (page, image) = ResolveViewportReadingAnchor(anchor);
         if (IsScroll)
         {
-            var height = Math.Max(1, _layout.Pages[0].Height);
-            var run = _layout.Pages[page].Runs.FirstOrDefault(run => run.TextStart >= 0
-                && run.TextStart <= anchor.TextOffset && run.TextStart + run.TextLength > anchor.TextOffset);
-            var slice = image is not null ? image.Rect.Top - anchor.RunY
-                : run is not null ? run.OriginY - anchor.RunY : anchor.SliceFraction * height;
-            _scrollOffset = ClampScrollOffset(page * height + slice);
+            var height = ScrollPageHeight;
+            if (image is not null)
+            {
+                var targetY = anchor.RunY > 0.01 ? anchor.RunY : Math.Min(height * 0.12, 48.0);
+                _scrollOffset = ClampScrollOffset(page * height + image.Rect.Top - targetY);
+            }
+            else if (anchor.TextOffset >= 0 && anchor.RunY <= 0.01 && anchor.SliceFraction <= 0.0001)
+            {
+                // Offset-only jumps (highlights, notes, search hits) carry RunY = 0;
+                // subtracting 0 from OriginY placed the baseline off-screen at y = 0.
+                _scrollOffset = ClampScrollOffset(ComputeScrollOffsetForTextOffset(page, anchor.TextOffset));
+            }
+            else if (FindRunForOffset(page, anchor.TextOffset) is { } matched)
+            {
+                var targetY = anchor.RunY > 0.01
+                    ? anchor.RunY
+                    : DefaultScrollJumpTargetY(height, matched.Run.FontSize);
+                _scrollOffset = ClampScrollOffset(matched.PageIndex * height + matched.Run.OriginY - targetY);
+            }
+            else
+            {
+                _scrollOffset = ClampScrollOffset(page * height + anchor.SliceFraction * height);
+            }
         }
         else
         {

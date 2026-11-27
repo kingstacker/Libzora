@@ -63,7 +63,7 @@ public sealed partial class SettingsTests
     });
 
     [Theory]
-    [InlineData("zh-CN", "含听书")]
+    [InlineData("zh-CN", "听书")]
     [InlineData("en-US", "listening")]
     public Task ReadingDashboard_DisplaysListeningDurationBreakdown(string language, string expectedToken) => Run(async () =>
     {
@@ -94,7 +94,10 @@ public sealed partial class SettingsTests
         await scope.Call<Task>("RefreshReadingDashboardAsync");
 
         var avgText = scope.Get<TextBlock>("DashboardDailyAverageText").Text ?? "";
-        Assert.Contains(expectedToken, avgText, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(expectedToken, avgText, StringComparison.OrdinalIgnoreCase);
+        var listeningText = scope.Get<TextBlock>("DashboardListeningHintText");
+        Assert.True(listeningText.IsVisible);
+        Assert.Contains(expectedToken, listeningText.Text, StringComparison.OrdinalIgnoreCase);
         Assert.Contains(expectedToken, scope.Window.DashboardBookTimes[0].ValueLabel, StringComparison.OrdinalIgnoreCase);
         Assert.True(scope.Window.DashboardBookTimes[0].HasListening);
         Assert.True(scope.Window.DashboardBookTimes[0].ListeningBarWidth > scope.Window.DashboardBookTimes[0].VisualBarWidth);

@@ -1244,5 +1244,6 @@
   "清理阅读排版缓存与日志，不会影响书籍、批注、词典和封面。": "Vide le cache de mise en page et les journaux sans toucher aux livres, notes, dictionnaires ou couvertures.",
   "已清理缓存": "Cache vidé",
   "{0} 个文件": "{0} fichiers",
-  "暂无存储数据": "Aucune donnée de stockage"
+  "暂无存储数据": "Aucune donnée de stockage",
+  "仿真": "Page"
 }

@@ -643,6 +643,17 @@ final class NativeFrontendTests: XCTestCase {
         app.buttons["library.filters.apply"].tap()
         XCTAssertTrue(waitUntil { epub.exists && pdf.exists })
         XCTAssertEqual(app.buttons["library.filters.open"].label, "筛选书籍")
+
+        // Tapping Clear applies the default state immediately, even if dismissed with Back.
+        app.buttons["library.filters.open"].tap()
+        app.buttons["library.filters.option.format.EPUB"].tap()
+        app.buttons["library.filters.apply"].tap()
+        XCTAssertTrue(waitUntil { epub.exists && !pdf.exists })
+        app.buttons["library.filters.open"].tap()
+        app.buttons["library.filters.clear"].tap()
+        app.buttons["library.filters.cancel"].tap()
+        XCTAssertTrue(waitUntil { epub.exists && pdf.exists })
+        XCTAssertEqual(app.buttons["library.filters.open"].label, "筛选书籍")
     }
 
     /// Uses an isolated EPUB fixture with multiple authors, a tag and a category.

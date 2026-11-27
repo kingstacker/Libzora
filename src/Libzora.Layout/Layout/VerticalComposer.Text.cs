@@ -24,7 +24,7 @@ internal sealed partial class VerticalComposer
         {
             cells.AddRange(_cells.BuildCells(item, vertical: true));
         }
-        CellFactory.CollapseWhitespace(cells);
+        CellFactory.CollapseWhitespace(cells, attachFootnoteMarkers: true);
 
         ResolveUprightGlyphs(cells);
         // Reuse the normal column spacing where possible, but reserve a
@@ -172,6 +172,20 @@ internal sealed partial class VerticalComposer
             }
 
             var flowAdvance = CellFlowAdvance(cell);
+            var topHang = 0f;
+            if (placements.Count == 0)
+            {
+                var openingSqueeze = topIndent <= 0.01f ? GetLeadingOpeningSqueeze(cell) : 0f;
+                if (openingSqueeze > 0f)
+                {
+                    topHang = openingSqueeze;
+                    flowAdvance = Math.Max(CellPitch * 0.5f, flowAdvance - openingSqueeze);
+                }
+                else
+                {
+                    topHang = GetTopHang(cell);
+                }
+            }
 
             if (flowUsed + flowAdvance > capacity + 0.01f)
             {
@@ -181,7 +195,7 @@ internal sealed partial class VerticalComposer
             placements.Add(new ColumnPlacement(
                 cell,
                 flowAdvance,
-                placements.Count == 0 ? GetTopHang(cell) : 0f));
+                topHang));
             flowUsed += flowAdvance;
             index++;
         }
@@ -199,6 +213,7 @@ internal sealed partial class VerticalComposer
                 var next = cells[index];
                 if (!TypesetText.IsProhibitedAtLineEnd(last.Cell.Text)
                     && !TypesetText.IsProhibitedAtLineStart(next.Text)
+                    && !next.FootnoteMarker
                     && !TypesetText.ShouldKeepTogether(last.Cell.Text, next.Text))
                 {
                     break;
@@ -226,9 +241,34 @@ internal sealed partial class VerticalComposer
             index++;
         }
 
-        var y = ContentTop + topIndent;
-        foreach (var placement in placements)
+        // Distribute modest leftover slack across non-final wrapped columns
+        // (for example after kinsoku backtracks a leading opening bracket) so
+        // full columns align cleanly at both the top and bottom edges.
+        var isWrappedColumn = !forcedBreak && !centerVertically && index < cells.Count && placements.Count > 1;
+        var extraGap = 0f;
+        if (isWrappedColumn && flowUsed > 0f && flowUsed < capacity)
         {
+            var slack = capacity - flowUsed;
+            var gaps = 0;
+            for (var pIndex = 0; pIndex + 1 < placements.Count; pIndex++)
+            {
+                if (!placements[pIndex + 1].Cell.FootnoteMarker)
+                {
+                    gaps++;
+                }
+            }
+            var maxExtraPerGap = CellPitch * 0.14f;
+            if (gaps > 0 && slack <= maxExtraPerGap * gaps)
+            {
+                extraGap = slack / gaps;
+                flowUsed = capacity;
+            }
+        }
+
+        var y = ContentTop + topIndent;
+        for (var pIndex = 0; pIndex < placements.Count; pIndex++)
+        {
+            var placement = placements[pIndex];
             PlaceCell(
                 placement.Cell,
                 colCenter,
@@ -236,7 +276,8 @@ internal sealed partial class VerticalComposer
                 y,
                 placement.FlowAdvance,
                 placement.TopHang);
-            y += placement.FlowAdvance;
+            var addGap = pIndex + 1 < placements.Count && !placements[pIndex + 1].Cell.FootnoteMarker;
+            y += placement.FlowAdvance + (addGap ? extraGap : 0f);
         }
 
         if (centerVertically && flowUsed > 0f && flowUsed < capacity)

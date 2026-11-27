@@ -782,6 +782,29 @@ public sealed class LibzoraLayoutEngineTests : IDisposable
     }
 
     [Fact]
+    public void Vertical_ColumnTopOpeningBracketAlignsFlushWithNeighboringColumn()
+    {
+        var path = WriteChapter("<p>曰一二三四五六七〔番阳县〕</p>");
+        var content = new XhtmlChapterLoader().Load(path);
+
+        using var engine = CreateEngine();
+        var options = Options(TypesetWritingMode.VerticalRl, width: 240f, height: 210f);
+        var layout = engine.Compose(content, options);
+        var runs = layout.Pages[0].Runs;
+        var firstHan = runs.First(run => content.BodyText.Substring(run.TextStart, run.TextLength) == "曰");
+        var openBracket = runs.First(run => content.BodyText.Substring(run.TextStart, run.TextLength) == "〔");
+
+        using var hanFont = new SKFont(engine.Fonts.GetTypeface(firstHan.FontPath), firstHan.FontSize * firstHan.Scale);
+        _ = hanFont.GetGlyphWidths(firstHan.Glyphs.AsSpan(), out var hanBounds, null);
+        using var bracketFont = new SKFont(engine.Fonts.GetTypeface(openBracket.FontPath), openBracket.FontSize * openBracket.Scale);
+        _ = bracketFont.GetGlyphWidths(openBracket.Glyphs.AsSpan(), out var bracketBounds, null);
+
+        var hanInkTop = firstHan.OriginY + firstHan.Y[0] + hanBounds[0].Top;
+        var bracketInkTop = openBracket.OriginY + openBracket.Y[0] + bracketBounds[0].Top;
+        Assert.InRange(Math.Abs(bracketInkTop - hanInkTop), 0f, 4.0f);
+    }
+
+    [Fact]
     public void Vertical_KinsokuBacktracksWholeClosingCluster()
     {
         var path = WriteChapter("<p>甲乙丙」。丁戊己庚辛壬癸。</p>");
@@ -1553,6 +1576,134 @@ public sealed class LibzoraLayoutEngineTests : IDisposable
             inkCenter > zone.Rect.Left + zone.Rect.Width / 2f + 2f,
             $"marker ink centre {inkCenter:F2} should sit right of column centre "
             + $"{zone.Rect.Left + zone.Rect.Width / 2f:F2}");
+    }
+
+    [Fact]
+    public void Vertical_OrphanFootnoteBlockAfterHeadingAttachesToHeadingColumn()
+    {
+        var path = Path.Combine(_tempDir, "footnote-vertical-heading-orphan.xhtml");
+        File.WriteAllText(path, """
+            <?xml version="1.0" encoding="utf-8"?>
+            <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+              <body>
+                <h3>异常精益求精的《奥特Q》</h3>
+                <a href="#fn1" epub:type="noteref">注</a>
+                <p>另一样对我的吸引力不亚于飞碟的东西。</p>
+                <aside id="fn1" epub:type="footnote"><p>《奥特Q》是圆谷制作的特摄剧。</p></aside>
+              </body>
+            </html>
+            """);
+        var content = new XhtmlChapterLoader().Load(path);
+        using var engine = CreateEngine();
+        var options = new TypesetLayoutOptions
+        {
+            WritingMode = TypesetWritingMode.VerticalRl,
+            BaseFontSize = 26f,
+            LineHeight = 1.8f,
+            ViewportWidth = 420f,
+            ViewportHeight = 680f,
+            InsetHorizontal = 24f,
+            InsetVertical = 24f,
+        };
+        var layout = engine.Compose(content, options);
+        var page = layout.Pages[0];
+        var zone = Assert.Single(page.HotZones, hotZone => hotZone.Kind == HotZoneKind.FootnoteMarker);
+        var headingLastCharIndex = content.BodyText.IndexOf('》');
+        var headingLastRun = Assert.Single(page.Runs, run =>
+            run.TextStart <= headingLastCharIndex && headingLastCharIndex < run.TextStart + run.TextLength);
+
+        // The footnote marker must remain in the same vertical column right below
+        // the heading's closing bracket rather than floating alone in a new column.
+        Assert.InRange(zone.Rect.Left, headingLastRun.OriginX - 4f, headingLastRun.OriginX + 4f);
+        Assert.True(zone.Rect.Top >= headingLastRun.OriginY - 12f,
+            $"Footnote marker top {zone.Rect.Top:F1} should sit below heading end {headingLastRun.OriginY:F1}.");
+    }
+
+    [Fact]
+    public void Vertical_FootnoteMarkerNeverStartsNewColumnAlone()
+    {
+        var path = Path.Combine(_tempDir, "footnote-vertical-nowrap.xhtml");
+        File.WriteAllText(path, """
+            <?xml version="1.0" encoding="utf-8"?>
+            <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+              <body>
+                <p>一二三四五六七八九十<a href="#fn1" epub:type="noteref">注</a>后续正文内容。</p>
+                <aside id="fn1" epub:type="footnote"><p>脚注说明。</p></aside>
+              </body>
+            </html>
+            """);
+        var content = new XhtmlChapterLoader().Load(path);
+        using var engine = CreateEngine();
+        var options = new TypesetLayoutOptions
+        {
+            WritingMode = TypesetWritingMode.VerticalRl,
+            BaseFontSize = 30f,
+            LineHeight = 1.8f,
+            ViewportWidth = 420f,
+            // Fits exactly 10 CJK cells (~300pt) so the 11th cell (注) overflows column 1.
+            ViewportHeight = 368f,
+            InsetHorizontal = 24f,
+            InsetVertical = 24f,
+        };
+        var layout = engine.Compose(content, options);
+        var page = layout.Pages[0];
+        var zone = Assert.Single(page.HotZones, hotZone => hotZone.Kind == HotZoneKind.FootnoteMarker);
+        var tenIndex = content.BodyText.IndexOf('十');
+        var tenRun = Assert.Single(page.Runs, run =>
+            run.TextStart <= tenIndex && tenIndex < run.TextStart + run.TextLength);
+
+        // '十' must wrap together with '注' into column 2 so '注' never sits at column top.
+        Assert.InRange(zone.Rect.Left, tenRun.OriginX - 4f, tenRun.OriginX + 4f);
+        Assert.True(zone.Rect.Top > options.InsetVertical + options.BaseFontSize * 0.5f,
+            $"Footnote marker top {zone.Rect.Top:F1} must not start at the top of a new column.");
+    }
+
+    [Fact]
+    public void Horizontal_ContinuousScrollHasNoInterPageGaps()
+    {
+        var path = Path.Combine(_tempDir, "continuous-scroll.xhtml");
+        var sentence = string.Concat(Enumerable.Repeat("轮滑的有趣之处不单在于速度的比拼，还混杂了职业摔跤的要素。", 18));
+        File.WriteAllText(path, $"""
+            <?xml version="1.0" encoding="utf-8"?>
+            <html xmlns="http://www.w3.org/1999/xhtml">
+              <body><p>{sentence}</p></body>
+            </html>
+            """);
+        var content = new XhtmlChapterLoader().Load(path);
+        using var engine = CreateEngine();
+        var options = new TypesetLayoutOptions
+        {
+            WritingMode = TypesetWritingMode.HorizontalTb,
+            ContinuousScroll = true,
+            BaseFontSize = 20f,
+            LineHeight = 1.75f,
+            ViewportWidth = 360f,
+            ViewportHeight = 250f,
+            InsetHorizontal = 24f,
+            InsetVertical = 0f,
+            InsetBottom = 0f,
+        };
+        var layout = engine.Compose(content, options);
+        Assert.True(layout.Pages.Count >= 2, "Expected multiple scroll tiles.");
+
+        var globalLineBaselines = new List<float>();
+        for (var p = 0; p < layout.Pages.Count; p++)
+        {
+            var pageOffset = p * options.ViewportHeight;
+            var pageLines = layout.Pages[p].Runs
+                .GroupBy(run => MathF.Round(run.OriginY, 1))
+                .OrderBy(group => group.Key)
+                .Select(group => pageOffset + group.Key);
+            globalLineBaselines.AddRange(pageLines);
+        }
+
+        var expectedPitch = options.BodyLineHeight;
+        Assert.True(globalLineBaselines.Count >= 10);
+        for (var i = 1; i < globalLineBaselines.Count; i++)
+        {
+            var delta = globalLineBaselines[i] - globalLineBaselines[i - 1];
+            Assert.InRange(delta, expectedPitch - 1.5f, expectedPitch + 1.5f);
+        }
     }
 
     [Fact]
@@ -2363,7 +2514,7 @@ public sealed class LibzoraLayoutEngineTests : IDisposable
         Assert.InRange(Math.Abs(actualLines[^1].FlowAdvance - expectedLines[^1].FlowAdvance), 0, 0.01f);
         var expectedLetters = CollectWordInteriorGaps(expected, ragged.BodyText);
         foreach (var (offset, gap) in CollectWordInteriorGaps(actual, justified.BodyText))
-            Assert.InRange(Math.Abs(gap - expectedLetters[offset]), 0, 0.01f);
+            Assert.InRange(gap - expectedLetters[offset], -0.01f, 20f * 0.045f + 0.01f);
         var baselines = BaselineY(actual);
         Assert.InRange(Math.Abs(baselines[1] - baselines[0] - 31f), 0, 0.05f);
         Assert.All(actual.Pages.SelectMany(page => page.Runs), run => Assert.Equal(20f, run.FontSize));

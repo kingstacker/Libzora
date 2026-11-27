@@ -99,9 +99,9 @@ struct NativeReaderFootnoteCard: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 6)
             } else if let text = footnote.text, !text.isEmpty {
-                // Short notes get a card that hugs the text; only a note
-                // taller than the cap falls back to an internal scroll view.
                 if noteHeight > Self.maximumNoteHeight {
+                    // Short notes get a card that hugs the text; only a note
+                    // taller than the cap falls back to an internal scroll view.
                     ScrollView { noteText(text) }
                         .frame(height: Self.maximumNoteHeight)
                 } else {

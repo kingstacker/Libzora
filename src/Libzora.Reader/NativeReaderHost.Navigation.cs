@@ -99,7 +99,83 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         _spreadCompanionLayout = null;
     }
 
+    public void SetScrollNextChapterPath(string? chapterPath)
+    {
+        var normalized = string.IsNullOrWhiteSpace(chapterPath) ? null : chapterPath;
+        if (string.Equals(_scrollNextChapterPath, normalized, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        // Keep the currently rendered _scrollNextChapterLayout intact until
+        // NavigateCore or RecomposeAsync atomically installs the next chapter;
+        // clearing it eagerly blanks the viewport during chapter handoff.
+        _scrollNextChapterPath = normalized;
+    }
+
+    /// <summary>
+    /// Supplies the exact scroll handoff mode to apply atomically when the next
+    /// continuous-scroll chapter navigation commits, preventing any flash at
+    /// offset 0 or bounce at the chapter seam.
+    /// </summary>
+    public void PrepareContinuousScrollHandoff(
+        bool handoffDown = false,
+        double? carryDownOffset = null,
+        double? carryUpDelta = null)
+    {
+        _handoffScrollDown = handoffDown || carryDownOffset.HasValue;
+        _handoffScrollOffset = carryDownOffset;
+        _handoffFromNextChapterDelta = carryUpDelta;
+        _activeHandoffDirection = _handoffScrollDown ? 1 : carryUpDelta.HasValue ? -1 : 0;
+        _activeHandoffOverflowDown = 0;
+        _activeHandoffCarryUp = carryUpDelta ?? 0;
+    }
+
     private bool IsScroll => _presentation == ReaderPresentation.Scroll;
+
+    private bool IsContinuousProseScroll => IsScroll && !_settings.MangaMode;
+
+    private const double ContinuousChapterGap = 52.0;
+
+    private double ScrollPageHeight =>
+        _options?.ViewportHeight is > 1 ? _options.ViewportHeight : Math.Max(1.0, Bounds.Height);
+
+    private double ComputeContinuousContentHeight() => ComputeContinuousContentHeight(_layout);
+
+    private double ComputeContinuousContentHeight(ChapterLayout? layout)
+    {
+        if (layout is null || layout.Pages.Count == 0) return 0;
+        var pageHeight = ScrollPageHeight;
+        var maxBottom = 0.0;
+        for (var p = layout.Pages.Count - 1; p >= 0; p--)
+        {
+            var pageBottom = MeasureContinuousPageBottom(layout.Pages[p], p * pageHeight);
+            if (pageBottom <= 0) continue;
+            maxBottom = pageBottom;
+            if (p > 0)
+            {
+                maxBottom = Math.Max(maxBottom, MeasureContinuousPageBottom(layout.Pages[p - 1], (p - 1) * pageHeight));
+            }
+            break;
+        }
+        return maxBottom > 0 ? maxBottom : layout.Pages.Count * pageHeight;
+    }
+
+    private static double MeasureContinuousPageBottom(LayoutPage page, double pageTop)
+    {
+        var maxBottom = 0.0;
+        foreach (var run in page.Runs)
+            maxBottom = Math.Max(maxBottom, pageTop + run.OriginY + run.FontSize * 0.45);
+        foreach (var img in page.Images)
+            maxBottom = Math.Max(maxBottom, pageTop + img.Rect.Bottom);
+        foreach (var dec in page.Decorations)
+            maxBottom = Math.Max(maxBottom, pageTop + dec.Rect.Bottom);
+        foreach (var zone in page.HotZones)
+            maxBottom = Math.Max(maxBottom, pageTop + zone.Rect.Bottom);
+        return maxBottom;
+    }
+
+    private double ContinuousNextChapterStartY => ComputeContinuousContentHeight() + ContinuousChapterGap;
 
     /// <summary>Composed pages turned per step: two for the spread layout.</summary>
     private int PageStep => IsSpread ? 2 : 1;
@@ -107,10 +183,40 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
     private double ComposePageWidth(double viewportWidth) =>
         IsSpread ? Math.Max(1, viewportWidth / 2) : viewportWidth;
 
-    private double MaxScrollOffset =>
-        Math.Max(0, (_layout?.Pages.Count ?? 0) * Math.Max(1, Bounds.Height) - Math.Max(1, Bounds.Height));
+    private double MaxScrollOffset
+    {
+        get
+        {
+            if (_layout is null || _layout.Pages.Count == 0) return 0;
+            var pageHeight = ScrollPageHeight;
+            if (!IsContinuousProseScroll)
+                return Math.Max(0, _layout.Pages.Count * pageHeight - pageHeight);
+            if (_scrollNextChapterLayout is { Pages.Count: > 0 })
+                return Math.Max(0, ContinuousNextChapterStartY);
+            return Math.Max(0, ComputeContinuousContentHeight() + 48.0 - pageHeight);
+        }
+    }
+
+    /// <summary>
+    /// Live continuous scroll limit including the pre-composed next-chapter
+    /// runway, so dragging and inertia never stall at the chapter seam while
+    /// the next chapter finishes loading off-thread.
+    /// </summary>
+    private double MaxContinuousScrollOffset
+    {
+        get
+        {
+            var baseMax = MaxScrollOffset;
+            if (!IsContinuousProseScroll || _scrollNextChapterLayout is not { Pages.Count: > 0 } nextLayout)
+                return baseMax;
+            var nextRunway = Math.Max(0.0, ComputeContinuousContentHeight(nextLayout) - ScrollPageHeight);
+            return Math.Max(baseMax, ContinuousNextChapterStartY + nextRunway);
+        }
+    }
 
     private double ClampScrollOffset(double value) => Math.Clamp(value, 0, MaxScrollOffset);
+
+    private double ClampLiveScrollOffset(double value) => Math.Clamp(value, 0, MaxContinuousScrollOffset);
 
     public int PageCount => _layout?.Pages.Count ?? 0;
 

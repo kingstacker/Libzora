@@ -89,6 +89,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
             && options.MangaMode == expected.MangaMode
             && options.MangaAutoCrop == expected.MangaAutoCrop
             && options.SeamlessImageScroll == expected.SeamlessImageScroll
+            && options.ContinuousScroll == expected.ContinuousScroll
             && string.Equals(settings.FontFamily, _settings.FontFamily, StringComparison.OrdinalIgnoreCase)
             && string.Equals(settings.LatinFontFamily, _settings.LatinFontFamily, StringComparison.OrdinalIgnoreCase)
             && Math.Abs(options.ViewportWidth - expected.ViewportWidth) < 0.5f

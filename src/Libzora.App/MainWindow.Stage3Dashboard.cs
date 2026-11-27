@@ -67,13 +67,17 @@ public partial class MainWindow
             var lastSevenDays = dashboard.DailyReading.TakeLast(7).ToArray();
             var weekSeconds = lastSevenDays.Sum(day => day.ActiveSeconds);
             var averageText = FormatReadingTime((long)Math.Round(weekSeconds / 7d));
-            DashboardDailyAverageText.Text = (weekSeconds, dashboard.ListeningSeconds) switch
-            {
-                (> 0, > 0) => T("近 7 天日均 {0} · 含听书 {1}", averageText, FormatReadingTime(dashboard.ListeningSeconds)),
-                (> 0, <= 0) => T("近 7 天日均 {0}", averageText),
-                (_, > 0) => T("累计听书 {0}", FormatReadingTime(dashboard.ListeningSeconds)),
-                _ => T("近 7 天日均 —")
-            };
+            // Each headline card's secondary copy is its own line: combining
+            // the daily average and listening time into one sentence overflowed
+            // the narrow card and truncated the closing characters.
+            DashboardDailyAverageText.Text = weekSeconds > 0
+                ? T("近 7 天日均 {0}", averageText)
+                : T("近 7 天日均 —");
+            var listeningHint = dashboard.ListeningSeconds > 0
+                ? T("累计听书 {0}", FormatReadingTime(dashboard.ListeningSeconds))
+                : null;
+            DashboardListeningHintText.Text = listeningHint ?? string.Empty;
+            DashboardListeningHintText.IsVisible = listeningHint is not null;
             DashboardStreakText.Text = T("{0} 天",
                 Math.Max(dashboard.StreakDays, ReadingMedalCatalog.ComputeStreakDays(dashboard.DailyReading)));
             PopulateReadingMedals(dashboard);

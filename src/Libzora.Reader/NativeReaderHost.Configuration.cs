@@ -106,12 +106,21 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         if (!IsSpread || !_settings.MangaMode)
             _spreadCompanionLayout = null;
 
+        var scrollNextNeeded = IsContinuousProseScroll
+            && !string.IsNullOrEmpty(_scrollNextChapterPath)
+            && !string.Equals(_scrollNextChapterPath, _scrollNextChapterLayoutPath, StringComparison.OrdinalIgnoreCase);
+        if (!IsContinuousProseScroll)
+        {
+            _scrollNextChapterLayout = null;
+            _scrollNextChapterLayoutPath = null;
+        }
+
         Task<bool>? reload = null;
         if (indentChanged)
         {
             reload = ReloadChapterForIndentChange(readingAnchor, anchorPageStart);
         }
-        else if (_content is not null && (settingsChanged || _layout is null || companionNeeded))
+        else if (_content is not null && (settingsChanged || _layout is null || companionNeeded || scrollNextNeeded))
         {
             _relayoutTimer?.Stop();
             await (RelayoutTask = RecomposeAsync(readingAnchor, anchorPageStart));

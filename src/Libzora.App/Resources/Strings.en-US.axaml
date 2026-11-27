@@ -762,7 +762,7 @@
     <x:String x:Key="Ui.Auto.FBD5755F75159075">Reading streak over the last year</x:String>
     <x:String x:Key="Ui.Auto.7644551F37492A5D">Reading time over the last 14 days</x:String>
     <x:String x:Key="Ui.Auto.3CECF8BF2CE24F05">Reading time over the last {0} days</x:String>
-    <x:String x:Key="Ui.Auto.E1FD8BC385380027">Daily average over the last 7 days —</x:String>
+    <x:String x:Key="Ui.Auto.E1FD8BC385380027">7-day avg —</x:String>
     <x:String x:Key="Ui.Auto.83A25C492C9A33C4">Reading time chart</x:String>
     <x:String x:Key="Ui.Auto.A51CE8191584FCF7">Back to bookshelf</x:String>
     <x:String x:Key="Ui.Auto.54C1945A1C69E258">Back to reading</x:String>
@@ -1543,7 +1543,7 @@ Book excerpts:
     <x:String x:Key="Ui.Auto.4B91BC828EAD21D4">Migration preparation failed: {0}</x:String>
     <x:String x:Key="Ui.Auto.E4398984141510AE">Migration package prepared; restart Libzora to complete the migration automatically.</x:String>
     <x:String x:Key="Ui.Auto.1EE34787852CE414">Close the reader before migrating the data directory.</x:String>
-    <x:String x:Key="Ui.Auto.12D8929AB62A6D71">7-day daily average: {0}</x:String>
+    <x:String x:Key="Ui.Auto.12D8929AB62A6D71">7-day avg {0}</x:String>
     <x:String x:Key="Ui.Auto.DDDE08946298195D">Restore</x:String>
     <x:String x:Key="Ui.Auto.B1AB4353C4844BEA">No collections yet</x:String>
     <x:String x:Key="Ui.Auto.07DB0FD1CC157D9E">This book already has the {0} format.</x:String>
@@ -3128,7 +3128,7 @@ This run stopped early because online requested access verification; the remaini
     <x:String x:Key="Ui.Auto.21D0F362C79A67BA">F11  Toggle zen mode</x:String>
     <x:String x:Key="Ui.Auto.AA2D9157400D1E25">7-day avg {0} · incl. {1} listening</x:String>
     <x:String x:Key="Ui.Auto.2F1D20B590B7BD2D">{0} (incl. {1} listening)</x:String>
-    <x:String x:Key="Ui.Auto.D9D13D5F56DA03FE">Listening {0}</x:String>
+    <x:String x:Key="Ui.Auto.D9D13D5F56DA03FE">Total listening {0}</x:String>
     <x:String x:Key="Ui.Auto.BB79A4C3654C8733">Sync Key Required</x:String>
     <x:String x:Key="Ui.Auto.77BEF6D44D5A9BA0">Set a sync key below before enabling sync.</x:String>
     <x:String x:Key="Ui.Auto.02E18DCAC519CBB0">Enter and confirm a matching sync key below before enabling sync.</x:String>

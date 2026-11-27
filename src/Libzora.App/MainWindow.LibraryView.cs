@@ -335,7 +335,6 @@ public partial class MainWindow
         {
             if (ReferenceEquals(previous, card))
             {
-                card.LoadSeriesCovers();
                 return;
             }
             ReleaseBookCardControl(control, previous);
@@ -344,7 +343,6 @@ public partial class MainWindow
 
         _bookCardControls[control] = card;
         _visibleBookCards.Add(card);
-        card.LoadSeriesCovers();
         card.LoadCover();        if (card.CoverImage is null
             && card.Book.Files.Any(file => string.Equals(file.Format, "pdf", StringComparison.OrdinalIgnoreCase)))
         {

@@ -328,16 +328,6 @@ public sealed class BookCardViewModel : ObservableObject, IDisposable
     public string SeriesCountLabel => UiText.Get("{0} 册", _seriesMembers.Count);
     public string SeriesBadgeTip => UiText.Get("展开系列：{0}", _seriesTitle ?? Title);
     public bool SeriesBadgeVisibility => IsSeriesStack;
-    public bool SeriesCover2Visibility => _seriesMembers.Count >= 2;
-    public bool SeriesCover3Visibility => _seriesMembers.Count >= 3;
-
-    // Rear covers stay inside the 154-DIP cover frame so clipping, hover and
-    // virtualization keep working; the front cover narrows to expose their
-    // right edges.
-    public double FrontCoverWidth => _seriesMembers.Count >= 3 ? 142 : IsSeriesStack ? 148 : 154;
-    public double RearCover1Width => _seriesMembers.Count >= 3 ? 148 : 154;
-    public Bitmap? SeriesCover2 => SeriesCover(1);
-    public Bitmap? SeriesCover3 => SeriesCover(2);
 
     public string DisplayTitle => IsSeriesStack ? _seriesTitle ?? Title : Title;
     public string DisplayMetaLabel => IsSeriesStack ? SeriesCountLabel : FormatLabel;
@@ -364,22 +354,9 @@ public sealed class BookCardViewModel : ObservableObject, IDisposable
         NotifySeriesChanged();
     }
 
-    private Bitmap? SeriesCover(int index)
-    {
-        if (_disposed || index >= _seriesMembers.Count) return null;
-        var member = _seriesMembers[index];
-        member.LoadCover();
-        return member.CoverImage;
-    }
-
     private void SeriesMember_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(CoverImage))
-        {
-            OnPropertyChanged(nameof(SeriesCover2));
-            OnPropertyChanged(nameof(SeriesCover3));
-        }
-        else if (e.PropertyName == nameof(LibraryPresence))
+        if (e.PropertyName == nameof(LibraryPresence))
         {
             NotifyPresenceChanged();
         }
@@ -399,12 +376,6 @@ public sealed class BookCardViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(SeriesCountLabel));
         OnPropertyChanged(nameof(SeriesBadgeTip));
         OnPropertyChanged(nameof(SeriesBadgeVisibility));
-        OnPropertyChanged(nameof(SeriesCover2Visibility));
-        OnPropertyChanged(nameof(SeriesCover3Visibility));
-        OnPropertyChanged(nameof(FrontCoverWidth));
-        OnPropertyChanged(nameof(RearCover1Width));
-        OnPropertyChanged(nameof(SeriesCover2));
-        OnPropertyChanged(nameof(SeriesCover3));
         OnPropertyChanged(nameof(DisplayTitle));
         OnPropertyChanged(nameof(DisplayMetaLabel));
         OnPropertyChanged(nameof(DisplayFileSummaryLabel));
@@ -421,13 +392,6 @@ public sealed class BookCardViewModel : ObservableObject, IDisposable
         foreach (var member in _seriesMembers)
             if (!ReferenceEquals(member, this) && !ReferenceEquals(member, keep))
                 member.UnloadCover();
-    }
-
-    public void LoadSeriesCovers()
-    {
-        if (!IsSeriesStack) return;
-        foreach (var member in _seriesMembers.Take(3))
-            member.LoadCover();
     }
 
     // Gallery mode trims the card to the cover alone so no blank text block

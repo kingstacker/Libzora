@@ -132,10 +132,9 @@ internal static class Program
     public static AppBuilder BuildAvaloniaApp() =>
         AppBuilder.Configure(() => new Libzora.App(BuildServices()) { Name = "Libzora" })
             .UsePlatformDetect()
-            // Avalonia's Metal pipeline fails to build on the NVIDIA driver used
-            // by this Hackintosh ("The GPU was lost"), which leaves the window
-            // blank. Real Macs keep GPU rendering; LIBZORA_MACOS_RENDERER can
-            // force metal, opengl or software explicitly.
+            // GPU rendering is the default on macOS: Metal, then OpenGL, then
+            // software. LIBZORA_MACOS_RENDERER can force a backend explicitly
+            // for troubleshooting.
             .With(new AvaloniaNativePlatformOptions
             {
                 RenderingMode = ResolveRenderingModes()
@@ -156,13 +155,6 @@ internal static class Program
                 return [AvaloniaNativeRenderingMode.OpenGl, AvaloniaNativeRenderingMode.Software];
             case "software":
                 return [AvaloniaNativeRenderingMode.Software];
-        }
-
-        var deviceName = MacOSGraphicsInfo.TryGetMetalDeviceName();
-        if (deviceName is not null
-            && deviceName.Contains("NVIDIA", StringComparison.OrdinalIgnoreCase))
-        {
-            return [AvaloniaNativeRenderingMode.Software];
         }
 
         return

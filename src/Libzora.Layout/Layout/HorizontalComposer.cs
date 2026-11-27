@@ -25,7 +25,26 @@ internal sealed partial class HorizontalComposer
         _context = context;
         _cells = cells;
         _pages = pages;
-        _cursorY = context.Options.InsetVertical;
+        _cursorY = context.Options.ContinuousScroll
+            ? Math.Max(12f, Math.Min(24f, context.Options.InsetHorizontal * 0.6f))
+            : context.Options.InsetVertical;
+    }
+
+    private bool ContinuousScroll => _context.Options.ContinuousScroll;
+
+    private void WrapContinuousScrollPage()
+    {
+        if (!ContinuousScroll)
+        {
+            return;
+        }
+
+        var pageHeight = Math.Max(1f, _context.Options.ViewportHeight);
+        while (_cursorY >= pageHeight - 0.01f)
+        {
+            _pages.Next();
+            _cursorY -= pageHeight;
+        }
     }
 
     private float ContentWidth => _context.Options.ContentWidth;
@@ -45,6 +64,7 @@ internal sealed partial class HorizontalComposer
         _previousBlockBottomSpace = 0f;
         var previousBlockWasHeading = false;
         var previousBlockWasParagraph = false;
+        var previousBlockWasImage = false;
         var blockIndex = 0;
         foreach (var block in content.Blocks)
         {
@@ -53,14 +73,13 @@ internal sealed partial class HorizontalComposer
             {
                 case BlockKind.Image:
                     PlaceImageBlock(block);
-                    _previousBlockBottomSpace = 0f;
                     break;
                 case BlockKind.Rule:
                     PlaceRule(block);
                     _previousBlockBottomSpace = 0f;
                     break;
                 case BlockKind.Table:
-                    PlaceTable(block);
+                    PlaceTable(block, previousBlockWasHeading, previousBlockWasImage);
                     _previousBlockBottomSpace = 0f;
                     break;
                 default:
@@ -72,12 +91,14 @@ internal sealed partial class HorizontalComposer
                         previousBlockWasHeading,
                         previousBlockWasParagraph,
                         nextKind == BlockKind.Paragraph,
-                        nextKind == BlockKind.Heading);
+                        nextKind == BlockKind.Heading,
+                        previousBlockWasImage);
                     break;
             }
 
             previousBlockWasHeading = block.Kind == BlockKind.Heading;
             previousBlockWasParagraph = block.Kind == BlockKind.Paragraph;
+            previousBlockWasImage = block.Kind == BlockKind.Image;
             blockIndex++;
         }
     }
@@ -105,24 +126,32 @@ internal sealed partial class HorizontalComposer
         bool followsHeading,
         bool followsParagraph = false,
         bool precedesParagraph = false,
-        bool precedesHeading = false)
+        bool precedesHeading = false,
+        bool followsImage = false,
+        bool allowHyphenation = true,
+        bool compactNavigationEntry = false)
     {
         var isHeading = block.Kind == BlockKind.Heading;
         var naturalLatin = _context.Options.NaturalLatinTypography
-            && (block.Kind is BlockKind.Paragraph or BlockKind.Blockquote or BlockKind.ListItem)
+            && (block.Kind is BlockKind.Paragraph or BlockKind.Blockquote or BlockKind.ListItem or BlockKind.Table)
             && !block.Center && !block.AlignRight && IsLatinProse(block);
         var bodyLineHeight = naturalLatin
             ? BaseFontSize * Math.Max(1.4f, _context.Options.LineHeight - 0.2f)
             : BodyLineHeight;
+        if (compactNavigationEntry)
+        {
+            bodyLineHeight = Math.Min(bodyLineHeight, BaseFontSize * 1.32f);
+        }
         // A small paragraph gap distinguishes unindented English prose even
         // in compact mode; larger user-selected gaps and indentation remain.
         var paragraphSpacing = naturalLatin && !_context.Options.ParagraphIndent && block.TextIndentEm <= 0f
             ? Math.Max(0.35f, _context.Options.ParagraphSpacingEm)
             : _context.Options.ParagraphSpacingEm;
-        var startsAtPageTop = block.PageBreakBefore
-            || (isHeading
-                && !followsHeading
-                && ComposerContext.IsHeadingNavigationTarget(block, _context.Options.NavigationFragments));
+        var startsAtPageTop = !ContinuousScroll
+            && (block.PageBreakBefore
+                || (isHeading
+                    && !followsHeading
+                    && ComposerContext.IsHeadingNavigationTarget(block, _context.Options.NavigationFragments)));
         float leftInset = 0f;
         float rightInset = 0f;
         if (block.Kind == BlockKind.Blockquote)
@@ -155,12 +184,13 @@ internal sealed partial class HorizontalComposer
         if (naturalLatin)
         {
             // Some CJK faces use a half-em space even in English. Start with
-            // a proportional gap, then share modest expansion across the line.
+            // a natural serif-like proportional gap (~0.26em), then share
+            // modest expansion (or slight compression) across the line.
             for (var index = 0; index < cells.Count; index++)
             {
                 var cell = cells[index];
                 if (cell.IsSpace && !cell.Style.PreserveWhitespace)
-                    cells[index] = cell with { Advance = Math.Min(cell.Advance, cell.FontSize * 0.32f) };
+                    cells[index] = cell with { Advance = Math.Min(cell.Advance, cell.FontSize * 0.26f) };
             }
         }
         ApplyHorizontalMicroTypography(cells, naturalLatin);
@@ -190,10 +220,10 @@ internal sealed partial class HorizontalComposer
                 beforeSpace = block.SpaceBeforeLines * BodyLineHeight
                     + block.MarginTopEm * BaseFontSize;
             }
-            if (followsHeading)
+            if (followsHeading || followsImage)
             {
-                // Collapse the first paragraph's top margin against the heading's
-                // bottom space instead of stacking both margins together.
+                // Collapse the following block's top margin against the heading
+                // or image's bottom space instead of stacking both margins.
                 beforeSpace = Math.Max(0f, beforeSpace - _previousBlockBottomSpace);
             }
             _cursorY += beforeSpace;
@@ -238,7 +268,9 @@ internal sealed partial class HorizontalComposer
         }
 
         List<LineBox> lines;
-        if (CanUseKnuthPlass(cells, naturalLatin)
+        var effectiveHyphenation = allowHyphenation && !isHeading && !compactNavigationEntry;
+        if (effectiveHyphenation
+            && CanUseKnuthPlass(cells, naturalLatin)
             && TryBreakLinesKnuthPlass(cells, availWidth, effectiveIndentEm * BaseFontSize,
                 hangingIndent, preferLatinFont: true, dropCapWidth, dropCapLines) is { } optimalLines)
         {
@@ -248,7 +280,7 @@ internal sealed partial class HorizontalComposer
         {
             lines = BreakLines(cells, availWidth, effectiveIndentEm * BaseFontSize,
                 allowPageAnchor: true, continuationIndent: hangingIndent, preferLatinFont: naturalLatin,
-                dropCapWidth: dropCapWidth, dropCapLines: dropCapLines);
+                dropCapWidth: dropCapWidth, dropCapLines: dropCapLines, allowHyphenation: effectiveHyphenation);
         }
         var anchorLineIndex = lines.FindIndex(line => line.StartsAnchoredPage);
 
@@ -265,7 +297,7 @@ internal sealed partial class HorizontalComposer
 
         // Keep-with-next: avoid stranding a subheading (or break-after: avoid
         // block) at the bottom of a page without room for its following text.
-        if (block.KeepWithNext && !startsAtPageTop && _pages.CurrentPageHasContent && lineHeights.Length > 0)
+        if (!ContinuousScroll && block.KeepWithNext && !startsAtPageTop && _pages.CurrentPageHasContent && lineHeights.Length > 0)
         {
             var blockHeight = 0f;
             for (var i = 0; i < lineHeights.Length; i++) blockHeight += lineHeights[i];
@@ -280,7 +312,7 @@ internal sealed partial class HorizontalComposer
         }
 
         // Keep a floated drop cap together with the lines wrapped beside it.
-        if (floatedDropCap is not null && _pages.CurrentPageHasContent && lineHeights.Length > 0)
+        if (!ContinuousScroll && floatedDropCap is not null && _pages.CurrentPageHasContent && lineHeights.Length > 0)
         {
             var dropHeight = 0f;
             var spanCount = Math.Min(dropCapLines, lineHeights.Length);
@@ -295,6 +327,85 @@ internal sealed partial class HorizontalComposer
 
         var dropCapPlaced = false;
         var lineIndex = 0;
+        if (ContinuousScroll)
+        {
+            WrapContinuousScrollPage();
+            while (lineIndex < lines.Count)
+            {
+                _context.CancellationToken.ThrowIfCancellationRequested();
+                WrapContinuousScrollPage();
+                var pageSliceTop = _cursorY;
+                var pageHeight = Math.Max(1f, _context.Options.ViewportHeight);
+                if (floatedDropCap is not null && !dropCapPlaced && lineIndex == 0)
+                {
+                    dropCapPlaced = true;
+                    var firstLineHeight = lineHeights[0];
+                    var firstBaseline = _cursorY
+                        + firstLineHeight / 2f
+                        + (lines[0].Ascent - lines[0].Descent) / 2f;
+                    var capTop = firstBaseline - lines[0].Ascent;
+                    var capBaseline = capTop + floatedDropCap.Ascent;
+                    var dropLine = new LineBox();
+                    dropLine.Add(floatedDropCap);
+                    PlaceLine(dropLine, blockLeft, capBaseline, capTop, floatedDropCap.Ascent + floatedDropCap.Descent, rubyGap);
+                }
+
+                while (lineIndex < lines.Count && _cursorY < pageHeight - 0.01f)
+                {
+                    var line = lines[lineIndex];
+                    var lineHeight = lineHeights[lineIndex];
+                    var rubyShelf = lineRubyShelves[lineIndex];
+                    if (lineIndex == 0)
+                    {
+                        _pages.RecordFragment(block.ElementId);
+                        _pages.RecordFragments(block.FragmentIds);
+                    }
+
+                    var baseline = _cursorY
+                        + lineHeight / 2f
+                        + (line.Ascent - line.Descent) / 2f
+                        + rubyShelf / 2f;
+
+                    var lineAvail = Math.Max(BaseFontSize * 2f, availWidth - line.FloatLeftInset);
+                    var startX = blockLeft + line.FloatLeftInset + line.Indent;
+                    var isLastLine = lineIndex == lines.Count - 1 || line.EndsWithForcedBreak;
+                    if (isHeading || block.Center)
+                    {
+                        startX = blockLeft + line.FloatLeftInset + Math.Max(0f, (lineAvail - line.Used) / 2f);
+                    }
+                    else if (block.AlignRight)
+                    {
+                        startX = blockLeft + line.FloatLeftInset + Math.Max(0f, lineAvail - line.Used);
+                    }
+                    else if (block.Justify && !_context.Options.AlignLeft && !isLastLine)
+                    {
+                        var extra = lineAvail - line.Indent - line.Used;
+                        if (extra > 0f || (naturalLatin && extra < -0.01f) || line.HasHangingPunctuation || line.OpticalTrailingProtrusion > 0f)
+                        {
+                            line.TryJustify(extra, BaseFontSize, naturalLatin);
+                        }
+                    }
+
+                    PlaceLine(line, startX, baseline, _cursorY, lineHeight, rubyGap);
+                    _cursorY += lineHeight;
+                    lineIndex++;
+                }
+
+                if (block.BorderLeftEm > 0f && _cursorY > pageSliceTop)
+                {
+                    var barWidth = Math.Clamp(block.BorderLeftEm * BaseFontSize, 2f, 5f);
+                    var barX = Math.Max(InsetH, blockLeft - Math.Max(barWidth + 4f, BaseFontSize * 0.6f));
+                    _pages.AddDecoration(new PlacedRect
+                    {
+                        Kind = DecorationKind.BlockquoteBar,
+                        Rect = new SKRect(barX, pageSliceTop + 2f, barX + barWidth, _cursorY - 2f),
+                    });
+                }
+
+                WrapContinuousScrollPage();
+            }
+        }
+        else
         while (lineIndex < lines.Count)
         {
             _context.CancellationToken.ThrowIfCancellationRequested();
@@ -390,7 +501,7 @@ internal sealed partial class HorizontalComposer
                 else if (block.Justify && !_context.Options.AlignLeft && !isLastLine)
                 {
                     var extra = lineAvail - line.Indent - line.Used;
-                    if (extra > 0f || line.HasHangingPunctuation || line.OpticalTrailingProtrusion > 0f)
+                    if (extra > 0f || (naturalLatin && extra < -0.01f) || line.HasHangingPunctuation || line.OpticalTrailingProtrusion > 0f)
                     {
                         line.TryJustify(extra, BaseFontSize, naturalLatin);
                     }
@@ -420,7 +531,7 @@ internal sealed partial class HorizontalComposer
 
         // The last line already advanced the cursor by one line height. In
         // compact mode, consecutive paragraphs need no additional gap.
-        if (block.PageBreakAfter)
+        if (block.PageBreakAfter && !ContinuousScroll)
         {
             _pages.NextIfUsed();
             _cursorY = InsetV;
@@ -431,6 +542,7 @@ internal sealed partial class HorizontalComposer
             var bottomSpace = ComputeBlockBottomSpace(block, precedesParagraph, precedesHeading, paragraphSpacing);
             _previousBlockBottomSpace = bottomSpace;
             _cursorY += bottomSpace;
+            WrapContinuousScrollPage();
         }
     }
 
@@ -716,8 +828,33 @@ internal sealed partial class HorizontalComposer
             if (current.IsLineBreak || next.IsLineBreak
                 || current.IsSpace || next.IsSpace
                 || current.Style.PreserveWhitespace || next.Style.PreserveWhitespace
-                || current.ImagePath is not null || next.ImagePath is not null
-                || current.FootnoteMarker || next.FootnoteMarker)
+                || current.ImagePath is not null || next.ImagePath is not null)
+            {
+                continue;
+            }
+
+            // Fullwidth closing punctuation (。，、；：！？）」』》】〕) carries
+            // ~0.5em built-in trailing whitespace; trim part of it before an
+            // attached footnote marker so the marker sits snugly next to the mark.
+            if (next.FootnoteMarker)
+            {
+                if (!current.FootnoteMarker
+                    && current.GlyphInkShiftX is null
+                    && TypesetText.IsCompressibleClosingPunctuation(current.Text))
+                {
+                    var squeeze = Math.Min(current.FontSize * 0.36f, current.Advance * 0.36f);
+                    if (squeeze > 0.5f)
+                    {
+                        cells[i] = current with
+                        {
+                            Advance = Math.Max(current.FontSize * 0.5f, current.Advance - squeeze),
+                        };
+                    }
+                }
+                continue;
+            }
+
+            if (current.FootnoteMarker)
             {
                 continue;
             }

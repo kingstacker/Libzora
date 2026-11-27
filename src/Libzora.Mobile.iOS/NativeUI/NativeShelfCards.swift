@@ -228,6 +228,7 @@ final class NativeShelfBookDestinations: ObservableObject {
             book: book,
             source: source,
             isListRow: isListRow,
+            galleryMode: !isListRow && source == .shelf && store.preferences.galleryMode,
             sourceFrame: frame,
             coverWidth: width,
             muted: store.preferences.colorfulMode && source != .seriesVolume ? NativeTheme.mutedOnColorful : NativeTheme.muted,

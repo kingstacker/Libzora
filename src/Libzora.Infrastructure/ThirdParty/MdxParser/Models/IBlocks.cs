@@ -22,6 +22,7 @@ namespace MdxParser.Models
         long StartIndex { get; }
         long EndIndex { get; }
         long Size { get; }
+        uint DecompressedSize { get; }
         byte[] getDecompressedData();
     }
 }

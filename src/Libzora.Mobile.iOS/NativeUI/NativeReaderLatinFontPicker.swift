@@ -51,9 +51,14 @@ struct NativeReaderLatinFontPicker: View {
                     }
 
                     if !latinOptions.isEmpty {
-                        Section(header: Text(L("系统西文字体"))
-                            .font(NativeTheme.font(12, relativeTo: .caption))
-                            .foregroundStyle(NativeTheme.muted)) {
+                        Section {
+                            Text(L("系统西文字体"))
+                                .font(NativeTheme.font(12, relativeTo: .caption))
+                                .foregroundStyle(NativeTheme.muted)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .listRowInsets(EdgeInsets(top: 14, leading: 20, bottom: 4, trailing: 20))
+                                .listRowBackground(Color.clear)
+                                .listRowSeparator(.hidden)
                             ForEach(latinOptions) { option in
                                 Button { select(option.key) } label: {
                                     HStack(spacing: 12) {

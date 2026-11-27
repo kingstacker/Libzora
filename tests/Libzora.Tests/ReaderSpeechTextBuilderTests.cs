@@ -43,7 +43,7 @@ public sealed class ReaderSpeechTextBuilderTests
                 WritingMode = mode,
                 BaseFontSize = 17f,
                 LineHeight = 1.8f,
-                ViewportWidth = 180f,
+                ViewportWidth = mode == TypesetWritingMode.VerticalRl ? 260f : 180f,
                 ViewportHeight = 180f,
                 InsetHorizontal = 24f,
                 InsetVertical = 24f,

@@ -63,7 +63,7 @@ public sealed partial class SettingsTests
     });
 
     [Theory]
-    [InlineData("zh-CN", "含听书")]
+    [InlineData("zh-CN", "听书")]
     [InlineData("en-US", "listening")]
     public Task ReadingDashboard_DisplaysListeningDurationBreakdown(string language, string expectedToken) => Run(async () =>
     {
@@ -94,8 +94,15 @@ public sealed partial class SettingsTests
         await scope.Call<Task>("RefreshReadingDashboardAsync");
 
         var avgText = scope.Get<TextBlock>("DashboardDailyAverageText").Text ?? "";
-        Assert.Contains(expectedToken, avgText, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(expectedToken, avgText, StringComparison.OrdinalIgnoreCase);
+        var listeningText = scope.Get<TextBlock>("DashboardListeningHintText");
+        Assert.True(listeningText.IsVisible);
+        Assert.Contains(expectedToken, listeningText.Text, StringComparison.OrdinalIgnoreCase);
         Assert.Contains(expectedToken, scope.Window.DashboardBookTimes[0].ValueLabel, StringComparison.OrdinalIgnoreCase);
+        Assert.True(scope.Window.DashboardBookTimes[0].HasListening);
+        Assert.True(scope.Window.DashboardBookTimes[0].ListeningBarWidth > scope.Window.DashboardBookTimes[0].VisualBarWidth);
+        Assert.Equal(600, scope.Window.DashboardRecentItems[0].ListeningSeconds);
+        Assert.Contains(expectedToken, scope.Window.DashboardRecentItems[0].DurationLabel, StringComparison.OrdinalIgnoreCase);
         var todayColumn = Assert.Single(scope.Window.DashboardDays, day => !string.IsNullOrEmpty(day.TimeLabel));
         Assert.Contains(expectedToken, todayColumn.DetailLabel, StringComparison.OrdinalIgnoreCase);
     });

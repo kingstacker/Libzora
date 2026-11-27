@@ -37,6 +37,7 @@ public sealed class NativeReaderSurfaceTests(MobileUiSession session)
             while (!states.Any(state => state.Error is not null)) await Task.Delay(10, timeout.Token);
             var failed = reader.GetNativeState();
             Assert.False(failed.Ready);
+            Assert.Null(await reader.NativeCapturePageAsync(CancellationToken.None));
             Assert.Equal(book.Title, failed.Title);
             Assert.Contains("没有可读取", failed.Error);
             Assert.DoesNotContain(reader.GetVisualDescendants().OfType<Button>(), button => button.IsEffectivelyVisible);

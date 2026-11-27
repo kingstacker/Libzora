@@ -264,6 +264,8 @@ struct DashboardBook: Decodable, Identifiable {
     let progressPercent: Double
     let cumulativeSeconds: Int64
     let listeningSeconds: Int64?
+    let hasFinished: Bool?
+    var isFinished: Bool { hasFinished ?? (progressPercent >= 99.5) }
     let isInLibrary: Bool
     var id: String { bookId }
 }

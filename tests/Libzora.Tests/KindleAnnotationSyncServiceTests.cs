@@ -98,11 +98,13 @@ public sealed partial class KindleAnnotationSyncServiceTests
     {
         public KindleAnnotationSnapshot Snapshot { get; private set; } = snapshot;
         public List<KindleAnnotationMutation> Mutations { get; } = [];
-        public int ExportCount { get; private set; }
+        private int _exportCount;
+        public int ExportCount => _exportCount;
+        public Func<CancellationToken, Task>? BeforeExport { get; set; }
         public int WriteCount { get; private set; }
         public bool SnapshotUnavailable { get; init; }
         public bool ApplyMutationsToSnapshot { get; init; }
-        public Exception? ExportFailure { get; init; }
+        public Exception? ExportFailure { get; set; }
         public Exception? WriteFailure { get; set; }
 
         public Task<KindleAnnotationSnapshot?> ReadAnnotationSnapshotAsync(
@@ -110,19 +112,21 @@ public sealed partial class KindleAnnotationSyncServiceTests
             CancellationToken cancellationToken = default) =>
             Task.FromResult<KindleAnnotationSnapshot?>(SnapshotUnavailable ? null : Snapshot);
 
-        public Task<string> ExportBookAsync(
+        public async Task<string> ExportBookAsync(
             KindleDevice device,
             KindleBook book,
             string destinationDirectory,
             IProgress<TransferProgress>? progress = null,
             CancellationToken cancellationToken = default)
         {
-            ExportCount++;
+            Interlocked.Increment(ref _exportCount);
+            if (BeforeExport is not null) await BeforeExport(cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
             if (ExportFailure is not null) throw ExportFailure;
             Directory.CreateDirectory(destinationDirectory);
             var destination = Path.Combine(destinationDirectory, "native.azw3");
             File.Copy(sourceBook, destination, overwrite: true);
-            return Task.FromResult(destination);
+            return destination;
         }
 
         public Task<KindleAnnotationWriteResult> ApplyAnnotationMutationsAsync(

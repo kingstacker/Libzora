@@ -21,6 +21,8 @@ struct NativeSwipeDeleteCard<Label: View>: View {
     @State private var armed = false
 
     var body: some View {
+        let reveal = min(1, max(0, -offset / NativeSwipeDeletePolicy.actionWidth))
+        let buttonScale = armed ? 1.12 : (0.55 + 0.45 * reveal)
         Button(action: open) { label().contentShape(Rectangle()) }
             .buttonStyle(.plain)
             .disabled(disabled || deleting)
@@ -30,6 +32,9 @@ struct NativeSwipeDeleteCard<Label: View>: View {
                 NativeMaterialSwipeOverlay(enabled: !disabled && !deleting,
                     isOpen: offset < -NativeSwipeDeletePolicy.actionWidth * 0.5,
                     onTap: open,
+                    onScrollDismiss: {
+                        if !dragging && !deleting { settle(false) }
+                    },
                     onDragStart: {
                         dragging = true; startOffset = offset; openedEntryId = itemId
                     },
@@ -53,12 +58,13 @@ struct NativeSwipeDeleteCard<Label: View>: View {
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
             .offset(x: offset)
             .background(alignment: .trailing) {
-                if offset < 0 {
+                if reveal > 0.01 {
                     Button(role: .destructive, action: delete) {
                         Image(systemName: "trash").font(.system(size: 16, weight: .semibold))
                             .foregroundStyle(.white).frame(width: 42, height: 42)
                             .background(Color(uiColor: .systemRed), in: Circle())
-                            .scaleEffect(armed ? 1.1 : 1)
+                            .scaleEffect(buttonScale)
+                            .opacity(min(1, reveal * 1.45))
                             .frame(width: max(NativeSwipeDeletePolicy.actionWidth, -offset), alignment: .center)
                             .frame(maxHeight: .infinity).contentShape(Rectangle())
                     }.buttonStyle(.plain).disabled(disabled || deleting)
@@ -80,7 +86,7 @@ struct NativeSwipeDeleteCard<Label: View>: View {
         armed = false
         if opened { openedEntryId = itemId }
         else if openedEntryId == itemId { openedEntryId = nil }
-        withAnimation(.interactiveSpring(response: 0.28, dampingFraction: 0.86)) {
+        withAnimation(.spring(response: 0.36, dampingFraction: opened ? 0.62 : 0.66, blendDuration: 0)) {
             offset = opened ? -NativeSwipeDeletePolicy.actionWidth : 0
         }
     }
@@ -106,22 +112,30 @@ private struct NativeMaterialSwipeOverlay: UIViewRepresentable {
     let enabled: Bool
     let isOpen: Bool
     let onTap: () -> Void
+    let onScrollDismiss: () -> Void
     let onDragStart: () -> Void
     let onDragChange: (CGFloat) -> Void
     let onDragEnd: (CGFloat, Bool) -> Void
     func makeUIView(context: Context) -> NativeMaterialSwipeView { NativeMaterialSwipeView() }
     func updateUIView(_ view: NativeMaterialSwipeView, context: Context) {
         view.isEnabled = enabled; view.isOpen = isOpen; view.onTap = onTap
+        view.onScrollDismiss = onScrollDismiss
         view.onDragStart = onDragStart; view.onDragChange = onDragChange; view.onDragEnd = onDragEnd
+        view.syncScrollObserver()
+    }
+    static func dismantleUIView(_ view: NativeMaterialSwipeView, coordinator: ()) {
+        view.detachScrollObserver()
     }
 }
 
 private final class NativeMaterialSwipeView: UIControl, UIGestureRecognizerDelegate {
     var isOpen = false
     var onTap: (() -> Void)?
+    var onScrollDismiss: (() -> Void)?
     var onDragStart: (() -> Void)?
     var onDragChange: ((CGFloat) -> Void)?
     var onDragEnd: ((CGFloat, Bool) -> Void)?
+    private weak var observedScrollPan: UIPanGestureRecognizer?
     private lazy var pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -130,6 +144,38 @@ private final class NativeMaterialSwipeView: UIControl, UIGestureRecognizerDeleg
         pan.delegate = self; pan.cancelsTouchesInView = true; addGestureRecognizer(pan)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    deinit { detachScrollObserver() }
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window == nil { detachScrollObserver() }
+        else { syncScrollObserver() }
+    }
+    func syncScrollObserver() {
+        guard isOpen, window != nil else { detachScrollObserver(); return }
+        var node: UIView? = superview
+        while let current = node {
+            if let scroll = current as? UIScrollView {
+                let recognizer = scroll.panGestureRecognizer
+                if observedScrollPan !== recognizer {
+                    detachScrollObserver()
+                    recognizer.addTarget(self, action: #selector(handleScrollPan(_:)))
+                    observedScrollPan = recognizer
+                }
+                return
+            }
+            node = current.superview
+        }
+    }
+    func detachScrollObserver() {
+        observedScrollPan?.removeTarget(self, action: #selector(handleScrollPan(_:)))
+        observedScrollPan = nil
+    }
+    @objc private func handleScrollPan(_ gesture: UIPanGestureRecognizer) {
+        guard isOpen else { return }
+        if gesture.state == .began || gesture.state == .changed {
+            onScrollDismiss?()
+        }
+    }
     @objc private func handleTap() { onTap?() }
     @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
         let space = window ?? superview ?? self

@@ -19,10 +19,11 @@
     <TextBlock Classes="label" Text="翻页动画" Margin="0,14,0,0" />
     <c:NativeSegmentGroup>
       <Border Classes="segments">
-        <Grid ColumnDefinitions="*,*,*">
+        <Grid ColumnDefinitions="*,*,*,*">
           <Button Grid.Column="0" Name="AnimationNone" Classes="seg" Content="无" Click="OnAnimationClick" />
           <Button Grid.Column="1" Name="AnimationFade" Classes="seg" Content="淡入" Click="OnAnimationClick" />
           <Button Grid.Column="2" Name="AnimationPush" Classes="seg" Content="平移" Click="OnAnimationClick" />
+          <Button Grid.Column="3" Name="AnimationCurl" Classes="seg" Content="仿真" Click="OnAnimationClick" />
         </Grid>
       </Border>
     </c:NativeSegmentGroup>

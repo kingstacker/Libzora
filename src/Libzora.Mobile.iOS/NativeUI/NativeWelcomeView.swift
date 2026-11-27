@@ -541,12 +541,13 @@ struct NativeWelcomeView: View {
                 Button {
                     withAnimation(.easeInOut(duration: 0.15)) { agreed.toggle() }
                 } label: {
-                    HStack(alignment: .center, spacing: 10) {
+                    HStack(alignment: .top, spacing: 10) {
                         Image(systemName: agreed ? "checkmark.circle.fill" : "circle")
                             .font(.system(size: 20))
                             .frame(width: 22, height: 22)
+                            .padding(.top, 1)
                             .foregroundStyle(agreed ? Color(uiColor: .systemBlue) : NativeTheme.muted)
-                        Text(L("我已阅读并同意《用户协议》和《隐私政策》"))
+                        Text(L("我已阅读并同意《用户协议》和《隐私政策》，并确认仅导入本人拥有合法权利的电子书"))
                             .font(NativeTheme.font(13.5, relativeTo: .subheadline))
                             .foregroundStyle(NativeTheme.ink)
                             .multilineTextAlignment(.leading)

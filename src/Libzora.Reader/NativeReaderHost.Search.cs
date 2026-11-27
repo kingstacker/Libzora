@@ -131,7 +131,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
             PageIndex = anchor.PageIndex,
             RunY = anchor.RunY,
             SliceFraction = anchor.SliceFraction
-        };
+        }.WithTextAnchor(_content?.BodyText);
     }
 
     public bool RestoreContentPosition(ReaderContentPosition? position)

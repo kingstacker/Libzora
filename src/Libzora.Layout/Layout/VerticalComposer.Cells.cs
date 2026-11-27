@@ -112,6 +112,11 @@ internal sealed partial class VerticalComposer
             return Math.Max(Math.Max(CellPitch, cell.Advance), rubyAdvance);
         }
 
+        if (cell.FootnoteMarker && cell.ImagePath is null && cell.RubyAnnotation is null)
+        {
+            return Math.Max(cell.FontSize * 1.15f, CellPitch * 0.78f);
+        }
+
         return Math.Max(CellPitch, rubyAdvance);
     }
 

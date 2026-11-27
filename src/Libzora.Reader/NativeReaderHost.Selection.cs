@@ -658,7 +658,13 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         _selectionEnd = end;
         _bitmapDirty = true;
         InvalidateVisual();
-        EmitSelection();
+        // While a finger is still held down (long-press), paint the word
+        // selection immediately but wait for pointer release to show the
+        // floating action bar so the user can drag to extend the selection.
+        if (!_pointerDown)
+        {
+            EmitSelection();
+        }
         return true;
     }
 

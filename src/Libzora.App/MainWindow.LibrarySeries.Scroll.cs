@@ -8,15 +8,24 @@ using Avalonia.Threading;
 namespace Libzora;
 
 /// <summary>
-/// Horizontal drag-scrolling, edge rubber-band overscroll, and bounce-back
-/// animation for the expanded series strip.
+/// Horizontal drag-scrolling, velocity-based momentum inertia, edge rubber-band
+/// overscroll, and bounce-back animation for the expanded series strip.
 /// </summary>
 public partial class MainWindow
 {
     private const double SeriesShelfDragThreshold = 6d;
     private const double SeriesShelfMaxOverscroll = 112d;
     private const double SeriesShelfOverscrollResistance = 0.55d;
+    private const double SeriesShelfVelocityWindowSeconds = 0.10d;
+    private const double SeriesShelfReleaseIdleTimeoutSeconds = 0.09d;
+    private const double SeriesShelfMinInertiaVelocity = 80d;
+    private const double SeriesShelfMaxInertiaVelocity = 4500d;
+    private const double SeriesShelfStopVelocity = 18d;
+    private const double SeriesShelfDecelerationRate = 4.2d;
+    private const double SeriesShelfEdgeDampingRate = 18d;
+    private const double SeriesShelfEdgeStopVelocity = 40d;
 
+    private readonly List<(double PointerX, long TimestampTicks)> _seriesShelfVelocitySamples = new(16);
     private bool _seriesShelfDragScrollAttached;
     private bool _seriesShelfDragPressed;
     private bool _seriesShelfDragActive;
@@ -30,6 +39,11 @@ public partial class MainWindow
     private double _seriesShelfBounceDurationMs;
     private DispatcherTimer? _seriesShelfBounceTimer;
     private Stopwatch? _seriesShelfBounceStopwatch;
+    private DispatcherTimer? _seriesShelfInertiaTimer;
+    private Stopwatch? _seriesShelfInertiaStopwatch;
+    private double _seriesShelfInertiaLastSeconds;
+    private double _seriesShelfInertiaVelocityX;
+    private double _seriesShelfInertiaRawOverscrollX;
 
     private void EnsureSeriesShelfDragScrollAttached()
     {
@@ -55,7 +69,8 @@ public partial class MainWindow
 
     private void ResetSeriesShelfDragState()
     {
-        StopSeriesShelfBounceAnimation();
+        StopSeriesShelfScrollAnimations();
+        _seriesShelfVelocitySamples.Clear();
         _seriesShelfDragPressed = false;
         _seriesShelfDragActive = false;
         _seriesShelfSuppressTileClick = false;
@@ -71,7 +86,8 @@ public partial class MainWindow
             || !e.GetCurrentPoint(SeriesShelfScrollViewer).Properties.IsLeftButtonPressed)
             return;
 
-        StopSeriesShelfBounceAnimation();
+        StopSeriesShelfScrollAnimations();
+        _seriesShelfVelocitySamples.Clear();
         _seriesShelfDragPressed = true;
         _seriesShelfDragActive = false;
         _seriesShelfSuppressTileClick = false;
@@ -79,6 +95,7 @@ public partial class MainWindow
         _seriesShelfDragStartOffsetX = SeriesShelfScrollViewer.Offset.X;
         _seriesShelfDragStartVirtualOverscrollX = UnapplySeriesShelfRubberBand(_seriesShelfOverscrollX);
         _seriesShelfDragDeadzoneX = 0d;
+        RecordSeriesShelfVelocitySample(_seriesShelfDragStartPoint.X, Stopwatch.GetTimestamp());
     }
 
     private void SeriesShelfScrollViewer_PointerMoved(object? sender, PointerEventArgs e)
@@ -86,11 +103,12 @@ public partial class MainWindow
         if (!_seriesShelfDragPressed || !SeriesShelfOverlay.IsVisible) return;
         if (!e.GetCurrentPoint(SeriesShelfScrollViewer).Properties.IsLeftButtonPressed)
         {
-            FinishSeriesShelfDrag(e.Pointer, suppressClick: false);
+            FinishSeriesShelfDrag(e.Pointer, suppressClick: false, allowInertia: false);
             return;
         }
 
         var current = e.GetPosition(SeriesShelfScrollViewer);
+        var nowTicks = Stopwatch.GetTimestamp();
         var dx = current.X - _seriesShelfDragStartPoint.X;
         var maxX = Math.Max(0d, SeriesShelfScrollViewer.Extent.Width - SeriesShelfScrollViewer.Viewport.Width);
         if (!_seriesShelfDragActive)
@@ -104,6 +122,8 @@ public partial class MainWindow
             SeriesShelfScrollViewer.Cursor = new Cursor(StandardCursorType.Hand);
             e.Pointer.Capture(SeriesShelfScrollViewer);
         }
+
+        RecordSeriesShelfVelocitySample(current.X, nowTicks);
 
         var effectiveDx = dx - _seriesShelfDragDeadzoneX;
         var rawTargetX = _seriesShelfDragStartOffsetX - _seriesShelfDragStartVirtualOverscrollX - effectiveDx;
@@ -119,7 +139,7 @@ public partial class MainWindow
     {
         if (!_seriesShelfDragPressed) return;
         var wasDragging = _seriesShelfDragActive;
-        FinishSeriesShelfDrag(e.Pointer, suppressClick: wasDragging);
+        FinishSeriesShelfDrag(e.Pointer, suppressClick: wasDragging, allowInertia: wasDragging);
         if (wasDragging)
             e.Handled = true;
     }
@@ -127,11 +147,15 @@ public partial class MainWindow
     private void SeriesShelfScrollViewer_PointerCaptureLost(object? sender, PointerCaptureLostEventArgs e)
     {
         if (!_seriesShelfDragPressed && !_seriesShelfDragActive) return;
-        FinishSeriesShelfDrag(pointer: null, suppressClick: _seriesShelfDragActive);
+        FinishSeriesShelfDrag(pointer: null, suppressClick: _seriesShelfDragActive, allowInertia: _seriesShelfDragActive);
     }
 
-    private void FinishSeriesShelfDrag(IPointer? pointer, bool suppressClick)
+    private void FinishSeriesShelfDrag(IPointer? pointer, bool suppressClick, bool allowInertia)
     {
+        var releaseVelocityX = allowInertia
+            ? ComputeSeriesShelfReleaseVelocity(_seriesShelfVelocitySamples, Stopwatch.GetTimestamp(), Stopwatch.Frequency)
+            : 0d;
+        _seriesShelfVelocitySamples.Clear();
         _seriesShelfDragPressed = false;
         _seriesShelfDragActive = false;
         if (!suppressClick)
@@ -141,9 +165,15 @@ public partial class MainWindow
             pointer.Capture(null);
 
         if (Math.Abs(_seriesShelfOverscrollX) > 0.25d)
+        {
             StartSeriesShelfBounceBack();
-        else
-            SetSeriesShelfOverscroll(0d);
+            return;
+        }
+
+        SetSeriesShelfOverscroll(0d);
+        var maxX = Math.Max(0d, SeriesShelfScrollViewer.Extent.Width - SeriesShelfScrollViewer.Viewport.Width);
+        if (maxX > 0d && Math.Abs(releaseVelocityX) >= SeriesShelfMinInertiaVelocity)
+            StartSeriesShelfInertia(releaseVelocityX);
     }
 
     private void SeriesShelfScrollViewer_PointerWheelChanged(object? sender, PointerWheelEventArgs e)
@@ -153,12 +183,149 @@ public partial class MainWindow
             return;
         var maxX = Math.Max(0, SeriesShelfScrollViewer.Extent.Width - SeriesShelfScrollViewer.Viewport.Width);
         if (maxX <= 0) return;
-        StopSeriesShelfBounceAnimation();
+        StopSeriesShelfScrollAnimations();
         SetSeriesShelfOverscroll(0d);
         var current = SeriesShelfScrollViewer.Offset;
         var targetX = Math.Clamp(current.X - e.Delta.Y * 48, 0, maxX);
         SeriesShelfScrollViewer.Offset = new Vector(targetX, current.Y);
         e.Handled = true;
+    }
+
+    private void RecordSeriesShelfVelocitySample(double pointerX, long timestampTicks)
+    {
+        _seriesShelfVelocitySamples.Add((pointerX, timestampTicks));
+        var cutoffTicks = timestampTicks - (long)(SeriesShelfVelocityWindowSeconds * Stopwatch.Frequency);
+        while (_seriesShelfVelocitySamples.Count > 2 && _seriesShelfVelocitySamples[0].TimestampTicks < cutoffTicks)
+            _seriesShelfVelocitySamples.RemoveAt(0);
+    }
+
+    internal static double ComputeSeriesShelfReleaseVelocity(
+        IReadOnlyList<(double PointerX, long TimestampTicks)> samples,
+        long releaseTicks,
+        long tickFrequency)
+    {
+        if (samples.Count < 2 || tickFrequency <= 0) return 0d;
+        var last = samples[^1];
+        var idleSeconds = (releaseTicks - last.TimestampTicks) / (double)tickFrequency;
+        if (idleSeconds > SeriesShelfReleaseIdleTimeoutSeconds) return 0d;
+
+        var windowStartTicks = last.TimestampTicks - (long)(SeriesShelfVelocityWindowSeconds * tickFrequency);
+        var first = samples[0];
+        for (var i = 0; i < samples.Count - 1; i++)
+        {
+            if (samples[i].TimestampTicks >= windowStartTicks)
+            {
+                first = samples[i];
+                break;
+            }
+        }
+
+        var dt = (last.TimestampTicks - first.TimestampTicks) / (double)tickFrequency;
+        if (dt <= 0.002d) return 0d;
+        // Dragging the pointer left (negative pointer delta) advances scroll offset forward (positive velocity).
+        var velocity = -(last.PointerX - first.PointerX) / dt;
+        return Math.Clamp(velocity, -SeriesShelfMaxInertiaVelocity, SeriesShelfMaxInertiaVelocity);
+    }
+
+    internal static (double OffsetX, double RawOverscrollX, double VelocityX, bool ShouldBounceBack, bool Finished)
+        StepSeriesShelfInertia(double offsetX, double rawOverscrollX, double velocityX, double maxX, double dt)
+    {
+        dt = Math.Clamp(dt, 0.001d, 0.05d);
+        if (Math.Abs(rawOverscrollX) > 0.001d)
+        {
+            var dampedVelocity = velocityX * Math.Exp(-SeriesShelfEdgeDampingRate * dt);
+            var nextRawOverscroll = rawOverscrollX - dampedVelocity * dt;
+            var crossedZero = Math.Sign(nextRawOverscroll) != Math.Sign(rawOverscrollX);
+            if (crossedZero || Math.Abs(dampedVelocity) < SeriesShelfEdgeStopVelocity)
+                return (Math.Clamp(offsetX, 0d, maxX), rawOverscrollX, 0d, ShouldBounceBack: true, Finished: false);
+            return (Math.Clamp(offsetX, 0d, maxX), nextRawOverscroll, dampedVelocity, ShouldBounceBack: false, Finished: false);
+        }
+
+        var nextVelocity = velocityX * Math.Exp(-SeriesShelfDecelerationRate * dt);
+        var nextOffset = offsetX + nextVelocity * dt;
+        if (nextOffset < 0d || nextOffset > maxX)
+        {
+            var clampedX = Math.Clamp(nextOffset, 0d, maxX);
+            var overscroll = clampedX - nextOffset;
+            var edgeVelocity = nextVelocity * 0.45d;
+            if (Math.Abs(edgeVelocity) < SeriesShelfEdgeStopVelocity)
+                return (clampedX, overscroll, 0d, ShouldBounceBack: Math.Abs(overscroll) > 0.25d, Finished: Math.Abs(overscroll) <= 0.25d);
+            return (clampedX, overscroll, edgeVelocity, ShouldBounceBack: false, Finished: false);
+        }
+
+        if (Math.Abs(nextVelocity) < SeriesShelfStopVelocity)
+            return (nextOffset, 0d, 0d, ShouldBounceBack: false, Finished: true);
+
+        return (nextOffset, 0d, nextVelocity, ShouldBounceBack: false, Finished: false);
+    }
+
+    private void StartSeriesShelfInertia(double initialVelocityX)
+    {
+        StopSeriesShelfScrollAnimations();
+        _seriesShelfInertiaVelocityX = Math.Clamp(initialVelocityX, -SeriesShelfMaxInertiaVelocity, SeriesShelfMaxInertiaVelocity);
+        _seriesShelfInertiaRawOverscrollX = 0d;
+        _seriesShelfInertiaLastSeconds = 0d;
+        _seriesShelfInertiaStopwatch = Stopwatch.StartNew();
+        if (_seriesShelfInertiaTimer is null)
+        {
+            _seriesShelfInertiaTimer = new DispatcherTimer(DispatcherPriority.Render)
+            {
+                Interval = TimeSpan.FromMilliseconds(12)
+            };
+            _seriesShelfInertiaTimer.Tick += SeriesShelfInertiaTimer_Tick;
+        }
+        _seriesShelfInertiaTimer.Start();
+    }
+
+    private void StopSeriesShelfInertiaAnimation()
+    {
+        _seriesShelfInertiaTimer?.Stop();
+        _seriesShelfInertiaStopwatch?.Stop();
+        _seriesShelfInertiaVelocityX = 0d;
+        _seriesShelfInertiaRawOverscrollX = 0d;
+    }
+
+    private void StopSeriesShelfScrollAnimations()
+    {
+        StopSeriesShelfInertiaAnimation();
+        StopSeriesShelfBounceAnimation();
+    }
+
+    private void SeriesShelfInertiaTimer_Tick(object? sender, EventArgs e)
+    {
+        if (!SeriesShelfOverlay.IsVisible || _seriesShelfInertiaStopwatch is null)
+        {
+            StopSeriesShelfInertiaAnimation();
+            SetSeriesShelfOverscroll(0d);
+            return;
+        }
+
+        var elapsedSeconds = _seriesShelfInertiaStopwatch.Elapsed.TotalSeconds;
+        var dt = elapsedSeconds - _seriesShelfInertiaLastSeconds;
+        _seriesShelfInertiaLastSeconds = elapsedSeconds;
+        if (dt <= 0d) return;
+
+        var maxX = Math.Max(0d, SeriesShelfScrollViewer.Extent.Width - SeriesShelfScrollViewer.Viewport.Width);
+        var currentOffset = SeriesShelfScrollViewer.Offset.X;
+        var step = StepSeriesShelfInertia(currentOffset, _seriesShelfInertiaRawOverscrollX, _seriesShelfInertiaVelocityX, maxX, dt);
+
+        SeriesShelfScrollViewer.Offset = new Vector(step.OffsetX, 0d);
+        _seriesShelfInertiaRawOverscrollX = step.RawOverscrollX;
+        _seriesShelfInertiaVelocityX = step.VelocityX;
+        SetSeriesShelfOverscroll(ApplySeriesShelfRubberBand(step.RawOverscrollX));
+
+        if (step.ShouldBounceBack)
+        {
+            StopSeriesShelfInertiaAnimation();
+            StartSeriesShelfBounceBack();
+            return;
+        }
+
+        if (step.Finished)
+        {
+            StopSeriesShelfInertiaAnimation();
+            SetSeriesShelfOverscroll(0d);
+        }
     }
 
     private static double ApplySeriesShelfRubberBand(double rawOverscroll)

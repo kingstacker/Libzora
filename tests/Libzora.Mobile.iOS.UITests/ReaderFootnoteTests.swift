@@ -207,6 +207,7 @@ final class ReaderFootnoteTests: XCTestCase {
         for (index, label) in labels.enumerated() {
             _ = openBook(label)
             showReaderChrome()
+            checkpoint("3D合书-第\(index + 1)次当前正文与关闭起点")
             app.buttons["reader.close"].tap()
             let book = libraryBook(label)
             XCTAssertTrue(waitUntil(timeout: 5) { book.isHittable && !self.position.isHittable })
@@ -291,6 +292,93 @@ final class ReaderFootnoteTests: XCTestCase {
         showReaderChrome()
         XCTAssertTrue(app.otherElements["reader.topToolbar"].staticTexts["脚注回归·跨文件多段"].isHittable)
         checkpoint("小组件转场-冷启动直接到目标正文")
+    }
+
+    func testWidgetDashboardAppearsBeforeSlowReaderTeardown() throws {
+        guard #available(iOS 16.4, *) else { throw XCTSkip("URL launch requires iOS 16.4") }
+        app.terminate()
+        app.launchArguments = ["--libzora-disable-restore", "--libzora-test-slow-reader-close"]
+        app.launch()
+        _ = openBook("跨文件多段")
+        checkpoint("小组件快跳-慢关闭前当前正文")
+        app.open(try XCTUnwrap(URL(string: "libzora://dashboard")))
+        XCTAssertTrue(waitUntil(timeout: 3) {
+            self.app.staticTexts["page.dashboard"].isHittable && !self.position.exists
+        }, "The dashboard must slide in before the ten-second backend close finishes")
+        checkpoint("小组件快跳-后台仍关闭时数据页已可用")
+    }
+
+    func testWidgetSamePageRequestCancelsAnOlderDifferentTarget() throws {
+        guard #available(iOS 16.4, *) else { throw XCTSkip("URL launch requires iOS 16.4") }
+        app.terminate()
+        app.launchArguments = ["--libzora-disable-restore", "--libzora-test-slow-widget-navigation"]
+        app.launch()
+        XCTAssertTrue(app.scrollViews["library.ready"].waitForExistence(timeout: 40))
+        app.open(try XCTUnwrap(URL(string: "libzora://dashboard")))
+        app.open(try XCTUnwrap(URL(string: "libzora://library")))
+        RunLoop.current.run(until: Date().addingTimeInterval(2.5))
+        XCTAssertTrue(app.scrollViews["library.ready"].isHittable)
+        XCTAssertTrue(app.tabBars.buttons["书库"].isSelected)
+        XCTAssertFalse(app.staticTexts["page.dashboard"].isHittable)
+        checkpoint("小组件最新意图-同页书库请求取消旧数据页请求")
+    }
+
+    func testWidgetLastDifferentTabWinsTheNavigationBurst() throws {
+        guard #available(iOS 16.4, *) else { throw XCTSkip("URL launch requires iOS 16.4") }
+        app.terminate()
+        app.launchArguments = ["--libzora-disable-restore", "--libzora-test-slow-widget-navigation"]
+        app.launch()
+        XCTAssertTrue(app.scrollViews["library.ready"].waitForExistence(timeout: 40))
+        app.open(try XCTUnwrap(URL(string: "libzora://dashboard")))
+        app.open(try XCTUnwrap(URL(string: "libzora://library")))
+        app.open(try XCTUnwrap(URL(string: "libzora://materials")))
+        XCTAssertTrue(waitUntil(timeout: 8) { self.app.tabBars.buttons["资料"].isSelected })
+        XCTAssertFalse(app.staticTexts["page.dashboard"].isHittable)
+        checkpoint("小组件最新意图-最后一个资料页请求胜出")
+    }
+
+    func testWidgetTabCanCancelASlowOpeningReaderImmediately() throws {
+        guard #available(iOS 16.4, *) else { throw XCTSkip("URL launch requires iOS 16.4") }
+        app.terminate()
+        app.launchArguments = ["--libzora-disable-restore", "--libzora-test-slow-reader-open"]
+        app.launch()
+        let id = try XCTUnwrap(UUID(uuidString: String(libraryBook("跨文件多段").identifier.dropFirst("book.".count))))
+        app.open(try XCTUnwrap(URL(string: "libzora://read/\(id.uuidString)")))
+        XCTAssertTrue(app.descendants(matching: .any)["reader.entry.cover"].waitForExistence(timeout: 5))
+        app.open(try XCTUnwrap(URL(string: "libzora://dashboard")))
+        XCTAssertTrue(waitUntil(timeout: 3) { self.app.staticTexts["page.dashboard"].isHittable && !self.position.exists })
+        RunLoop.current.run(until: Date().addingTimeInterval(10.5))
+        XCTAssertTrue(app.staticTexts["page.dashboard"].isHittable)
+        XCTAssertFalse(position.exists, "The canceled book must not reappear when its delayed open finishes")
+        checkpoint("小组件快跳-取消慢打开后保持数据页")
+    }
+
+    func testWidgetColdBookShowsTheIconBeforeItsRenderedPage() throws {
+        guard #available(iOS 16.4, *) else { throw XCTSkip("URL launch requires iOS 16.4") }
+        let id = try XCTUnwrap(UUID(uuidString: String(libraryBook("跨文件多段").identifier.dropFirst("book.".count))))
+        checkpoint("小组件冷启动-阅读前的书库基准")
+        app.terminate()
+        app.launchArguments = ["--libzora-disable-restore", "--libzora-test-slow-reader-open",
+                               "--libzora-test-cold-widget-book", id.uuidString]
+        app.launch()
+        let brand = app.descendants(matching: .any)["launch.brand"]
+        XCTAssertTrue(brand.waitForExistence(timeout: 5), "Cold widget entry must begin at the Libzora icon page")
+        XCTAssertFalse(position.isHittable)
+        XCTAssertFalse(app.scrollViews["library.ready"].isHittable)
+        checkpoint("小组件冷启动-目标未就绪时保持图标页")
+        XCTAssertTrue(waitUntil(timeout: 40) { self.position.isHittable && !brand.exists })
+        checkpoint("小组件冷启动-图标左滑进入目标正文")
+    }
+
+    func testWidgetColdDashboardStartsAtTheIconAndSelectsItsTab() throws {
+        guard #available(iOS 16.4, *) else { throw XCTSkip("URL launch requires iOS 16.4") }
+        checkpoint("小组件冷启动-数据页前的书库基准")
+        app.terminate()
+        app.open(try XCTUnwrap(URL(string: "libzora://dashboard")))
+        XCTAssertTrue(app.staticTexts["page.dashboard"].waitForExistence(timeout: 40))
+        XCTAssertTrue(app.tabBars.buttons["统计"].isSelected)
+        XCTAssertFalse(position.exists)
+        checkpoint("小组件冷启动-图标左滑进入阅读数据")
     }
 
     private func libraryBook(_ label: String) -> XCUIElement {

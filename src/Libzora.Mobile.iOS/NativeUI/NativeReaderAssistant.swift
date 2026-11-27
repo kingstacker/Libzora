@@ -246,6 +246,7 @@ struct NativeAssistant: View {
     @State private var sharePayload: NativeSharePayload?
     @State private var copiedMessageId: UUID?
     @State private var nearBottom = true
+    @State private var containerWidth: CGFloat = 360
     @FocusState private var inputFocused: Bool
 
     init(
@@ -276,76 +277,86 @@ struct NativeAssistant: View {
     }
 
     var body: some View {
-        GeometryReader { geometry in
-            VStack(spacing: 0) {
-                if isSidebar {
-                    sidebarHeader
-                    Divider()
-                }
-                if let info = chat.aiInfo, !info.configured {
-                    unconfiguredBanner
-                    Divider()
-                }
-                ScrollViewReader { proxy in
-                    ZStack(alignment: .bottom) {
-                        ScrollView {
-                            VStack(alignment: .leading, spacing: 14) {
-                                if chat.messages.isEmpty { emptyState }
-                                ForEach(chat.messages) { message in
-                                    bubble(
-                                        message: message,
-                                        maxWidth: min(600, max(220, geometry.size.width - (isSidebar ? 28 : 40))))
-                                }
-                                if !chat.status.isEmpty { statusRow }
-                                Color.clear
-                                    .frame(height: 1)
-                                    .id("ai-bottom-anchor")
-                                    .onAppear { nearBottom = true }
-                                    .onDisappear { nearBottom = false }
+        let bubbleMaxWidth = min(600, max(220, containerWidth - (isSidebar ? 28 : 40)))
+        let pageBackground = isSidebar ? backgroundColor : NativeTheme.page
+        VStack(spacing: 0) {
+            if isSidebar {
+                sidebarHeader
+                Divider()
+            }
+            if let info = chat.aiInfo, !info.configured {
+                unconfiguredBanner
+                Divider()
+            }
+            ScrollViewReader { proxy in
+                ZStack(alignment: .bottom) {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 14) {
+                            if chat.messages.isEmpty { emptyState }
+                            ForEach(chat.messages) { message in
+                                bubble(message: message, maxWidth: bubbleMaxWidth)
                             }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 16)
+                            if !chat.status.isEmpty { statusRow }
+                            Color.clear
+                                .frame(height: 1)
+                                .id("ai-bottom-anchor")
+                                .onAppear { nearBottom = true }
+                                .onDisappear { nearBottom = false }
                         }
-                        .onChange(of: chat.messages.count) { _ in
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 16)
+                    }
+                    .modifier(NativeInteractiveKeyboardDismiss())
+                    .onChange(of: chat.messages.count) { _ in
+                        scrollToBottom(proxy)
+                    }
+                    .onChange(of: inputFocused) { focused in
+                        if focused && nearBottom && !chat.messages.isEmpty {
                             scrollToBottom(proxy)
                         }
-                        .onChange(of: geometry.size.height) { _ in
-                            if nearBottom && !chat.messages.isEmpty {
+                    }
+                    if !nearBottom && !chat.messages.isEmpty {
+                        Button {
+                            withAnimation(.easeOut(duration: 0.2)) {
                                 scrollToBottom(proxy)
                             }
-                        }
-                        if !nearBottom && !chat.messages.isEmpty {
-                            Button {
-                                withAnimation(.easeOut(duration: 0.2)) {
-                                    scrollToBottom(proxy)
-                                }
-                            } label: {
-                                HStack(spacing: 5) {
-                                    Image(systemName: "arrow.down")
-                                        .font(.system(size: 11, weight: .semibold))
-                                    Text(chat.busy ? L("新内容") : L("回到底部"))
-                                        .font(NativeTheme.font(12, relativeTo: .caption))
-                                }
-                                .foregroundStyle(NativeTheme.ink)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 7)
-                                .background(NativeTheme.surface, in: Capsule())
-                                .overlay(Capsule().stroke(NativeTheme.divider, lineWidth: 0.8))
-                                .shadow(color: Color.black.opacity(0.08), radius: 6, y: 2)
+                        } label: {
+                            HStack(spacing: 5) {
+                                Image(systemName: "arrow.down")
+                                    .font(.system(size: 11, weight: .semibold))
+                                Text(chat.busy ? L("新内容") : L("回到底部"))
+                                    .font(NativeTheme.font(12, relativeTo: .caption))
                             }
-                            .buttonStyle(.plain)
-                            .padding(.bottom, 10)
-                            .accessibilityIdentifier("reader.assistant.scrollBottom")
+                            .foregroundStyle(NativeTheme.ink)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 7)
+                            .background(NativeTheme.surface, in: Capsule())
+                            .overlay(Capsule().stroke(NativeTheme.divider, lineWidth: 0.8))
+                            .shadow(color: Color.black.opacity(0.08), radius: 6, y: 2)
                         }
+                        .buttonStyle(.plain)
+                        .padding(.bottom, 10)
+                        .accessibilityIdentifier("reader.assistant.scrollBottom")
                     }
                 }
+            }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            VStack(spacing: 0) {
                 Divider()
                 composer
             }
-            .background(isSidebar ? backgroundColor : NativeTheme.page)
+            .background(pageBackground)
         }
-        .modifier(NativeKeyboardDone())
+        .background(pageBackground)
+        .background(
+            GeometryReader { proxy in
+                Color.clear
+                    .onAppear { containerWidth = proxy.size.width }
+                    .onChange(of: proxy.size.width) { containerWidth = $0 }
+            }
+        )
         .modifier(NativeAssistantToolbarModifier(enabled: !isSidebar, content: {
             ToolbarItemGroup(placement: .navigationBarTrailing) {
                 reasoningMenuButton
@@ -884,6 +895,16 @@ struct NativeAssistant: View {
             markdown += "\n\n---\n\n" + refs
         }
         sharePayload = NativeSharePayload(text: markdown)
+    }
+}
+
+private struct NativeInteractiveKeyboardDismiss: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 16.0, *) {
+            content.scrollDismissesKeyboard(.interactively)
+        } else {
+            content
+        }
     }
 }
 

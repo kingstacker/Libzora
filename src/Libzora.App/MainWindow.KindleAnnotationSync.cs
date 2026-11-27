@@ -92,6 +92,8 @@ public partial class MainWindow
     {
         try { _kindleAnnotationAnalysisCancellation?.Cancel(); }
         catch (ObjectDisposedException) { }
+        try { _kindleClippingReadCancellation?.Cancel(); }
+        catch (ObjectDisposedException) { }
     }
 
     private void UpdateKindleAnnotationSyncButtonVisibility()
@@ -142,7 +144,7 @@ public partial class MainWindow
             return;
         }
         // Automatic checks run once per connection; the toolbar button can
-        // always re-check. Every check reads the whole shared library.
+        // always re-check the database, reusing unchanged book text.
         if (!manual && string.Equals(
                 _kindleAnnotationAutoCheckedIdentity, device.Identity, StringComparison.Ordinal))
             return;
@@ -338,7 +340,7 @@ public partial class MainWindow
 
     private async Task RefreshAfterKindleAnnotationSyncAsync(KindleDevice device)
     {
-        _deviceClippingCache.Remove(device.Identity);
+        RequestKindleClippingReload(device);
         MarkReadingMaterialsDirty();
         if (ReadingMaterialsPage.IsVisible)
             await RefreshReadingMaterialsAsync();

@@ -1083,7 +1083,10 @@ public sealed partial class S3SyncService
                 }
                 var mergedSeconds = await ReadingTimeSyncTracker.MergeAsync(
                     connection, transaction, localFileId, stats.SecondsByDevice, stats.CumulativeSeconds, cancellationToken);
+                var mergedListening = Math.Min(mergedSeconds, await ReadingTimeSyncTracker.MergeListeningAsync(
+                    connection, transaction, localFileId, stats.ListeningSecondsByDevice, cancellationToken));
                 var localStatsRow = currentStatsRows.GetValueOrDefault(localFileId);
+                var hasFinished = stats.HasFinished || stats.ProgressPercent >= 99.5 || localStatsRow?.HasFinished == true;
                 var statsIsNewer = localStatsRow is null
                     || IsRowNewer(
                         stats.SyncVersion, stats.UpdatedAt,
@@ -1095,13 +1098,14 @@ public sealed partial class S3SyncService
                 var command = commandCache.Get(
                     """
                     INSERT INTO ReaderReadingStats (
-                        BookFileId, BookId, CumulativeSeconds, ProgressPercent,
+                        BookFileId, BookId, CumulativeSeconds, ListeningSeconds, HasFinished, ProgressPercent,
                         CompletedChapters, TotalChapters, UpdatedAt)
                     VALUES (
-                        $bookFileId, $bookId, $cumulativeSeconds, $progressPercent,
+                        $bookFileId, $bookId, $cumulativeSeconds, $listeningSeconds, $hasFinished, $progressPercent,
                         $completedChapters, $totalChapters, $updatedAt)
                     ON CONFLICT(BookFileId) DO UPDATE SET
                         BookId = excluded.BookId, CumulativeSeconds = excluded.CumulativeSeconds,
+                        ListeningSeconds = excluded.ListeningSeconds, HasFinished = MAX(HasFinished,excluded.HasFinished),
                         ProgressPercent = excluded.ProgressPercent,
                         CompletedChapters = excluded.CompletedChapters,
                         TotalChapters = excluded.TotalChapters, UpdatedAt = excluded.UpdatedAt;
@@ -1110,6 +1114,8 @@ public sealed partial class S3SyncService
                 AddParameter(command, "$bookFileId", localFileId.ToString());
                 AddParameter(command, "$bookId", localBookId.ToString());
                 AddParameter(command, "$cumulativeSeconds", mergedSeconds);
+                AddParameter(command, "$listeningSeconds", mergedListening);
+                AddParameter(command, "$hasFinished", hasFinished ? 1 : 0);
                 AddParameter(command, "$progressPercent", progressPercent);
                 AddParameter(command, "$completedChapters", completedChapters);
                 AddParameter(command, "$totalChapters", totalChapters);
@@ -1121,6 +1127,8 @@ public sealed partial class S3SyncService
                     connection, transaction, localFileId, mergedSeconds, cancellationToken) > 0;
                 await ReadingTimeSyncTracker.MergeReadingDaysAsync(
                     connection, transaction, localFileId, stats.SecondsByDateByDevice, cancellationToken);
+                await ReadingTimeSyncTracker.MergeListeningDaysAsync(
+                    connection, transaction, localFileId, stats.ListeningSecondsByDateByDevice, cancellationToken);
             }
 
             changed |= await ApplyTombstonesAsync(

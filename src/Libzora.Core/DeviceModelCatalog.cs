@@ -21,39 +21,6 @@ public static class DeviceModelCatalog
             "Kindle Scribe 1 代",
             "Kindle Scribe 2 代",
             "Kindle Scribe 3 代"
-        ]),
-        new("汉王",
-        [
-            "汉王 N10",
-            "汉王 N10 Touch",
-            "汉王 N10 mini",
-            "汉王 Clear",
-            "汉王 E10",
-            "汉王 A5"
-        ]),
-        new("掌阅",
-        [
-            "掌阅 iReader Ocean 2",
-            "掌阅 iReader Ocean 3",
-            "掌阅 iReader Ocean 4",
-            "掌阅 iReader Smart 3",
-            "掌阅 iReader Smart 4",
-            "掌阅 iReader Smart X",
-            "掌阅 iReader Light 2",
-            "掌阅 iReader Light 3",
-            "掌阅 iReader Neo"
-        ]),
-        new("Kobo",
-        [
-            "Kobo Clara HD",
-            "Kobo Clara 2E",
-            "Kobo Clara BW",
-            "Kobo Libra 2",
-            "Kobo Libra Colour",
-            "Kobo Sage",
-            "Kobo Elipsa 2E",
-            "Kobo Forma",
-            "Kobo Nia"
         ])
     ];
 }

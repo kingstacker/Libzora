@@ -15,11 +15,11 @@ internal sealed partial class HorizontalComposer
     /// writing fall back to the flattened text flow carried on
     /// <see cref="ContentBlock.Items"/>.
     /// </summary>
-    private void PlaceTable(ContentBlock block)
+    private void PlaceTable(ContentBlock block, bool followsHeading = false, bool followsImage = false)
     {
         if (block.Table is not { Rows.Count: > 0 } table)
         {
-            PlaceTableFallback(block);
+            PlaceTableFallback(block, followsHeading, followsImage);
             return;
         }
 
@@ -31,7 +31,7 @@ internal sealed partial class HorizontalComposer
             .Max();
         if (capacity < 2)
         {
-            PlaceTableFallback(block);
+            PlaceTableFallback(block, followsHeading, followsImage);
             return;
         }
 
@@ -46,7 +46,7 @@ internal sealed partial class HorizontalComposer
         if (minColumnWidth * capacity > availWidth)
         {
             // Many columns on a phone: readable prose beats unreadable slivers.
-            PlaceTableFallback(block);
+            PlaceTableFallback(block, followsHeading, followsImage);
             return;
         }
 
@@ -64,7 +64,7 @@ internal sealed partial class HorizontalComposer
 
         if (columnCount < 2)
         {
-            PlaceTableFallback(block);
+            PlaceTableFallback(block, followsHeading, followsImage);
             return;
         }
 
@@ -74,7 +74,7 @@ internal sealed partial class HorizontalComposer
         var gaps = columnGap * (columnCount - 1);
         if (minColumnWidth * columnCount + gaps > availWidth)
         {
-            PlaceTableFallback(block);
+            PlaceTableFallback(block, followsHeading, followsImage);
             return;
         }
 
@@ -82,15 +82,20 @@ internal sealed partial class HorizontalComposer
             measuredRows, columnCount, availWidth, gaps, minColumnWidth, cellPadX);
         if (columnWidths is null)
         {
-            PlaceTableFallback(block);
+            PlaceTableFallback(block, followsHeading, followsImage);
             return;
         }
 
         LayOutTableCells(measuredRows, columnWidths, columnGap, cellPadX);
         SetRowHeights(measuredRows, cellPadY);
 
-        _cursorY += block.SpaceBeforeLines * BodyLineHeight
+        var beforeSpace = block.SpaceBeforeLines * BodyLineHeight
             + block.MarginTopEm * BaseFontSize;
+        if (followsHeading || followsImage)
+        {
+            beforeSpace = Math.Max(0f, beforeSpace - _previousBlockBottomSpace);
+        }
+        _cursorY += beforeSpace;
 
         var groups = BuildRowGroups(measuredRows);
         var rowTops = new float[measuredRows.Count];
@@ -98,7 +103,7 @@ internal sealed partial class HorizontalComposer
         // Keep a header row together with the first data row instead of
         // stranding the header alone at the bottom of a page. Rows tied
         // together by rowspans form one group and move as a unit.
-        if (groups.Count > 1)
+        if (!ContinuousScroll && groups.Count > 1)
         {
             var keepWith = GroupHeight(measuredRows, groups[0])
                 + GroupHeight(measuredRows, groups[1]);
@@ -120,7 +125,11 @@ internal sealed partial class HorizontalComposer
                 groupHeight += measuredRows[rowIndex].Height;
             }
 
-            if (_cursorY + groupHeight > ContentBottom + 0.01f
+            if (ContinuousScroll)
+            {
+                WrapContinuousScrollPage();
+            }
+            else if (_cursorY + groupHeight > ContentBottom + 0.01f
                 && _pages.CurrentPageHasContent)
             {
                 _pages.NextIfUsed();

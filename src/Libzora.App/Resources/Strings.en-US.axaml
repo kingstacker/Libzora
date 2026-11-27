@@ -177,7 +177,7 @@
     <x:String x:Key="Ui.Auto.2C97F5ECD0B7DBC0">AI translation RPM (requests per minute)</x:String>
     <x:String x:Key="Ui.Auto.2A33E57EC21CE3BA">0 means unlimited; maximum 65,536. Applies only to AI translation.</x:String>
     <x:String x:Key="Ui.Auto.4D6C4A7B0E6E3A11">Network proxy address</x:String>
-    <x:String x:Key="Ui.Auto.8B7B5D7E5F3A1C20">Used for Google Translate, pinyin models, Calibre downloads and software updates. Leave empty for a direct connection, e.g. http://127.0.0.1:7890</x:String>
+    <x:String x:Key="Ui.Auto.8B7B5D7E5F3A1C20">Used for pinyin models, TTS voice models, Calibre downloads, and software updates. Leave empty to use no custom proxy, e.g. http://127.0.0.1:7890</x:String>
     <x:String x:Key="Ui.Auto.966A23E84AEDEEA5">Target language</x:String>
     <x:String x:Key="Ui.Auto.354B28C853334568">Original</x:String>
     <x:String x:Key="Ui.Auto.80461C2DECC549DC">Translation</x:String>
@@ -260,7 +260,7 @@
     <x:String x:Key="Ui.Auto.324225EEF1D76994">Task complete</x:String>
     <x:String x:Key="Ui.Auto.7D4146CA082798F0">Author</x:String>
     <x:String x:Key="Ui.Auto.98BFA63342D1FDA2">Use SSL/TLS</x:String>
-    <x:String x:Key="Ui.Device.ModelExample">For example, Kindle Paperwhite or Kobo Libra</x:String>
+    <x:String x:Key="Ui.Device.ModelExample">For example, Kindle Paperwhite or Kindle Scribe</x:String>
     <x:String x:Key="Ui.Auto.CDB45C04FD8D14BE">For example, name@example.com</x:String>
     <x:String x:Key="Ui.Auto.88D320044CFC5366">For example, name@kindle.com</x:String>
     <x:String x:Key="Ui.Auto.B24BB0C6CC545A3A">For example, you@example.com</x:String>
@@ -348,7 +348,7 @@
     <x:String x:Key="Ui.Auto.5A9E51DCF3C59291">The account service region does not match.</x:String>
     <x:String x:Key="Ui.Auto.3FD47EDCE45B3603">Close</x:String>
     <x:String x:Key="Ui.Auto.D7B60ECE792129FF">Close book details</x:String>
-    <x:String x:Key="Ui.Auto.D7842A57D154C697">online matching, email delivery, and tool downloads become unavailable when disabled</x:String>
+    <x:String x:Key="Ui.Auto.D7842A57D154C697">Cloud sync, online AI, email delivery, software updates, tool and model downloads, and plugin network features become unavailable when disabled</x:String>
     <x:String x:Key="Ui.Auto.A8B1F579ACBCC5D5">Close reader</x:String>
     <x:String x:Key="Ui.Auto.39700B6351624E48">Write an annotation (optional; leave empty for a highlight only)</x:String>
     <x:String x:Key="Ui.Auto.C8361F6E397593F8">Write down what you understood, felt, questioned, or plan to do after reading this book.</x:String>
@@ -762,7 +762,7 @@
     <x:String x:Key="Ui.Auto.FBD5755F75159075">Reading streak over the last year</x:String>
     <x:String x:Key="Ui.Auto.7644551F37492A5D">Reading time over the last 14 days</x:String>
     <x:String x:Key="Ui.Auto.3CECF8BF2CE24F05">Reading time over the last {0} days</x:String>
-    <x:String x:Key="Ui.Auto.E1FD8BC385380027">Daily average over the last 7 days —</x:String>
+    <x:String x:Key="Ui.Auto.E1FD8BC385380027">7-day avg —</x:String>
     <x:String x:Key="Ui.Auto.83A25C492C9A33C4">Reading time chart</x:String>
     <x:String x:Key="Ui.Auto.A51CE8191584FCF7">Back to bookshelf</x:String>
     <x:String x:Key="Ui.Auto.54C1945A1C69E258">Back to reading</x:String>
@@ -1543,7 +1543,7 @@ Book excerpts:
     <x:String x:Key="Ui.Auto.4B91BC828EAD21D4">Migration preparation failed: {0}</x:String>
     <x:String x:Key="Ui.Auto.E4398984141510AE">Migration package prepared; restart Libzora to complete the migration automatically.</x:String>
     <x:String x:Key="Ui.Auto.1EE34787852CE414">Close the reader before migrating the data directory.</x:String>
-    <x:String x:Key="Ui.Auto.12D8929AB62A6D71">7-day daily average: {0}</x:String>
+    <x:String x:Key="Ui.Auto.12D8929AB62A6D71">7-day avg {0}</x:String>
     <x:String x:Key="Ui.Auto.DDDE08946298195D">Restore</x:String>
     <x:String x:Key="Ui.Auto.B1AB4353C4844BEA">No collections yet</x:String>
     <x:String x:Key="Ui.Auto.07DB0FD1CC157D9E">This book already has the {0} format.</x:String>
@@ -3128,7 +3128,7 @@ This run stopped early because online requested access verification; the remaini
     <x:String x:Key="Ui.Auto.21D0F362C79A67BA">F11  Toggle zen mode</x:String>
     <x:String x:Key="Ui.Auto.AA2D9157400D1E25">7-day avg {0} · incl. {1} listening</x:String>
     <x:String x:Key="Ui.Auto.2F1D20B590B7BD2D">{0} (incl. {1} listening)</x:String>
-    <x:String x:Key="Ui.Auto.D9D13D5F56DA03FE">Listening {0}</x:String>
+    <x:String x:Key="Ui.Auto.D9D13D5F56DA03FE">Total listening {0}</x:String>
     <x:String x:Key="Ui.Auto.BB79A4C3654C8733">Sync Key Required</x:String>
     <x:String x:Key="Ui.Auto.77BEF6D44D5A9BA0">Set a sync key below before enabling sync.</x:String>
     <x:String x:Key="Ui.Auto.02E18DCAC519CBB0">Enter and confirm a matching sync key below before enabling sync.</x:String>

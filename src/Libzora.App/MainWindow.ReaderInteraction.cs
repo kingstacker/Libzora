@@ -170,8 +170,9 @@ public partial class MainWindow
     private bool _readerAssistantVisibleBeforeZen = true;
     private bool _readerTocExpandedBeforeZen = true;
     private bool _readerTocMinimalBeforeZen;
-    private long _readerActiveSeconds;
-    private long _readerListeningSeconds;
+    private ReadingActivityClock _readerActivityClock = new(DateTimeOffset.UtcNow);
+    private ListeningActivityClock _readerListeningClock = new();
+    private readonly ReadingTimeAccumulator _readerTimeAccumulator = new();
     private DispatcherTimer? _readerStatsTimer;
     private int _readerTransientStatusSequence;
     private bool _readerContinuousLocked;
@@ -437,10 +438,91 @@ public partial class MainWindow
 
     // ------------------------------------------------------------------
     // Reading stats: cumulative active reading time plus a progress
-    // snapshot. Time only accrues while the window is active and the
-    // reader pane is visible, so simply leaving the book open is not
-    // counted as reading time. Mirrors the WinUI reference.
+    // snapshot. Uses the shared ReadingActivityClock (120s idle cap) and
+    // ListeningActivityClock with UTC day splitting, matching mobile.
     // ------------------------------------------------------------------
+
+    private void InitializeReaderActivityTracking()
+    {
+        Activated += (_, _) => OnReaderWindowActivated();
+        Deactivated += (_, _) => OnReaderWindowDeactivated();
+        ReaderRoot.AddHandler(
+            InputElement.KeyDownEvent,
+            (_, _) => RecordReaderVisualActivity(),
+            RoutingStrategies.Tunnel,
+            handledEventsToo: true);
+        ReaderRoot.AddHandler(
+            InputElement.PointerPressedEvent,
+            (_, _) => RecordReaderVisualActivity(),
+            RoutingStrategies.Tunnel,
+            handledEventsToo: true);
+        ReaderRoot.AddHandler(
+            InputElement.PointerWheelChangedEvent,
+            (_, _) => RecordReaderVisualActivity(),
+            RoutingStrategies.Tunnel,
+            handledEventsToo: true);
+    }
+
+    private void ResetReaderReadingTime(DateTimeOffset now)
+    {
+        _readerActivityClock = new ReadingActivityClock(now);
+        _readerListeningClock = new ListeningActivityClock();
+        _readerTimeAccumulator.Clear();
+        if (!IsActive)
+            _readerActivityClock.Pause(now);
+        if (_readerTts.State == TtsPlaybackState.Playing)
+        {
+            _readerListeningClock.SetPlaying(true, now);
+            _readerActivityClock.Pause(now);
+        }
+    }
+
+    private void RecordReaderVisualActivity()
+    {
+        if (!ReaderRoot.IsVisible || !IsActive || _readerListeningClock.IsPlaying) return;
+        var now = DateTimeOffset.UtcNow;
+        _readerTimeAccumulator.Add(_readerActivityClock.CountUntil(now), _readerActivityClock.LastSlice);
+        if (_readerTimeAccumulator.PendingTotalSeconds >= 30)
+            _ = ObserveReadingTimeFlushAsync();
+    }
+
+    private void OnReaderWindowActivated()
+    {
+        if (!ReaderRoot.IsVisible) return;
+        if (!_readerListeningClock.IsPlaying)
+            _readerActivityClock.Resume(DateTimeOffset.UtcNow);
+    }
+
+    private void OnReaderWindowDeactivated()
+    {
+        if (!ReaderRoot.IsVisible) return;
+        var now = DateTimeOffset.UtcNow;
+        _readerTimeAccumulator.Add(_readerActivityClock.Pause(now), _readerActivityClock.LastSlice);
+        if (_readerListeningClock.IsPlaying)
+            _readerTimeAccumulator.Add(_readerListeningClock.CountUntil(now), _readerListeningClock.LastSlice, listening: true);
+        if (_readerTimeAccumulator.PendingTotalSeconds > 0)
+            _ = ObserveReadingTimeFlushAsync();
+    }
+
+    private void OnReaderTtsPlaybackStateChanged(TtsPlaybackState state)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var isPlaying = state == TtsPlaybackState.Playing;
+        var listeningDelta = _readerListeningClock.SetPlaying(isPlaying, now);
+        _readerTimeAccumulator.Add(listeningDelta, _readerListeningClock.LastSlice, listening: true);
+        if (isPlaying)
+        {
+            _readerTimeAccumulator.Add(_readerActivityClock.Pause(now), _readerActivityClock.LastSlice);
+            return;
+        }
+        if (ReaderRoot.IsVisible && IsActive)
+            _readerActivityClock.Resume(now);
+        if (state is TtsPlaybackState.Paused or TtsPlaybackState.Stopped or TtsPlaybackState.Error
+            && _readerTimeAccumulator.PendingListeningSeconds > 0)
+        {
+            _ = ObserveReadingTimeFlushAsync();
+        }
+    }
 
     private void StartReaderStatsTimer()
     {
@@ -448,7 +530,7 @@ public partial class MainWindow
         {
             _readerStatsTimer = new DispatcherTimer
             {
-                Interval = TimeSpan.FromSeconds(1)
+                Interval = TimeSpan.FromSeconds(30)
             };
             _readerStatsTimer.Tick += ReaderStatsTimer_Tick;
         }
@@ -460,15 +542,23 @@ public partial class MainWindow
         _readerStatsTimer?.Stop();
     }
 
+    private void StopAndCaptureReaderReadingTime()
+    {
+        StopReaderStatsTimer();
+        var now = DateTimeOffset.UtcNow;
+        _readerTimeAccumulator.Add(_readerActivityClock.Pause(now), _readerActivityClock.LastSlice);
+        _readerTimeAccumulator.Add(_readerListeningClock.SetPlaying(false, now), _readerListeningClock.LastSlice, listening: true);
+    }
+
     private void ReaderStatsTimer_Tick(object? sender, EventArgs e)
     {
         if (!ReaderRoot.IsVisible) return;
-        var isListening = _readerTts.State == TtsPlaybackState.Playing;
-        if (!isListening && !IsActive) return;
-        _readerActiveSeconds++;
-        if (isListening)
-            _readerListeningSeconds++;
-        if (_readerActiveSeconds % 30 == 0)
+        if (_readerListeningClock.IsPlaying)
+        {
+            var now = DateTimeOffset.UtcNow;
+            _readerTimeAccumulator.Add(_readerListeningClock.CountUntil(now), _readerListeningClock.LastSlice, listening: true);
+        }
+        if (_readerTimeAccumulator.PendingTotalSeconds > 0)
             _ = ObserveReadingTimeFlushAsync();
     }
 
@@ -486,17 +576,28 @@ public partial class MainWindow
         var card = _readerBookCard;
         var file = _readerBookFile;
         if (card is null || file is null) return;
-        var seconds = Interlocked.Exchange(ref _readerActiveSeconds, 0);
-        var listeningSeconds = Math.Clamp(Interlocked.Exchange(ref _readerListeningSeconds, 0), 0, Math.Max(0, seconds));
+        var now = DateTimeOffset.UtcNow;
+        var (readingSeconds, listeningSeconds, days) = _readerTimeAccumulator.Drain(now);
+        var seconds = readingSeconds + listeningSeconds;
         if (seconds <= 0)
         {
             await _readerReadingTimeRecovery.InitializeAsync();
             return;
         }
-        await _readerReadingTimeRecovery.SaveAsync(card.Book.Id, file.Id, seconds,
-            CalculateReaderProgressPercent(), _readerChapterIndex,
-            _readerDocument?.Chapters.Count ?? (_readerIsPdf ? _readerPdfPages.Count : 0),
-            listeningSeconds, CancellationToken.None);
+        try
+        {
+            await _readerReadingTimeRecovery.SaveAsync(card.Book.Id, file.Id, seconds,
+                CalculateReaderProgressPercent(), _readerChapterIndex,
+                _readerDocument?.Chapters.Count ?? (_readerIsPdf ? _readerPdfPages.Count : 0),
+                listeningSeconds, CancellationToken.None, days, now);
+        }
+        catch
+        {
+            if (_readerBookFile?.Id == file.Id)
+                _readerTimeAccumulator.Restore(readingSeconds, listeningSeconds, days);
+            throw;
+        }
+        if (_readerBookFile?.Id != file.Id) return;
         var currentSeconds = (_readerBookReadingStats?.CumulativeSeconds ?? 0) + seconds;
         var currentListening = (_readerBookReadingStats?.ListeningSeconds ?? 0) + listeningSeconds;
         _readerBookReadingStats = new ReaderReadingStats
@@ -506,7 +607,7 @@ public partial class MainWindow
             CumulativeSeconds = currentSeconds,
             ListeningSeconds = currentListening,
             ProgressPercent = CalculateReaderProgressPercent(),
-            UpdatedAt = DateTimeOffset.UtcNow
+            UpdatedAt = now
         };
         if (_appSettings.ReaderProgressDisplay == ReaderProgressDisplayMode.BookTimeRemaining)
             ReaderChapterText.Text = GetReaderChapterPositionLabel();

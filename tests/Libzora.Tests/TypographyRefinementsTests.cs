@@ -342,11 +342,16 @@ public sealed class TypographyRefinementsTests : IDisposable
         };
         var layout = engine.Compose(content, options);
         var allRuns = layout.Pages.SelectMany(p => p.Runs).ToList();
-        var h1Size = allRuns.First(r => r.TextStart >= 0 && content.BodyText.Substring(r.TextStart, r.TextLength).Contains("一级")).FontSize;
-        var h2Size = allRuns.First(r => r.TextStart >= 0 && content.BodyText.Substring(r.TextStart, r.TextLength).Contains("二级")).FontSize;
-        var h3Size = allRuns.First(r => r.TextStart >= 0 && content.BodyText.Substring(r.TextStart, r.TextLength).Contains("三级")).FontSize;
+        var h1Run = allRuns.First(r => r.TextStart >= 0 && content.BodyText.Substring(r.TextStart, r.TextLength).Contains("一级"));
+        var h2Run = allRuns.First(r => r.TextStart >= 0 && content.BodyText.Substring(r.TextStart, r.TextLength).Contains("二级"));
+        var h3Run = allRuns.First(r => r.TextStart >= 0 && content.BodyText.Substring(r.TextStart, r.TextLength).Contains("三级"));
+        var h1Size = h1Run.FontSize;
+        var h2Size = h2Run.FontSize;
+        var h3Size = h3Run.FontSize;
         Assert.True(h1Size > h2Size && h2Size > h3Size && h3Size > options.BaseFontSize,
             $"Expected h1 > h2 > h3 > body: h1={h1Size}, h2={h2Size}, h3={h3Size}, body={options.BaseFontSize}");
+        Assert.True(h2Run.OriginY > h1Run.OriginY + 8f && h3Run.OriginY > h2Run.OriginY + 8f,
+            $"Expected h1, h2, h3 on separate lines: h1.Y={h1Run.OriginY}, h2.Y={h2Run.OriginY}, h3.Y={h3Run.OriginY}");
 
         var subHeadingOffset = content.BodyText.IndexOf("页尾小节标题", StringComparison.Ordinal);
         var followOffset = content.BodyText.IndexOf("紧随小节标题", StringComparison.Ordinal);
@@ -601,5 +606,130 @@ public sealed class TypographyRefinementsTests : IDisposable
         var rect = layout.Pages[0].Images[0].Rect;
         var sample = outBitmap.GetPixel((int)(rect.Left + rect.Width / 2), (int)(rect.Top + rect.Height / 2));
         Assert.InRange(sample.Red, (byte)190, (byte)230); // attenuated from 255 to ~214
+    }
+
+    [Fact]
+    public void KnuthPlassBreaksAfterStandaloneEmDashInEnglishDialogue()
+    {
+        var html = "<p>“Which is it to-day?” I asked,—“morphine or cocaine?”</p>";
+        var content = new XhtmlChapterLoader(paragraphIndent: false).Load(WriteChapter(html));
+        using var engine = CreateEngine();
+        var options = new TypesetLayoutOptions
+        {
+            BaseFontSize = 22f,
+            LineHeight = 1.75f,
+            NaturalLatinTypography = true,
+            HyphenateEnglish = true,
+            HangingPunctuation = true,
+            ParagraphIndent = false,
+            ViewportWidth = 390f,
+            ViewportHeight = 800f,
+            InsetHorizontal = 24f,
+            InsetVertical = 24f,
+        };
+
+        var layout = engine.Compose(content, options);
+        var lines = layout.Pages[0].Runs
+            .GroupBy(r => MathF.Round(r.OriginY, 1))
+            .OrderBy(g => g.Key)
+            .Select(g => string.Concat(g.OrderBy(r => r.OriginX)
+                .Where(r => r.TextStart >= 0 && r.TextLength > 0)
+                .Select(r => content.BodyText.Substring(r.TextStart, r.TextLength))))
+            .ToList();
+
+        Assert.Equal(2, lines.Count);
+        Assert.Contains("asked,—", lines[0]);
+        Assert.StartsWith("“morphine", lines[1]);
+    }
+
+    [Fact]
+    public void SingleColumnEnglishTocTableCollapsesHeadingGapAndUsesNaturalSpacing()
+    {
+        var html = """
+            <h2>Contents</h2>
+            <table style="margin-left:auto;margin-right:auto">
+              <tbody>
+                <tr><td><a href="#c1">Chapter I. The Science of Deduction</a></td></tr>
+                <tr><td><a href="#c2">Chapter II. The Statement of the Case</a></td></tr>
+                <tr><td><a href="#c3">Chapter VIII. The Baker Street Irregulars</a></td></tr>
+              </tbody>
+            </table>
+            """;
+        var content = new XhtmlChapterLoader(paragraphIndent: false).Load(WriteChapter(html));
+        using var engine = CreateEngine();
+        var options = new TypesetLayoutOptions
+        {
+            BaseFontSize = 20f,
+            LineHeight = 1.75f,
+            NaturalLatinTypography = true,
+            HyphenateEnglish = true,
+            ParagraphIndent = false,
+            ViewportWidth = 390f,
+            ViewportHeight = 800f,
+            InsetHorizontal = 24f,
+            InsetVertical = 24f,
+        };
+
+        var layout = engine.Compose(content, options);
+        var baselines = layout.Pages[0].Runs
+            .Select(r => MathF.Round(r.OriginY, 1))
+            .Distinct()
+            .Order()
+            .ToArray();
+
+        Assert.True(baselines.Length >= 4);
+        // Heading-to-table gap should collapse instead of stacking h2 bottom space + table top space.
+        var headingGap = baselines[1] - baselines[0];
+        Assert.True(headingGap < options.BaseFontSize * 3.8f,
+            $"Expected collapsed heading-to-table gap, got {headingGap:F1}pt.");
+
+        // Single-column English TOC table must tighten CJK 0.5em spaces, stay left-aligned,
+        // and never hyphenate chapter titles ("Ir-regulars").
+        Assert.DoesNotContain(layout.Pages[0].Runs, r => r.SyntheticHyphen);
+        var firstItemRuns = layout.Pages[0].Runs
+            .Where(r => MathF.Abs(r.OriginY - baselines[1]) < 0.5f)
+            .OrderBy(r => r.OriginX)
+            .ToList();
+        var firstItemText = string.Concat(firstItemRuns
+            .Where(r => r.TextStart >= 0 && r.TextLength > 0)
+            .Select(r => content.BodyText.Substring(r.TextStart, r.TextLength)));
+        Assert.Contains("Deduction", firstItemText);
+    }
+
+    [Fact]
+    public void JustifiedEnglishProseEliminatesRightMarginNotchesWithMicroTracking()
+    {
+        var html = "<p>Sherlock Holmes took his bottle from the corner of the mantel-piece and his hypodermic syringe from its neat morocco case. With his long, white, nervous fingers he adjusted the delicate needle, and rolled back his left shirt-cuff. For some little time his eyes rested thoughtfully upon the sinewy forearm and wrist all dotted and scarred with innumerable puncture-marks. Finally he thrust the sharp point home, pressed down the tiny piston, and sank back into the velvet-lined arm-chair with a long sigh of satisfaction.</p>";
+        var content = new XhtmlChapterLoader(paragraphIndent: false).Load(WriteChapter(html));
+        using var engine = CreateEngine();
+        var options = new TypesetLayoutOptions
+        {
+            BaseFontSize = 21f,
+            LineHeight = 1.75f,
+            NaturalLatinTypography = true,
+            HyphenateEnglish = true,
+            HangingPunctuation = true,
+            ParagraphIndent = false,
+            ViewportWidth = 390f,
+            ViewportHeight = 844f,
+            InsetHorizontal = 24f,
+            InsetVertical = 24f,
+        };
+
+        var layout = engine.Compose(content, options);
+        var rightEdge = options.ViewportWidth - options.InsetHorizontal;
+        var lines = layout.Pages.SelectMany(p => p.Runs)
+            .GroupBy(r => MathF.Round(r.OriginY, 1))
+            .OrderBy(g => g.Key)
+            .ToList();
+
+        Assert.True(lines.Count >= 10, $"Expected multi-line paragraph, got {lines.Count} lines.");
+        for (var i = 0; i < lines.Count - 1; i++)
+        {
+            var lineRight = lines[i].Max(r => r.OriginX + r.FlowAdvance);
+            var shortfall = rightEdge - lineRight;
+            Assert.True(shortfall <= 1.0f,
+                $"Line {i} fell short of right margin by {shortfall:F2}pt (right={lineRight:F2}, edge={rightEdge:F2}).");
+        }
     }
 }

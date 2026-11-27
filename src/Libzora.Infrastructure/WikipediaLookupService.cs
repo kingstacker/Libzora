@@ -11,7 +11,6 @@ public sealed record WikipediaArticle(string Title, string Extract, Uri Url, str
 public sealed class WikipediaLookupService
 {
     private const int MaximumQueryLength = 120;
-    private const int ExtractCharacterLimit = 420;
     private static readonly HttpClient SharedHttpClient = CreateHttpClient();
     private readonly HttpClient _httpClient;
 
@@ -69,7 +68,6 @@ public sealed class WikipediaLookupService
             ["prop"] = "extracts|info",
             ["exintro"] = "1",
             ["explaintext"] = "1",
-            ["exchars"] = ExtractCharacterLimit.ToString(System.Globalization.CultureInfo.InvariantCulture),
             ["inprop"] = "url"
         };
         if (language == "zh")

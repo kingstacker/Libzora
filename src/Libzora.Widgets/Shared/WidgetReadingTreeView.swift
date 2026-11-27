@@ -39,51 +39,41 @@ struct KkReadingTreeWidgetView: View {
 
     private var small: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .center, spacing: 0) {
+            HStack(alignment: .center, spacing: 6) {
                 Text(WidgetLocalization.treeTitle(lang))
                     .kkLabelFont(11, weight: .medium)
                     .foregroundStyle(KkTheme.secondaryInk(scheme))
                     .lineLimit(1)
                     .minimumScaleFactor(0.68)
                 Spacer(minLength: 6)
-                HStack(spacing: 3) {
-                    Circle()
-                        .fill(streakDotColor)
-                        .frame(width: 5, height: 5)
-                    Text(WidgetLocalization.shortDays(profile.streakDays, lang))
-                        .kkLabelFont(9.5, weight: .medium)
-                        .foregroundStyle(KkTheme.secondaryInk(scheme))
-                        .monospacedDigit()
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.72)
-                }
-                .layoutPriority(1)
+                Text(WidgetLocalization.shortDays(profile.streakDays, lang))
+                    .kkLabelFont(9.5, weight: .medium)
+                    .foregroundStyle(KkTheme.secondaryInk(scheme))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                    .layoutPriority(1)
             }
 
             KkReadingTreeCanvas(profile: profile)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding(.vertical, -3)
 
-            HStack(alignment: .center, spacing: 4) {
+            HStack(alignment: .center, spacing: 6) {
                 Text(KkFormat.localizedCompactHours(profile.totalSeconds, language: lang))
                     .kkLabelFont(9.5, weight: .medium)
                     .foregroundStyle(KkTheme.secondaryInk(scheme))
                     .monospacedDigit()
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
-                Spacer(minLength: 4)
-                HStack(spacing: 3) {
-                    Circle()
-                        .fill(isFullColor ? KkTheme.treeYellowAccent(scheme) : Color.primary.opacity(0.7))
-                        .frame(width: 5, height: 5)
-                    let countText = KkFormat.localizedCompactCount(profile.booksFinished, language: lang)
-                    Text(WidgetLocalization.treeBooksCount(countText, rawCount: profile.booksFinished, lang))
-                        .kkLabelFont(9.5, weight: .medium)
-                        .foregroundStyle(KkTheme.secondaryInk(scheme))
-                        .monospacedDigit()
-                        .lineLimit(1)
-                }
-                .fixedSize(horizontal: true, vertical: false)
+                Spacer(minLength: 6)
+                let countText = KkFormat.localizedCompactCount(profile.booksFinished, language: lang)
+                Text(WidgetLocalization.treeBooksCount(countText, rawCount: profile.booksFinished, lang))
+                    .kkLabelFont(9.5, weight: .medium)
+                    .foregroundStyle(KkTheme.secondaryInk(scheme))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
             }
         }
         .padding(.horizontal, 13)

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Avalonia;
+using Avalonia.Controls;
 using Libzora.Core;
 using Libzora.ApplicationServices.Tts;
 
@@ -107,6 +108,22 @@ public partial class ReaderPage
     private string _nativeSearchId = string.Empty;
     private NativeSearchSession? _nativeSearchSession;
     private const int NativeSearchWindowChapters = 10;
+
+    /// <summary>
+    /// Captures the renderer's visible pixels directly, including GPU-backed
+    /// pages that UIKit hierarchy snapshots can omit. Coordinates are relative
+    /// to the full native reader surface, not to the window's safe area.
+    /// </summary>
+    public async Task<(byte[] Image, Rect Frame)?> NativeCapturePageAsync(CancellationToken cancellationToken)
+    {
+        if (_readerHost is not IReaderPageSnapshotProvider provider || _readerHost is not Control control)
+            return null;
+        var image = await provider.CaptureVisiblePageAsync(cancellationToken);
+        if (image is null || control.Bounds.Width <= 0 || control.Bounds.Height <= 0)
+            return null;
+        var origin = control.TranslatePoint(default, this);
+        return origin is { } point ? (image, new Rect(point, control.Bounds.Size)) : null;
+    }
 
     public event Action<NativeReaderState>? NativeStateChanged;
     public event Action<NativeReaderDialog>? NativeDialogRequested;

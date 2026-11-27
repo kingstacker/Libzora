@@ -591,6 +591,14 @@ public sealed class ReaderStabilityTests(SettingsUiSession session) : IDisposabl
         await scope.Call<Task>("ToggleReaderBookmarkAsync");
         var bookmark = Assert.Single(scope.Window.ReaderBookmarks);
         Assert.NotNull(bookmark.ContentPosition);
+        if (imageOnly) Assert.Null(bookmark.ContentPosition.AnchorQuote);
+        else
+        {
+            Assert.False(string.IsNullOrWhiteSpace(bookmark.ContentPosition.AnchorQuote));
+            Assert.Equal(expected.AnchorQuote, bookmark.ContentPosition.AnchorQuote);
+            Assert.Equal(expected.AnchorPrefix, bookmark.ContentPosition.AnchorPrefix);
+            Assert.Equal(expected.AnchorSuffix, bookmark.ContentPosition.AnchorSuffix);
+        }
         await scope.Call<Task>("CloseReaderAsync");
 
         var saved = Assert.IsType<ReaderProgressRow>(await new ReaderDataService(scope.Paths).GetProgressAsync(file.Id));
@@ -606,7 +614,9 @@ public sealed class ReaderStabilityTests(SettingsUiSession session) : IDisposabl
         var reopened = scope.Field<NativeReaderHost>("_readerActiveHost");
         if (imageOnly) Assert.Equal(2, reopened.CurrentPage);
         else AssertTextIsVisible(reopened, expected.TextOffset);
-        Assert.Equal(newMode == 2, reopened.Vertical);
+        // Image-only fixtures use detected manga mode, which intentionally disables prose vertical writing.
+        Assert.Equal(!imageOnly && newMode == 2, reopened.Vertical);
+        if (imageOnly) Assert.True(scope.Field<MangaBookSettings>("_readerMangaSettings").Enabled);
         Assert.True(scope.Get<Control>("ReaderBookmarkCornerMarker").IsVisible);
 
         reopened.SeekToBoundary(false);

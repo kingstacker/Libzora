@@ -164,6 +164,7 @@ public partial class ReaderPage
             ? saved.TextOffset
             : (int?)null;
         var allowPartialCompose = restore is null || composeOffset is not null;
+        SyncScrollNextChapterPath(host, _chapterIndex);
         if (!await NavigateEpubAsync(
                 host, target, cancellationToken, composeOffset,
                 allowPartialCompose: allowPartialCompose,
@@ -189,6 +190,7 @@ public partial class ReaderPage
         UpdateEpubLabels();
         LoadingPanel.IsVisible = false;
         _ready = true;
+        if (_isReaderForeground && !_listeningClock.IsPlaying) _activityClock.Resume(DateTimeOffset.UtcNow);
         RequestNativePresentationFrame();
         NotifyNativeState();
         host.CompleteLayoutInBackground();
@@ -290,6 +292,7 @@ public partial class ReaderPage
         UpdatePdfLabels();
         LoadingPanel.IsVisible = false;
         _ready = true;
+        if (_isReaderForeground && !_listeningClock.IsPlaying) _activityClock.Resume(DateTimeOffset.UtcNow);
         RequestNativePresentationFrame();
         NotifyNativeState();
     }
@@ -318,6 +321,20 @@ public partial class ReaderPage
         return ambiguous ? -1 : compatible;
     }
 
+    private void SyncScrollNextChapterPath(NativeReaderHost host, int chapter)
+    {
+        string? nextPath = null;
+        if (_epubDocument is not null)
+        {
+            var nextReading = ResolveReadingChapter(chapter + 1, 1);
+            if (nextReading > chapter && nextReading < _epubDocument.Chapters.Count)
+            {
+                nextPath = _epubDocument.Chapters[nextReading];
+            }
+        }
+        host.SetScrollNextChapterPath(nextPath);
+    }
+
     /// <summary>
     /// Publish the destination index before its position messages arrive. Only
     /// the current request may roll it back when loading fails.
@@ -332,6 +349,7 @@ public partial class ReaderPage
         var generation = BeginReaderNavigation();
         var previous = _chapterIndex;
         _chapterIndex = chapter;
+        SyncScrollNextChapterPath(host, chapter);
         var navigated = false;
         try
         {
@@ -345,7 +363,11 @@ public partial class ReaderPage
         }
         finally
         {
-            if (!navigated && generation == _readerNavigationGeneration) _chapterIndex = previous;
+            if (!navigated && generation == _readerNavigationGeneration)
+            {
+                _chapterIndex = previous;
+                SyncScrollNextChapterPath(host, previous);
+            }
         }
     }
 
@@ -374,7 +396,15 @@ public partial class ReaderPage
             {
                 var targetChapter = FindEpubChapter(doc, Path.GetFullPath(target.LocalPath));
                 if (targetChapter >= 0)
+                {
                     await prepSession.EnsureChapterReadyAsync(targetChapter, cancellationToken);
+                    if (IsEpubScrollMode)
+                    {
+                        var nextReading = ResolveReadingChapter(targetChapter + 1, 1);
+                        if (nextReading > targetChapter && nextReading < doc.Chapters.Count)
+                            await prepSession.EnsureChapterReadyAsync(nextReading, cancellationToken);
+                    }
+                }
             }
             SetNavigationFragmentsFor(host, target);
             host.Navigate(
@@ -438,8 +468,12 @@ public partial class ReaderPage
                 // The completed index knows which spine documents are note
                 // containers and may disagree with the opening estimate.
                 InvalidateBookPageCounts();
-                if (_readerHost is NativeReaderHost host && host.Source is { } source)
-                    SetNavigationFragmentsFor(host, source);
+                if (_readerHost is NativeReaderHost host)
+                {
+                    SyncScrollNextChapterPath(host, _chapterIndex);
+                    if (host.Source is { } source)
+                        SetNavigationFragmentsFor(host, source);
+                }
                 BuildEpubToc();
                 UpdateEpubLabels();
                 NotifyNativeState();
@@ -534,11 +568,16 @@ public partial class ReaderPage
             else if (type.GetString() == "continuousEdge")
             {
                 var direction = root.TryGetProperty("direction", out var dirElement) ? dirElement.GetInt32() : 0;
+                var carryOffset = ReadDouble(root, "carryOffset") ?? 0;
+                var carryUpDelta = ReadDouble(root, "carryUpDelta") ?? 0;
                 if (direction != 0 && !_turning && !_disposed && IsContinuousVerticalScroll
                     && _readerHost is NativeReaderHost host)
                 {
-                    StopScrollInertia();
-                    _ = AdvanceContinuousChapterAsync(host, Math.Sign(direction));
+                    if (!IsEpubScrollMode)
+                    {
+                        StopScrollInertia();
+                    }
+                    _ = AdvanceContinuousChapterAsync(host, Math.Sign(direction), carryOffset, carryUpDelta);
                 }
             }
             else if (type.GetString() == "selection" && _expectSelection && !IsChromeVisible)
@@ -643,12 +682,13 @@ public partial class ReaderPage
         PresentPosition(title, pagePosition);
     }
 
-    private async Task AdvanceContinuousChapterAsync(NativeReaderHost host, int direction)
+    private async Task AdvanceContinuousChapterAsync(NativeReaderHost host, int direction, double carryOffset = 0, double carryUpDelta = 0)
     {
         if (_turning || _disposed || _epubDocument is null) return;
-        var nextChapter = _chapterIndex + direction;
+        var nextChapter = ResolveReadingChapter(_chapterIndex + direction, direction < 0 ? -1 : 1);
         if (nextChapter < 0 || nextChapter >= _epubDocument.Chapters.Count)
         {
+            StopScrollInertia();
             ShowEdgeNotice(direction);
             return;
         }
@@ -656,7 +696,13 @@ public partial class ReaderPage
         _turning = true;
         try
         {
-            await GoToChapterAsync(host, nextChapter, fromEnd: direction < 0, direction);
+            await GoToChapterAsync(
+                host,
+                nextChapter,
+                fromEnd: direction < 0,
+                direction,
+                carryOffset: direction > 0 ? carryOffset : 0,
+                carryUpDelta: direction < 0 ? carryUpDelta : 0);
         }
         finally
         {

@@ -78,7 +78,8 @@ final class NativeFontSwitchTests: XCTestCase {
 
     func testRepeatedInstalledFontSwitchingKeepsReaderAliveAndPersists() throws {
         // Keep pagination active so its background estimate can overlap a reflow.
-        app.segmentedControls["typography.progressDisplay"].buttons.element(boundBy: 0).tap()
+        // Segment 0 is "关" (off); segment 1 is "页码" (pages).
+        app.segmentedControls["typography.progressDisplay"].buttons.element(boundBy: 1).tap()
         try closeTypography()
         capture("font-switch-original-body")
         for round in 0..<4 {

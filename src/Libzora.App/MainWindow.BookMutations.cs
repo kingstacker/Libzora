@@ -191,7 +191,7 @@ public partial class MainWindow
         {
             book.ReadingStatus = status;
             return T("已标记为“{0}”。", GetReadingStatusName(status));
-        });
+        }, markFinished: status == LibraryReadingStatus.Finished);
     }
 
     private static IReadOnlyList<BookCardViewModel> ResolveCollectionTargets(
@@ -375,7 +375,7 @@ public partial class MainWindow
             BookLibraryDefaults.UncollectedCollectionName,
             StringComparison.Ordinal);
 
-    private async Task SaveBookMetadataAsync(BookCardViewModel card, Func<Book, string> applyChanges)
+    private async Task SaveBookMetadataAsync(BookCardViewModel card, Func<Book, string> applyChanges, bool markFinished = false)
     {
         var entered = false;
         try
@@ -386,6 +386,7 @@ public partial class MainWindow
                 ?? throw new InvalidOperationException(T("书籍已不存在。"));
             var successMessage = applyChanges(book);
             await _library.UpdateMetadataAsync(book, _lifetimeCancellation.Token);
+            if (markFinished) await _readerData.MarkBookFinishedAsync(book, _lifetimeCancellation.Token);
             await RefreshLibraryAsync();
             SetTaskStatus(successMessage);
         }

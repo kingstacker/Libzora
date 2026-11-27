@@ -94,6 +94,8 @@ enum NativeTheme {
     static let sunk = color(0xf5f5f5, 0x2a2a2a)
     static let strong = color(0xe6e6e6, 0x3a3a3a)
     static let ink = color(0x1c1c1c, 0xededed)
+    // A quiet warm-ink companion, distinguishable from reading in both themes.
+    static let listeningInk = color(0x8a8178, 0x9c9287)
     static let systemSwitchTint = Color(uiColor: .systemGreen)
     static let secondary = color(0x5e5e5e, 0xb0b0b0)
     static let muted = color(0x767676, 0x8c8c8c)

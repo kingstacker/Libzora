@@ -177,7 +177,7 @@
     <x:String x:Key="Ui.Auto.2C97F5ECD0B7DBC0">AI 翻译 RPM（每分钟请求数）</x:String>
     <x:String x:Key="Ui.Auto.2A33E57EC21CE3BA">0 表示不限制，最大 65536。仅 AI 翻译生效。</x:String>
     <x:String x:Key="Ui.Auto.4D6C4A7B0E6E3A11">网络代理地址</x:String>
-    <x:String x:Key="Ui.Auto.8B7B5D7E5F3A1C20">用于 Google 翻译、拼音模型、Calibre 下载和软件更新；留空表示直连，例如 http://127.0.0.1:7890</x:String>
+    <x:String x:Key="Ui.Auto.8B7B5D7E5F3A1C20">用于拼音模型、语音模型、Calibre 下载和软件更新；留空则不使用自定义代理，例如 http://127.0.0.1:7890</x:String>
     <x:String x:Key="Ui.Auto.966A23E84AEDEEA5">目标语言</x:String>
     <x:String x:Key="Ui.Auto.354B28C853334568">原文</x:String>
     <x:String x:Key="Ui.Auto.80461C2DECC549DC">译文</x:String>
@@ -260,7 +260,7 @@
     <x:String x:Key="Ui.Auto.324225EEF1D76994">任务完成</x:String>
     <x:String x:Key="Ui.Auto.7D4146CA082798F0">作者</x:String>
     <x:String x:Key="Ui.Auto.98BFA63342D1FDA2">使用 SSL/TLS</x:String>
-    <x:String x:Key="Ui.Device.ModelExample">例如 Kindle Paperwhite、Kobo Libra</x:String>
+    <x:String x:Key="Ui.Device.ModelExample">例如 Kindle Paperwhite、Kindle Scribe</x:String>
     <x:String x:Key="Ui.Auto.CDB45C04FD8D14BE">例如 name@example.com</x:String>
     <x:String x:Key="Ui.Auto.88D320044CFC5366">例如 name@kindle.com</x:String>
     <x:String x:Key="Ui.Auto.B24BB0C6CC545A3A">例如 you@example.com</x:String>
@@ -304,7 +304,7 @@
     <x:String x:Key="Ui.Reader.ImageZoomClose">关闭图片预览</x:String>
     <x:String x:Key="Ui.Auto.3FD47EDCE45B3603">关闭</x:String>
     <x:String x:Key="Ui.Auto.D7B60ECE792129FF">关闭书籍详情</x:String>
-    <x:String x:Key="Ui.Auto.D7842A57D154C697">关闭后在线匹配、邮件发送与工具下载安装等联网功能不可用</x:String>
+    <x:String x:Key="Ui.Auto.D7842A57D154C697">关闭后云同步、在线 AI、邮件发送、软件更新、工具与模型下载及插件联网等功能不可用</x:String>
     <x:String x:Key="Ui.Auto.A8B1F579ACBCC5D5">关闭阅读器</x:String>
     <x:String x:Key="Ui.Auto.39700B6351624E48">写下批注（可留空，仅划线）</x:String>
     <x:String x:Key="Ui.Auto.C8361F6E397593F8">写下你读完这本书后的理解、感受、疑问或行动计划。</x:String>

@@ -327,10 +327,26 @@ internal sealed partial record KindleRawBookText(
         var visible = new StringBuilder();
         var starts = new List<int>();
         var ends = new List<int>();
+        var blocks = new List<VisibleTextBlock>();
+        var blockRanges = new Dictionary<HtmlNode, (int Start, int End)>();
+        HtmlNode? previousBlock = null;
+        (int Start, int End) SourceRange(HtmlNode node)
+        {
+            var start = Math.Clamp(node.StreamPosition, 0, source.Length);
+            var end = node == document.DocumentNode ? source.Length : Math.Min(source.Length, start + node.OuterHtml.Length);
+            return (byteOffsets[start], byteOffsets[end]);
+        }
+        var images = document.DocumentNode.Descendants()
+            .Where(node => node.Name is "img" or "svg" or "object")
+            .Select(SourceRange).ToArray();
+        var separators = images.Concat(document.DocumentNode.Descendants()
+            .Where(node => node.Name is "mbp:pagebreak" or "mbp:page-break" or "hr")
+            .Select(SourceRange)).OrderBy(range => range.Start).ToArray();
         foreach (var node in document.DocumentNode.Descendants().OfType<HtmlTextNode>())
         {
             if (node.Ancestors().Any(parent => parent.Name is "head" or "style" or "script" or "title")) continue;
             var text = node.Text;
+            var visibleStart = visible.Length;
             for (var index = 0; index < text.Length;)
             {
                 var units = char.IsHighSurrogate(text[index]) && index + 1 < text.Length
@@ -356,11 +372,27 @@ internal sealed partial record KindleRawBookText(
                 }
                 index += units;
             }
+            if (visible.Length == visibleStart) continue;
+            var block = node.Ancestors().FirstOrDefault(IsBookmarkBlock) ?? document.DocumentNode;
+            if (!blockRanges.TryGetValue(block, out var range)) blockRanges[block] = range = SourceRange(block);
+            var separator = visibleStart > 0 ? separators.LastOrDefault(separator =>
+                ends[visibleStart - 1] <= separator.Start && separator.End <= starts[visibleStart]) : default;
+            var separated = separator.End > separator.Start;
+            if (!separated && ReferenceEquals(previousBlock, block) && blocks.Count > 0 && blocks[^1].End == visibleStart)
+                blocks[^1] = blocks[^1] with { End = visible.Length };
+            else blocks.Add(new(separated ? Math.Max(range.Start, separator.End) : range.Start, range.End, visibleStart, visible.Length));
+            previousBlock = block;
         }
-        return new VisibleTextIndex(Text, visible.ToString(), starts.ToArray(), ends.ToArray());
+        return new VisibleTextIndex(Text, visible.ToString(), starts.ToArray(), ends.ToArray(), blocks.ToArray(), images);
     }
 
-    private sealed record VisibleTextIndex(byte[] Source, string Text, int[] Starts, int[] Ends);
+    private static bool IsBookmarkBlock(HtmlNode node) => node.Name is
+        "p" or "div" or "section" or "article" or "li" or "td" or "blockquote"
+        or "h1" or "h2" or "h3" or "h4" or "h5" or "h6" or "body";
+
+    private sealed record VisibleTextBlock(int SourceStart, int SourceEnd, int Start, int End);
+    private sealed record VisibleTextIndex(byte[] Source, string Text, int[] Starts, int[] Ends,
+        VisibleTextBlock[] Blocks, (int Start, int End)[] Images);
 
     private static string StripWhitespace(string value)
     {

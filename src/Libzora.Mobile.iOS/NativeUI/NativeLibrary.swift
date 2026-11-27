@@ -76,9 +76,8 @@ struct NativeBookDetailPage: View {
                             Image(systemName: book.favorite ? "star.fill" : "star").frame(width: 44, height: 44)
                         }.buttonStyle(.plain).disabled(busy).accessibilityLabel(book.favorite ? L("取消收藏") : L("收藏"))
                         Menu {
-                            Button(L("编辑书籍信息")) { editor = true }; Button(L("加入收藏夹")) { folders = true }
+                            Button(L("加入收藏夹")) { folders = true }
                             Button(L("重命名")) { rename = true }; Button(L("发送到 Kindle")) { action("kindle") }
-                            Button(L("阅读状态")) { statusPicker = true }
                             Button(L("导出原书")) { exportingBook = true }
                             Button(L("移到回收站"), role: .destructive) { action("delete") }
                         } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }

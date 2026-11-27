@@ -114,8 +114,12 @@ struct NativeLibraryFilterSheet: View {
                         .accessibilityIdentifier("library.filters.cancel")
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(L("清除")) { draft = NativeLibraryFilterSelection() }
-                        .accessibilityIdentifier("library.filters.clear")
+                    Button(L("清除")) {
+                        let cleared = NativeLibraryFilterSelection()
+                        draft = cleared
+                        apply(cleared)
+                    }
+                    .accessibilityIdentifier("library.filters.clear")
                 }
             }
         }.navigationViewStyle(.stack).font(NativeTheme.font()).foregroundStyle(NativeTheme.ink).tint(NativeTheme.ink)

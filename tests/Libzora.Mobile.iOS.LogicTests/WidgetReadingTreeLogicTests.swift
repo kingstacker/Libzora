@@ -103,6 +103,29 @@ struct WidgetReadingTreeLogicTests {
         check(enBooks.allSatisfy { $0.title.hasPrefix("Sample Book ") && $0.authors == "Sample Author" },
               "English sample books use generic sample titles and author")
 
+        // Continue-reading medium widget keeps four fixed-width slots so covers
+        // and captions stay aligned across 2, 3, or 4 active books.
+        for size in [CGSize(width: 292, height: 141), CGSize(width: 338, height: 158), CGSize(width: 360, height: 170)] {
+            let four = KkContinueBooksLayout(size: size, bookCount: 4)
+            let two = KkContinueBooksLayout(size: size, bookCount: 2)
+            check(abs(two.slotWidth - four.slotWidth) < 0.001, "Fixed four-column slots keep consistent cover width")
+            for count in 1...6 {
+                let layout = KkContinueBooksLayout(size: size, bookCount: count)
+                check(layout.slotCount == min(count, 4), "Continue widget displays at most four slots")
+                let rowWidth = layout.slotWidth * CGFloat(layout.slotCount)
+                    + KkContinueBooksLayout.spacing * CGFloat(layout.slotCount - 1)
+                check(rowWidth <= size.width - KkContinueBooksLayout.horizontalPadding * 2 + 0.001,
+                      "Book row stays within its horizontal insets")
+                check(layout.coverWidth <= layout.slotWidth,
+                      "Covers stay within their slot width")
+                check(layout.coverHeight + 44 + KkContinueBooksLayout.verticalPadding * 2 <= size.height,
+                      "Cover leaves room for heading and captions")
+            }
+        }
+        let emptyLayout = KkContinueBooksLayout(size: .zero, bookCount: 0)
+        check(emptyLayout.slotCount == 1 && emptyLayout.slotWidth == 0 && emptyLayout.coverHeight == 0 && emptyLayout.slotHeight == 0,
+              "Zero-size and empty layouts do not divide by zero or produce negative frames")
+
         // Compact cumulative time formatting for tree and stats widgets.
         check(KkFormat.compactHours(0, isChinese: true) == "0 分钟", "Zero seconds formats as 0 分钟")
         check(KkFormat.compactHours(30, isChinese: true) == "<1 分钟", "Sub-minute formats compactly as <1 分钟")

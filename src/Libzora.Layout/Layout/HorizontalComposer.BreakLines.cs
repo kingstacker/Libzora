@@ -16,7 +16,7 @@ internal sealed partial class HorizontalComposer
     /// </summary>
     private List<LineBox> BreakLines(List<LayoutCell> cells, float availWidth, float firstLineIndent,
         bool allowPageAnchor = false, float continuationIndent = 0f, bool preferLatinFont = false,
-        float dropCapWidth = 0f, int dropCapLines = 0)
+        float dropCapWidth = 0f, int dropCapLines = 0, bool allowHyphenation = true)
     {
         var lines = new List<LineBox>();
         var line = new LineBox { FloatLeftInset = dropCapLines > 0 ? dropCapWidth : 0f };
@@ -74,6 +74,7 @@ internal sealed partial class HorizontalComposer
             var lineAvail = EffectiveAvailWidth(line);
             var fits = line.Indent + line.WidthWith(cell) <= lineAvail + 0.01f;
             while (!fits
+                && allowHyphenation
                 && _cells.TrySplitForHyphenation(
                     cell, lineAvail - line.Indent - line.Used - 0.01f, out var head, out var tail, preferLatinFont))
             {
@@ -140,7 +141,7 @@ internal sealed partial class HorizontalComposer
                     // If a long English word was pulled solely because its
                     // trailing punctuation did not fit (e.g. "internationalization,"),
                     // still try hyphenating that word so the line stays balanced.
-                    if (pulled.Count > 0 && pulled[0].IsLatinWord)
+                    if (allowHyphenation && pulled.Count > 0 && pulled[0].IsLatinWord)
                     {
                         var room = lineAvail - line.Indent - line.Used - 0.01f;
                         if (room > BaseFontSize * 1.5f

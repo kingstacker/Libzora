@@ -71,7 +71,16 @@ struct NativeReaderPage: View {
     @State private var systemLowPowerMode = ProcessInfo.processInfo.isLowPowerModeEnabled
     @State private var acknowledgedFrameRevision: Int64?
     @State private var readerEntryPrepared = false
+    @State private var surfaceHasRenderedOnce = false
     private var entryInteractive: Bool { readerEntryPrepared || openAnimation == .cover }
+    /// Keep the live Metal surface hidden over clean paper until the current
+    /// session has actually drawn its first complete frame (including images),
+    /// preventing stale or half-drawn color blocks from flashing during 3D open.
+    /// Once the first frame is on screen, stay visible across subsequent
+    /// layout or chapter updates so continuous scroll never flickers.
+    private var surfaceFrameVisible: Bool {
+        surfaceHasRenderedOnce || (reader.ready && reader.presentationFrameReady && reader.presentationFrameRevision > 0)
+    }
 
     @StateObject private var openTransitionDriver = NativeBookTransitionDriver(initialProgress: 0)
     private var activeOpenTransition: NativeBookOpenTransition? {
@@ -96,10 +105,15 @@ struct NativeReaderPage: View {
     /// strip that the margin does not cover has to be reserved. Reserving the
     /// whole footer height again left a blank band under the last line and
     /// pushed lines that would otherwise fit onto the next page.
+    private var isContinuousScrollMode: Bool {
+        !reader.isPdf && !reader.isManga
+            && store.preferences.readerFlowMode == 0
+            && !store.preferences.readerVerticalWriting
+    }
     private var readerBottomInset: CGFloat {
         guard footerVisible else { return 0 }
         if reader.isManga { return 0 }
-        guard !reader.isPdf else { return footerHeight }
+        if reader.isPdf || isContinuousScrollMode { return footerHeight }
         let bodyInset = min(64, max(16, store.preferences.readerBodyPadding))
         return max(0, footerHeight - CGFloat(bodyInset))
     }
@@ -272,6 +286,38 @@ struct NativeReaderPage: View {
                     paper
                     ReaderSurface(controller: store.readerController)
                         .frame(width: fullSize.width, height: fullSize.height)
+                        .opacity(surfaceFrameVisible ? 1 : 0)
+                        .animation(.easeOut(duration: 0.14), value: surfaceFrameVisible)
+                        .overlay {
+                            if isContinuousScrollMode && reader.ready {
+                                VStack(spacing: 0) {
+                                    LinearGradient(
+                                        stops: [
+                                            .init(color: paper, location: 0.0),
+                                            .init(color: paper.opacity(0.7), location: 0.45),
+                                            .init(color: paper.opacity(0.0), location: 1.0),
+                                        ],
+                                        startPoint: .top,
+                                        endPoint: .bottom
+                                    )
+                                    .frame(height: 18)
+                                    Spacer(minLength: 0)
+                                    LinearGradient(
+                                        stops: [
+                                            .init(color: paper.opacity(0.0), location: 0.0),
+                                            .init(color: paper.opacity(0.7), location: 0.55),
+                                            .init(color: paper, location: 1.0),
+                                        ],
+                                        startPoint: .top,
+                                        endPoint: .bottom
+                                    )
+                                    .frame(height: 22)
+                                }
+                                .padding(.top, surfaceInsets.top)
+                                .padding(.bottom, surfaceInsets.bottom)
+                                .allowsHitTesting(false)
+                            }
+                        }
                         .overlay { ambientOverlay(size: fullSize) }
                         .allowsHitTesting(openTransition == nil && !showingSearchResults && !jumpingToSearch)
                     readerContent()
@@ -401,11 +447,41 @@ struct NativeReaderPage: View {
                         allowSpreadOptions: horizontalSizeClass == .regular
                     ) { self.panel = nil }
                 } else {
-                    NavigationView {
-                        panelContent(panel)
-                            .navigationTitle(panel == .toc ? book.title : panel.title).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
-                            .toolbar { ToolbarItem(placement: .cancellationAction) { Button(L("完成")) { self.panel = nil } } }
-                    }.navigationViewStyle(.stack)
+                    Group {
+                        if #available(iOS 16.0, *) {
+                            NavigationStack {
+                                panelContent(panel)
+                                    .navigationTitle(panel == .toc ? book.title : panel.title).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
+                                    .toolbar {
+                                        ToolbarItem(placement: .cancellationAction) {
+                                            Button {
+                                                self.panel = nil
+                                                self.assistantOpen = false
+                                            } label: {
+                                                Image(systemName: "xmark")
+                                            }
+                                            .accessibilityLabel(L("关闭"))
+                                        }
+                                    }
+                            }
+                        } else {
+                            NavigationView {
+                                panelContent(panel)
+                                    .navigationTitle(panel == .toc ? book.title : panel.title).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
+                                    .toolbar {
+                                        ToolbarItem(placement: .cancellationAction) {
+                                            Button {
+                                                self.panel = nil
+                                                self.assistantOpen = false
+                                            } label: {
+                                                Image(systemName: "xmark")
+                                            }
+                                            .accessibilityLabel(L("关闭"))
+                                        }
+                                    }
+                            }.navigationViewStyle(.stack)
+                        }
+                    }
                         .modifier(NativeReaderTocSheetBackground(
                             enabled: panel == .toc, paper: paper,
                             usesAmbient: store.preferences.readerThemeFollowsAppearance && store.preferences.colorfulMode,
@@ -442,6 +518,19 @@ struct NativeReaderPage: View {
         .task(id: store.preferences.readerFontFamily) { await loadBodyFont() }
         // Forward the new value: a transition can invoke the callback on the
         // previous view, whose captured appColorScheme is one change behind.
+        .onChange(of: reader.presentationFrameReady) { ready in
+            if ready && reader.ready && reader.presentationFrameRevision > 0 {
+                surfaceHasRenderedOnce = true
+            }
+        }
+        .onChange(of: reader.ready) { ready in
+            if ready && reader.presentationFrameReady && reader.presentationFrameRevision > 0 {
+                surfaceHasRenderedOnce = true
+            }
+        }
+        .onChange(of: book.id) { _ in
+            surfaceHasRenderedOnce = false
+        }
         .onChange(of: appColorScheme) { syncAppAppearance($0) }
         .onChange(of: store.preferences.readerThemeFollowsAppearance) { _ in resyncAppAppearance() }
         .onChange(of: scenePhase) { phase in
@@ -1498,12 +1587,13 @@ struct NativeTypography: View {
                     }.pickerStyle(.segmented).accessibilityIdentifier("typography.paper")
                 }
                 row(L("翻页动画")) {
-                    Picker(L("翻页动画"), selection: preference(\.readerPageAnimation)) { Text(L("无")).tag(0); Text(L("淡入")).tag(1); Text(L("平移")).tag(3) }.pickerStyle(.segmented)
+                    Picker(L("翻页动画"), selection: preference(\.readerPageAnimation)) { Text(L("无")).tag(0); Text(L("淡入")).tag(1); Text(L("平移")).tag(3); Text(L("仿真")).tag(4) }.pickerStyle(.segmented)
                 }
                 row(L("底部进度")) {
                     Picker(L("底部进度"), selection: preference(\.readerProgressDisplay)) {
+                        Text(L("关")).tag(4)
                         Text(L("页码")).tag(0); Text(L("章节")).tag(1)
-                        Text(L("剩余时间")).tag(3); Text(L("关")).tag(4)
+                        Text(L("剩余时间")).tag(3)
                     }.pickerStyle(.segmented).accessibilityIdentifier("typography.progressDisplay")
                 }
                 if isPdf {
@@ -1590,11 +1680,6 @@ struct NativeTypography: View {
                         }.pickerStyle(.segmented).accessibilityIdentifier("typography.powerSaving")
                     }
                 } else {
-                    row(L("漫画模式")) {
-                        Picker(L("漫画模式"), selection: preference(\.mangaMode)) {
-                            Text(L("关")).tag(false); Text(L("开")).tag(true)
-                        }.pickerStyle(.segmented).accessibilityIdentifier("typography.mangaMode")
-                    }
                     row(L("正文字体")) {
                         Button {
                             if let onOpenFontPicker { onOpenFontPicker() }
@@ -1659,6 +1744,11 @@ struct NativeTypography: View {
                     row(L("排版方向")) {
                         Picker(L("排版方向"), selection: preference(\.readerVerticalWriting)) { Text(L("横排")).tag(false); Text(L("竖排")).tag(true) }
                             .pickerStyle(.segmented).accessibilityIdentifier("typography.direction")
+                    }
+                    row(L("漫画模式")) {
+                        Picker(L("漫画模式"), selection: preference(\.mangaMode)) {
+                            Text(L("关")).tag(false); Text(L("开")).tag(true)
+                        }.pickerStyle(.segmented).accessibilityIdentifier("typography.mangaMode")
                     }
                     row(L("高级排版")) {
                         Button { advancedTypography = true } label: {
@@ -1767,7 +1857,16 @@ private struct NativeReaderFontPicker: View {
     }
 
     @ViewBuilder private func section(_ title: String, _ items: [ReaderFontOption]) -> some View {
-        Section(header: Text(title).font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.muted)) {
+        // Render section titles as scrolling rows rather than pinned List
+        // section headers so they move with content instead of floating over it.
+        Section {
+            Text(title)
+                .font(NativeTheme.font(12, relativeTo: .caption))
+                .foregroundStyle(NativeTheme.muted)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .listRowInsets(EdgeInsets(top: 14, leading: 20, bottom: 4, trailing: 20))
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
             ForEach(items) { option in row(option) }
         }
     }
@@ -1873,43 +1972,57 @@ private struct NativeTypographyPanel: View {
     let close: () -> Void
     @State private var showingFontPicker = false
     var body: some View {
-        let panelBody = VStack(spacing: 0) {
+        // Animate each subpage (header + body together) as a complete sliding
+        // screen so navigating to/from 正文字体 moves the whole page cleanly.
+        let panelBody = ZStack {
             if showingFontPicker {
-                ZStack {
-                    Text(L("正文字体")).font(NativeTheme.font(17, relativeTo: .headline))
-                    HStack {
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.2)) { showingFontPicker = false }
-                        } label: {
-                            HStack(spacing: 4) {
-                                Image(systemName: "chevron.left").font(.system(size: 13, weight: .semibold))
-                                Text(L("返回"))
+                VStack(spacing: 0) {
+                    ZStack {
+                        Text(L("正文字体")).font(NativeTheme.font(17, relativeTo: .headline))
+                        HStack {
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.24)) { showingFontPicker = false }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "chevron.left").font(.system(size: 13, weight: .semibold))
+                                    Text(L("返回"))
+                                }
+                                .font(NativeTheme.font(14))
+                                .frame(minHeight: 44)
                             }
-                            .font(NativeTheme.font(14))
-                            .frame(minHeight: 44)
+                            .accessibilityIdentifier("fontPicker.done")
+                            Spacer()
+                            Button(L("完成"), action: close).font(NativeTheme.font(14)).frame(minWidth: 44, minHeight: 44)
+                                .accessibilityIdentifier("fontPicker.close")
                         }
-                        .accessibilityIdentifier("fontPicker.done")
+                    }.buttonStyle(.plain).padding(.horizontal, 24).padding(.top, 8)
+                    NativeReaderFontPicker(store: store) {
+                        withAnimation(.easeInOut(duration: 0.24)) { showingFontPicker = false }
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(NativeTheme.page)
+                .transition(.move(edge: .trailing))
+                .zIndex(1)
+            } else {
+                VStack(spacing: 0) {
+                    HStack {
+                        Text(isPdf ? L("显示设置") : L("阅读设置")).font(NativeTheme.font(17, relativeTo: .headline))
                         Spacer()
                         Button(L("完成"), action: close).font(NativeTheme.font(14)).frame(minWidth: 44, minHeight: 44)
-                            .accessibilityIdentifier("fontPicker.close")
+                            .accessibilityIdentifier("typography.done")
+                    }.buttonStyle(.plain).padding(.horizontal, 24).padding(.top, 8)
+                    NativeTypography(store: store, isPdf: isPdf, allowSpreadOptions: allowSpreadOptions) {
+                        withAnimation(.easeInOut(duration: 0.24)) { showingFontPicker = true }
                     }
-                }.buttonStyle(.plain).padding(.horizontal, 24).padding(.top, 8)
-                NativeReaderFontPicker(store: store) {
-                    withAnimation(.easeInOut(duration: 0.2)) { showingFontPicker = false }
                 }
-                .transition(.move(edge: .trailing))
-            } else {
-                HStack {
-                    Text(isPdf ? L("显示设置") : L("阅读设置")).font(NativeTheme.font(17, relativeTo: .headline))
-                    Spacer()
-                    Button(L("完成"), action: close).font(NativeTheme.font(14)).frame(minWidth: 44, minHeight: 44)
-                        .accessibilityIdentifier("typography.done")
-                }.buttonStyle(.plain).padding(.horizontal, 24).padding(.top, 8)
-                NativeTypography(store: store, isPdf: isPdf, allowSpreadOptions: allowSpreadOptions) {
-                    withAnimation(.easeInOut(duration: 0.2)) { showingFontPicker = true }
-                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(NativeTheme.page)
+                .transition(.move(edge: .leading))
+                .zIndex(0)
             }
         }
+        .clipped()
         .background(NativeTheme.page)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("typography.panel")

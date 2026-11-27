@@ -1,10 +1,11 @@
 using System.Text.Json;
+using Libzora.Core;
 
 namespace Libzora.Infrastructure;
 
 internal sealed record ReadingTimeCheckpoint(Guid Id, Guid BookId, Guid BookFileId, long Seconds,
     double ProgressPercent, int CompletedChapters, int TotalChapters, DateTimeOffset RecordedAt,
-    ReaderRecoveryContext? Context, long ListeningSeconds = 0);
+    ReaderRecoveryContext? Context, long ListeningSeconds = 0, IReadOnlyList<ReadingDashboardDay>? Days = null);
 
 public sealed class ReaderReadingTimeRecoveryService(AppPaths paths, ReaderDataService reader)
 {
@@ -20,7 +21,8 @@ public sealed class ReaderReadingTimeRecoveryService(AppPaths paths, ReaderDataS
         SaveAsync(bookId, fileId, seconds, progress, chapters, total, listeningSeconds: 0, token);
 
     public async Task SaveAsync(Guid bookId, Guid fileId, long seconds, double progress, int chapters, int total,
-        long listeningSeconds, CancellationToken token = default)
+        long listeningSeconds, CancellationToken token = default,
+        IReadOnlyList<ReadingDashboardDay>? days = null, DateTimeOffset? recordedAt = null)
     {
         if (seconds <= 0) return;
         var clampedListening = Math.Clamp(listeningSeconds, 0, seconds);
@@ -28,7 +30,10 @@ public sealed class ReaderReadingTimeRecoveryService(AppPaths paths, ReaderDataS
         try { context = await reader.GetRecoveryContextAsync(CancellationToken.None); }
         catch (Exception exception) { Log(exception); }
         var checkpoint = new ReadingTimeCheckpoint(Guid.NewGuid(), bookId, fileId, seconds, progress, chapters, total,
-            DateTimeOffset.UtcNow, context, clampedListening);
+            recordedAt ?? DateTimeOffset.UtcNow, context, clampedListening, days);
+        if (days is not null && (days.Any(day => day.ActiveSeconds < 0 || day.ListeningSeconds < 0 || day.ListeningSeconds > day.ActiveSeconds)
+            || days.Sum(day => day.ActiveSeconds) != seconds || days.Sum(day => day.ListeningSeconds) != clampedListening))
+            throw new ArgumentException("Reading day breakdown does not match its total.", nameof(days));
         await _gate.WaitAsync();
         try
         {

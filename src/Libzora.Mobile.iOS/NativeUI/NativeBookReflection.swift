@@ -14,7 +14,6 @@ struct NativeBookReflectionEditor: View {
     @State private var loading = true
     @State private var busy = false
     @State private var editState = NativeReflectionEditState()
-    @State private var mode = 0
     @State private var hasExisting = false
     @State private var showingCitations = false
     @State private var showingLinkPrompt = false
@@ -53,16 +52,7 @@ struct NativeBookReflectionEditor: View {
                                 .monospacedDigit()
                         }
 
-                        Picker(L("模式"), selection: $mode) {
-                            Text(L("编辑")).tag(0)
-                            Text(L("预览")).tag(1)
-                        }
-                        .pickerStyle(.segmented)
-                        .accessibilityIdentifier("reflection.mode")
-
-                        if mode == 0 {
-                            formattingToolbar.disabled(busy)
-                        }
+                        formattingToolbar.disabled(busy)
                     }
                     .padding(.horizontal, 20)
                     .padding(.top, 12)
@@ -70,43 +60,25 @@ struct NativeBookReflectionEditor: View {
 
                     Divider().overlay(NativeTheme.divider)
 
-                    if mode == 0 {
-                        ZStack(alignment: .topLeading) {
-                            if content.isEmpty {
-                                Text(L("写下你读完这本书后的理解、感受、疑问或行动计划。"))
-                                    .font(NativeTheme.font(15))
-                                    .foregroundStyle(NativeTheme.faint)
-                                    .padding(.horizontal, 20)
-                                    .padding(.vertical, 16)
-                                    .allowsHitTesting(false)
-                            }
-                            NativeReflectionTextView(
-                                text: $content,
-                                selection: $selection,
-                                useSystemFont: store.preferences.uiFont == 1,
-                                editable: editState.canEdit && !busy
-                            )
-                            .disabled(busy)
-                            .accessibilityIdentifier("reflection.editor")
+                    ZStack(alignment: .topLeading) {
+                        if content.isEmpty {
+                            Text(L("写下你读完这本书后的理解、感受、疑问或行动计划。"))
+                                .font(NativeTheme.font(15))
+                                .foregroundStyle(NativeTheme.faint)
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 16)
+                                .allowsHitTesting(false)
                         }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else {
-                        ScrollView {
-                            VStack(alignment: .leading, spacing: 12) {
-                                if content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                    Text(L("还没有写下读后思考。"))
-                                        .font(NativeTheme.font(15))
-                                        .foregroundStyle(NativeTheme.muted)
-                                } else {
-                                    NativeMarkdownView(content, fontSize: 15)
-                                }
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(20)
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .accessibilityIdentifier("reflection.preview")
+                        NativeReflectionTextView(
+                            text: $content,
+                            selection: $selection,
+                            useSystemFont: store.preferences.uiFont == 1,
+                            editable: editState.canEdit && !busy
+                        )
+                        .disabled(busy)
+                        .accessibilityIdentifier("reflection.editor")
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                     if let error {
                         Text(error)
@@ -398,80 +370,6 @@ struct NativeBookReflectionEditor: View {
                 dismiss()
             } catch {
                 self.error = error.localizedDescription
-            }
-        }
-    }
-}
-
-private struct NativeReflectionTextView: UIViewRepresentable {
-    @Environment(\.nativeUiFont) private var uiFont
-    @Binding var text: String
-    @Binding var selection: NSRange
-    let useSystemFont: Bool
-    let editable: Bool
-
-    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
-
-    func makeUIView(context: Context) -> UITextView {
-        let view = UITextView()
-        view.delegate = context.coordinator
-        view.backgroundColor = .clear
-        view.textContainerInset = UIEdgeInsets(top: 14, left: 16, bottom: 24, right: 16)
-        view.keyboardDismissMode = .interactive
-        view.alwaysBounceVertical = true
-        view.adjustsFontForContentSizeCategory = true
-        view.font = NativeTheme.uiKitFont(15, useSystem: useSystemFont)
-        view.textColor = UIColor.label
-        return view
-    }
-
-    func updateUIView(_ view: UITextView, context: Context) {
-        let _ = uiFont
-        context.coordinator.parent = self
-        view.isEditable = editable
-        if !editable, view.isFirstResponder { view.resignFirstResponder() }
-        let targetFont = NativeTheme.uiKitFont(15, useSystem: useSystemFont)
-        if view.font != targetFont {
-            view.font = targetFont
-        }
-        if view.text != text {
-            context.coordinator.suppressUpdates = true
-            view.text = text
-            let len = (view.text as NSString).length
-            let clamped = NSRange(
-                location: min(selection.location, len),
-                length: min(selection.length, max(0, len - min(selection.location, len)))
-            )
-            view.selectedRange = clamped
-            context.coordinator.suppressUpdates = false
-        } else if !view.isFirstResponder, view.selectedRange != selection {
-            let len = (view.text as NSString).length
-            let clamped = NSRange(
-                location: min(selection.location, len),
-                length: min(selection.length, max(0, len - min(selection.location, len)))
-            )
-            view.selectedRange = clamped
-        }
-    }
-
-    final class Coordinator: NSObject, UITextViewDelegate {
-        var parent: NativeReflectionTextView
-        var suppressUpdates = false
-
-        init(parent: NativeReflectionTextView) {
-            self.parent = parent
-        }
-
-        func textViewDidChange(_ textView: UITextView) {
-            guard !suppressUpdates else { return }
-            parent.text = textView.text ?? ""
-            parent.selection = textView.selectedRange
-        }
-
-        func textViewDidChangeSelection(_ textView: UITextView) {
-            guard !suppressUpdates else { return }
-            if parent.selection != textView.selectedRange {
-                parent.selection = textView.selectedRange
             }
         }
     }

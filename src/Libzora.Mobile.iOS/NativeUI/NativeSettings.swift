@@ -98,7 +98,9 @@ struct NativeProfilePage: View {
 
             groupLabel(L("数据与存储"))
             profileCard {
-                profileRow(title: L("书籍占用"), value: summary?.storage ?? "—", chevron: false)
+                NavigationLink { NativeStoragePage(store: store) } label: {
+                    profileRow(title: L("存储占用"), value: summary?.storage ?? "—")
+                }.accessibilityIdentifier("profile.storage")
                 cardDivider()
                 NavigationLink { NativeBackupPage(store: store) } label: {
                     profileRow(title: L("备份与恢复"))
@@ -122,7 +124,7 @@ struct NativeProfilePage: View {
         }
         .padding(.horizontal, cardOuterInset)
         .padding(.top, 8)
-        .padding(.bottom, 120)
+        .padding(.bottom, 28)
         .buttonStyle(NativeProfileCardRowButtonStyle())
     }
 
@@ -447,12 +449,6 @@ struct NativeAboutPage: View {
                 }
             }
             Section {
-                Button { tapVersion() } label: {
-                    NativeSettingsRow(title: L("版本"), value: version, chevron: false, verticalPadding: 2)
-                }.buttonStyle(.plain).accessibilityIdentifier("profile.about.version")
-                NativeSettingsRow(title: L("开发者"), value: "kingstacker", chevron: false, verticalPadding: 2)
-            }
-            Section {
                 NavigationLink {
                     NativeLegalDocumentPage(store: store, kind: .terms)
                 } label: {
@@ -463,6 +459,12 @@ struct NativeAboutPage: View {
                 } label: {
                     NativeSettingsRow(title: L("隐私政策"), chevron: false, verticalPadding: 2)
                 }.accessibilityIdentifier("profile.about.privacy")
+            }
+            Section {
+                Button { tapVersion() } label: {
+                    NativeSettingsRow(title: L("版本"), value: version, chevron: false, verticalPadding: 2)
+                }.buttonStyle(.plain).accessibilityIdentifier("profile.about.version")
+                NativeSettingsRow(title: L("开发者"), value: "kingstacker", chevron: false, verticalPadding: 2)
             }
         }
         .navigationTitle(L("关于")).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
@@ -540,11 +542,13 @@ struct NativeLibrarySettings: View {
 }
 
 struct NativeAiSettings: View {
+    private static let aiConsentKey = "libzora.ai.consent.destination.v1"
     @ObservedObject var store: NativeStore
     @State private var form = AiForm()
     @State private var busy = false
     @State private var loading = true
     @State private var status = ""
+    @State private var authorizedDestination = ""
     @State private var fetchedModels: [String] = []
     @State private var showModelPicker = false
     @State private var providerTask: Task<Void, Never>?
@@ -599,6 +603,25 @@ struct NativeAiSettings: View {
                     }
                 }
             }
+            if !authorizedDestination.isEmpty {
+                Section {
+                    Button(role: .destructive) {
+                        UserDefaults.standard.removeObject(forKey: Self.aiConsentKey)
+                        authorizedDestination = ""
+                        status = L("已撤销 AI 授权，下次使用 AI 功能时会重新确认。")
+                    } label: {
+                        HStack {
+                            Spacer()
+                            Text(L("撤销 AI 授权"))
+                            Spacer()
+                        }.frame(minHeight: 26).contentShape(Rectangle())
+                    }.accessibilityIdentifier("ai.revokeConsent")
+                } footer: {
+                    Text(L("已授权向 {0} 发送阅读问题与相关片段。", authorizedDestination))
+                        .font(NativeTheme.font(12, relativeTo: .caption))
+                        .foregroundStyle(store.preferences.colorfulMode ? NativeTheme.secondaryOnColorful : NativeTheme.secondary)
+                }
+            }
         }.disabled(loading || busy)
             .navigationTitle(L("AI 接口")).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false).modifier(NativeKeyboardDone())
             .nativeBackButton()
@@ -606,6 +629,7 @@ struct NativeAiSettings: View {
             .task {
                 loading = true
                 defer { loading = false }
+                authorizedDestination = UserDefaults.standard.string(forKey: Self.aiConsentKey) ?? ""
                 do { form = try await store.request("settings.ai.get") }
                 catch { if !Task.isCancelled { status = error.localizedDescription } }
             }

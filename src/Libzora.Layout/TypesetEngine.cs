@@ -568,10 +568,16 @@ public static class ChapterLayoutInteraction
                 ? run.X[nextIndex] - run.X[glyphIndex]
                 : Math.Max(size * 0.5f, run.FlowAdvance - run.X[glyphIndex]);
             var top = run.OriginY + run.X[glyphIndex];
+            var left = run.SelectionWidth > 0f
+                ? run.SelectionCenterX - run.SelectionWidth / 2f
+                : run.OriginX - size * 0.25f;
+            var right = run.SelectionWidth > 0f
+                ? run.SelectionCenterX + run.SelectionWidth / 2f
+                : run.OriginX + size * 0.9f;
             return new SKRect(
-                run.OriginX - size * 0.25f,
+                left,
                 top,
-                run.OriginX + size * 0.9f,
+                right,
                 top + Math.Max(2f, advance));
         }
 
@@ -583,8 +589,26 @@ public static class ChapterLayoutInteraction
         var y0 = run.OriginY + (glyphIndex < run.Y.Length ? run.Y[glyphIndex] : 0f);
         if (page.WritingMode == TypesetWritingMode.VerticalRl)
         {
-            var left = run.CellWidth > 0f ? run.OriginX : x0;
-            var right = run.CellWidth > 0f ? left + run.CellWidth : x0 + size;
+            float left;
+            float right;
+            if (run.SelectionWidth > 0f)
+            {
+                left = run.SelectionCenterX - run.SelectionWidth / 2f;
+                right = run.SelectionCenterX + run.SelectionWidth / 2f;
+            }
+            else if (run.CellWidth > 0f)
+            {
+                var center = run.OriginX + run.CellWidth / 2f;
+                var bandWidth = MathF.Min(run.CellWidth, size * 1.12f);
+                left = center - bandWidth / 2f;
+                right = center + bandWidth / 2f;
+            }
+            else
+            {
+                left = x0;
+                right = x0 + size;
+            }
+
             return new SKRect(
                 left,
                 y0 - size * 0.88f,

@@ -30,6 +30,13 @@ public partial class ReaderPage
     // The caller owns an operation lease for the entire save.
     private async Task<bool> SaveProgressCoreAsync(bool force)
     {
+        await _progressSaveGate.WaitAsync();
+        try { return await SaveProgressLockedAsync(force); }
+        finally { _progressSaveGate.Release(); }
+    }
+
+    private async Task<bool> SaveProgressLockedAsync(bool force)
+    {
         if (!_ready || _bookFile is null || _readerHost is null) return true;
         var now = DateTimeOffset.UtcNow;
         CountReadingTime(now);
@@ -39,6 +46,7 @@ public partial class ReaderPage
 
         long readingSeconds = 0;
         long listeningSeconds = 0;
+        IReadOnlyList<ReadingDashboardDay> days = [];
         try
         {
             var token = force ? CancellationToken.None : _lifetime.Token;
@@ -68,22 +76,21 @@ public partial class ReaderPage
             readingSeconds = Interlocked.Exchange(ref _unsavedSeconds, 0);
             listeningSeconds = Interlocked.Exchange(ref _unsavedListeningSeconds, 0);
             var totalSeconds = readingSeconds + listeningSeconds;
+            days = DrainReadingDays(totalSeconds, listeningSeconds, now);
             var chapters = _isPdf ? _pdfPageCount : _epubDocument?.Chapters.Count ?? 0;
             await _modules.Reader.Data.AddReadingTimeAsync(
                 _book.Id, _bookFile.Id, totalSeconds, progress.ProgressPercent, progress.ChapterIndex, chapters,
-                listeningSeconds, token);
+                listeningSeconds, days, now, token);
             return true;
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
         {
-            Interlocked.Add(ref _unsavedSeconds, readingSeconds);
-            Interlocked.Add(ref _unsavedListeningSeconds, listeningSeconds);
+            RestoreReadingTime(readingSeconds, listeningSeconds, days);
             return false;
         }
         catch
         {
-            Interlocked.Add(ref _unsavedSeconds, readingSeconds);
-            Interlocked.Add(ref _unsavedListeningSeconds, listeningSeconds);
+            RestoreReadingTime(readingSeconds, listeningSeconds, days);
             // Progress is best-effort; a transient database error must not
             // close the reading surface.
             return false;
@@ -93,8 +100,8 @@ public partial class ReaderPage
     /// <summary>Time since the last interaction counts, capped so an idle phone adds nothing.</summary>
     private void CountReadingTime(DateTimeOffset now)
     {
-        Interlocked.Add(ref _unsavedSeconds, _activityClock.CountUntil(now));
-        Interlocked.Add(ref _unsavedListeningSeconds, _listeningClock.CountUntil(now));
+        AddCountedReadingTime(_activityClock.CountUntil(now), _activityClock.LastSlice);
+        AddCountedReadingTime(_listeningClock.CountUntil(now), _listeningClock.LastSlice, listening: true);
     }
 
     private void ShowError(Func<string> message)
@@ -161,6 +168,7 @@ public partial class ReaderPage
     {
         MobilePageAnimation.None => ReaderTransitionPlayer.AnimationNone,
         MobilePageAnimation.Fade => ReaderTransitionPlayer.AnimationFade,
+        MobilePageAnimation.Curl => ReaderTransitionPlayer.AnimationCurl,
         _ => ReaderTransitionPlayer.AnimationPush
     };
 
@@ -177,7 +185,7 @@ public partial class ReaderPage
         _scrollInertiaVelocityY = initialVelocity;
         _scrollInertiaTimer ??= new DispatcherTimer(TimeSpan.FromMilliseconds(16), DispatcherPriority.Render, (_, _) =>
         {
-            if (_disposed || _turning || !IsContinuousVerticalScroll || IsMangaZoomed
+            if (_disposed || (_turning && !IsEpubScrollMode) || !IsContinuousVerticalScroll || IsMangaZoomed
                 || _readerHost is not NativeReaderHost scrollHost)
             {
                 StopScrollInertia();
@@ -472,7 +480,7 @@ public partial class ReaderPage
         var animation = IsPowerSavingActive
             ? ReaderTransitionPlayer.AnimationNone
             : ResolveTransitionAnimation(_shell.Preferences.Current.ReaderPageAnimation);
-        if (IsEpubScrollMode || animation != ReaderTransitionPlayer.AnimationPush)
+        if (IsEpubScrollMode || animation is not (ReaderTransitionPlayer.AnimationPush or ReaderTransitionPlayer.AnimationCurl))
             return;
 
         var direction = MobileReaderPagingPolicy.SwipeDirection(dx, _layout.VerticalWriting, _isPdf, IsRightToLeftPaging);
@@ -736,16 +744,11 @@ public partial class ReaderPage
         if (IsChromeVisible) SetChromeVisible(false);
         else
         {
-            if (IsContinuousVerticalScroll && _readerHost is NativeReaderHost scrollHost)
+            if (IsContinuousVerticalScroll)
             {
                 if (ratio is >= 1d / 3 and <= 2d / 3)
                 {
                     SetChromeVisible(true);
-                }
-                else
-                {
-                    var step = Math.Max(120, ReaderHostSlot.Bounds.Height * 0.85);
-                    scrollHost.ScrollByPixel(ratio < 1d / 3 ? -step : step);
                 }
                 return;
             }
@@ -847,7 +850,7 @@ public partial class ReaderPage
         }
     }
 
-    private async Task GoToChapterAsync(NativeReaderHost host, int chapter, bool fromEnd, int direction)
+    private async Task GoToChapterAsync(NativeReaderHost host, int chapter, bool fromEnd, int direction, double carryOffset = 0, double carryUpDelta = 0)
     {
         ClearActiveSyncedMarker();
         HideSelectionBar();
@@ -857,12 +860,29 @@ public partial class ReaderPage
         chapter = ResolveReadingChapter(chapter, direction < 0 ? -1 : 1);
         if (chapter < 0 || chapter >= _epubDocument.Chapters.Count)
         {
+            StopScrollInertia();
             ShowEdgeNotice(direction);
             return;
         }
 
-        if (!await NavigateToChapterAsync(host, chapter, new Uri(_epubDocument.Chapters[chapter]))) return;
-        if (fromEnd)
+        var continuousHandoffDown = IsContinuousVerticalScroll && !fromEnd && direction > 0;
+        var continuousHandoffUp = IsContinuousVerticalScroll && fromEnd && direction < 0 && carryUpDelta > 0;
+        if (continuousHandoffDown)
+        {
+            host.PrepareContinuousScrollHandoff(handoffDown: true, carryDownOffset: carryOffset);
+        }
+        else if (continuousHandoffUp)
+        {
+            host.PrepareContinuousScrollHandoff(carryUpDelta: carryUpDelta);
+        }
+
+        if (!await NavigateToChapterAsync(
+                host,
+                chapter,
+                new Uri(_epubDocument.Chapters[chapter]),
+                allowPartialCompose: !(continuousHandoffDown || continuousHandoffUp)))
+            return;
+        if (fromEnd && !continuousHandoffUp)
         {
             await EnsureLayoutCompleteAsync();
             host.SeekToBoundary(toEnd: true);

@@ -79,6 +79,80 @@ enum NativeHighlightPalette {
         guard normalizedStyle == .marker || normalizedHex != "#000000" else { return nil }
         return normalizedHex == "#000000" ? NativeTheme.ink : color(for: normalizedHex)
     }
+
+    static func indicatorColor(for hex: String?) -> Color {
+        let normalized = normalizeHex(hex)
+        return normalized == "#000000" ? NativeTheme.ink : (color(for: normalized) ?? NativeTheme.ink)
+    }
+}
+
+/// Vertical leading indicator for highlight/note cards in Materials, matching
+/// the exact underline or marker style used in the reader body.
+struct NativeHighlightVerticalIndicator: View {
+    let style: NativeHighlightStyle
+    let colorHex: String?
+
+    init(style: String?, colorHex: String?) {
+        self.style = NativeHighlightStyle.normalize(style)
+        self.colorHex = colorHex
+    }
+
+    var body: some View {
+        let tint = NativeHighlightPalette.indicatorColor(for: colorHex)
+        Canvas { context, size in
+            let midX = size.width * 0.5
+            let top: CGFloat = 1
+            let bottom = max(top + 1, size.height - 1)
+            switch style {
+            case .marker:
+                let rect = CGRect(x: midX - 1.5, y: 0, width: 3, height: size.height)
+                context.fill(Path(roundedRect: rect, cornerRadius: 1.5), with: .color(tint))
+            case .solid:
+                var path = Path()
+                path.move(to: CGPoint(x: midX, y: top))
+                path.addLine(to: CGPoint(x: midX, y: bottom))
+                context.stroke(path, with: .color(tint), style: StrokeStyle(lineWidth: 2, lineCap: .round))
+            case .double:
+                var left = Path()
+                left.move(to: CGPoint(x: midX - 1.5, y: top))
+                left.addLine(to: CGPoint(x: midX - 1.5, y: bottom))
+                var right = Path()
+                right.move(to: CGPoint(x: midX + 1.5, y: top))
+                right.addLine(to: CGPoint(x: midX + 1.5, y: bottom))
+                let stroke = StrokeStyle(lineWidth: 1.15, lineCap: .round)
+                context.stroke(left, with: .color(tint), style: stroke)
+                context.stroke(right, with: .color(tint), style: stroke)
+            case .dashed:
+                var path = Path()
+                path.move(to: CGPoint(x: midX, y: top))
+                path.addLine(to: CGPoint(x: midX, y: bottom))
+                context.stroke(path, with: .color(tint), style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [4.5, 3]))
+            case .dotted:
+                var path = Path()
+                path.move(to: CGPoint(x: midX, y: top))
+                path.addLine(to: CGPoint(x: midX, y: bottom))
+                context.stroke(path, with: .color(tint), style: StrokeStyle(lineWidth: 2.2, lineCap: .round, dash: [0.5, 4]))
+            case .wavy:
+                var path = Path()
+                let step: CGFloat = 5
+                var y = top
+                var right = true
+                path.move(to: CGPoint(x: midX, y: y))
+                while y < bottom {
+                    let nextY = min(y + step, bottom)
+                    path.addQuadCurve(
+                        to: CGPoint(x: midX, y: nextY),
+                        control: CGPoint(x: midX + (right ? 1.8 : -1.8), y: (y + nextY) * 0.5)
+                    )
+                    y = nextY
+                    right.toggle()
+                }
+                context.stroke(path, with: .color(tint), style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+            }
+        }
+        .frame(width: 6)
+        .padding(.vertical, 2)
+    }
 }
 
 struct NativeHighlightColorSwatch: View {

@@ -68,7 +68,8 @@ public partial class ReaderPage
             _shell.Services.SystemBars?.SetEdgeGesturesCaptured(false);
             _shell.ClearPaperSystemBars();
             var now = DateTimeOffset.UtcNow;
-            Interlocked.Add(ref _unsavedListeningSeconds, _listeningClock.SetPlaying(false, now));
+            AddCountedReadingTime(_activityClock.Pause(now), _activityClock.LastSlice);
+            AddCountedReadingTime(_listeningClock.SetPlaying(false, now), _listeningClock.LastSlice, listening: true);
             _ = SaveAndSyncOnExitAsync();
             StopReadingStatsTimer();
             _bookPageCountCancellation?.Cancel();
@@ -98,8 +99,11 @@ public partial class ReaderPage
     {
         using var operation = MobileDataCoordinator.TryBeginOperation();
         if (operation is null) return;
-        if (await SaveProgressCoreAsync(force: true))
-            _shell.RequestAutoSync(MobileShell.AutoSyncGap.AfterReading);
+        var saved = await SaveProgressCoreAsync(force: true);
+        // A queued save can resume after the surface was detached. Its host
+        // guard must not discard time already captured during teardown.
+        await PersistPendingReadingTimeAsync();
+        if (saved) _shell.RequestAutoSync(MobileShell.AutoSyncGap.AfterReading);
     }
 
     public Task PauseAsync()
@@ -109,8 +113,8 @@ public partial class ReaderPage
         CancelActiveTransition();
         CancelSurfaceGesture(clearTouches: true);
         (_readerHost as NativePdfReaderHost)?.CancelPointerInteraction();
-        Interlocked.Add(ref _unsavedSeconds, _activityClock.Pause(now));
-        Interlocked.Add(ref _unsavedListeningSeconds, _listeningClock.CountUntil(now));
+        AddCountedReadingTime(_activityClock.Pause(now), _activityClock.LastSlice);
+        AddCountedReadingTime(_listeningClock.CountUntil(now), _listeningClock.LastSlice, listening: true);
         return SaveProgressSoonAsync(force: true);
     }
 
@@ -118,7 +122,7 @@ public partial class ReaderPage
     {
         _isReaderForeground = true;
         CancelSurfaceGesture(clearTouches: true);
-        if (!_listeningClock.IsPlaying)
+        if (_ready && !_listeningClock.IsPlaying)
             _activityClock.Resume(DateTimeOffset.UtcNow);
     }
 

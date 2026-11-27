@@ -40,7 +40,15 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
 
         if (IsScroll)
         {
-            SetScrollOffset(toEnd ? MaxScrollOffset : 0);
+            if (toEnd && IsContinuousProseScroll)
+            {
+                var pageHeight = Math.Max(1.0, Bounds.Height);
+                SetScrollOffset(Math.Max(0, ComputeContinuousContentHeight() + 48.0 - pageHeight));
+            }
+            else
+            {
+                SetScrollOffset(toEnd ? MaxScrollOffset : 0);
+            }
             return;
         }
 
@@ -67,8 +75,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         var page = _layout.GetPageIndexOfOffset(offset);
         if (IsScroll)
         {
-            // Continuous mode jumps to the top of the hit's page.
-            SetScrollOffset(Math.Max(0, page) * Math.Max(1, Bounds.Height));
+            SetScrollOffset(ComputeScrollOffsetForTextOffset(page, offset));
             return;
         }
 
@@ -238,25 +245,43 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         }
 
         ScrollBarAutoHide.Show(_scrollBar);
-        var next = ClampScrollOffset(_scrollOffset + delta);
+        var hasNextPreview = IsContinuousProseScroll && _scrollNextChapterLayout is { Pages.Count: > 0 };
+        var rawNext = _scrollOffset + delta;
+        var next = hasNextPreview ? ClampLiveScrollOffset(rawNext) : ClampScrollOffset(rawNext);
         var edge = next <= 0 && delta < 0
             ? -1
-            : next >= MaxScrollOffset && delta > 0
+            : (hasNextPreview ? rawNext >= ContinuousNextChapterStartY : next >= MaxScrollOffset) && delta > 0
                 ? 1
                 : 0;
-        SetScrollOffset(next);
-        if (edge != 0)
+        var carryOffset = edge > 0 && hasNextPreview
+            ? Math.Max(0.0, rawNext - ContinuousNextChapterStartY)
+            : 0.0;
+        var carryUpDelta = edge < 0 && IsContinuousProseScroll
+            ? Math.Max(4.0, -rawNext)
+            : 0.0;
+
+        if (_activeHandoffDirection == 1 && rawNext > next && delta > 0)
+        {
+            _activeHandoffOverflowDown += rawNext - next;
+        }
+        else if (_activeHandoffDirection == -1 && rawNext < 0 && delta < 0)
+        {
+            _activeHandoffCarryUp = Math.Min(ScrollPageHeight * 1.5, _activeHandoffCarryUp + (-rawNext));
+        }
+
+        SetScrollOffset(next, allowNextChapterRunway: hasNextPreview);
+        if (edge != 0 && _activeHandoffDirection != edge)
         {
             // Chapter edge reached while scrolling: hand the direction to the
             // host pipeline so the next/previous chapter takes over, exactly
             // like the WebView continuous reader's edge report.
-            Emit(new { type = "continuousEdge", direction = edge });
+            Emit(new { type = "continuousEdge", direction = edge, carryOffset, carryUpDelta });
         }
     }
 
-    private void SetScrollOffset(double value)
+    private void SetScrollOffset(double value, bool allowNextChapterRunway = false)
     {
-        var next = ClampScrollOffset(value);
+        var next = allowNextChapterRunway ? ClampLiveScrollOffset(value) : ClampScrollOffset(value);
         if (Math.Abs(next - _scrollOffset) < 0.01)
         {
             _scrollOffset = next;

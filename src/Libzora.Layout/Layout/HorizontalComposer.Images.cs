@@ -32,10 +32,11 @@ internal sealed partial class HorizontalComposer
             PlaceMangaImageBlock(block, info, item);
             return;
         }
-        if (block.PageBreakBefore)
+        if (block.PageBreakBefore && !ContinuousScroll)
         {
             _pages.NextIfUsed();
             _cursorY = InsetV;
+            _previousBlockBottomSpace = 0f;
         }
 
         var hasWidthConstraint = item.ImageWidthFactor is > 0f;
@@ -44,8 +45,8 @@ internal sealed partial class HorizontalComposer
                 ContentWidth * Math.Clamp(item.ImageWidthFactor!.Value, 0.01f, 1f),
                 item.DecorativeQuote ? BaseFontSize * 5f : float.MaxValue)
             : ContentWidth;
-        var captionReserve = block.KeepWithNext ? BodyLineHeight * 2.2f : 0f;
-        var maxH = Math.Max(1f, _context.Options.ContentHeight - BaseFontSize * 3.6f - captionReserve);
+        var captionReserve = !ContinuousScroll && block.KeepWithNext ? BodyLineHeight * 1.5f : 0f;
+        var maxH = Math.Max(1f, _context.Options.ContentHeight - BaseFontSize * 1.4f - captionReserve);
         var scale = Math.Min(maxW / info.Width, maxH / info.Height);
         if (!hasWidthConstraint)
         {
@@ -54,11 +55,22 @@ internal sealed partial class HorizontalComposer
         var w = info.Width * scale;
         var h = info.Height * scale;
 
-        _cursorY += BaseFontSize * 1.8f;
-        if (_cursorY + h + captionReserve > ContentBottom + 0.01f)
+        var topGap = _pages.CurrentPageHasContent || ContinuousScroll
+            ? Math.Max(0f, BaseFontSize * 0.65f - _previousBlockBottomSpace)
+            : 0f;
+        if (ContinuousScroll)
+        {
+            _cursorY += topGap;
+            WrapContinuousScrollPage();
+        }
+        else if (_cursorY + topGap + h + captionReserve > ContentBottom + 0.01f && _pages.CurrentPageHasContent)
         {
             _pages.NextIfUsed();
-            _cursorY = InsetV + BaseFontSize * 0.5f;
+            _cursorY = InsetV;
+        }
+        else
+        {
+            _cursorY += topGap;
         }
 
         var x = block.AlignRight
@@ -87,11 +99,18 @@ internal sealed partial class HorizontalComposer
                 Marker = item.FootnoteHref is not null ? item.Text : null,
             });
         }
-        _cursorY += h + (block.KeepWithNext ? BaseFontSize * 0.6f : BaseFontSize * 1.8f);
-        if (block.PageBreakAfter)
+        var bottomGap = block.KeepWithNext ? BaseFontSize * 0.35f : BaseFontSize * 0.70f;
+        _cursorY += h + bottomGap;
+        if (block.PageBreakAfter && !ContinuousScroll)
         {
             _pages.NextIfUsed();
             _cursorY = InsetV;
+            _previousBlockBottomSpace = 0f;
+        }
+        else
+        {
+            _previousBlockBottomSpace = bottomGap;
+            WrapContinuousScrollPage();
         }
     }
 
@@ -173,11 +192,19 @@ internal sealed partial class HorizontalComposer
 
     private void PlaceRule(ContentBlock block)
     {
-        _cursorY += BaseFontSize * 2f;
-        if (_cursorY + 1f > ContentBottom + 0.01f)
+        if (ContinuousScroll)
         {
-            _pages.NextIfUsed();
-            _cursorY = InsetV + BaseFontSize;
+            _cursorY += BaseFontSize * 1.2f;
+            WrapContinuousScrollPage();
+        }
+        else
+        {
+            _cursorY += BaseFontSize * 2f;
+            if (_cursorY + 1f > ContentBottom + 0.01f)
+            {
+                _pages.NextIfUsed();
+                _cursorY = InsetV + BaseFontSize;
+            }
         }
 
         _pages.RecordFragment(block.ElementId);
@@ -187,6 +214,7 @@ internal sealed partial class HorizontalComposer
             Kind = DecorationKind.Rule,
             Rect = new SKRect(InsetH, _cursorY, InsetH + ContentWidth, _cursorY + 1.2f),
         });
-        _cursorY += BaseFontSize * 2f;
+        _cursorY += ContinuousScroll ? BaseFontSize * 1.2f : BaseFontSize * 2f;
+        WrapContinuousScrollPage();
     }
 }

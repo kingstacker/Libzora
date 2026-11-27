@@ -142,7 +142,7 @@ struct NativeMaterials: View {
         }
             .background(NativeAmbientBackground()).navigationBarHidden(true)
             .overlay(alignment: .top) { NativeStatusBarGlass() }
-            .task(id: store.uiLanguage) { _ = await load() }
+            .task(id: "\(store.uiLanguage):\(store.readerCloseRevision)") { _ = await load() }
             .onChange(of: store.activeTab) { tab in
                 openedEntryId = nil
                 if tab == 1 { Task { _ = await load() } }
@@ -195,24 +195,27 @@ struct NativeMaterials: View {
             onDelete: { await delete(item) }
         ) {
             HStack(alignment: .top, spacing: 10) {
-                if let accent = NativeHighlightPalette.accentColor(style: item.underlineStyle, hex: item.highlightColor) {
-                    RoundedRectangle(cornerRadius: 1.5)
-                        .fill(accent)
-                        .frame(width: 3)
-                        .padding(.vertical, 2)
+                if item.kind == "highlight" || item.kind == "note" {
+                    NativeHighlightVerticalIndicator(style: item.underlineStyle, colorHex: item.highlightColor)
                 } else {
-                    Image(systemName: item.kind == "bookmark" ? "bookmark" : item.kind == "reflection" ? "square.and.pencil" : "note.text")
+                    Image(systemName: item.kind == "bookmark" ? "bookmark" : "square.and.pencil")
                         .font(.system(size: 17, weight: .regular)).foregroundStyle(mutedText).frame(width: 18).padding(.top, 1)
                 }
                 VStack(alignment: .leading, spacing: 5) {
                     Text("\(item.kindLabel) · \(item.locationText)").font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(mutedText).lineLimit(1)
                     if item.kind == "reflection" {
                         let preview = NativeBookReflectionPolicy.plainPreviewText(from: item.note)
-                        Text(preview.isEmpty ? L("（图片内容）") : preview)
-                            .font(NativeTheme.font(14)).lineSpacing(4).lineLimit(3)
+                        NativeMaterialBodyText(
+                            text: preview.isEmpty ? L("（图片内容）") : preview,
+                            fontSize: 14,
+                            secondary: false,
+                            lineLimit: 3
+                        )
                     } else {
-                        Text(item.quote).font(NativeTheme.font(14)).lineSpacing(4)
-                        if !item.note.isEmpty { Text(item.note).font(NativeTheme.font(13)).foregroundStyle(NativeTheme.secondary).lineSpacing(4) }
+                        NativeMaterialBodyText(text: item.quote, fontSize: 14, secondary: false)
+                        if !item.note.isEmpty {
+                            NativeMaterialBodyText(text: item.note, fontSize: 13, secondary: true)
+                        }
                     }
                 }.frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -238,7 +241,10 @@ struct NativeMaterials: View {
 
     @discardableResult
     private func load() async -> Bool {
-        defer { loading = false }
+        defer {
+            loading = false
+            if !Task.isCancelled { store.readyWidgetTabs.insert(1) }
+        }
         do {
             let loaded: [MaterialRecord] = try await store.request("materials.get")
             let visible = loaded.filter { item in
@@ -358,7 +364,7 @@ struct NativeReadingDashboard: View {
             }.refreshable { await load() }
                 .background(NativeAmbientBackground()).navigationBarHidden(true)
                 .overlay(alignment: .top) { NativeStatusBarGlass() }
-                .task(id: "\(period):\(store.uiLanguage)") { await load() }
+                .task(id: "\(period):\(store.uiLanguage):\(store.readerCloseRevision)") { await load() }
                 .onChange(of: store.activeTab) { tab in
                     if tab == 2 { Task { await load() } }
                 }
@@ -422,7 +428,7 @@ struct NativeReadingDashboard: View {
         let listeningSeconds = min(totalSeconds, max(0, item.listeningSeconds ?? 0))
         let visualSeconds = max(0, totalSeconds - listeningSeconds)
         let maxTotal = Double(dashboard?.mostReadBooks.map(\.cumulativeSeconds).max() ?? 1)
-        let listeningColor = Color(uiColor: .systemBlue).opacity(0.75)
+        let listeningColor = NativeTheme.listeningInk
 
         if let book = store.library.first(where: { $0.id == item.bookId }) {
             let coverKey = "dashboardMostRead:\(book.id)"
@@ -485,7 +491,7 @@ struct NativeReadingDashboard: View {
         HStack(spacing: 5) {
             Circle()
                 .fill(color)
-                .frame(width: 6, height: 6)
+                .frame(width: 8, height: 8)
             Text(text)
         }
     }
@@ -494,7 +500,7 @@ struct NativeReadingDashboard: View {
             Text(L("进度分布")).font(NativeTheme.font(16, relativeTo: .headline))
             Text(L("平均 {0}% · 共 {1} 本", String(format: "%.0f", locale: NativeLocalization.locale, dashboard?.averageProgress ?? 0), books.count)).font(NativeTheme.font(12, relativeTo: .caption)).foregroundStyle(NativeTheme.secondary)
             ForEach(0..<5) { index in
-                let count = books.filter { ($0.progressPercent >= 99.5 ? 4 : min(3, Int($0.progressPercent / 25))) == index }.count
+                let count = books.filter { ($0.isFinished ? 4 : min(3, max(0, Int($0.progressPercent / 25)))) == index }.count
                 HStack {
                     Text(index == 4 ? L("已读完") : "\(index * 25)–\(index * 25 + 24)%")
                         .frame(minWidth: 70, alignment: .leading)
@@ -508,6 +514,7 @@ struct NativeReadingDashboard: View {
         }.padding(16).background(NativeTheme.sunk, in: RoundedRectangle(cornerRadius: 18))
     }
     private func load() async {
+        defer { if !Task.isCancelled { store.readyWidgetTabs.insert(2) } }
         do {
             let result: DashboardSnapshot = try await store.request("dashboard.get", ["period": period])
             if !Task.isCancelled {
@@ -541,6 +548,9 @@ private struct NativeSplitReadingProgress: View {
                     if listeningWidth > 0 {
                         listeningColor.frame(width: listeningWidth)
                     }
+                }
+                if readingWidth >= 2 && listeningWidth >= 2 {
+                    NativeTheme.sunk.frame(width: 2).offset(x: readingWidth - 1)
                 }
             }
             .clipShape(Capsule())
@@ -613,5 +623,134 @@ private struct NativeMedalReveal: Shape {
                     endAngle: .degrees(-90 + 360 * fraction), clockwise: false)
         path.closeSubpath()
         return path
+    }
+}
+
+/// Justified, non-interactive body text for material cards. Disables iOS's
+/// default push-out line-break strategy so CJK excerpts and notes align cleanly
+/// to the trailing card margin without ragged right-side gaps.
+private struct NativeMaterialBodyText: View {
+    let text: String
+    let fontSize: CGFloat
+    let secondary: Bool
+    var lineLimit: Int = 0
+
+    var body: some View {
+        NativeMaterialBodyTextView(
+            text: text,
+            fontSize: fontSize,
+            secondary: secondary,
+            lineLimit: lineLimit
+        )
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(text)
+    }
+}
+
+private struct NativeMaterialBodyTextView: UIViewRepresentable {
+    @Environment(\.nativeUiFont) private var uiFont
+    @Environment(\.sizeCategory) private var sizeCategory
+    let text: String
+    let fontSize: CGFloat
+    let secondary: Bool
+    let lineLimit: Int
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> SelfSizingTextView {
+        let view = SelfSizingTextView()
+        view.isEditable = false
+        view.isSelectable = false
+        view.isScrollEnabled = false
+        view.isUserInteractionEnabled = false
+        view.isAccessibilityElement = false
+        view.backgroundColor = .clear
+        view.textContainerInset = .zero
+        view.textContainer.lineFragmentPadding = 0
+        view.adjustsFontForContentSizeCategory = true
+        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        view.setContentHuggingPriority(.required, for: .vertical)
+        view.setContentCompressionResistancePriority(.required, for: .vertical)
+        return view
+    }
+
+    func updateUIView(_ view: SelfSizingTextView, context: Context) {
+        let useSystem = uiFont == 1 || NativeTheme.useSystemFont
+        let key = Coordinator.Key(
+            text: text,
+            fontSize: fontSize,
+            secondary: secondary,
+            lineLimit: lineLimit,
+            useSystemFont: useSystem,
+            sizeCategory: sizeCategory
+        )
+        if context.coordinator.lastKey == key { return }
+        context.coordinator.lastKey = key
+
+        view.textContainer.maximumNumberOfLines = max(0, lineLimit)
+        view.textContainer.lineBreakMode = lineLimit > 0 ? .byTruncatingTail : .byWordWrapping
+
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .justified
+        paragraph.lineSpacing = 4
+        paragraph.lineBreakMode = .byWordWrapping
+        paragraph.lineBreakStrategy = []
+
+        let font = UIFontMetrics(forTextStyle: .body)
+            .scaledFont(for: NativeTheme.uiKitFont(fontSize, useSystem: useSystem))
+        let color = UIColor { traits in
+            let hex: UInt32 = secondary
+                ? (traits.userInterfaceStyle == .dark ? 0xb0b0b0 : 0x5e5e5e)
+                : (traits.userInterfaceStyle == .dark ? 0xededed : 0x1c1c1c)
+            return UIColor(
+                red: CGFloat((hex >> 16) & 0xff) / 255,
+                green: CGFloat((hex >> 8) & 0xff) / 255,
+                blue: CGFloat(hex & 0xff) / 255,
+                alpha: 1
+            )
+        }
+        view.attributedText = NSAttributedString(
+            string: text,
+            attributes: [.font: font, .foregroundColor: color, .paragraphStyle: paragraph]
+        )
+        view.invalidateIntrinsicContentSize()
+    }
+
+    @available(iOS 16.0, *)
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: SelfSizingTextView, context: Context) -> CGSize? {
+        let width = proposal.width ?? uiView.bounds.width
+        guard width > 0 else { return nil }
+        let fitted = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
+        return CGSize(width: width, height: ceil(fitted.height))
+    }
+
+    final class Coordinator {
+        struct Key: Equatable {
+            let text: String
+            let fontSize: CGFloat
+            let secondary: Bool
+            let lineLimit: Int
+            let useSystemFont: Bool
+            let sizeCategory: ContentSizeCategory
+        }
+        var lastKey: Key?
+    }
+
+    final class SelfSizingTextView: UITextView {
+        private var lastLayoutWidth: CGFloat = 0
+
+        override var intrinsicContentSize: CGSize {
+            let width = bounds.width > 0 ? bounds.width : UIScreen.main.bounds.width
+            let fitted = sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
+            return CGSize(width: UIView.noIntrinsicMetric, height: ceil(fitted.height))
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            if bounds.width > 0 && abs(bounds.width - lastLayoutWidth) > 0.5 {
+                lastLayoutWidth = bounds.width
+                invalidateIntrinsicContentSize()
+            }
+        }
     }
 }

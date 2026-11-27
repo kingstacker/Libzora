@@ -25,7 +25,8 @@ public enum MobilePageAnimation
     None = 0,
     Fade = 1,
     // Value 2 (Cover) was retired; NormalizePageAnimation maps it to Push.
-    Push = 3
+    Push = 3,
+    Curl = 4
 }
 
 public enum MobileReaderProgressDisplay
@@ -132,7 +133,7 @@ public sealed record MobilePreferences
     /// <summary>Insert a subtle visual gap between adjacent CJK and Latin/numeric runs.</summary>
     public bool ReaderCjkLatinSpacing { get; init; } = true;
     /// <summary>Keep at least two lines together at paragraph page boundaries.</summary>
-    public bool ReaderAvoidWidowsAndOrphans { get; init; } = true;
+    public bool ReaderAvoidWidowsAndOrphans { get; init; }
     /// <summary>Vertical right-to-left typesetting, the traditional CJK layout.</summary>
     public bool ReaderVerticalWriting { get; init; }
     public int ReaderFlowMode { get; init; } = 1;

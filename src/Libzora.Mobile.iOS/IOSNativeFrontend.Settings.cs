@@ -17,7 +17,7 @@ internal sealed partial class IOSNativeFrontend
     {
         using var operation = BeginOperation();
         var modules = _shell.Modules;
-        if (command == "dictionary.wikipedia")
+        if (command is "dictionary.wikipedia" or "dictionary.ai")
             return await DispatchDictionaryAsync(command, args, token);
         if (command.StartsWith("dictionary.", StringComparison.Ordinal))
         {
@@ -112,16 +112,25 @@ internal sealed partial class IOSNativeFrontend
                 throw new InvalidOperationException(UiText.Get("账号服务不接收反馈、截图或日志，请使用 GitHub Issues。"));
             case "settings.profile":
                 await modules.Library.Books.InitializeAsync(token);
-                var profileBooks = await modules.Library.Books.SearchAsync(cancellationToken: token);
                 var syncProfile = await modules.Sync.Service.LoadSettingsAsync(token);
                 var aiProfile = await modules.Ai.Settings.LoadAsync(token);
                 var emailProfile = await modules.Integrations.KindleEmailSettings.LoadAsync(token);
+                var profileStorage = await Task.Run(() => ComputeStorageBreakdown(modules.Paths), token);
                 return Data(("version", ApplicationVersion.GetDisplayVersion(typeof(MobileApp).Assembly)),
                     ("sync", syncProfile.Settings is { Enabled: true, IsConfigured: true } ? UiText.Get("{0} · 已开启", syncProfile.Settings.ProviderName) : UiText.Get("未开启")),
                     ("ai", aiProfile.IsConfigured ? aiProfile.ProviderDisplayName : UiText.Get("未设置")),
                     ("kindle", emailProfile.IsConfigured ? UiText.Get("已设置") : UiText.Get("未设置")),
-                    ("storage", MobileFormat.Size(profileBooks.Sum(book => book.Files.Sum(file => file.Size)))),
+                    ("storage", profileStorage.TotalText),
                     ("account", await modules.Accounts.Service.GetStatusAsync(cancellationToken: token)));
+            case "settings.storage.get":
+                return await Task.Run(() => ComputeStorageBreakdown(modules.Paths), token);
+            case "settings.storage.clearCache":
+                return await Task.Run(() =>
+                {
+                    ClearDirectoryContents(modules.Paths.ReaderCache);
+                    ClearDirectoryContents(modules.Paths.Logs);
+                    return ComputeStorageBreakdown(modules.Paths);
+                }, token);
             case "settings.sync.get":
                 var stored = await modules.Sync.Service.LoadSettingsAsync(token);
                 _syncDraft = stored.Settings;
@@ -302,6 +311,21 @@ internal sealed partial class IOSNativeFrontend
                 return wikipediaArticle is null
                     ? Array.Empty<WikipediaArticle>()
                     : new[] { wikipediaArticle };
+            case "dictionary.ai":
+            {
+                var term = Text(args, "term").Trim();
+                if (term.Length == 0) return Data(("text", string.Empty));
+                var ai = await _shell.Modules.Ai.Settings.LoadAsync(token);
+                if (!ai.IsConfigured) throw new InvalidOperationException(UiText.Get("请先在“我的”中设置 AI 接口。"));
+                if (!await EnsureAiConsentAsync(ai, token))
+                    throw new InvalidOperationException(UiText.Get("已取消 AI 授权，未发送任何内容。"));
+                var instructions = UiText.CurrentLanguage == "zh-CN"
+                    ? "你是简洁准确的词典助手。请用中文解释用户查询的词语或短语：给出音标/词性（如适用）、核心释义与 1–2 个简短例句，直接输出，不要寒暄。"
+                    : $"You are a concise dictionary assistant. Explain the queried word or phrase in {UiText.CurrentLanguage}: provide pronunciation/part of speech if applicable, core meanings, and 1-2 brief examples directly without preamble.";
+                var answer = await _shell.Modules.Ai.ChatClient.CompleteAsync(
+                    ai, instructions, term, Array.Empty<AiConversationTurn>(), token);
+                return Data(("text", answer));
+            }
             case "dictionary.toggle": await dictionary.SetEnabledAsync(Text(args, "id"), Flag(args, "enabled"), token); break;
             case "dictionary.remove":
                 if (await ConfirmAsync(UiText.Get("移除词典"), UiText.Get("移除后可以重新导入。"), UiText.Get("移除"))) await dictionary.RemoveAsync(Text(args, "id"), token);
@@ -364,6 +388,133 @@ internal sealed partial class IOSNativeFrontend
             }
         }
         return imported;
+    }
+
+    private static NativeStorageBreakdown ComputeStorageBreakdown(AppPaths paths)
+    {
+        var books = MeasureDirectory(paths.Library);
+        var dictionaries = MeasureDirectory(paths.Dictionaries);
+        var fonts = MeasureDirectory(paths.Fonts);
+
+        var readerCache = MeasureDirectory(paths.ReaderCache);
+        var logs = MeasureDirectory(paths.Logs);
+        var covers = MeasureDirectory(paths.Covers);
+        var materialCovers = MeasureDirectory(Path.Combine(paths.Data, "reading-material-covers"));
+        var cacheBytes = readerCache.Bytes + logs.Bytes + covers.Bytes + materialCovers.Bytes;
+        var cacheFiles = readerCache.Files + logs.Files + covers.Files + materialCovers.Files;
+        var clearableCacheBytes = readerCache.Bytes + logs.Bytes;
+
+        var backups = MeasureDirectory(paths.Backups);
+        var trash = MeasureDirectory(paths.Trash);
+        var backupsTrashBytes = backups.Bytes + trash.Bytes;
+        var backupsTrashFiles = backups.Files + trash.Files;
+
+        var excludedRoots = new[]
+        {
+            paths.Library,
+            paths.Dictionaries,
+            paths.Fonts,
+            paths.ReaderCache,
+            paths.Logs,
+            paths.Covers,
+            Path.Combine(paths.Data, "reading-material-covers"),
+            paths.Backups,
+            paths.Trash,
+        }
+        .Select(NormalizePrefix)
+        .ToArray();
+
+        var other = MeasureOtherFiles(paths.Root, excludedRoots);
+
+        var categories = new[]
+        {
+            new NativeStorageCategory("books", books.Bytes, MobileFormat.Size(books.Bytes), books.Files),
+            new NativeStorageCategory("dictionaries", dictionaries.Bytes, MobileFormat.Size(dictionaries.Bytes), dictionaries.Files),
+            new NativeStorageCategory("fonts", fonts.Bytes, MobileFormat.Size(fonts.Bytes), fonts.Files),
+            new NativeStorageCategory("cache", cacheBytes, MobileFormat.Size(cacheBytes), cacheFiles),
+            new NativeStorageCategory("backupsTrash", backupsTrashBytes, MobileFormat.Size(backupsTrashBytes), backupsTrashFiles),
+            new NativeStorageCategory("other", other.Bytes, MobileFormat.Size(other.Bytes), other.Files),
+        };
+
+        var totalBytes = categories.Sum(category => category.Bytes);
+        return new NativeStorageBreakdown(
+            TotalBytes: totalBytes,
+            TotalText: MobileFormat.Size(totalBytes),
+            ClearableCacheBytes: clearableCacheBytes,
+            ClearableCacheText: MobileFormat.Size(clearableCacheBytes),
+            Categories: categories);
+    }
+
+    private static string NormalizePrefix(string path)
+    {
+        var full = Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return full + Path.DirectorySeparatorChar;
+    }
+
+    private static (long Bytes, int Files) MeasureDirectory(string path)
+    {
+        if (!Directory.Exists(path)) return (0, 0);
+        long bytes = 0;
+        var files = 0;
+        try
+        {
+            foreach (var file in Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories))
+            {
+                try
+                {
+                    bytes += new FileInfo(file).Length;
+                    files++;
+                }
+                catch { }
+            }
+        }
+        catch { }
+        return (bytes, files);
+    }
+
+    private static (long Bytes, int Files) MeasureOtherFiles(string root, string[] excludedPrefixes)
+    {
+        if (!Directory.Exists(root)) return (0, 0);
+        long bytes = 0;
+        var files = 0;
+        try
+        {
+            foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+            {
+                var full = Path.GetFullPath(file);
+                var excluded = false;
+                foreach (var prefix in excludedPrefixes)
+                {
+                    if (full.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                    {
+                        excluded = true;
+                        break;
+                    }
+                }
+                if (excluded) continue;
+                try
+                {
+                    bytes += new FileInfo(file).Length;
+                    files++;
+                }
+                catch { }
+            }
+        }
+        catch { }
+        return (bytes, files);
+    }
+
+    private static void ClearDirectoryContents(string path)
+    {
+        if (!Directory.Exists(path)) return;
+        foreach (var file in Directory.EnumerateFiles(path))
+        {
+            try { File.Delete(file); } catch { }
+        }
+        foreach (var directory in Directory.EnumerateDirectories(path))
+        {
+            try { Directory.Delete(directory, recursive: true); } catch { }
+        }
     }
 }
 #endif

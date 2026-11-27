@@ -1,5 +1,6 @@
 ﻿using MdxParser.Models;
 using NeoSmart.Hashing.XXHash;
+using System.Buffers.Binary;
 using System.Globalization;
 using System.Text;
 using System.Text.Json.Serialization;
@@ -255,54 +256,67 @@ namespace MdxParser
             {
                 if (m_KeyList == null)
                 {
-                    m_KeyList = new List<KeyData>();
-                    Blocks[BlockType.KeyData].KeyBlocks.ForEach(kb =>
+                    var keyBlocks = Blocks[BlockType.KeyData].KeyBlocks;
+                    if (keyBlocks.Count > 1)
                     {
-                        m_KeyList.AddRange(splitKeyBlock(kb.getDecompressedData()));
-                    });
-
+                        var perBlock = new List<KeyData>[keyBlocks.Count];
+                        Parallel.For(0, keyBlocks.Count, index =>
+                        {
+                            perBlock[index] = splitKeyBlockList(keyBlocks[index].getDecompressedData());
+                        });
+                        var total = 0;
+                        foreach (var list in perBlock) total += list.Count;
+                        m_KeyList = new List<KeyData>(total);
+                        foreach (var list in perBlock) m_KeyList.AddRange(list);
+                    }
+                    else
+                    {
+                        m_KeyList = new List<KeyData>();
+                        foreach (var kb in keyBlocks)
+                            m_KeyList.AddRange(splitKeyBlockList(kb.getDecompressedData()));
+                    }
                 }
                 return m_KeyList;
             }
         }
-        private IEnumerable<KeyData> splitKeyBlock(byte[] keyData)
+        private List<KeyData> splitKeyBlockList(byte[] keyData)
         {
-            int startIndex = 0, endIndex = 0, width;
-            byte[] delimiter;
-            // key text ends with '\x00'
-            if (Encoding.CodePage is 1200 or 1201)
+            var result = new List<KeyData>();
+            int startIndex = 0;
+            int numberWidth = NumberWidth;
+            var encoding = Encoding;
+            bool isUtf16 = encoding.CodePage is 1200 or 1201;
+            int width = isUtf16 ? 2 : 1;
+            var span = keyData.AsSpan();
+            while (startIndex + numberWidth <= keyData.Length)
             {
-                delimiter = new byte[] { 0, 0 };
-                width = 2;
-            }
-            else
-            {
-                delimiter = new byte[] { 0 };
-                width = 1;
-            }
-            while (startIndex + NumberWidth <= keyData.Length)
-            {
-                // the corresponding record's offset in record block
-                var keyId = readNumber(keyData[startIndex..(startIndex + NumberWidth)]);
-                int i = startIndex + NumberWidth;
-                endIndex = keyData.Length;
-                while (i + width <= keyData.Length)
+                var keyId = readNumber(span.Slice(startIndex, numberWidth));
+                int textStart = startIndex + numberWidth;
+                int endIndex = keyData.Length;
+                if (!isUtf16)
                 {
-
-                    if (keyData[i..(i + width)].SequenceEqual(delimiter))
-                    {
-                        endIndex = i;
-                        break;
-                    }
-                    i += width;
+                    int rel = span.Slice(textStart).IndexOf((byte)0);
+                    if (rel >= 0) endIndex = textStart + rel;
                 }
-                var keyText = Encoding.GetString(keyData[(startIndex + NumberWidth)..endIndex]);
+                else
+                {
+                    for (int i = textStart; i + 1 < keyData.Length; i += 2)
+                    {
+                        if (keyData[i] == 0 && keyData[i + 1] == 0)
+                        {
+                            endIndex = i;
+                            break;
+                        }
+                    }
+                }
+                var keyText = encoding.GetString(keyData, textStart, endIndex - textStart);
                 var key = KeyData.of(keyId, keyText);
                 key.StartIndex = startIndex;
                 key.Size = endIndex + width - startIndex;
                 startIndex = endIndex + width;
-                yield return key;
+                result.Add(key);
             }
+            return result;
         }
 
         private List<RecordData> m_RecordList;
@@ -313,31 +327,37 @@ namespace MdxParser
             {
                 if (m_RecordList == null)
                 {
-                    m_RecordList = m_RecordList ?? new List<RecordData>();
-                    int offset = 0, i = 0;
-                    Blocks[BlockType.RecordData].KeyBlocks.ForEach(b =>
+                    var keys = KeyDatas;
+                    var encoding = Encoding;
+                    m_RecordList = new List<RecordData>(keys.Count);
+                    long offset = 0;
+                    int i = 0;
+                    foreach (var b in Blocks[BlockType.RecordData].KeyBlocks)
                     {
                         var recordData = b.getDecompressedData();
-                        while (i < KeyDatas.Count)
+                        while (i < keys.Count)
                         {
-                            long endIndex = 0, startIndex = KeyDatas[i].Id;
-                            var key = KeyDatas[i];
-                            if (key.Id - offset >= recordData.Length)
+                            var key = keys[i];
+                            long startIndex = key.Id;
+                            if (startIndex - offset >= recordData.Length)
                                 break;
-                            // record end index
-                            if (i < KeyDatas.Count - 1)
-                                endIndex = KeyDatas[i + 1].Id;
+                            long endIndex = i < keys.Count - 1 ? keys[i + 1].Id : recordData.Length + offset;
+                            int localStart = (int)(startIndex - offset);
+                            int localLength = (int)(endIndex - startIndex);
+                            if (key.Text.StartsWith("\\"))
+                            {
+                                var data = new byte[localLength];
+                                Buffer.BlockCopy(recordData, localStart, data, 0, localLength);
+                                m_RecordList.Add(RecordData.of(key.Text, data));
+                            }
                             else
-                                endIndex = recordData.Length + offset;
-                            var data = recordData[(int)(startIndex - offset)..(int)(endIndex - offset)];
-                            if (KeyDatas[i].Text.StartsWith("\\"))
-                                m_RecordList.Add(RecordData.of(KeyDatas[i].Text, data));
-                            else
-                                m_RecordList.Add(RecordData.of(KeyDatas[i].Text, Encoding.GetString(data)));
+                            {
+                                m_RecordList.Add(RecordData.of(key.Text, encoding.GetString(recordData, localStart, localLength)));
+                            }
                             i++;
                         }
                         offset += recordData.Length;
-                    });
+                    }
                 }
                 return m_RecordList;
             }
@@ -349,12 +369,13 @@ namespace MdxParser
             else
                 return readInt32(stream);
         }
-        public long readNumber(byte[] bytes)
+        public long readNumber(ReadOnlySpan<byte> bytes)
         {
             if (NumberWidth == 8)
-                return BitConverter.ToInt64(Enumerable.Reverse(bytes).ToArray());
+                return BinaryPrimitives.ReadInt64BigEndian(bytes);
             else
-                return BitConverter.ToInt32(Enumerable.Reverse(bytes).ToArray());
+                return BinaryPrimitives.ReadInt32BigEndian(bytes);
         }
+        public long readNumber(byte[] bytes) => readNumber(bytes.AsSpan());
     }
 }

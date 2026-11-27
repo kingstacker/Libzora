@@ -77,8 +77,8 @@ pattern: `MainWindow.<Area><Aspect>.cs`.
 | `MainWindow.Stage3DeviceTransfer*.cs` | Send books to Kindle over USB or email. |
 | `MainWindow.Stage3DeviceExport.cs` | Export and delete device books. |
 | `MainWindow.KindleAnnotationSync.cs` | Kindle USB highlights, notes and bookmarks sync UI. |
-| `MainWindow.KindleFullSync.cs` | Unified Kindle USB two-way sync (books, bookmarks, highlights, notes). |
-| `MainWindow.Stage3ReadingMaterials.cs` | Collected highlights and notes. |
+| `MainWindow.KindleFullSync.cs` | Unified Kindle USB two-way sync, rechecking bookmarks/highlights/notes for newly shared books after transfer. |
+| `MainWindow.Stage3ReadingMaterials.cs`, `MainWindow.Stage3ReadingMaterials.Kindle.cs` | Collected highlights and notes; coalesced page loads, cancellable Kindle text reads and version-checked persisted clipping reuse. |
 | `MainWindow.Stage3DeviceResources.cs` | Device fonts and dictionaries. |
 | `MainWindow.Stage3Dashboard.cs` | Reading dashboard, diagnostics, library trash. |
 | `MainWindow.Stage3ReaderAiSettings.cs` | Reader AI settings. |
@@ -136,12 +136,15 @@ Large services are split by responsibility so one change opens one file:
 | --- | --- |
 | `S3SyncService.Database*.cs` | connection, snapshot, apply-remote (sync core), merge, dedupe, blobs, SQL, tombstones |
 | `SqliteBookLibraryService.*.cs` | queries, import, mutations, trash, collections, file paths, readers, schema |
-| `ReaderDataService.*.cs` | annotations, layout, stats, index, embeddings, search |
+| `ReaderDataService.*.cs` | annotations, layout, stats, durable completion/migration (`.Completion.cs`), index, embeddings, search |
+| `ReadingTimeSlice.cs`, `ReadingActivityClock.cs` (Core), `ReadingTimeSyncTracker*.cs` | shared activity/listening clocks, UTC day splitting, accumulator and grow-only visual/listening counters, including backward-compatible listening migration |
 | `EpubReaderPreparationService.*.cs` | toc, navigation, chapter titles, duplicate cover normalization, index cache, extraction, XML, sanitizer, footnote-container detection |
 | `PluginBridge.*.cs` | dispatch, content, AI, network, decode |
 | `EpubTranslationService.*.cs` | translate, retry, render, documents, text tools, cache, types |
 | `PinyinBookService.*.cs` | generate, annotate, AI review, documents, cache, types |
 | `TtsService.*.cs` | startup, control, run, pipeline, lifecycle |
+| `KindleAnnotationSyncService*.cs`, `KindleAnnotationBookTextCache.cs`, `KindleAnnotationClippingTextResolver.cs`, `KindleBookTextService*.cs` | annotation reconciliation, exact-ID/point bookmark merging and repair (`.Bookmarks.cs`, `.BookmarkPositions.cs`), paragraph-bounded/image-safe bookmark anchors, shared bounded/single-flight text cache and exact-edition display reuse; write plans always read fresh text |
+| `ReaderContentPosition*.cs` (Core), `ReaderContentPositionJson.cs` | page-independent text/image positions and backward-compatible original-text evidence, persisted without new database columns |
 | `MtpKindleDeviceService.*.cs` | books, resources, annotations, scan, session |
 | `LibzoraMcpTools.*.cs` + `McpResults.cs` | library, collections, content, devices, validation, projection, result records |
 | `NativePdfReaderHost.*.cs` + `PdfReaderLayout.cs` | interaction, annotation callouts, search, rendering, pointer, layout, view, auto-crop, dark coloring |
@@ -152,7 +155,7 @@ Large services are split by responsibility so one change opens one file:
 | `KindleDeviceService.*.cs` | detection, books, transfer, resources, annotations, files, native |
 | `HorizontalComposer.*.cs` | line breaking, Knuth-Plass, images, tables, table layout |
 | `GlyphShaper.cs` + `GlyphShaper.Variants.cs` | HarfBuzz shaping, system font loading, paired Latin/monospace and true Bold/Italic variants |
-| `ReaderPage.*.cs` (Mobile) | navigation (request generations and exact chapter matching), position, input, selection, footnote/figure detours and durable body progress, chrome, lifecycle, native (actions, search), native presentation (revision-safe first drawn page) |
+| `ReaderPage.*.cs` (Mobile) | navigation (request generations and exact chapter matching), position, input, selection, footnote/figure detours and durable body progress, reading-time day accumulation/recovery (`.ReadingTime.cs`), chrome, lifecycle, native (actions, search), native presentation (revision-safe first drawn page) |
 | `BookReflectionService.cs` + `BookReflectionFormatting.cs` | book-level reflection persistence, Markdown normalization, preview and citation helpers |
 | `BookReflectionPage.axaml.cs` + `BookReflectionCitationSheet.axaml.cs` (Mobile) | mobile reflection editor, Markdown preview and annotation citation picker |
 | `MobileShell.*.cs` | shell state, sheets, bars |
@@ -171,20 +174,21 @@ Large services are split by responsibility so one change opens one file:
 
 - `src/Libzora.Mobile.iOS/NativeUI/*.swift` — SwiftUI screens: bookshelf,
   library, reader (`NativeReader.swift`, `NativeReaderAssistant.swift`,
-  `NativeBookReflection.swift`, `NativeBookReflectionPolicy.swift`,
+  `NativeBookReflection.swift`, `NativeBookReflectionPolicy.swift`, `NativeReflectionLiveEditor.swift`,
   `NativeMarkdownParser.swift`, `NativeMarkdown.swift`,
-  `NativeBookOpenTransition.swift`,
+  `NativeBookOpenTransition.swift`, `NativeBookCloseTransition.swift` (window-level captured-reader close flight),
   `NativeBookOpenTransitionPolicy.swift`, `NativeSwipeDeletePolicy.swift`,
   `NativeLibraryBatchPolicy.swift`, `NativeLibraryBatchSelection.swift`,
   `NativeReaderHighlightPalette.swift`,
   `NativeReaderAdvancedTypography.swift`, `NativeReaderLatinFontPicker.swift`),
   settings, account, membership, theme, widgets.
 - `NativeUI/NativeBridge.swift` — store, bridge requests/events, preferences and library refresh;
+  `NativeBridge.Library.swift` — series front-cover and display ordering helpers;
   `NativeBridge.Reader.swift` — session-identified reader presentations (including same-book reopens), restore, widget links, queued opens and teardown;
   `NativeReaderOpenPolicy.swift` — revision-safe latest-intent queue and active-open deduplication.
 - `NativeReaderEntryPresentation.swift`, `NativeReaderPresentationPolicy.swift` — first-drawn-frame and viewport acknowledgement gating, stable loading cover and cancellation.
-- `NativePageSlideTransition.swift`, `NativeDisplayFrame.swift` — native display commits and GPU-composited page snapshots; only library and reading-dashboard sessions use 3D book animations.
-- `NativeBridge.Navigation.swift`, `NativeWidgetNavigationPolicy.swift` — fast widget tab handoffs without resetting the live tab/navigation trees.
+- `NativePageSlideTransition.swift`, `NativeDisplayFrame.swift`, `NativeReaderSnapshot.swift` — native display commits and renderer-owned pixel snapshots for GPU-composited reader slides and cover closes; only library and reading-dashboard sessions use 3D book animations.
+- `NativeBridge.Navigation.swift`, `NativeWidgetNavigationPolicy.swift` — latest-intent widget link routing, icon-first cold entry and tab handoffs that finish before backend teardown, without resetting live tab/navigation trees.
 - `Libzora.Reader/Native{Pdf,}ReaderHost.Presentation.cs` — optional Core presentation-frame capability, notifying only after the current page was drawn.
 - `EpubReaderPreparationService.Auxiliary.cs` — marks footnote/endnote-only
   spine documents so they stay resolvable but never count as a page, a chapter
@@ -197,12 +201,14 @@ Large services are split by responsibility so one change opens one file:
 - `src/Libzora.Mobile.iOS/NativeUI/NativePreferenceEdits.swift` — field-level
   optimistic preference writes, rollback baselines, widget-link and filter policies.
 - `NativeUI/NativeLegalDocument.swift` — settings navigation to the bundled user agreement and privacy policy.
+- `NativeUI/NativeStoragePage.swift` — storage usage chart, per-category breakdown and cache cleanup.
 - `NativeLibraryChrome.swift`, `NativeLibraryScrollChromePolicy.swift`, `NativeShelfCards.swift`, `NativeBookSeriesShelf.swift` — bookshelf scroll chrome, interactive masthead/mask scroll policy, shared cards/navigation, and series panels split from the top-level library page.
 - `NativeTrash.swift`, `NativeSwipeDeleteCard.swift`, `NativeDataSafetyPolicy.swift` — independent restore hit targets, acknowledged/confirmed deletion, and portable editing/onboarding policies.
 - `NativeBookActions.swift`, `IOSNativeFrontend.BookFiles.cs`, `MobileBookFileExport.cs` — explicit reading statuses, exact/recent file selection, and byte-preserving temporary book exports.
 - `NativeSyncSettings.swift`, `IOSNativeFrontend.Import.cs` — native sync form and serialized book/TXT imports, including optional rule previews.
 - `NativeUI/NativeWelcomeView.swift`, `src/Libzora.Mobile/Views/WelcomeOverlay.axaml` — first-launch mobile welcome guide requiring explicit acceptance of the bundled User Agreement and Privacy Policy.
 - `NativeUI/NativeAppleSignIn.swift` — native Sign in with Apple coordinator (SHA-256 nonce) and HIG button used by `NativeAccount.swift` for sign-in and Apple ID linking.
+- `tests/Libzora.Mobile.iOS.UITests/NativeReadingStatsTests.swift` / `prepare-reading-stats-preview.py` — independent covered-book reading/listening palette captures and entry status-bar timing regressions.
 - `tests/Libzora.Mobile.iOS.UITests/` and `.LogicTests/` — behaviour contracts; `NativeDataSafetyUITests` / `prepare-ios-safety-preview.py` use an independent covered-book/PDF/TXT fixture bundle for deletion, onboarding, editing and file-action regressions.
 
 ## Where to look for common tasks
@@ -221,7 +227,7 @@ Large services are split by responsibility so one change opens one file:
 | Backup and encryption | `MainWindow.Stage3Backup.cs`, `src/Libzora.Infrastructure/` |
 | SQLite schema or queries | `src/Libzora.Infrastructure/SqliteBookLibraryService*.cs` |
 | iOS screen | `src/Libzora.Mobile.iOS/NativeUI/`, `IOSNativeFrontend.*.cs` |
-| Widgets | `src/Libzora.Widgets/`, `NativeWidgets.swift` |
+| Widgets | `src/Libzora.Widgets/Shared/WidgetViews.swift` (continue/stats/empty states), `WidgetTheme.swift` (shared heading/fonts/metrics), `WidgetContinueBooksLayout.swift` (adaptive book slots), `WidgetReadingTreeView.swift`, `NativeWidgets.swift` |
 | Plugin API | `docs/plugins.md`, `src/Libzora.Core/` plugin contracts |
 
 ## Build and test

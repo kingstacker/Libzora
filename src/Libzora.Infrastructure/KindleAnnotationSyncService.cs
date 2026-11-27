@@ -80,7 +80,7 @@ public sealed partial class KindleAnnotationSyncService
             context.LocalAnnotations.OrderBy(annotation => annotation.Id)
                 .Select(annotation => $"{annotation.Id:N}|{annotation.UpdatedAt:O}|{annotation.ChapterPath}|{annotation.StartOffset}|{annotation.EndOffset}|{annotation.Note}")
                 .Concat(context.LocalBookmarks.OrderBy(bookmark => bookmark.Id)
-                    .Select(bookmark => $"B|{bookmark.Id:N}|{bookmark.CreatedAt:O}|{bookmark.ChapterPath}|{bookmark.ContentPosition?.TextOffset}|{bookmark.Quote}"))
+                    .Select(bookmark => $"B|{bookmark.Id:N}|{bookmark.CreatedAt:O}|{bookmark.ChapterPath}|{bookmark.ContentPosition?.TextOffset}|{bookmark.Quote}|{bookmark.ContentPosition?.AnchorQuote}|{bookmark.ContentPosition?.AnchorPrefix}|{bookmark.ContentPosition?.AnchorSuffix}"))
                 .Concat(context.DeviceRecords.OrderBy(record => record.AnnotationId, StringComparer.Ordinal)
                     .Select(record => $"{record.Book.BookId}|{record.AnnotationId}|{record.SerializedPayload}"))));
         var signature = Convert.ToHexString(
@@ -244,13 +244,13 @@ public sealed partial class KindleAnnotationSyncService
             if (localBook is null) { skipped++; continue; }
             var localAnnotations = await ReadLocalAnnotationsAsync(localBook, cancellationToken);
             var localBookmarks = await ReadLocalBookmarksAsync(localBook, cancellationToken);
-            var stamp = DeviceBookStamp(device, deviceBook);
+            var stamp = KindleAnnotationBookTextCache.Stamp(device, deviceBook);
             if (localAnnotations.Count == 0 && localBookmarks.Count == 0)
             {
                 // Without local annotations or bookmarks a book only matters when the device
                 // database has records for it; skip the copy when that is known.
                 if (snapshot.Records.Count == 0) { compared++; continue; }
-                if (TryGetCachedIdentity(stamp, out var identity)
+                if (_deviceBookText.TryGetIdentity(stamp, out var identity)
                     && !snapshot.Records.Any(record => IsSameDeviceBook(record.Book, identity)))
                 {
                     compared++;
@@ -260,7 +260,7 @@ public sealed partial class KindleAnnotationSyncService
             progress?.Report(new(KindleAnnotationSyncStage.ProcessingBooks,
                 processed - 1, pairs.Count, localBook.Title));
             var rawText = await ReadDeviceBookTextAsync(
-                device, deviceBook, kindle, stamp,
+                device, deviceBook, kindle,
                 allowCachedText: !buildApplyPlan,
                 cancellationToken, progress);
             if (rawText is null) { skipped++; continue; }
@@ -350,47 +350,10 @@ public sealed partial class KindleAnnotationSyncService
         KindleDevice device,
         KindleBook book,
         IKindleDeviceService kindle,
-        string? stamp,
         bool allowCachedText,
         CancellationToken cancellationToken,
-        IProgress<KindleAnnotationSyncProgress>? progress = null)
-    {
-        if (book.Format is not ("azw3" or "mobi" or "azw" or "prc")) return null;
-        if (allowCachedText && TryGetCachedDeviceText(stamp, out var cached)) return cached;
-        var directory = Path.Combine(
-            Path.GetTempPath(),
-            "Libzora",
-            "annotation-sync-book",
-            Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(directory);
-        try
-        {
-            var path = await kindle.ExportBookAsync(
-                device,
-                book,
-                directory,
-                progress: progress is null ? null : new KindleAnnotationTransferProgress(
-                    progress, KindleAnnotationSyncStage.ReadingBook, book.Title),
-                cancellationToken: cancellationToken);
-            var text = await KindleBookTextService.ReadAsync(path, cancellationToken);
-            StoreDeviceText(stamp, text);
-            return text;
-        }
-        catch (Exception exception) when (exception is IOException
-            or UnauthorizedAccessException
-            or InvalidDataException
-            or NotSupportedException
-            or TimeoutException)
-        {
-            return null;
-        }
-        finally
-        {
-            try { Directory.Delete(directory, recursive: true); }
-            catch (IOException) { }
-            catch (UnauthorizedAccessException) { }
-        }
-    }
+        IProgress<KindleAnnotationSyncProgress>? progress = null) =>
+        (await _deviceBookText.ReadAsync(device, book, kindle, allowCachedText, cancellationToken, progress)).Text;
 
     private static void PrepareDeviceGroups(BookContext context)
     {
@@ -595,6 +558,7 @@ public sealed partial class KindleAnnotationSyncService
         public List<ComputerChange> ChangesToComputer { get; } = [];
         public List<DeviceChange> ChangesToDevice { get; } = [];
         public List<ReaderBookmark> BookmarksToComputer { get; } = [];
+        public Dictionary<Guid, int> BookmarkComputerIndexes { get; } = [];
         public List<DeviceBookmarkChange> BookmarksToDevice { get; } = [];
         public Dictionary<Guid, IReadOnlyList<BookContentChunk>> ReaderChapters { get; } = [];
         public Dictionary<Guid, ReaderAnnotation> LocalRepairs { get; } = [];

@@ -198,13 +198,25 @@ struct NativeLibraryPage: View {
         .task(id: filterRequest) { await updateFilterResults(for: filterRequest) }
         .task(id: visibleCovers) {
             guard store.preferences.colorfulMode else { return }
+            let missing = visibleCovers.filter {
+                sampledColors[$0] == nil && store.ambient.sampledCoverColors[$0] == nil
+            }
+            guard !missing.isEmpty else {
+                publishVisibleColors()
+                return
+            }
             // Coalesce boundary changes without doing image decoding on each frame.
             do { try await Task.sleep(nanoseconds: 120_000_000) }
             catch { return }
-            let missing = visibleCovers.filter { sampledColors[$0] == nil }
-            guard !missing.isEmpty else { return }
+            let stillMissing = visibleCovers.filter {
+                sampledColors[$0] == nil && store.ambient.sampledCoverColors[$0] == nil
+            }
+            guard !stillMissing.isEmpty else {
+                publishVisibleColors()
+                return
+            }
             let samples = await Task.detached(priority: .utility) {
-                missing.compactMap { cover -> (NativeVisibleCover, NativeAmbientColor)? in
+                stillMissing.compactMap { cover -> (NativeVisibleCover, NativeAmbientColor)? in
                     guard let color = NativeAmbientPalette.extract(paths: [cover.path]).first else { return nil }
                     return (cover, color)
                 }
@@ -214,7 +226,10 @@ struct NativeLibraryPage: View {
                 let keep = Set(visibleCovers)
                 sampledColors = sampledColors.filter { keep.contains($0.key) }
             }
-            for (cover, color) in samples { sampledColors[cover] = color }
+            for (cover, color) in samples {
+                sampledColors[cover] = color
+                store.ambient.sampledCoverColors[cover] = color
+            }
             publishVisibleColors()
         }
     }
@@ -290,7 +305,7 @@ struct NativeLibraryPage: View {
         guard isActive, pageVisible, store.readerBook == nil, store.preferences.colorfulMode,
               !store.preferences.collectionsView else { return }
         let samples = visibleRegions.compactMap { region -> NativeAmbientSample? in
-            guard let color = sampledColors[region.cover] else { return nil }
+            guard let color = sampledColors[region.cover] ?? store.ambient.sampledCoverColors[region.cover] else { return nil }
             return NativeAmbientSample(color: color, column: region.column, row: region.row,
                                        visibility: region.visibility)
         }
@@ -470,7 +485,8 @@ struct NativeLibraryPage: View {
         if !selection.active, query.isEmpty, filter <= 1, let id = store.continueBookId, let book = books.first(where: { $0.id == id }) {
             let key = "continue:\(book.id)"
             Button {
-                store.perform { try await store.openReader(book, source: .continueReading) }
+                let frame = NativeBookCoverFrames.get(key)
+                store.perform { try await store.openReader(book, sourceFrame: frame, sourceKey: key, source: .continueReading) }
             } label: {
                 HStack(spacing: 14) {
                     BookCover(book: book, width: 48, height: 68)

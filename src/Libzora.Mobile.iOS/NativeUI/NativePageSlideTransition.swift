@@ -38,12 +38,12 @@ final class NativePageSlideTransition {
         self.init(window: window, oldPageView: imageView, paper: paper)
     }
 
-    func show(_ view: UIView?, animation: NativeBookOpenAnimation, duration: Double,
-              reverse: Bool = false) async {
+    func show(_ view: UIView?, snapshot preparedSnapshot: UIView? = nil,
+              animation: NativeBookOpenAnimation, duration: Double, reverse: Bool = false) async {
         guard !finished, let view, view.bounds.width > 10, view.bounds.height > 10,
               let window, overlay.bounds.size == window.bounds.size else { finish(); return }
         let newPage: UIView
-        if let snapshot = view.snapshotView(afterScreenUpdates: false) {
+        if let snapshot = preparedSnapshot ?? view.snapshotView(afterScreenUpdates: false) {
             // Render-server snapshots retain GPU-backed Skia content too;
             // rasterizing a newly mounted hierarchy can miss that first layer.
             newPage = snapshot

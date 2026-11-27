@@ -2,6 +2,7 @@
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using Foundation;
 using Libzora.Core;
 using Libzora.Infrastructure;
 using Libzora.Mobile.Views;
@@ -12,6 +13,28 @@ namespace Libzora.iOSHead;
 
 internal sealed partial class IOSNativeFrontend
 {
+    private const string AiConsentDestinationKey = "libzora.ai.consent.destination.v1";
+
+    private async Task<bool> EnsureAiConsentAsync(AiConnectionSettings settings, CancellationToken token)
+    {
+        var destination = settings.Destination.Trim();
+        var normalized = destination.ToLowerInvariant();
+        if (!string.IsNullOrEmpty(normalized))
+        {
+            var granted = NSUserDefaults.StandardUserDefaults.StringForKey(AiConsentDestinationKey);
+            if (string.Equals(granted, normalized, StringComparison.Ordinal))
+                return true;
+        }
+        var accepted = await ConfirmAsync(
+            UiText.Get("AI 数据发送授权"),
+            UiText.Get("使用 AI 助手或 AI 翻译时，您的问题、对话上下文以及当前书籍的相关文本片段（或所选正文）将发送至您配置的第三方 AI 服务 {0}（模型：{1}）进行处理，可能产生服务费用。请勿发送无权提供的个人信息或保密内容。您可随时在“我的 → AI 接口”中修改或撤销授权。", destination, settings.Model),
+            UiText.Get("同意并继续"));
+        token.ThrowIfCancellationRequested();
+        if (accepted && !string.IsNullOrEmpty(normalized))
+            NSUserDefaults.StandardUserDefaults.SetString(normalized, AiConsentDestinationKey);
+        return accepted;
+    }
+
     private async Task<object> DispatchReaderAsync(string command, JsonElement args, CancellationToken token)
     {
         if (command == "reader.aiInfo")
@@ -75,8 +98,7 @@ internal sealed partial class IOSNativeFrontend
                 var chinese = text.Count(character => character is >= '一' and <= '鿿');
                 var ai = await _shell.Modules.Ai.Settings.LoadAsync(session.Token);
                 if (!ai.IsConfigured) throw new InvalidOperationException(UiText.Get("请先配置模型服务地址和模型；远程服务还需要 API Key。"));
-                if (!ai.IsLocalEndpoint && !await ConfirmAsync(UiText.Get("发送文本进行翻译"),
-                    UiText.Get("所选正文将发送至 {0} 进行翻译，可能产生服务费用。请勿发送无权提供的个人信息或保密内容。", ai.Destination), UiText.Get("同意并翻译")))
+                if (!await EnsureAiConsentAsync(ai, session.Token))
                     return Data(("text", UiText.Get("已取消翻译")));
                 session.Token.ThrowIfCancellationRequested();
                 var targetLanguage = UiText.CurrentLanguage is "zh-CN" or "en-US"
@@ -119,6 +141,15 @@ internal sealed partial class IOSNativeFrontend
                 _readerCancellation?.Token ?? CancellationToken.None);
             switch (command)
             {
+                case "reader.snapshot":
+                    if (!string.Equals(_readerSessionId, Text(args, "sessionId"), StringComparison.Ordinal))
+                        return Data();
+                    var pageSnapshot = await reader.NativeCapturePageAsync(session.Token);
+                    return pageSnapshot is { } page
+                        ? Data(("image", Convert.ToBase64String(page.Image)),
+                            ("x", page.Frame.X), ("y", page.Frame.Y),
+                            ("width", page.Frame.Width), ("height", page.Frame.Height))
+                        : Data();
                 case "reader.state": return reader.GetNativeState();
                 case "reader.toc": return reader.GetNativeToc();
                 case "reader.jump": await reader.NativeJumpToTocAsync(Number(args, "id")); break;
@@ -185,6 +216,8 @@ internal sealed partial class IOSNativeFrontend
         var modules = _shell.Modules;
         var settings = await modules.Ai.Settings.LoadAsync(token);
         if (!settings.IsConfigured) throw new InvalidOperationException(UiText.Get("请先在“我的”中设置 AI 接口。"));
+        if (!await EnsureAiConsentAsync(settings, token))
+            throw new InvalidOperationException(UiText.Get("已取消 AI 授权，未发送任何内容。"));
         var book = await modules.Library.Books.GetBookAsync(Id(args, "bookId"), token)
             ?? throw new InvalidOperationException(UiText.Get("书籍已不存在。"));
 

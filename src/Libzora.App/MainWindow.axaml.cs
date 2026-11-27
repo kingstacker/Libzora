@@ -276,6 +276,7 @@ public partial class MainWindow : Window
         ConfigureMacWindowChrome();
         PromoteModalOverlays();
         InitializeReaderNavigation();
+        InitializeReaderActivityTracking();
         InitializeKindleEmailClipboardSupport();
         ApplyMainAppearance();
         InitializeWidgetSnapshots();

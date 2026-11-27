@@ -251,7 +251,7 @@ public partial class ReadingDataPage : UserControl
     /// <summary>One stacked bar in shades of ink, from untouched to finished.</summary>
     private void PresentDistribution(ReadingDashboard dashboard)
     {
-        var values = dashboard.Books.Select(item => item.ProgressPercent).ToArray();
+        var values = dashboard.Books.Select(item => item.HasFinished ? 100d : Math.Min(item.ProgressPercent, 99.49)).ToArray();
         var buckets = new[]
         {
             new ReadingBucket("0–24%", values.Count(value => value < 25), 0.3),

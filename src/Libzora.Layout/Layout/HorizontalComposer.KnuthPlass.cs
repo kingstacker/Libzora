@@ -102,14 +102,27 @@ internal sealed partial class HorizontalComposer
             return null;
         }
 
-        // Prefix sums of cell advances and space counts for O(1) range queries.
+        // Prefix sums of cell advances, space counts, exact stretch/shrink
+        // headroom (matching LineBox.TryJustify), and micro-tracking gaps.
         var n = cells.Count;
+        var maxSpaceWidth = BaseFontSize * 0.65f;
+        var minSpaceWidth = BaseFontSize * 0.20f;
+        var maxTrackPerGap = BaseFontSize * 0.045f;
         var prefixAdv = new float[n + 1];
         var prefixSpaces = new int[n + 1];
+        var prefixStretchCap = new float[n + 1];
+        var prefixShrinkCap = new float[n + 1];
+        var prefixTrackGaps = new int[n + 1];
         for (var i = 0; i < n; i++)
         {
-            prefixAdv[i + 1] = prefixAdv[i] + cells[i].Advance;
-            prefixSpaces[i + 1] = prefixSpaces[i] + (cells[i].IsSpace ? 1 : 0);
+            var c = cells[i];
+            prefixAdv[i + 1] = prefixAdv[i] + c.Advance;
+            prefixSpaces[i + 1] = prefixSpaces[i] + (c.IsSpace ? 1 : 0);
+            prefixStretchCap[i + 1] = prefixStretchCap[i]
+                + (c.IsSpace ? Math.Max(0f, maxSpaceWidth - c.Advance) : 0f);
+            prefixShrinkCap[i + 1] = prefixShrinkCap[i]
+                + (c.IsSpace ? Math.Max(0f, c.Advance - minSpaceWidth) : 0f);
+            prefixTrackGaps[i + 1] = prefixTrackGaps[i] + LineBox.CountMicroTrackGaps(c);
         }
 
         // Collect candidate break points: start sentinel, spaces, post-hyphen
@@ -139,15 +152,25 @@ internal sealed partial class HorizontalComposer
                 continue;
             }
 
-            // Break after a hyphenated compound prefix ("well-" + "known").
+            // Break after a hyphenated compound prefix ("well-" + "known"), or
+            // after a standalone em-dash / en-dash / slash ("asked,—“morphine",
+            // "and/or") while keeping paired Chinese dashes ("——") intact.
             if (i + 1 < end
                 && !cells[i + 1].IsSpace
-                && cell.IsLatinWord
-                && cell.Text.Length > 1
-                && cell.Text[^1] is '-' or '–' or '—'
+                && !cells[i + 1].FootnoteMarker
                 && !IsClosingMark(cells[i + 1]))
             {
-                breaks.Add(new KpBreak(i, i + 1, 0, IsHyphen: true, IsEnd: false));
+                if (cell.IsLatinWord
+                    && cell.Text.Length > 1
+                    && cell.Text[^1] is '-' or '–' or '—')
+                {
+                    breaks.Add(new KpBreak(i, i + 1, 0, IsHyphen: true, IsEnd: false));
+                }
+                else if (cell.Character is '—' or '–' or '/'
+                    && !(cell.Character == '—' && cells[i + 1].Character == '—'))
+                {
+                    breaks.Add(new KpBreak(i, i + 1, 0, IsHyphen: false, IsEnd: false));
+                }
             }
 
             // Syllable breakpoints inside long English words.
@@ -181,9 +204,6 @@ internal sealed partial class HorizontalComposer
         Array.Fill(prevIdx, -1);
         bestCost[0] = 0.0;
         fitness[0] = 1;
-
-        var maxSpaceExpandPerSpace = BaseFontSize * 0.36f; // ~0.28em -> ~0.64em comfortable stretch
-        var maxShrinkPerSpace = BaseFontSize * 0.04f;
 
         (LayoutCell Head, LayoutCell Tail) GetSplit(int cellIndex, int splitOffset)
         {
@@ -271,15 +291,21 @@ internal sealed partial class HorizontalComposer
                     }
                 }
 
-                // Measure natural width and space count on line (from -> to).
+                // Measure natural width, space count, and real justification headroom on line (from -> to).
                 float naturalWidth;
                 int spaces;
+                float spaceStretchCap;
+                float spaceShrinkCap;
+                int trackGaps;
                 LayoutCell lastCell;
                 if (from.SplitOffset > 0 && to.CellIndex == from.CellIndex)
                 {
                     // Only the tail of the split word sits on this line.
                     naturalWidth = startTail!.Advance - startTail.TrailingLetterSpacing;
                     spaces = 0;
+                    spaceStretchCap = 0f;
+                    spaceShrinkCap = 0f;
+                    trackGaps = LineBox.CountMicroTrackGaps(startTail);
                     lastCell = startTail;
                 }
                 else
@@ -293,15 +319,20 @@ internal sealed partial class HorizontalComposer
 
                     naturalWidth = prefixAdv[rangeEndExclusive] - prefixAdv[rangeStart];
                     spaces = prefixSpaces[rangeEndExclusive] - prefixSpaces[rangeStart];
+                    spaceStretchCap = prefixStretchCap[rangeEndExclusive] - prefixStretchCap[rangeStart];
+                    spaceShrinkCap = prefixShrinkCap[rangeEndExclusive] - prefixShrinkCap[rangeStart];
+                    trackGaps = prefixTrackGaps[rangeEndExclusive] - prefixTrackGaps[rangeStart];
                     if (startTail is not null)
                     {
                         naturalWidth += startTail.Advance;
+                        trackGaps += LineBox.CountMicroTrackGaps(startTail);
                     }
 
                     if (to.SplitOffset > 0)
                     {
                         var head = GetSplit(to.CellIndex, to.SplitOffset).Head;
                         naturalWidth += head.Advance;
+                        trackGaps += LineBox.CountMicroTrackGaps(head);
                         lastCell = head;
                     }
                     else
@@ -318,7 +349,7 @@ internal sealed partial class HorizontalComposer
                 if (slack < -0.01f)
                 {
                     // Even slight shrinking won't save if way over.
-                    if (spaces == 0 || -slack > spaces * maxShrinkPerSpace)
+                    if (spaces == 0 || -slack > spaceShrinkCap)
                     {
                         if (firstOverflowJ < 0 && !to.IsHyphen)
                         {
@@ -339,31 +370,47 @@ internal sealed partial class HorizontalComposer
                 int fitClass;
                 if (to.IsEnd)
                 {
-                    // Last line is ragged right; only mildly discourage an
-                    // extremely short 1-word orphan last line.
-                    badness = naturalWidth < lineTarget * 0.14f && spaces == 0 ? 45.0 : 0.0;
+                    // Last line is ragged right; only discourage an extremely short
+                    // 1-word orphan last line when widow/orphan control is enabled.
+                    badness = _context.Options.AvoidWidowsAndOrphans
+                        && naturalWidth < lineTarget * 0.14f
+                        && spaces == 0
+                        ? 45.0
+                        : 0.0;
                     fitClass = 1;
                 }
                 else if (slack >= 0f)
                 {
-                    var stretchCap = Math.Max(BaseFontSize * 0.4f, spaces * maxSpaceExpandPerSpace);
-                    var ratio = slack / stretchCap;
-                    if (ratio > 3.2f)
+                    var effectiveStretch = Math.Max(BaseFontSize * 0.25f, spaceStretchCap);
+                    var microTrackCap = trackGaps * maxTrackPerGap;
+                    if (slack <= spaceStretchCap + 0.01f)
                     {
-                        // Way too sparse; keep scanning in case next word fits,
-                        // still allow as high-cost fallback so DP stays connected.
-                        badness = 10000.0 + ratio * 1000.0;
+                        var ratio = slack / effectiveStretch;
+                        badness = 100.0 * ratio * ratio * ratio;
+                        fitClass = ratio < 0.5f ? 1 : 2;
+                    }
+                    else if (slack <= spaceStretchCap + microTrackCap + 0.01f)
+                    {
+                        // Reachable flush-right via subtle micro-tracking after word
+                        // spaces hit 0.65em; still prefer pure word-space lines.
+                        var trackRatio = microTrackCap > 0.01f
+                            ? (slack - spaceStretchCap) / microTrackCap
+                            : 1f;
+                        badness = 140.0 + 180.0 * trackRatio * trackRatio;
                         fitClass = 3;
                     }
                     else
                     {
-                        badness = 100.0 * ratio * ratio * ratio;
-                        fitClass = ratio < 0.5f ? 1 : ratio < 1.0f ? 2 : 3;
+                        // Exceeds both word-space cap and micro-tracking cap, which
+                        // would leave a visible ragged notch on the right margin.
+                        var excessEm = (slack - spaceStretchCap - microTrackCap) / Math.Max(1f, BaseFontSize);
+                        badness = 1800.0 + excessEm * 1200.0;
+                        fitClass = 3;
                     }
                 }
                 else
                 {
-                    var shrinkCap = Math.Max(0.1f, spaces * maxShrinkPerSpace);
+                    var shrinkCap = Math.Max(0.1f, spaceShrinkCap);
                     var ratio = -slack / shrinkCap;
                     badness = 100.0 * ratio * ratio * ratio;
                     fitClass = 0;

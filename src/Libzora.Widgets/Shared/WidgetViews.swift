@@ -116,26 +116,26 @@ struct KkContinueWidgetView: View {
         } else {
             let items = Array(books.prefix(4))
             GeometryReader { geometry in
-                let horizontalPadding: CGFloat = 14
-                let verticalPadding: CGFloat = 12
+                let horizontalPadding: CGFloat = 16
+                let verticalPadding: CGFloat = 13
                 let spacing: CGFloat = 10
                 let availableWidth = max(120, geometry.size.width - horizontalPadding * 2)
                 let slotWidth = (availableWidth - spacing * 3) / 4
                 let availableHeight = max(80, geometry.size.height - verticalPadding * 2)
-                let maxCoverHeight = max(44, availableHeight - 44)
+                let maxCoverHeight = max(44, availableHeight - 32)
                 let coverHeight = min(maxCoverHeight, floor(slotWidth / 0.70))
                 let coverWidth = floor(coverHeight * 0.70)
 
                 VStack(alignment: .leading, spacing: 0) {
-                    heading
-                    Spacer(minLength: 6)
+                    Spacer(minLength: 0)
                     HStack(alignment: .top, spacing: spacing) {
                         ForEach(items) { item in
                             bookColumn(item, slotWidth: slotWidth, coverWidth: coverWidth,
-                                       coverHeight: coverHeight, slotHeight: maxCoverHeight + 40)
+                                       coverHeight: coverHeight)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    Spacer(minLength: 0)
                 }
                 .padding(.horizontal, horizontalPadding)
                 .padding(.vertical, verticalPadding)
@@ -147,13 +147,11 @@ struct KkContinueWidgetView: View {
         HStack(alignment: .center, spacing: 18) {
             KkCover(book: book, width: 86, height: 124, blankPlaceholder: entry.isPlaceholder)
             VStack(alignment: .leading, spacing: 0) {
-                heading
                 Text(book.title)
                     .kkTitleFont(20)
                     .foregroundStyle(KkTheme.ink(scheme))
                     .lineLimit(2)
                     .minimumScaleFactor(0.82)
-                    .padding(.top, 8)
                 authors(book, size: 11)
                     .padding(.top, 5)
                 Spacer(minLength: 8)
@@ -166,11 +164,10 @@ struct KkContinueWidgetView: View {
 
     @ViewBuilder
     private func bookColumn(_ book: KkBook, slotWidth: CGFloat, coverWidth: CGFloat,
-                            coverHeight: CGFloat, slotHeight: CGFloat) -> some View {
+                            coverHeight: CGFloat) -> some View {
         if !entry.isPlaceholder, let destination = URL(string: "libzora://read/\(book.id)") {
             Link(destination: destination) {
                 bookColumnContent(book, slotWidth: slotWidth, coverWidth: coverWidth, coverHeight: coverHeight)
-                    .frame(minHeight: slotHeight, alignment: .top)
                     .contentShape(Rectangle())
             }
         } else {

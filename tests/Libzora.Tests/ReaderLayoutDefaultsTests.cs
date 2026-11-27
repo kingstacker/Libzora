@@ -19,6 +19,7 @@ public sealed class ReaderLayoutDefaultsTests
         Assert.False(defaults.ParagraphIndent);
         Assert.True(defaults.HyphenateEnglish);
         Assert.False(defaults.AvoidWidowsAndOrphans);
+        Assert.False(new Libzora.Layout.TypesetLayoutOptions().AvoidWidowsAndOrphans);
         Assert.Equal(0, defaults.ParagraphSpacing);
     }
 

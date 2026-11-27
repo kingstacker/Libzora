@@ -116,16 +116,21 @@ internal sealed partial class IOSNativeFrontend
         }
     }
 
-    private Task PublishWidgetSnapshotAsync(CancellationToken cancellationToken) =>
-        WidgetSnapshotPublisher.PublishAsync(
+    private Task PublishWidgetSnapshotAsync(CancellationToken cancellationToken)
+    {
+        var colorfulMode = _shell.Preferences.Current.ColorfulMode;
+        var themeMode = (int)_shell.Preferences.Current.ThemeMode;
+        var uiFont = (int)_shell.Preferences.Current.UiFont;
+        return Task.Run(() => WidgetSnapshotPublisher.PublishAsync(
             _shell.Modules.Paths,
             _shell.Modules.Library.Books,
             _shell.Modules.Reader.Data,
-            _shell.Preferences.Current.ColorfulMode,
-            (int)_shell.Preferences.Current.ThemeMode,
+            colorfulMode,
+            themeMode,
             IOSWidgetPaths.Resolve(_shell.Modules.Paths),
             cancellationToken,
-            uiFont: (int)_shell.Preferences.Current.UiFont);
+            uiFont: uiFont), cancellationToken);
+    }
 
     private static void ReloadWidgets()
     {

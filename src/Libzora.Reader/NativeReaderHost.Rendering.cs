@@ -68,13 +68,30 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
             }
             case ReaderPresentation.Scroll:
             {
-                // Composed pages stack vertically; paint the two slices that
-                // intersect the viewport at the scroll offset.
-                var pageHeight = (float)Math.Max(1, Bounds.Height);
+                // Composed pages stack vertically; paint the slices that
+                // intersect the viewport at the scroll offset, including the
+                // preceding tile so lines or images straddling a tile boundary
+                // render seamlessly without inter-page gaps.
+                var pageHeight = (float)ScrollPageHeight;
                 var first = (int)(_scrollOffset / pageHeight);
                 var slice = (float)(_scrollOffset - first * pageHeight);
+                if (first > 0) PaintPage(canvas, first - 1, 0f, -pageHeight - slice);
                 PaintPage(canvas, first, 0f, -slice);
                 PaintPage(canvas, first + 1, 0f, pageHeight - slice);
+                if (IsContinuousProseScroll && _scrollNextChapterLayout is { Pages.Count: > 0 } nextChapter)
+                {
+                    var nextOriginY = (float)(ContinuousNextChapterStartY - _scrollOffset);
+                    if (nextOriginY < pageHeight)
+                    {
+                        for (var p = 0; p < nextChapter.Pages.Count; p++)
+                        {
+                            var pageY = nextOriginY + p * pageHeight;
+                            if (pageY >= pageHeight) break;
+                            if (pageY + pageHeight <= -pageHeight) continue;
+                            PaintLayoutPage(canvas, nextChapter.Pages[p], 0f, pageY, includeTextOverlays: false);
+                        }
+                    }
+                }
                 break;
             }
             default:

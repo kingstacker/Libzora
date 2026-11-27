@@ -269,7 +269,8 @@ public sealed partial class KindleAnnotationSyncService
                     offset,
                     StringComparison.OrdinalIgnoreCase);
                 if (index < 0) break;
-                offset = index + Math.Max(1, normalizedQuote.Length);
+                // Overlapping occurrences count too; otherwise a repeated run can look falsely unique.
+                offset = index + 1;
                 if (normalizedPrefix.Length > 0 && !normalized.Value[..index].EndsWith(normalizedPrefix, StringComparison.OrdinalIgnoreCase)) continue;
                 if (normalizedSuffix.Length > 0 && !normalized.Value[(index + normalizedQuote.Length)..].StartsWith(normalizedSuffix, StringComparison.OrdinalIgnoreCase)) continue;
                 matches.Add((chunk, normalized, index));

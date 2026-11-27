@@ -360,6 +360,10 @@ public partial class ReaderPage
         }
         try
         {
+            if (_readerHost is NativeReaderHost epubHost)
+            {
+                SyncScrollNextChapterPath(epubHost, _chapterIndex);
+            }
             // The host owns the live position, including while an earlier reflow is pending.
             await configured.Configure(
                 _layout,

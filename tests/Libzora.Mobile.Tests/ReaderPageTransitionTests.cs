@@ -8,6 +8,7 @@ using Libzora.ApplicationServices;
 using Libzora.Core;
 using Libzora.Infrastructure;
 using Libzora.Mobile.Views;
+using SkiaSharp;
 using Xunit;
 
 namespace Libzora.Mobile.Tests;
@@ -82,6 +83,16 @@ public sealed class ReaderPageTransitionTests(MobileUiSession session)
                 Assert.Equal(844, paperGrid.Bounds.Height, 1);
                 Assert.Equal(350, host.Bounds.Width, 1);
                 Assert.Equal(844 - 44 - 34, host.Bounds.Height, 1);
+                var snapshot = await reader.NativeCapturePageAsync(CancellationToken.None);
+                Assert.True(snapshot.HasValue);
+                var captured = snapshot.GetValueOrDefault();
+                Assert.Equal(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }, captured.Image.Take(8));
+                Assert.Equal(20, captured.Frame.X, 1);
+                Assert.Equal(44, captured.Frame.Y, 1);
+                Assert.Equal(host.Bounds.Size, captured.Frame.Size);
+                using var pixels = SKBitmap.Decode(captured.Image);
+                Assert.Contains(pixels.Pixels, pixel => pixel.Red < 128 && pixel.Green < 128 && pixel.Blue < 128);
+                Assert.Equal(0, host.CurrentPage);
 
                 // Short slow drag (< 25% width) snaps back to page 0.
                 window.MouseDown(new Point(320, 400), MouseButton.Left);
@@ -383,6 +394,121 @@ public sealed class ReaderPageTransitionTests(MobileUiSession session)
             }
             finally
             {
+                window.Close();
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+            }
+        }, CancellationToken.None);
+
+    [Fact]
+    public Task ContinuousScrollCrossesChapterWithoutBlankingPreviewOrStoppingInertia() =>
+        session.Session.Dispatch(async () =>
+        {
+            var root = Path.Combine(Path.GetTempPath(), "libzora-reader-continuous-seam-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(root);
+            var paths = new AppPaths(root);
+            var services = new MobileServices(paths, new TestProtector(), new BookMetadataService(),
+                new UnavailableBookFormatConverter(), new NoFileImportSource());
+            using var modules = MobileComposition.Create(services);
+            var shell = new MobileShell(modules, services, new MobilePreferencesStore(paths));
+            shell.Preferences.Update(p => p with { ReaderFlowMode = 0, ReaderVerticalWriting = false });
+
+            var book = new Book { Id = Guid.NewGuid(), Title = "正文连续滑动跨章测试" };
+            var file = new BookFile { Id = Guid.NewGuid(), BookId = book.Id, Format = "epub", Sha256 = new string('c', 64) };
+            var reader = new ReaderPage(book, modules, shell);
+            reader.UseNativeFrontend();
+            SetField(reader, "_started", true);
+            SetField(reader, "_ready", true);
+            SetField(reader, "_bookFile", file);
+
+            using var host = new NativeReaderHost { Focusable = false };
+            var handler = typeof(ReaderPage)
+                .GetMethod("OnReaderWebMessage", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .CreateDelegate<EventHandler<ReaderWebMessageReceivedEventArgs>>(reader);
+            host.WebMessageReceived += handler;
+            SetField(reader, "_readerHost", host);
+            var hostSlot = reader.FindControl<ContentControl>("ReaderHostSlot")!;
+            hostSlot.Content = host;
+
+            var window = new Window { Width = 390, Height = 844, Content = reader };
+            try
+            {
+                var ch1 = Path.Combine(root, "ch1.xhtml");
+                var ch2 = Path.Combine(root, "ch2.xhtml");
+                var ch3 = Path.Combine(root, "ch3.xhtml");
+                string MakeChapter(string heading, int count) =>
+                    $"<html><body><h1>{heading}</h1>{string.Concat(Enumerable.Range(1, count).Select(i => $"<p>{heading} 第{i}段测试正文，用于验证正文连续滑动跨章节不闪烁且惯性不中断。</p>"))}</body></html>";
+                await File.WriteAllTextAsync(ch1, MakeChapter("第一章", 28));
+                await File.WriteAllTextAsync(ch2, MakeChapter("第二章", 60));
+                await File.WriteAllTextAsync(ch3, MakeChapter("第三章", 40));
+                SetField(reader, "_epubDocument", new EpubReaderDocument(root, [ch1, ch2, ch3], [], ["第一章", "第二章", "第三章"]));
+
+                var scrollLayout = new ReaderLayoutSettings { FlowMode = 0, VerticalWriting = false };
+                SetField(reader, "_layout", scrollLayout);
+
+                window.Show();
+                await Render();
+
+                host.SetScrollNextChapterPath(ch2);
+                var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                host.NavigationCompleted += (_, args) => { if (args.IsSuccess) ready.TrySetResult(); };
+                host.Navigate(new Uri(ch1), scrollLayout, showVerticalDebugBoxes: false);
+                await ready.Task.WaitAsync(TimeSpan.FromSeconds(15));
+                await host.EnsureCompleteLayoutAsync();
+                await Render();
+
+                // Next chapter preview must already be composed and survive updating the
+                // next-chapter path before the incoming chapter finishes loading.
+                var initialPreview = GetField<object?>(host, "_scrollNextChapterLayout");
+                Assert.NotNull(initialPreview);
+                host.SetScrollNextChapterPath(ch3);
+                Assert.Same(initialPreview, GetField<object?>(host, "_scrollNextChapterLayout"));
+                host.SetScrollNextChapterPath(ch2);
+
+                var nextStartY = (double)typeof(NativeReaderHost)
+                    .GetProperty("ContinuousNextChapterStartY", BindingFlags.Instance | BindingFlags.NonPublic)!
+                    .GetValue(host)!;
+                Assert.True(nextStartY > 100);
+
+                // Position right before the chapter 1 -> chapter 2 seam and start inertia coasting across it.
+                host.SeekToPixelScroll(Math.Max(0, nextStartY - 40));
+                await Render();
+
+                SetField(reader, "_dragVelocityY", -1800d);
+                typeof(ReaderPage)
+                    .GetMethod("StartScrollInertia", BindingFlags.Instance | BindingFlags.NonPublic)!
+                    .Invoke(reader, [host]);
+
+                await WaitUntil(() => GetField<int>(reader, "_chapterIndex") == 1 && !GetField<bool>(reader, "_turning"));
+                // Allow inertia ticks to continue coasting inside chapter 2.
+                for (var i = 0; i < 12; i++)
+                {
+                    await Render();
+                    await Task.Delay(20);
+                }
+
+                Assert.Equal(1, GetField<int>(reader, "_chapterIndex"));
+                var postHandoffOffset = GetField<double>(host, "_scrollOffset");
+                Assert.True(postHandoffOffset > 120, $"Expected smooth coast into chapter 2, but stopped at offset {postHandoffOffset:F1}.");
+                Assert.NotNull(GetField<object?>(host, "_scrollNextChapterLayout"));
+
+                // Jumping to an offset-only highlight anchor in continuous scroll mode
+                // must place the highlighted line visibly inside the viewport rather
+                // than clipping its baseline at y = 0.
+                var layout = GetField<Libzora.Layout.ChapterLayout>(host, "_layout");
+                var targetPage = layout.Pages[Math.Min(2, layout.Pages.Count - 1)];
+                var targetRun = targetPage.Runs.First(run => run.TextStart >= 0 && run.TextLength > 0);
+                var highlightJump = new ReaderContentPosition { TextOffset = targetRun.TextStart };
+                await host.Configure(scrollLayout, 0, null, restoreFromProgress: true, showVerticalDebugBoxes: false, contentPosition: highlightJump);
+                await Render();
+
+                var jumpedScroll = GetField<double>(host, "_scrollOffset");
+                var renderedBaselineY = targetPage.Index * targetPage.Height + targetRun.OriginY - jumpedScroll;
+                Assert.InRange(renderedBaselineY, targetRun.FontSize * 1.5, targetPage.Height * 0.6);
+            }
+            finally
+            {
+                host.WebMessageReceived -= handler;
                 window.Close();
                 Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
                 if (Directory.Exists(root)) Directory.Delete(root, recursive: true);

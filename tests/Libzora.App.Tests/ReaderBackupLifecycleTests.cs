@@ -94,7 +94,7 @@ public sealed class ReaderBackupLifecycleTests(SettingsUiSession session)
         {
             scope.Set("_readerBookCard", cardA);
             scope.Set("_readerBookFile", a);
-            scope.Set("_readerActiveSeconds", 30L);
+            scope.Field<ReadingTimeAccumulator>("_readerTimeAccumulator").Add(30L, null);
             flush = scope.Call<Task>("FlushReaderActiveSecondsAsync");
             for (var i = 0; i < 100 && !File.Exists(Path.Combine(scope.Paths.Data, "reader-reading-time-recovery.json")); i++) await Task.Delay(10);
             scope.Set("_readerBookCard", cardB);

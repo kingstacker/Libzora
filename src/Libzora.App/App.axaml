@@ -20,11 +20,13 @@
         <Color x:Key="PressedColor">#D9D9D9</Color>
         <Color x:Key="HairlineColor">#E2E2E2</Color>
         <Color x:Key="MutedInkColor">#5A5A5A</Color>
+        <Color x:Key="ListeningInkColor">#5B6B7A</Color>
         <Color x:Key="SidebarIndicatorColor">#BFBFBF</Color>
         <Color x:Key="SoftHoverColor">#F2F2F2</Color>
 
         <SolidColorBrush x:Key="PaperBrush" Color="{DynamicResource PaperColor}" />
         <SolidColorBrush x:Key="InkBrush" Color="{DynamicResource InkColor}" />
+        <SolidColorBrush x:Key="ListeningInkBrush" Color="{DynamicResource ListeningInkColor}" />
         <SolidColorBrush x:Key="PressedBrush" Color="{DynamicResource PressedColor}" />
         <SolidColorBrush x:Key="HairlineBrush" Color="{DynamicResource HairlineColor}" />
         <SolidColorBrush x:Key="MutedInkBrush" Color="{DynamicResource MutedInkColor}" />

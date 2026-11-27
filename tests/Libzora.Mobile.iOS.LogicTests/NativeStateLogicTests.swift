@@ -170,6 +170,16 @@ struct NativeStateLogicTests {
         }
         check(NativeBookOpenTransitionPolicy.timingCurveValue(at: 0.25) > 0.25,
               "Ease-out curve advances smoothly from the opening frame")
+        var previousCloseCurve = -1.0
+        for step in 0...120 {
+            let u = Double(step) / 120.0
+            let v = NativeBookOpenTransitionPolicy.closeTimingCurveValue(at: u)
+            check(v >= previousCloseCurve && v >= 0 && v <= 1,
+                  "Close curve stays strictly monotonic and bounded across 60Hz/120Hz steps")
+            previousCloseCurve = v
+        }
+        check(NativeBookOpenTransitionPolicy.frameProgress(elapsed: 0.13, duration: 0.52, from: 1, to: 0) > 0.5,
+              "Close curve keeps the 3D cover flip active across the middle of the transition")
         check(NativeBookOpenTransitionPolicy.frameProgress(elapsed: 0, duration: 0.68, from: 0, to: 1) == 0
                 && NativeBookOpenTransitionPolicy.frameProgress(elapsed: 0.68, duration: 0.68, from: 0, to: 1) == 1
                 && NativeBookOpenTransitionPolicy.frameProgress(elapsed: 0, duration: 0.59, from: 1, to: 0) == 1
@@ -208,6 +218,30 @@ struct NativeStateLogicTests {
               "Centered hero cover preserves the shelf cover aspect ratio")
 
         let visibleShelfFrame = CGRect(x: 20, y: 260, width: 110, height: 159.5)
+        for centeredClose in [false, true] {
+            let initial = NativeBookOpenTransitionPolicy.closeGeometry(
+                sourceFrame: visibleShelfFrame, viewport: viewport, progress: 1, isCentered: centeredClose)
+            let terminal = NativeBookOpenTransitionPolicy.closeGeometry(
+                sourceFrame: visibleShelfFrame, viewport: viewport, progress: 0, isCentered: centeredClose)
+            check(initial.frame == viewport && initial.scale == 1 && initial.opacity == 1,
+                  "Close begins with the exact full-screen reader snapshot, without a white handoff")
+            check(terminal.frame == visibleShelfFrame && terminal.opacity == (centeredClose ? 0 : 1),
+                  "Close lands on the live shelf cover or dissolves only for the centered fallback")
+            for step in 1..<120 {
+                let p = NativeBookOpenTransitionPolicy.frameProgress(
+                    elapsed: Double(step) / 120 * 0.52, duration: 0.52, from: 1, to: 0)
+                let flight = NativeBookOpenTransitionPolicy.closeGeometry(
+                    sourceFrame: visibleShelfFrame, viewport: viewport, progress: p, isCentered: centeredClose)
+                check(flight.frame.width >= visibleShelfFrame.width && flight.frame.width <= viewport.width
+                        && flight.scale > 0 && flight.opacity >= 0 && flight.opacity <= 1,
+                      "Every 120Hz close flight frame stays within the reader-to-cover geometry")
+            }
+        }
+        let midClose = NativeBookOpenTransitionPolicy.closeGeometry(
+            sourceFrame: visibleShelfFrame, viewport: viewport, progress: 0.5, isCentered: false)
+        check(abs(midClose.frame.midX - (visibleShelfFrame.midX + viewport.midX) / 2) < 0.001
+                && midClose.opacity == 1 && midClose.scale == 1,
+              "A visible-cover close keeps the captured reader opaque and undistorted during the flight")
         let offscreenShelfFrame = CGRect(x: 20, y: -220, width: 110, height: 159.5)
         let buriedTabBarFrame = CGRect(x: 20, y: 810, width: 110, height: 159.5)
         let continueFrame = CGRect(x: 20, y: 140, width: 48, height: 68)
@@ -249,11 +283,11 @@ struct NativeStateLogicTests {
                 source: .restore, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: pageAnimation) == .slide,
                 "Closing a launch-restored book slides back cleanly")
             check(NativeBookOpenTransitionPolicy.openAnimation(
-                source: .continueReading, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: pageAnimation) == .slide,
-                "Continue-reading entry always slides in from the right")
+                source: .continueReading, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: pageAnimation) == .cover,
+                "Continue-reading entry in the library uses the 3D cover animation")
             check(NativeBookOpenTransitionPolicy.closeAnimation(
-                source: .continueReading, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: pageAnimation) == .slide,
-                "Closing a continue-reading entry slides back cleanly")
+                source: .continueReading, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: pageAnimation) == .cover,
+                "Closing a continue-reading entry folds back to its cover in 3D")
             check(NativeBookOpenTransitionPolicy.openAnimation(
                 source: .materials, animated: true, reduceMotion: false, powerSaving: false, pageAnimation: pageAnimation) == .slide,
                 "Reading materials entry always slides in directly from the right")
@@ -500,9 +534,12 @@ struct NativeStateLogicTests {
         check(NativeBookOpenTransitionPolicy.shouldShowReaderTopBar(
                   chromeVisible: true, ready: true, searching: false, hasError: false, loadingChromeVisible: false),
               "Tapping the page reveals the top toolbar normally once ready")
-        check(!NativeBookOpenTransitionPolicy.shouldHideReaderStatusBar(
+        check(NativeBookOpenTransitionPolicy.shouldHideReaderStatusBar(
                   chromeVisible: false, hasOpenTransition: true),
-              "Status bar remains unchanged during an active 3D cover-open transition so safe-area layout cannot shift")
+              "Status bar is already hidden during an active 3D cover-open transition")
+        check(NativeBookOpenTransitionPolicy.shouldHideReaderStatusBar(
+                  chromeVisible: true, hasOpenTransition: true),
+              "Loading chrome cannot reveal the status bar before the cover-open flight ends")
         check(NativeBookOpenTransitionPolicy.shouldHideReaderStatusBar(
                   chromeVisible: false, hasOpenTransition: false),
               "Status bar hides once the 3D cover-open transition completes")
@@ -568,6 +605,39 @@ struct NativeStateLogicTests {
             selection: NSRange(location: 2, length: 2)
         )
         check(bolded.text == "这里**加粗**", "Bold wraps selected substring")
+
+        // Live Markdown editor codec & UTF-16 range parser.
+        let imageSample = "前文\n![图](data:image/png;base64,ABCDEF123456)\n后文**重点**"
+        let codecParsed = NativeReflectionDocumentCodec.parseImages(in: imageSample)
+        check(codecParsed.tokens.count == 1, "Codec extracts inline base64 image token")
+        check(codecParsed.displayText == "前文\n\u{FFFC}\n后文**重点**", "Codec replaces image token with single attachment char")
+        let afterImgDisplay = (codecParsed.displayText as NSString).range(of: "后文")
+        let mappedRaw = NativeReflectionDocumentCodec.rawRange(
+            fromDisplayRange: afterImgDisplay,
+            tokens: codecParsed.tokens,
+            rawLength: (imageSample as NSString).length
+        )
+        check((imageSample as NSString).substring(with: mappedRaw) == "后文",
+              "Display-to-raw selection mapping stays exact after embedded image")
+        let mappedBack = NativeReflectionDocumentCodec.displayRange(
+            fromRawRange: mappedRaw,
+            tokens: codecParsed.tokens,
+            displayLength: (codecParsed.displayText as NSString).length
+        )
+        check(mappedBack == afterImgDisplay, "Raw-to-display selection mapping round-trips")
+
+        let mdDoc = "# 主标题\n> 引用一段\n- 列表项\n1. 编号项\n---\n包含**粗体**、*斜体*、~~删~~、`code`和[链接](https://example.com)"
+        let parsedLines = NativeReflectionMarkdownRanges.parseLines(in: mdDoc)
+        check(parsedLines.count == 6, "Markdown range parser splits all six lines")
+        if case let .heading(level, _, _) = parsedLines[0].kind {
+            check(level == 1, "Heading level 1 parsed")
+        } else { check(false, "First line must be heading") }
+        if case .quote = parsedLines[1].kind { check(true, "") } else { check(false, "Second line must be quote") }
+        if case .unorderedList = parsedLines[2].kind { check(true, "") } else { check(false, "Third line must be unordered list") }
+        if case .orderedList = parsedLines[3].kind { check(true, "") } else { check(false, "Fourth line must be ordered list") }
+        if case .rule = parsedLines[4].kind { check(true, "") } else { check(false, "Fifth line must be rule") }
+        let inlineSpans = NativeReflectionMarkdownRanges.parseInlineSpans(in: mdDoc, within: parsedLines[5].contentRange)
+        check(inlineSpans.count == 5, "Inline parser finds bold, italic, strikethrough, code and link")
 
         // Selection toolbar vertical scaling respects actual bottomInset (0 when footer fits in margin).
         let tallBounds = NativeSelectionBounds(x: 120, y: 700, bottom: 724, viewportWidth: 840, viewportHeight: 1000)

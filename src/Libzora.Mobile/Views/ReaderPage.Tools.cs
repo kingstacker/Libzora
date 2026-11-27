@@ -373,11 +373,11 @@ public partial class ReaderPage
         var now = DateTimeOffset.UtcNow;
         var isPlaying = e.State == TtsPlaybackState.Playing;
         var listeningDelta = _listeningClock.SetPlaying(isPlaying, now);
-        if (listeningDelta > 0) Interlocked.Add(ref _unsavedListeningSeconds, listeningDelta);
+        AddCountedReadingTime(listeningDelta, _listeningClock.LastSlice, listening: true);
         if (isPlaying)
         {
             // Avoid double-counting foreground visual reading while listening.
-            Interlocked.Add(ref _unsavedSeconds, _activityClock.Pause(now));
+            AddCountedReadingTime(_activityClock.Pause(now), _activityClock.LastSlice);
             if (_epubPreparationSession is { IsComplete: false } prepSession
                 && _epubDocument is { } doc
                 && !_isPdf

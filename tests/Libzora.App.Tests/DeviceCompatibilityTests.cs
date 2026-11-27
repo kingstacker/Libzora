@@ -843,11 +843,13 @@ public sealed partial class SettingsTests
         public IReadOnlyList<KindleDevice> Devices { get; set; } = [];
         public IReadOnlyList<KindleBook> CachedBooks { get; init; } = [];
         public IReadOnlyList<KindleClipping> Notes { get; init; } = [];
+        public Func<CancellationToken, Task<IReadOnlyList<KindleClipping>>>? NotesReader { get; set; }
         public Func<KindleDevice, Task<IReadOnlyList<KindleBook>>>? BooksReader { get; init; }
         public Func<IProgress<KindleScanProgress>?, Task<IReadOnlyList<KindleBook>>>? ProgressiveBooksReader { get; init; }
         public Func<int, Task<IReadOnlyList<KindleDevice>>>? DetectionReader { get; init; }
         public Func<BookFile, Task>? SendHandler { get; init; }
-        public Func<KindleBook, Task<string>>? ExportHandler { get; init; }
+        public Func<KindleBook, Task<string>>? ExportHandler { get; set; }
+        public int ExportRequests { get; private set; }
         public KindleAnnotationSnapshot? AnnotationSnapshot { get; set; }
         public Func<CancellationToken, Task<KindleAnnotationSnapshot?>>? AnnotationSnapshotReader { get; init; }
         public Func<KindleAnnotationSnapshot, IReadOnlyList<KindleAnnotationMutation>, CancellationToken, Task<KindleAnnotationWriteResult>>? AnnotationWriter { get; init; }
@@ -889,11 +891,15 @@ public sealed partial class SettingsTests
         public Task<IReadOnlyList<KindleDeviceResource>> ScanResourcesAsync(KindleDevice device, KindleResourceKind kind, CancellationToken cancellationToken = default)
         { ContentRequests++; ResourceRequests++; return Task.FromResult<IReadOnlyList<KindleDeviceResource>>([]); }
         public Task<IReadOnlyList<KindleClipping>> ReadClippingsAsync(KindleDevice device, CancellationToken cancellationToken = default, int maxItems = int.MaxValue)
-        { ContentRequests++; NotesRequests++; return Task.FromResult(Notes); }
+        { ContentRequests++; NotesRequests++; return NotesReader?.Invoke(cancellationToken) ?? Task.FromResult(Notes); }
         public Task SendBookAsync(KindleDevice device, BookFile bookFile, string sourcePath, IProgress<TransferProgress>? progress = null, CancellationToken cancellationToken = default, string? coverOverridePath = null) => SendHandler?.Invoke(bookFile) ?? throw new NotSupportedException();
         public Task RemoveBookAsync(KindleDevice device, KindleBook book, CancellationToken cancellationToken = default)
         { RemovedBooks++; return Task.CompletedTask; }
-        public Task<string> ExportBookAsync(KindleDevice device, KindleBook book, string destinationDirectory, IProgress<TransferProgress>? progress = null, CancellationToken cancellationToken = default) => ExportHandler?.Invoke(book) ?? throw new NotSupportedException();
+        public Task<string> ExportBookAsync(KindleDevice device, KindleBook book, string destinationDirectory, IProgress<TransferProgress>? progress = null, CancellationToken cancellationToken = default)
+        {
+            ExportRequests++;
+            return ExportHandler?.Invoke(book).WaitAsync(cancellationToken) ?? throw new NotSupportedException();
+        }
         public Task SendResourceAsync(KindleDevice device, KindleResourceKind kind, string sourcePath, IProgress<TransferProgress>? progress = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task ExportResourceAsync(KindleDevice device, KindleDeviceResource resource, string destinationPath, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task RemoveResourceAsync(KindleDevice device, KindleDeviceResource resource, CancellationToken cancellationToken = default) => throw new NotSupportedException();

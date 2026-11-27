@@ -796,23 +796,6 @@ public partial class MainWindow
         "Kindle Scribe 1 代" => T("Kindle Scribe 1 代"),
         "Kindle Scribe 2 代" => T("Kindle Scribe 2 代"),
         "Kindle Scribe 3 代" => T("Kindle Scribe 3 代"),
-        "汉王" => T("汉王"),
-        "汉王 N10" => T("汉王 N10"),
-        "汉王 N10 Touch" => T("汉王 N10 Touch"),
-        "汉王 N10 mini" => T("汉王 N10 mini"),
-        "汉王 Clear" => T("汉王 Clear"),
-        "汉王 E10" => T("汉王 E10"),
-        "汉王 A5" => T("汉王 A5"),
-        "掌阅" => T("掌阅"),
-        "掌阅 iReader Ocean 2" => T("掌阅 iReader Ocean 2"),
-        "掌阅 iReader Ocean 3" => T("掌阅 iReader Ocean 3"),
-        "掌阅 iReader Ocean 4" => T("掌阅 iReader Ocean 4"),
-        "掌阅 iReader Smart 3" => T("掌阅 iReader Smart 3"),
-        "掌阅 iReader Smart 4" => T("掌阅 iReader Smart 4"),
-        "掌阅 iReader Smart X" => T("掌阅 iReader Smart X"),
-        "掌阅 iReader Light 2" => T("掌阅 iReader Light 2"),
-        "掌阅 iReader Light 3" => T("掌阅 iReader Light 3"),
-        "掌阅 iReader Neo" => T("掌阅 iReader Neo"),
         _ => value
     };
 

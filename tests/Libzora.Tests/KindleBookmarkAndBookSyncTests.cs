@@ -5,7 +5,7 @@ using Microsoft.Data.Sqlite;
 
 namespace Libzora.Tests;
 
-public sealed class KindleBookmarkAndBookSyncTests
+public sealed partial class KindleBookmarkAndBookSyncTests
 {
     [Fact]
     public async Task ReaderAndWriterSupportDataset2Bookmarks()
@@ -140,10 +140,12 @@ public sealed class KindleBookmarkAndBookSyncTests
 
             var mutation = Assert.Single(emptyDevice.Mutations);
             Assert.Equal(2, mutation.Dataset);
+            Assert.Equal(start, mutation.Start);
             Assert.Equal(mutation.Start, mutation.End);
             Assert.StartsWith("libzora.bookmark.", mutation.AnnotationId);
             Assert.Contains("\"type\":\"BOOKMARK\"", mutation.SerializedPayload);
             Assert.Contains("dark_blue", mutation.SerializedPayload);
+            Assert.False((await sync.AnalyzeAsync(device, [deviceBook], emptyDevice)).HasChanges);
         }
         finally { TestHelpers.TryDelete(root); }
     }
@@ -286,11 +288,18 @@ public sealed class KindleBookmarkAndBookSyncTests
 
     private sealed class BookmarkFakeKindleService(KindleAnnotationSnapshot snapshot, string sourceBook) : IKindleDeviceService
     {
-        public KindleAnnotationSnapshot Snapshot { get; } = snapshot;
+        public KindleAnnotationSnapshot Snapshot { get; private set; } = snapshot;
         public List<KindleAnnotationMutation> Mutations { get; } = [];
+        public Func<CancellationToken, Task<KindleAnnotationSnapshot?>>? SnapshotReader { get; init; }
+        public Func<KindleAnnotationSnapshot, IReadOnlyList<KindleAnnotationMutation>, CancellationToken, Task<KindleAnnotationWriteResult>>? Writer { get; init; }
 
-        public Task<KindleAnnotationSnapshot?> ReadAnnotationSnapshotAsync(KindleDevice device, CancellationToken cancellationToken = default) =>
-            Task.FromResult<KindleAnnotationSnapshot?>(Snapshot);
+        public async Task<KindleAnnotationSnapshot?> ReadAnnotationSnapshotAsync(KindleDevice device, CancellationToken cancellationToken = default)
+        {
+            if (SnapshotReader is null) return Snapshot;
+            var value = await SnapshotReader(cancellationToken);
+            if (value is not null) Snapshot = value;
+            return value;
+        }
 
         public Task<string> ExportBookAsync(KindleDevice device, KindleBook book, string destinationDirectory, IProgress<TransferProgress>? progress = null, CancellationToken cancellationToken = default)
         {
@@ -304,6 +313,21 @@ public sealed class KindleBookmarkAndBookSyncTests
             KindleDevice device, KindleAnnotationSnapshot snapshot, IReadOnlyList<KindleAnnotationMutation> mutations, CancellationToken cancellationToken = default)
         {
             Mutations.AddRange(mutations);
+            if (Writer is not null) return Writer(snapshot, mutations, cancellationToken);
+            Snapshot = snapshot with
+            {
+                Records = snapshot.Records.Where(record => !mutations.Any(mutation =>
+                        mutation.AnnotationId == record.AnnotationId && mutation.BookId == record.Book.BookId))
+                    .Concat(mutations.Select(mutation =>
+                    {
+                        using var payload = JsonDocument.Parse(mutation.SerializedPayload);
+                        var data = payload.RootElement.GetProperty("book_data");
+                        return new KindleAnnotationRecord(mutation.AnnotationId,
+                            new(mutation.BookId, data.GetProperty("asin").GetString(), data.GetProperty("guid").GetString()),
+                            mutation.Dataset, KindleClippingType.Bookmark, mutation.Start, mutation.End,
+                            mutation.CreatedTime, mutation.ModifiedTime, mutation.NoteText, mutation.SerializedPayload);
+                    })).ToArray()
+            };
             return Task.FromResult(new KindleAnnotationWriteResult(mutations.Count, snapshot.Sha256, new string('c', 64), null, null));
         }
 

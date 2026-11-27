@@ -78,6 +78,13 @@ public partial class AccountPage : UserControl, IShellPage
         RegionPanel.IsVisible = !status.IsLoggedIn;
         ApplyResetMode();
         SignOutButton.IsVisible = status.IsLoggedIn;
+        CloseAccountSection.IsVisible = status.IsLoggedIn;
+        if (!status.IsLoggedIn)
+        {
+            CloseAccountFormBorder.IsVisible = false;
+            ClosePasswordBox.Text = "";
+            CloseConfirmationBox.Text = "";
+        }
         MembershipPanel.IsVisible = status.IsLoggedIn && _membership is not null;
         PlansRegionText.Text = "功能权益 · " + AccountRegions.DisplayName(status.Region);
         ActivationPanel.IsVisible = true;
@@ -121,6 +128,7 @@ public partial class AccountPage : UserControl, IShellPage
         SignInPanel.IsEnabled = !value;
         SubmitButton.IsEnabled = !value && !(_register && !_registrationAvailable);
         SignOutButton.IsEnabled = !value;
+        CloseAccountSection.IsEnabled = !value;
         MembershipPanel.IsEnabled = !value;
     }
 
@@ -198,6 +206,56 @@ public partial class AccountPage : UserControl, IShellPage
             var revoked = await _accounts.SignOutAsync(_lifetime.Token);
             Present(await _accounts.GetStatusAsync(cancellationToken: _lifetime.Token));
             ShowStatus(revoked ? "已退出登录。" : "已在本机退出；服务器暂时不可用，远端会话将在到期后失效。");
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception exception) when (exception is not OutOfMemoryException) { ShowStatus(exception.Message); }
+        finally { SetBusy(false); }
+    }
+
+    private void OnOpenCloseAccountClick(object? sender, RoutedEventArgs e)
+    {
+        if (_busy) return;
+        ClosePasswordBox.Text = "";
+        CloseConfirmationBox.Text = "";
+        CloseAccountFormBorder.IsVisible = true;
+        ClosePasswordBox.Focus();
+    }
+
+    private void OnCancelCloseAccountClick(object? sender, RoutedEventArgs e)
+    {
+        if (_busy) return;
+        CloseAccountFormBorder.IsVisible = false;
+        ClosePasswordBox.Text = "";
+        CloseConfirmationBox.Text = "";
+    }
+
+    private async void OnConfirmCloseAccountClick(object? sender, RoutedEventArgs e)
+    {
+        if (_busy || _accounts is null) return;
+        var currentPassword = ClosePasswordBox.Text ?? "";
+        var confirmation = (CloseConfirmationBox.Text ?? "").Trim();
+        if (string.Equals(confirmation, "DELETE", StringComparison.OrdinalIgnoreCase))
+            confirmation = "停用账号";
+        if (confirmation != "停用账号")
+        {
+            ShowStatus("请输入“停用账号”确认文字。");
+            return;
+        }
+        if (!AccountValidation.IsPassword(currentPassword))
+        {
+            ShowStatus("请输入当前密码。");
+            return;
+        }
+        SetBusy(true);
+        ShowStatus("正在注销账号…");
+        try
+        {
+            await _accounts.CloseAccountAsync(currentPassword, confirmation, _lifetime.Token);
+            CloseAccountFormBorder.IsVisible = false;
+            ClosePasswordBox.Text = "";
+            CloseConfirmationBox.Text = "";
+            Present(await _accounts.GetStatusAsync(cancellationToken: _lifetime.Token));
+            ShowStatus("账号已注销并退出登录。");
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
         catch (Exception exception) when (exception is not OutOfMemoryException) { ShowStatus(exception.Message); }

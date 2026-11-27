@@ -730,6 +730,57 @@ public sealed class LibzoraLayoutEngineTests : IDisposable
         Assert.InRange(Math.Abs(actualCenterY - expectedCenterY), 0f, 0.75f);
     }
 
+    [Theory]
+    [InlineData("·")]
+    [InlineData("•")]
+    [InlineData("‧")]
+    [InlineData("・")]
+    [InlineData("∙")]
+    public void Vertical_NameConnectorDotsStayUprightAndCentered(string dotChar)
+    {
+        var path = WriteChapter($"<p>列夫{dotChar}托尔斯泰</p>");
+        var content = new XhtmlChapterLoader().Load(path);
+
+        using var engine = CreateEngine();
+        var options = Options(TypesetWritingMode.VerticalRl, width: 220f, height: 220f);
+        var layout = engine.Compose(content, options);
+        var dot = layout.Pages
+            .SelectMany(page => page.Runs)
+            .Single(run => content.BodyText.Substring(run.TextStart, run.TextLength) == dotChar);
+
+        Assert.False(dot.Sideways);
+        using var font = new SKFont(engine.Fonts.GetTypeface(dot.FontPath), dot.FontSize * dot.Scale);
+        _ = font.GetGlyphWidths(dot.Glyphs.AsSpan(), out var bounds, null);
+        Assert.Single(bounds);
+
+        if (bounds[0].Width > 0f && bounds[0].Height > 0f)
+        {
+            var actualCenterX = dot.OriginX
+                + dot.X[0]
+                + (bounds[0].Left + bounds[0].Right) / 2f;
+            var expectedCenterX = dot.OriginX + dot.CellWidth / 2f;
+            Assert.InRange(Math.Abs(actualCenterX - expectedCenterX), 0f, 0.75f);
+        }
+    }
+
+    [Fact]
+    public void Vertical_SelectionBandMatchesTextWidthAndUnifiesMixedRuns()
+    {
+        var path = WriteChapter("<p>甲乙ABC丙26丁—戊</p>");
+        var content = new XhtmlChapterLoader().Load(path);
+
+        using var engine = CreateEngine();
+        var options = Options(TypesetWritingMode.VerticalRl, width: 240f, height: 320f);
+        var layout = engine.Compose(content, options);
+
+        var bands = layout.GetOverlayRects(0, 0, content.BodyText.Length);
+        var band = Assert.Single(bands);
+        var expectedWidth = MathF.Min(options.BodyLineHeight, options.BaseFontSize * 1.12f);
+        Assert.InRange(Math.Abs(band.Width - expectedWidth), 0f, 0.25f);
+        Assert.True(band.Width < options.BodyLineHeight - 1f,
+            "Vertical selection band should hug text width instead of filling the full inter-column line pitch.");
+    }
+
     [Fact]
     public void Vertical_KinsokuBacktracksWholeClosingCluster()
     {
@@ -913,8 +964,8 @@ public sealed class LibzoraLayoutEngineTests : IDisposable
     public void Vertical_CommonPunctuationMatchesUax50OrientationClasses()
     {
         const string rotated = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"
-            + "‐‑‒–—―…•";
-        const string upright = "§©®±×÷‖†‡‰‱※‼⁇⁈⁉⁂⁑∞∴∵";
+            + "‐‑‒–—―…";
+        const string upright = "§©®±×÷‖†‡‰‱※‼⁇⁈⁉⁂⁑∞∴∵·•‧∙⋅・･";
         const string transformed = "‘’“”〈〉〈〉《》「」『』【】〔〕〖〗〘〙〚〛"
             + "〝〞〟〜〰゠ー﹙﹚﹛﹜﹝﹞（）：；［］＿｛｝｜～｟｠￣";
 

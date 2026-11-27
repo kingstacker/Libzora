@@ -98,7 +98,9 @@ struct NativeProfilePage: View {
 
             groupLabel(L("数据与存储"))
             profileCard {
-                profileRow(title: L("书籍占用"), value: summary?.storage ?? "—", chevron: false)
+                NavigationLink { NativeStoragePage(store: store) } label: {
+                    profileRow(title: L("存储占用"), value: summary?.storage ?? "—")
+                }.accessibilityIdentifier("profile.storage")
                 cardDivider()
                 NavigationLink { NativeBackupPage(store: store) } label: {
                     profileRow(title: L("备份与恢复"))
@@ -122,7 +124,7 @@ struct NativeProfilePage: View {
         }
         .padding(.horizontal, cardOuterInset)
         .padding(.top, 8)
-        .padding(.bottom, 120)
+        .padding(.bottom, 28)
         .buttonStyle(NativeProfileCardRowButtonStyle())
     }
 

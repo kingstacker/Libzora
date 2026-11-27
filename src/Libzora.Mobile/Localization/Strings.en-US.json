@@ -617,5 +617,20 @@
   "AI 查词": "AI Lookup",
   "正在使用 AI 查词…": "Looking up with AI…",
   "未获取到 AI 释义。": "No AI definition returned.",
-  "AI 查词失败：{0}": "AI lookup failed: {0}"
+  "AI 查词失败：{0}": "AI lookup failed: {0}",
+  "存储占用": "Storage",
+  "总占用": "Total Used",
+  "存储明细": "Breakdown",
+  "书籍": "Books",
+  "词典": "Dictionaries",
+  "字体": "Fonts",
+  "缓存与封面": "Cache & Covers",
+  "备份与回收站": "Backups & Trash",
+  "数据库与其他": "Database & Other",
+  "可清理缓存": "Clearable Cache",
+  "清理缓存": "Clear Cache",
+  "清理阅读排版缓存与日志，不会影响书籍、批注、词典和封面。": "Clears layout cache and logs without affecting books, annotations, dictionaries, or covers.",
+  "已清理缓存": "Cache cleared",
+  "{0} 个文件": "{0} files",
+  "暂无存储数据": "No storage data available"
 }

@@ -1230,5 +1230,19 @@
   "AI 查词": "KI-Suche",
   "正在使用 AI 查词…": "Suche mit KI…",
   "未获取到 AI 释义。": "Keine KI-Definition erhalten.",
-  "AI 查词失败：{0}": "KI-Suche fehlgeschlagen: {0}"
+  "AI 查词失败：{0}": "KI-Suche fehlgeschlagen: {0}",
+  "存储占用": "Speicherplatz",
+  "总占用": "Gesamt belegt",
+  "存储明细": "Aufschlüsselung",
+  "书籍": "Bücher",
+  "字体": "Schriftarten",
+  "缓存与封面": "Cache & Cover",
+  "备份与回收站": "Backups & Papierkorb",
+  "数据库与其他": "Datenbank & Sonstiges",
+  "可清理缓存": "Löschbarer Cache",
+  "清理缓存": "Cache leeren",
+  "清理阅读排版缓存与日志，不会影响书籍、批注、词典和封面。": "Löscht Layout-Cache und Protokolle, ohne Bücher, Notizen, Wörterbücher oder Cover zu beeinträchtigen.",
+  "已清理缓存": "Cache geleert",
+  "{0} 个文件": "{0} Dateien",
+  "暂无存储数据": "Keine Speicherdaten verfügbar"
 }

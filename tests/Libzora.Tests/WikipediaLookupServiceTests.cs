@@ -23,6 +23,8 @@ public sealed class WikipediaLookupServiceTests
         Assert.Equal("https://zh.wikipedia.org/wiki/%E9%87%8F%E5%AD%90%E7%BA%A0%E7%BC%A0", article.Url.AbsoluteUri);
         Assert.Equal(["zh"], handler.Languages);
         Assert.Contains("titles=%E9%87%8F%E5%AD%90%E7%BA%A0%E7%BC%A0", handler.RequestUris[0].Query);
+        Assert.Contains("exintro=1", handler.RequestUris[0].Query);
+        Assert.DoesNotContain("exchars=", handler.RequestUris[0].Query);
     }
 
     [Fact]

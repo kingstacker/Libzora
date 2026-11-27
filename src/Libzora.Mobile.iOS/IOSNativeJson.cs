@@ -73,6 +73,19 @@ internal sealed record NativeAiInfo(
     string Provider,
     string Model);
 
+internal sealed record NativeStorageCategory(
+    string Key,
+    long Bytes,
+    string SizeText,
+    int FileCount);
+
+internal sealed record NativeStorageBreakdown(
+    long TotalBytes,
+    string TotalText,
+    long ClearableCacheBytes,
+    string ClearableCacheText,
+    NativeStorageCategory[] Categories);
+
 /// <summary>
 /// The native bridge uses an explicit metadata registry. Device AOT builds do
 /// not need reflection to discover anonymous response types or settings fields.
@@ -122,6 +135,9 @@ internal sealed record NativeAiInfo(
 [JsonSerializable(typeof(NativeAiSource[]))]
 [JsonSerializable(typeof(NativeAiResult))]
 [JsonSerializable(typeof(NativeAiInfo))]
+[JsonSerializable(typeof(NativeStorageCategory))]
+[JsonSerializable(typeof(NativeStorageCategory[]))]
+[JsonSerializable(typeof(NativeStorageBreakdown))]
 [JsonSerializable(typeof(KindleEmailSettings))]
 [JsonSerializable(typeof(TtsSettings))]
 [JsonSerializable(typeof(TtsVoiceInfo[]))]

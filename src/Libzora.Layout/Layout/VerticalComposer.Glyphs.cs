@@ -153,6 +153,11 @@ internal sealed partial class VerticalComposer
             return;
         }
 
+        var bandFontSize = cell.Superscript || cell.Subscript
+            ? _context.Options.BaseFontSize
+            : cell.FontSize;
+        var selectionWidth = MathF.Min(BodyColumnWidth, MathF.Max(1f, bandFontSize * 1.12f));
+
         if (cell.Sideways)
         {
             var ascent = cell.Ascent;
@@ -176,6 +181,8 @@ internal sealed partial class VerticalComposer
                 TextLength = cell.TextLength,
                 Clusters = CloneClusters(cell),
                 Style = cell.Style,
+                SelectionCenterX = colCenter,
+                SelectionWidth = selectionWidth,
             };
             _pages.AddRun(run);
             AddDebugGlyphBox(cell, run);
@@ -211,6 +218,8 @@ internal sealed partial class VerticalComposer
                 Style = cell.Style,
                 Scale = scale,
                 CellWidth = BodyColumnWidth,
+                SelectionCenterX = colCenter,
+                SelectionWidth = selectionWidth,
             };
             _pages.AddRun(run);
             AddDebugGlyphBox(cell, run);
@@ -237,7 +246,7 @@ internal sealed partial class VerticalComposer
                 // Center the actual upright ink for ordinary ideographs and
                 // numeric glyphs. Mainland Chinese punctuation is excluded:
                 // its right-upper placement is part of the publication style;
-                // the Chinese interpunct (U+00B7) is an explicit centred mark.
+                // middle-dot interpuncts are explicit centred marks.
                 // Keep the established advance-based horizontal placement for
                 // Latin/digit compatibility cells. Native CJK cells also use
                 // their actual ink center so a font-sidebearing anomaly cannot
@@ -284,6 +293,8 @@ internal sealed partial class VerticalComposer
                 Clusters = CloneClusters(cell),
                 Style = cell.Style,
                 CellWidth = BodyColumnWidth,
+                SelectionCenterX = colCenter,
+                SelectionWidth = selectionWidth,
             };
             _pages.AddRun(run);
             AddDebugGlyphBox(cell, run);

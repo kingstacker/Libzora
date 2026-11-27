@@ -89,8 +89,20 @@ public sealed partial class NativePdfReaderHost
 
         var (start, end) = ReaderWordSelection.GetRange(text, best.Offset);
         if (end <= start) return false;
-        SelectRange(start, end);
+        _selectionRanges = null;
+        start = Math.Clamp(start, 0, text.Length);
+        end = Math.Clamp(end, start, text.Length);
+        while (start < end && char.IsWhiteSpace(text[start])) start++;
+        while (end > start && char.IsWhiteSpace(text[end - 1])) end--;
+        _selectionPage = PageNumber;
+        _selectionStart = start;
+        _selectionEnd = end;
         _wordSelectionActive = true;
+        InvalidateVisual();
+        if (_pointerStart is null)
+        {
+            EmitSelection();
+        }
         return true;
     }
 

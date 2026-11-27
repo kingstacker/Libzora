@@ -1230,5 +1230,19 @@
   "AI 查词": "Búsqueda IA",
   "正在使用 AI 查词…": "Buscando con IA…",
   "未获取到 AI 释义。": "No se obtuvo definición de IA.",
-  "AI 查词失败：{0}": "Error de búsqueda con IA: {0}"
+  "AI 查词失败：{0}": "Error de búsqueda con IA: {0}",
+  "存储占用": "Almacenamiento",
+  "总占用": "Total usado",
+  "存储明细": "Desglose",
+  "书籍": "Libros",
+  "字体": "Fuentes",
+  "缓存与封面": "Caché y portadas",
+  "备份与回收站": "Copias y papelera",
+  "数据库与其他": "Base de datos y otros",
+  "可清理缓存": "Caché eliminable",
+  "清理缓存": "Limpiar caché",
+  "清理阅读排版缓存与日志，不会影响书籍、批注、词典和封面。": "Elimina la caché de maquetación y los registros sin afectar libros, notas, diccionarios ni portadas.",
+  "已清理缓存": "Caché limpiada",
+  "{0} 个文件": "{0} archivos",
+  "暂无存储数据": "No hay datos de almacenamiento"
 }

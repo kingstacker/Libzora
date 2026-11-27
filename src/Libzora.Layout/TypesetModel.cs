@@ -417,6 +417,13 @@ public sealed record PlacedRun
     /// runs.
     /// </summary>
     public float CellWidth { get; init; }
+    /// <summary>
+    /// Vertical mode only: horizontal centre of the owning text column and the
+    /// uniform selection band width matching the column's text size rather than
+    /// the full inter-column line pitch.
+    /// </summary>
+    public float SelectionCenterX { get; init; }
+    public float SelectionWidth { get; init; }
     public required int TextStart { get; init; }
     public required int TextLength { get; init; }
     /// <summary>Per-glyph offset from <see cref="TextStart"/> into the chapter text.</summary>

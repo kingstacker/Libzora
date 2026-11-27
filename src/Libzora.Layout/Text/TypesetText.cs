@@ -151,14 +151,22 @@ public static class TypesetText
     }
 
     /// <summary>
-    /// U+00B7 is punctuation in Unicode, but Chinese publishing uses it as a
-    /// centered interpunct between name parts and in copyright notices. It
-    /// must use the centre of its actual mark rather than sentence-punctuation
-    /// hanging placement.
+    /// Middle-dot interpuncts used between foreign/translated name parts and in
+    /// copyright notices. They must stay upright and use the centre of their
+    /// actual painted ink rather than sentence-punctuation or rotated placement.
     /// </summary>
     public static bool IsVerticallyCenteredMark(string text) =>
         TryGetFirstScalar(text, out var scalar)
-        && scalar == 0x00B7;
+        && IsVerticallyCenteredMarkScalar(scalar);
+
+    private static bool IsVerticallyCenteredMarkScalar(int scalar) =>
+        scalar is 0x00B7 // · MIDDLE DOT
+            or 0x2022    // • BULLET
+            or 0x2027    // ‧ HYPHENATION POINT
+            or 0x2219    // ∙ BULLET OPERATOR
+            or 0x22C5    // ⋅ DOT OPERATOR
+            or 0x30FB    // ・ KATAKANA MIDDLE DOT
+            or 0xFF65;   // ･ HALFWIDTH KATAKANA MIDDLE DOT
 
     /// <summary>
     /// Keeps common Chinese numeric expressions intact at a column boundary,
@@ -324,6 +332,11 @@ public static class TypesetText
         if (c is '\uFE53' or '\uFE67')
         {
             return false; // Reserved/compatibility forms with U in UAX #50.
+        }
+
+        if (IsVerticallyCenteredMarkScalar(c))
+        {
+            return false; // Name-separator middle dots stay upright and ink-centered.
         }
 
         if (c is >= '\uFF61' and <= '\uFFEE')

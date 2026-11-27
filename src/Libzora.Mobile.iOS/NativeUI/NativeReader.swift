@@ -401,21 +401,41 @@ struct NativeReaderPage: View {
                         allowSpreadOptions: horizontalSizeClass == .regular
                     ) { self.panel = nil }
                 } else {
-                    NavigationView {
-                        panelContent(panel)
-                            .navigationTitle(panel == .toc ? book.title : panel.title).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
-                            .toolbar {
-                                ToolbarItem(placement: .cancellationAction) {
-                                    Button {
-                                        self.panel = nil
-                                        self.assistantOpen = false
-                                    } label: {
-                                        Image(systemName: "xmark")
+                    Group {
+                        if #available(iOS 16.0, *) {
+                            NavigationStack {
+                                panelContent(panel)
+                                    .navigationTitle(panel == .toc ? book.title : panel.title).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
+                                    .toolbar {
+                                        ToolbarItem(placement: .cancellationAction) {
+                                            Button {
+                                                self.panel = nil
+                                                self.assistantOpen = false
+                                            } label: {
+                                                Image(systemName: "xmark")
+                                            }
+                                            .accessibilityLabel(L("关闭"))
+                                        }
                                     }
-                                    .accessibilityLabel(L("关闭"))
-                                }
                             }
-                    }.navigationViewStyle(.stack)
+                        } else {
+                            NavigationView {
+                                panelContent(panel)
+                                    .navigationTitle(panel == .toc ? book.title : panel.title).navigationBarTitleDisplayMode(.inline).navigationBarHidden(false)
+                                    .toolbar {
+                                        ToolbarItem(placement: .cancellationAction) {
+                                            Button {
+                                                self.panel = nil
+                                                self.assistantOpen = false
+                                            } label: {
+                                                Image(systemName: "xmark")
+                                            }
+                                            .accessibilityLabel(L("关闭"))
+                                        }
+                                    }
+                            }.navigationViewStyle(.stack)
+                        }
+                    }
                         .modifier(NativeReaderTocSheetBackground(
                             enabled: panel == .toc, paper: paper,
                             usesAmbient: store.preferences.readerThemeFollowsAppearance && store.preferences.colorfulMode,

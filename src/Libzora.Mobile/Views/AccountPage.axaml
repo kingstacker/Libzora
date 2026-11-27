@@ -116,6 +116,27 @@
             <Button Name="LifetimeRightsButton" Classes="secondary" Content="刷新权益" Click="OnMembershipRefreshClick" />
           </StackPanel>
         </StackPanel>
+        <StackPanel Name="CloseAccountSection" IsVisible="False" Spacing="10">
+          <TextBlock Classes="label" Text="账号安全" />
+          <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap"
+                     Text="注销后将停用当前账号并下线所有已登录设备，此操作不可撤销；本机已保存的书籍不会被删除。" />
+          <Button Name="OpenCloseAccountButton" Classes="secondary" Content="注销账号" Click="OnOpenCloseAccountClick" />
+          <Border Name="CloseAccountFormBorder" IsVisible="False" Background="{DynamicResource SunkBrush}" CornerRadius="16" Padding="14">
+            <StackPanel Spacing="10">
+              <TextBlock Classes="muted" FontSize="12" TextWrapping="Wrap"
+                         Text="请输入当前密码并输入“停用账号”以确认注销。" />
+              <TextBox Name="ClosePasswordBox" PasswordChar="•" MaxLength="128" PlaceholderText="当前登录密码"
+                       TextInputOptions.ContentType="Password" TextInputOptions.IsSensitive="True"
+                       TextInputOptions.AutoCapitalization="False" TextInputOptions.ShowSuggestions="False" />
+              <TextBox Name="CloseConfirmationBox" MaxLength="32" PlaceholderText="输入“停用账号”确认"
+                       TextInputOptions.AutoCapitalization="False" TextInputOptions.ShowSuggestions="False" />
+              <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+                <Button Name="CancelCloseAccountButton" Classes="secondary" Content="取消" Click="OnCancelCloseAccountClick" />
+                <Button Grid.Column="1" Name="ConfirmCloseAccountButton" Classes="primary" Content="确认注销账号" Click="OnConfirmCloseAccountClick" />
+              </Grid>
+            </StackPanel>
+          </Border>
+        </StackPanel>
         <StackPanel Name="RegionPanel" Spacing="8">
           <TextBlock Classes="label" Text="服务器区域" />
           <c:NativeSegmentGroup>

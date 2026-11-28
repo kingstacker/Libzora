@@ -2395,12 +2395,6 @@
             <Setter Property="BorderBrush" Value="{DynamicResource InkBrush}" />
             <Setter Property="BorderThickness" Value="1.2" />
         </Style>
-        <Style Selector="Border.readingMaterialCard StackPanel.readingMaterialHoverActions">
-            <Setter Property="IsVisible" Value="False" />
-        </Style>
-        <Style Selector="Border.readingMaterialCard:pointerover StackPanel.readingMaterialHoverActions">
-            <Setter Property="IsVisible" Value="True" />
-        </Style>
         <Style Selector="Grid.readerShell TextBox.readerNoteInputField">
             <Setter Property="Background" Value="{DynamicResource ReaderHoverBrush}" />
             <Setter Property="Foreground" Value="{DynamicResource ReaderInkBrush}" />

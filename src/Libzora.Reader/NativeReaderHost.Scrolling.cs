@@ -115,7 +115,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         var page = _layout.GetPageIndexOfFragment(fragmentId);
         if (IsScroll)
         {
-            SetScrollOffset(Math.Max(0, page) * Math.Max(1, Bounds.Height));
+            SetScrollOffset(ScrollOffsetForFragment(page, fragmentId));
             return;
         }
 
@@ -138,6 +138,20 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
             _navigationTarget = (_layout, _pageIndex, _scrollOffset, fragmentId);
             EmitScroll();
         }
+    }
+
+    private double ScrollOffsetForFragment(int page, string? fragmentId)
+    {
+        var pageTop = Math.Max(0, page) * ScrollPageHeight;
+        if (page < 0 || fragmentId is null || _layout is null || !_layout.Options.ContinuousScroll)
+            return pageTop;
+
+        if (_layout.FragmentTops.TryGetValue(fragmentId, out var top))
+        {
+            var inset = _options?.InsetVertical ?? 0;
+            return Math.Max(0, pageTop + top - inset);
+        }
+        return pageTop;
     }
 
     /// <summary>
@@ -211,7 +225,8 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         }
 
         var target = _pageIndex + direction * PageStep;
-        return target >= 0 && target < _layout.Pages.Count;
+        return target >= 0 && target < _layout.Pages.Count
+            && (_layout.IsComplete || !IsSpread || target + 1 < _layout.Pages.Count);
     }
 
     /// <summary>Performs an in-chapter page turn. Returns false at a chapter edge.</summary>
@@ -245,31 +260,27 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         }
 
         ScrollBarAutoHide.Show(_scrollBar);
-        var hasNextPreview = IsContinuousProseScroll && _scrollNextChapterLayout is { Pages.Count: > 0 };
-        var rawNext = _scrollOffset + delta;
-        var next = hasNextPreview ? ClampLiveScrollOffset(rawNext) : ClampScrollOffset(rawNext);
-        var edge = next <= 0 && delta < 0
+        var hasNextPreview = HasNextContinuousPreview;
+        var rawNext = IsContinuousScrollHandoffPending
+            ? _activeHandoffScrollOrigin + _activeHandoffScrollDelta + delta
+            : _scrollOffset + delta + _partialScrollOverflow;
+        var next = IsContinuousProseScroll ? ClampLiveScrollOffset(rawNext) : ClampScrollOffset(rawNext);
+        // A composed prefix is not the end of the chapter. Keep the gesture's
+        // overflow until background completion extends the runway.
+        _partialScrollOverflow = !IsContinuousScrollHandoffPending && IsContinuousProseScroll
+            && (_layout?.IsComplete == false || (rawNext < next && _scrollPreviousChapterPath is not null))
+                ? rawNext - next : 0;
+        var edge = rawNext < 0 && delta < 0
             ? -1
-            : (hasNextPreview ? rawNext >= ContinuousNextChapterStartY : next >= MaxScrollOffset) && delta > 0
-                ? 1
-                : 0;
-        var carryOffset = edge > 0 && hasNextPreview
-            ? Math.Max(0.0, rawNext - ContinuousNextChapterStartY)
-            : 0.0;
-        var carryUpDelta = edge < 0 && IsContinuousProseScroll
-            ? Math.Max(4.0, -rawNext)
-            : 0.0;
+            : _layout?.IsComplete != false
+                && (hasNextPreview ? rawNext >= ContinuousNextChapterStartY : next >= MaxScrollOffset) && delta > 0
+                    ? 1 : 0;
+        var carryOffset = edge > 0
+            ? Math.Max(0.0, rawNext - (hasNextPreview ? ContinuousNextChapterStartY : MaxScrollOffset)) : 0.0;
+        var carryUpDelta = edge < 0 && IsContinuousProseScroll ? Math.Max(0.0, -rawNext) : 0.0;
+        if (_activeHandoffDirection != 0) _activeHandoffScrollDelta += delta;
 
-        if (_activeHandoffDirection == 1 && rawNext > next && delta > 0)
-        {
-            _activeHandoffOverflowDown += rawNext - next;
-        }
-        else if (_activeHandoffDirection == -1 && rawNext < 0 && delta < 0)
-        {
-            _activeHandoffCarryUp = Math.Min(ScrollPageHeight * 1.5, _activeHandoffCarryUp + (-rawNext));
-        }
-
-        SetScrollOffset(next, allowNextChapterRunway: hasNextPreview);
+        SetScrollOffset(next, allowNextChapterRunway: IsContinuousProseScroll);
         if (edge != 0 && _activeHandoffDirection != edge)
         {
             // Chapter edge reached while scrolling: hand the direction to the

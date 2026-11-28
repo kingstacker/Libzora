@@ -113,6 +113,9 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         {
             _scrollNextChapterLayout = null;
             _scrollNextChapterLayoutPath = null;
+            _scrollNextChapterPreview = null;
+            _scrollPreviousChapterPreview = null;
+            _previousChapterPreviewCts?.Cancel();
         }
 
         Task<bool>? reload = null;

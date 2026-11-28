@@ -93,6 +93,7 @@ Swift 与 C# 通过同一进程内的 C ABI 传递 JSON 请求、结果和状态
 单独的 `AvaloniaView` 作为 SwiftUI 阅读页的子控制器显示；它不承担窗口导航。
 长按选字、翻页、进度保存和内容定位仍由共享阅读器处理。
 只有从书库（包括书库收藏夹、系列和详情）或阅读数据打开的阅读会话，进入和退出才使用 3D 书籍动画。
+3D 打开等到当前视口的首帧绘制就绪再翻开封面。纸张底色与炫彩叠层覆盖整张页面，正文首帧与封面一起交接。
 阅读资料、小组件、外部文件及启动恢复不套用书库 3D 动画；关闭时保留会话的真实入口。
 阅读资料等普通入口沿用页面滑动、淡入或关闭动画设置；小组件跳转采用约 0.2 秒的快速页面滑动，
 旧页面向左、新页面从右进入。阅读之树与阅读数据小组件指向阅读数据页，已经在对应页时不重复转场。
@@ -188,6 +189,14 @@ Swift 与 C# 通过同一进程内的 C ABI 传递 JSON 请求、结果和状态
 阅读速度，至少积累 2 分钟且进度超过 1% 后才显示时间，学习期间显示「阅读速度
 估计中」。PDF 没有目录时，章节模式显示页码。朗读控制条无操作 4 秒后自动收至
 右侧，点按可展开，暂停和继续会重新计时；打开朗读设置或搜索结果时暂停收边计时。
+
+横排滚动正文按手指位移跟随，拖动幅度轻微放大，松手后的惯性按实际经过时间计算；
+书籍打开、翻页和切换的既有动画时长不变。底部百分比使用真实滚动位置，起点为 0%，
+跨章与反向滚动保持连续，进度条定位使用同一套百分比映射。注释预览不因页码或章节标题
+的异步刷新自动关闭；浏览辅助注释章节不改变正文进度或给全书增加额外页数。
+普通章节解析使用有界内存缓存，重开书籍和邻章切换可复用解析结果；已经排好的正文页可直接翻到，
+仅在越过已排版范围时等待剩余章节。展开脚注的内容不进入普通章节缓存，全书页数统计也不会
+挤掉当前阅读内容的缓存。字体、视口和版式变化仍正常重新排版。
 
 横排正文按语言采用不同节奏：以英文等拉丁字母为主的普通段落使用适度两端对齐，
 先收紧中文字体偏宽的英文空格，再只微调词间距以收齐右边，不拉散字母；词间距最多
@@ -395,6 +404,20 @@ python3 -I tests/Libzora.Mobile.iOS.UITests/run-tests.py \
   --only testHiddenCssOverridesAndTableRowsRender \
   --only testMarkerlessItemsKeepNumbering \
   --only testEnglishHyphenationBreaksLongWords
+```
+
+连续滚动验证使用独立的 `com.kingstacker.libzora.readerscrollcheck`，不复制或重置用户书库。
+三本真实封面的短章节样例用于检查 50 点短拖、170 点长拖、快速惯性滑动，以及双向跨章时的正文衔接；
+滚动正文不叠加上下渐隐遮罩。`WidgetHomeScreenTests/testMediumContinueWidgetOpensBooks` 则需要在桌面准备
+主预览 App 的中号「继续阅读」小组件，实际点击两本不同书籍并检查阅读工具栏仍可显示状态栏；
+iOS 26 的状态栏不在 App 的可访问树中，切换期间的闪烁需配合 CoreSimulator 录屏逐帧检查。
+
+```bash
+python3 -I tests/Libzora.Mobile.iOS.UITests/prepare-reader-scroll-preview.py \
+  --app "$APP" --simulator "$SIMULATOR_ID"
+python3 -I tests/Libzora.Mobile.iOS.UITests/run-tests.py \
+  --simulator "$SIMULATOR_ID" --results /tmp/libzora-reader-scroll-results \
+  --suite WidgetHomeScreenTests --only testContinuousScrollTracksFingerAndCrossesChaptersBothWays
 ```
 
 `--results` 必须使用尚不存在的路径。运行器使用独立构建目录并对测试宿主做 ad-hoc 签名，

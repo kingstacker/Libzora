@@ -148,14 +148,15 @@ Large services are split by responsibility so one change opens one file:
 | `MtpKindleDeviceService.*.cs` | books, resources, annotations, scan, session |
 | `LibzoraMcpTools.*.cs` + `McpResults.cs` | library, collections, content, devices, validation, projection, result records |
 | `NativePdfReaderHost.*.cs` + `PdfReaderLayout.cs` | interaction, annotation callouts, search, rendering, pointer, layout, view, auto-crop, dark coloring |
-| `NativeReaderHost.*.cs` | navigation, configuration, scrolling, annotations, search, content, page counts, layout, rendering, images, pointer, selection, capture |
+| `NativeReaderHost.*.cs` | navigation, configuration, scrolling, bounded two-sided chapter previews, reversal/overflow-safe handoffs and committed-position guards (`.ContinuousScroll.cs`), annotations, search, content, page counts, layout, rendering, images, pointer, selection, capture |
+| `NativeReaderChapterContentCache.cs` | Bounded in-memory LRU of font-independent ordinary chapter parses; only content-addressed EPUB roots, no expanded footnotes, and no cache pollution from whole-book pagination. |
 | `XhtmlChapterLoader.*.cs` | flow, inline, blocks, footnotes, plain footnotes, external plain footnotes, plain figures, targets, links |
 | `S3SyncService.*.cs` | settings, sync entry, versions, state, snapshots, cleanup, download, encryption |
 | `WpdKindleAccess.*.cs` | devices, resources, annotations, books, shell items |
 | `KindleDeviceService.*.cs` | detection, books, transfer, resources, annotations, files, native |
-| `HorizontalComposer.*.cs` | line breaking, Knuth-Plass, images, tables, table layout |
+| `HorizontalComposer.*.cs` | line breaking, Knuth-Plass, line placement, line justification and runs, images, tables |
 | `GlyphShaper.cs` + `GlyphShaper.Variants.cs` | HarfBuzz shaping, system font loading, paired Latin/monospace and true Bold/Italic variants |
-| `ReaderPage.*.cs` (Mobile) | navigation (request generations and exact chapter matching), position, input, selection, footnote/figure detours and durable body progress, reading-time day accumulation/recovery (`.ReadingTime.cs`), chrome, lifecycle, native (actions, search), native presentation (revision-safe first drawn page) |
+| `ReaderPage.*.cs` (Mobile) | navigation (request generations and exact chapter matching), position, input, time-based inertia and serialized page/chapter turns (`.Paging.cs`, `MobileReaderScrollPhysics.cs`), selection, footnote/figure detours and durable body progress, reading-time day accumulation/recovery (`.ReadingTime.cs`), chrome, lifecycle, native (actions, search), native presentation (revision-safe first drawn page) |
 | `BookReflectionService.cs` + `BookReflectionFormatting.cs` | book-level reflection persistence, Markdown normalization, preview and citation helpers |
 | `BookReflectionPage.axaml.cs` + `BookReflectionCitationSheet.axaml.cs` (Mobile) | mobile reflection editor, Markdown preview and annotation citation picker |
 | `MobileShell.*.cs` | shell state, sheets, bars |
@@ -185,7 +186,8 @@ Large services are split by responsibility so one change opens one file:
 - `NativeUI/NativeBridge.swift` — store, bridge requests/events, preferences and library refresh;
   `NativeBridge.Library.swift` — series front-cover and display ordering helpers;
   `NativeBridge.Reader.swift` — session-identified reader presentations (including same-book reopens), restore, widget links, queued opens and teardown;
-  `NativeReaderOpenPolicy.swift` — revision-safe latest-intent queue and active-open deduplication.
+  `NativeReaderOpenPolicy.swift` — revision-safe latest-intent queue and active-open deduplication;
+  `NativeBridge.Footnotes.swift` — session-scoped footnote event routing and isolated late-footer-refresh regression hooks.
 - `NativeReaderEntryPresentation.swift`, `NativeReaderPresentationPolicy.swift` — first-drawn-frame and viewport acknowledgement gating, stable loading cover and cancellation.
 - `NativePageSlideTransition.swift`, `NativeDisplayFrame.swift`, `NativeReaderSnapshot.swift` — native display commits and renderer-owned pixel snapshots for GPU-composited reader slides and cover closes; only library and reading-dashboard sessions use 3D book animations.
 - `NativeBridge.Navigation.swift`, `NativeWidgetNavigationPolicy.swift` — latest-intent widget link routing, icon-first cold entry and tab handoffs that finish before backend teardown, without resetting live tab/navigation trees.
@@ -209,7 +211,8 @@ Large services are split by responsibility so one change opens one file:
 - `NativeUI/NativeWelcomeView.swift`, `src/Libzora.Mobile/Views/WelcomeOverlay.axaml` — first-launch mobile welcome guide requiring explicit acceptance of the bundled User Agreement and Privacy Policy.
 - `NativeUI/NativeAppleSignIn.swift` — native Sign in with Apple coordinator (SHA-256 nonce) and HIG button used by `NativeAccount.swift` for sign-in and Apple ID linking.
 - `tests/Libzora.Mobile.iOS.UITests/NativeReadingStatsTests.swift` / `prepare-reading-stats-preview.py` — independent covered-book reading/listening palette captures and entry status-bar timing regressions.
-- `tests/Libzora.Mobile.iOS.UITests/` and `.LogicTests/` — behaviour contracts; `NativeDataSafetyUITests` / `prepare-ios-safety-preview.py` use an independent covered-book/PDF/TXT fixture bundle for deletion, onboarding, editing and file-action regressions.
+- `tests/Libzora.Mobile.Tests/ReaderPageTransitionTests.ContinuousRegression.cs`, `tests/Libzora.Tests/ReaderContinuousProgressTests.cs`, `NativeReaderChapterContentCacheTests.cs` — scroll/seek percentage round trips, exact signed carry, reversal, committed-only saving, note-cache isolation, completion task ownership and cache bounds.
+- `tests/Libzora.Mobile.iOS.UITests/` and `.LogicTests/` — behaviour contracts; `WidgetHomeScreenTests` verifies real medium-widget book switches and, with `prepare-reader-scroll-preview.py`, finger-distance scrolling and bidirectional short-chapter handoffs; `NativeDataSafetyUITests` / `prepare-ios-safety-preview.py` use an independent covered-book/PDF/TXT fixture bundle for deletion, onboarding, editing and file-action regressions.
 
 ## Where to look for common tasks
 

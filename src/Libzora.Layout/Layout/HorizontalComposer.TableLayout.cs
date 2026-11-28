@@ -1,4 +1,3 @@
-using System.Text;
 using SkiaSharp;
 
 namespace Libzora.Layout;
@@ -15,24 +14,27 @@ internal sealed partial class HorizontalComposer
     /// </summary>
     private void PlaceTableFallback(ContentBlock block, bool followsHeading = false, bool followsImage = false)
     {
-        var pageIndex = _pages.CurrentPageIndex;
-        var top = _cursorY;
         if (IsNavigationLinkTable(block) && block.Table is { Rows.Count: > 0 } navTable)
         {
             // Lay out each TOC row as its own un-hyphenated, left-aligned entry
             // with tighter intra-title line height and a subtle gap between rows
             // so wrapped chapter titles visually stay grouped together.
-            for (var r = 0; r < navTable.Rows.Count; r++)
+            var rows = navTable.Rows.Where(row => row.Cells.Any(cell => cell.Items.Count > 0)).ToArray();
+            for (var r = 0; r < rows.Length; r++)
             {
                 var rowItems = new List<InlineItem>();
-                foreach (var cell in navTable.Rows[r].Cells)
+                foreach (var cell in rows[r].Cells)
                 {
-                    if (cell.Items.Count > 0) rowItems.AddRange(cell.Items);
+                    if (cell.Items.Count == 0) continue;
+                    if (rowItems.Count > 0)
+                    {
+                        rowItems.Add(new InlineItem { Kind = InlineKind.Text, Text = " ", TextStart = -1, Style = block.Style });
+                    }
+                    rowItems.AddRange(cell.Items);
                 }
-                if (rowItems.Count == 0) continue;
 
                 var isFirst = r == 0;
-                var isLast = r == navTable.Rows.Count - 1;
+                var isLast = r == rows.Length - 1;
                 var rowBlock = new ContentBlock
                 {
                     Kind = BlockKind.Table,
@@ -42,6 +44,9 @@ internal sealed partial class HorizontalComposer
                     Center = block.Center,
                     AlignRight = block.AlignRight,
                     Justify = false,
+                    PageBreakBefore = isFirst && block.PageBreakBefore,
+                    PageBreakAfter = isLast && block.PageBreakAfter,
+                    KeepWithNext = isLast && block.KeepWithNext,
                     SpaceBeforeLines = isFirst ? block.SpaceBeforeLines : 0f,
                     SpaceAfterLines = isLast ? block.SpaceAfterLines : 0f,
                     MarginTopEm = isFirst ? block.MarginTopEm : 0f,
@@ -50,6 +55,7 @@ internal sealed partial class HorizontalComposer
                     MarginRightEm = block.MarginRightEm,
                     PaddingLeftEm = block.PaddingLeftEm,
                     PaddingRightEm = block.PaddingRightEm,
+                    LineHeightFactor = block.LineHeightFactor,
                     Items = rowItems,
                 };
                 PlaceTextBlock(
@@ -57,20 +63,13 @@ internal sealed partial class HorizontalComposer
                     followsHeading: isFirst && followsHeading,
                     followsImage: isFirst && followsImage,
                     allowHyphenation: false,
-                    compactNavigationEntry: true);
+                    compactNavigationEntry: true,
+                    tablePreview: block);
             }
         }
         else
         {
-            PlaceTextBlock(block, followsHeading, followsImage: followsImage);
-        }
-        if (pageIndex == _pages.CurrentPageIndex && _cursorY > top)
-        {
-            _pages.AddTable(new PlacedTable
-            {
-                Rect = new SKRect(InsetH, top, InsetH + ContentWidth, _cursorY),
-                Block = block,
-            });
+            PlaceTextBlock(block, followsHeading, followsImage: followsImage, tablePreview: block);
         }
     }
 
@@ -100,8 +99,9 @@ internal sealed partial class HorizontalComposer
         for (var lineIndex = 0; lineIndex < cell.Lines.Count; lineIndex++)
         {
             var line = cell.Lines[lineIndex];
-            var baseline = lineTop + cell.LineHeight / 2f
-                + (line.Ascent - line.Descent) / 2f;
+            var (height, rubyShelf) = cell.LineMetrics[lineIndex];
+            var baseline = lineTop + height / 2f
+                + (line.Ascent - line.Descent + rubyShelf) / 2f;
             if (block.Justify && lineIndex < cell.Lines.Count - 1)
             {
                 var extra = cell.TextWidth - line.Indent - line.Used;
@@ -116,9 +116,9 @@ internal sealed partial class HorizontalComposer
                 blockLeft + cell.X + cellPadX + line.Indent,
                 baseline,
                 lineTop,
-                cell.LineHeight,
+                height,
                 _context.RubyGap);
-            lineTop += cell.LineHeight;
+            lineTop += height;
         }
 
         if (!cell.HasBorder)
@@ -200,7 +200,7 @@ internal sealed partial class HorizontalComposer
         public required int Column { get; init; }
         public required int Span { get; init; }
         public required float NaturalWidth { get; init; }
-        public required float LineHeight { get; init; }
+        public (float Height, float RubyShelf)[] LineMetrics { get; set; } = [];
         public required float BorderTop { get; init; }
         public required float BorderRight { get; init; }
         public required float BorderBottom { get; init; }
@@ -220,15 +220,12 @@ internal sealed partial class HorizontalComposer
         public float Height { get; set; }
     }
 
-    private List<MeasuredRow> MeasureTableRows(
-        ContentBlock block,
-        ContentTable table,
-        int capacity)
+    private List<MeasuredRow>? MeasureTableRows(ContentTable table, int capacity)
     {
         var rows = new List<MeasuredRow>(table.Rows.Count);
         // HTML tables are positional: a rowspan cell removes a slot from later
         // rows, so the grid has to be simulated before columns are numbered.
-        var occupied = new HashSet<long>();
+        var occupiedUntil = new Dictionary<int, int>();
         for (var rowIndex = 0; rowIndex < table.Rows.Count; rowIndex++)
         {
             var row = table.Rows[rowIndex];
@@ -237,32 +234,20 @@ internal sealed partial class HorizontalComposer
             foreach (var cell in row.Cells)
             {
                 _context.CancellationToken.ThrowIfCancellationRequested();
-                while (column < capacity && occupied.Contains(GridKey(rowIndex, column)))
+                var span = Math.Max(1, cell.ColSpan);
+                var rowSpan = Math.Clamp(cell.RowSpan, 1, table.Rows.Count - rowIndex);
+                var free = 0;
+                while (column < capacity && free < span)
                 {
+                    free = occupiedUntil.GetValueOrDefault(column) > rowIndex ? 0 : free + 1;
                     column++;
                 }
-
-                if (column >= capacity)
+                if (free < span) return null;
+                var startColumn = column - span;
+                if (rowSpan > 1)
                 {
-                    break;
-                }
-
-                var span = Math.Clamp(Math.Max(1, cell.ColSpan), 1, capacity - column);
-                while (span > 1 && IsOccupied(occupied, rowIndex, column, span))
-                {
-                    span--;
-                }
-
-                var rowSpan = Math.Clamp(
-                    Math.Max(1, cell.RowSpan), 1, table.Rows.Count - rowIndex);
-                for (var spannedRow = rowIndex; spannedRow < rowIndex + rowSpan; spannedRow++)
-                {
-                    for (var spannedColumn = column;
-                         spannedColumn < column + span;
-                         spannedColumn++)
-                    {
-                        occupied.Add(GridKey(spannedRow, spannedColumn));
-                    }
+                    for (var spannedColumn = startColumn; spannedColumn < column; spannedColumn++)
+                        occupiedUntil[spannedColumn] = rowIndex + rowSpan;
                 }
 
                 var cellCells = new List<LayoutCell>();
@@ -272,69 +257,26 @@ internal sealed partial class HorizontalComposer
                 }
 
                 CellFactory.CollapseWhitespace(cellCells, attachFootnoteMarkers: true);
-                var inkExtent = cellCells
-                    .Select(candidate => candidate.Ascent + candidate.Descent)
-                    .DefaultIfEmpty(0f)
-                    .Max();
-                var cellScale = Math.Clamp(
-                    cellCells
-                        .Select(candidate => candidate.Style.FontSizeFactor > 0f
-                            ? candidate.Style.FontSizeFactor
-                            : 1f)
-                        .DefaultIfEmpty(1f)
-                        .Max(),
-                    0.5f,
-                    3f);
-                var lineHeight = block.LineHeightFactor > 0f
-                    ? Math.Max(BaseFontSize * cellScale * block.LineHeightFactor, inkExtent + 1f)
-                    : Math.Max(BaseFontSize * cellScale * 1.45f, inkExtent + 1f);
-                lineHeight = Math.Max(lineHeight, cellCells
-                    .Where(candidate => candidate.ImagePath is not null)
-                    .Select(candidate => candidate.ImageHeight)
-                    .DefaultIfEmpty(0f)
-                    .Max());
-
                 cells.Add(new MeasuredCell
                 {
                     Items = cell.Items,
                     Cells = cellCells,
                     Row = rowIndex,
                     RowSpan = rowSpan,
-                    Column = column,
+                    Column = startColumn,
                     Span = span,
                     NaturalWidth = cellCells.Sum(candidate => candidate.Advance),
-                    LineHeight = lineHeight,
                     BorderTop = cell.BorderTopEm,
                     BorderRight = cell.BorderRightEm,
                     BorderBottom = cell.BorderBottomEm,
                     BorderLeft = cell.BorderLeftEm, // copied from the content cell
                 });
-                column += span;
             }
 
             rows.Add(new MeasuredRow { Cells = cells });
         }
 
         return rows;
-    }
-
-    private static long GridKey(int row, int column) => ((long)row << 32) | (uint)column;
-
-    private static bool IsOccupied(
-        HashSet<long> occupied,
-        int row,
-        int column,
-        int span)
-    {
-        for (var offset = 0; offset < span; offset++)
-        {
-            if (occupied.Contains(GridKey(row, column + offset)))
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /// <summary>
@@ -432,6 +374,7 @@ internal sealed partial class HorizontalComposer
     }
 
     private void LayOutTableCells(
+        ContentBlock block,
         List<MeasuredRow> rows,
         float[] columnWidths,
         float columnGap,
@@ -484,6 +427,8 @@ internal sealed partial class HorizontalComposer
                         cell.Lines = BreakLines(rebuilt, cell.TextWidth, 0f);
                     }
                 }
+                cell.LineMetrics = cell.Lines.Select(line => ComputeLineMetrics(
+                    line, block, isHeading: false, BaseFontSize * 1.45f, _context.RubyGap)).ToArray();
             }
         }
     }
@@ -504,7 +449,7 @@ internal sealed partial class HorizontalComposer
         {
             foreach (var cell in rows[rowIndex].Cells)
             {
-                var contentHeight = cell.Lines.Count * cell.LineHeight + cellPadY * 2f;
+                var contentHeight = cell.LineMetrics.Sum(line => line.Height) + cellPadY * 2f;
                 if (cell.RowSpan == 1)
                 {
                     rows[rowIndex].Height = Math.Max(rows[rowIndex].Height, contentHeight);
@@ -530,559 +475,12 @@ internal sealed partial class HorizontalComposer
                     current += rows[spanned].Height;
                 }
 
-                var required = cell.Lines.Count * cell.LineHeight + cellPadY * 2f;
+                var required = cell.LineMetrics.Sum(line => line.Height) + cellPadY * 2f;
                 if (required > current)
                 {
                     rows[end].Height += required - current;
                 }
             }
-        }
-    }
-
-    /// <summary>A laid-out line of cells.</summary>
-    private sealed class LineBox
-    {
-        public List<LayoutCell> Cells { get; } = new();
-        private float _advance;
-        public float Used => _advance - (Cells.Count > 0 ? Cells[^1].TrailingLetterSpacing : 0f);
-        public float WidthWith(LayoutCell cell) => _advance + cell.Advance - cell.TrailingLetterSpacing;
-        public float Ascent { get; private set; }
-        public float Descent { get; private set; }
-        public float Indent { get; set; }
-        public bool EndsWithForcedBreak { get; set; }
-        public bool StartsAnchoredPage { get; set; }
-        /// <summary>True when the final cell is a closing CJK mark intentionally hanging into the trailing margin.</summary>
-        public bool HasHangingPunctuation { get; set; }
-        /// <summary>Optical protrusion into the trailing margin (e.g. half a Latin hyphen or period).</summary>
-        public float OpticalTrailingProtrusion { get; set; }
-        /// <summary>Additional left inset on this line (e.g. beside a floated drop cap).</summary>
-        public float FloatLeftInset { get; set; }
-
-        public void Add(LayoutCell cell)
-        {
-            Cells.Add(cell);
-            _advance += cell.Advance;
-            Ascent = Math.Max(Ascent, cell.Ascent);
-            Descent = Math.Max(Descent, cell.Descent);
-        }
-
-        public void RemoveLast()
-        {
-            if (Cells.Count == 0)
-            {
-                return;
-            }
-
-            var removed = Cells[^1];
-            Cells.RemoveAt(Cells.Count - 1);
-            _advance -= removed.Advance;
-            Ascent = 0f;
-            Descent = 0f;
-            foreach (var cell in Cells)
-            {
-                Ascent = Math.Max(Ascent, cell.Ascent);
-                Descent = Math.Max(Descent, cell.Descent);
-            }
-        }
-
-        /// <summary>
-        /// Distributes <paramref name="extra"/> pixels. Latin-majority lines
-        /// only expand their word spaces: expanding every glyph gap (the old
-        /// behavior) pulled English words apart and produced the tell-tale
-        /// "loose line" when a long word wrapped. Mobile prose starts with
-        /// proportional spaces and fills only as far as the spacing cap permits;
-        /// legacy layouts leave a line ragged when full justification is too loose.
-        /// CJK and mixed lines keep inter-character justification, where the
-        /// per-gap amount is shared by CJK characters and gaps around intact
-        /// Latin words, never by the letters inside those words.
-        /// </summary>
-        public bool TryJustify(float extra, float fontSize, bool naturalLatin = false)
-        {
-            var end = Cells.Count;
-            if (HasHangingPunctuation && end > 1)
-            {
-                // Align the body up to the trailing margin while letting the
-                // hanging punctuation sit outside the margin.
-                extra += Cells[end - 1].Advance;
-                end--;
-            }
-            else if (OpticalTrailingProtrusion > 0f)
-            {
-                // Optical margin alignment: let trailing hyphens/periods peek
-                // slightly past the right margin so the text column looks straight.
-                extra += OpticalTrailingProtrusion;
-            }
-
-            if (extra < -0.01f)
-            {
-                if (!naturalLatin)
-                {
-                    return true;
-                }
-
-                while (end > 0 && Cells[end - 1].IsSpace)
-                {
-                    end--;
-                }
-
-                var shrinkStart = 0;
-                while (shrinkStart < end && Cells[shrinkStart].TextStart < 0 && Cells[shrinkStart].Style.NoWrap) shrinkStart++;
-                var minSpaceWidth = fontSize * 0.20f;
-                var totalShrinkCap = 0f;
-                for (var index = shrinkStart; index < end; index++)
-                {
-                    var cell = Cells[index];
-                    if (cell.IsSpace)
-                    {
-                        totalShrinkCap += Math.Max(0f, cell.Advance - minSpaceWidth);
-                    }
-                }
-
-                if (totalShrinkCap <= 0.01f)
-                {
-                    return true;
-                }
-
-                var neededShrink = Math.Min(-extra, totalShrinkCap);
-                var shrinkFraction = neededShrink / totalShrinkCap;
-                var shrunk = 0f;
-                for (var index = shrinkStart; index < end; index++)
-                {
-                    var cell = Cells[index];
-                    if (cell.IsSpace)
-                    {
-                        var room = Math.Max(0f, cell.Advance - minSpaceWidth);
-                        var delta = room * shrinkFraction;
-                        Cells[index] = cell with { Advance = cell.Advance - delta };
-                        shrunk += delta;
-                    }
-                }
-
-                _advance -= shrunk;
-                return shrunk >= -extra - 0.01f;
-            }
-
-            if (extra <= 0.01f)
-            {
-                return true;
-            }
-
-            while (end > 0 && Cells[end - 1].IsSpace)
-            {
-                end--;
-            }
-
-            // The generated marker and its trailing space define a fixed
-            // hanging indent. Justify the body, not those synthetic cells.
-            var start = 0;
-            while (start < end && Cells[start].TextStart < 0 && Cells[start].Style.NoWrap) start++;
-            if (end - start <= 1)
-            {
-                return true;
-            }
-
-            var latinGlyphs = 0;
-            var inkGlyphs = 0;
-            var totalGlyphs = 0;
-            for (var index = start; index < end; index++)
-            {
-                var cell = Cells[index];
-                var glyphCount = Math.Max(1, cell.Glyphs.Length);
-                totalGlyphs += cell.JustifyAsUnit ? 1 : glyphCount;
-                if (cell.IsSpace)
-                {
-                    continue;
-                }
-
-                inkGlyphs += glyphCount;
-                if (cell.IsLatinWord)
-                {
-                    latinGlyphs += glyphCount;
-                }
-            }
-
-            // Only a line whose visible ink is majority Latin takes the
-            // space-only path. A Chinese sentence with an English name or an
-            // acronym is still justified between characters, which keeps the
-            // right edge flush instead of leaving it conspicuously ragged.
-            if (naturalLatin || (latinGlyphs > 0 && latinGlyphs * 2 >= inkGlyphs))
-            {
-                var spaceCount = 0;
-                for (var index = start; index < end; index++)
-                {
-                    if (Cells[index].IsSpace)
-                    {
-                        spaceCount++;
-                    }
-                }
-
-                if (spaceCount == 0
-                    || (!naturalLatin && extra / spaceCount > fontSize * 0.2f))
-                {
-                    return false;
-                }
-
-                var perSpace = extra / spaceCount;
-                if (naturalLatin)
-                {
-                    // Expand word spaces up to the safe typographic cap (0.65em).
-                    // If a small residual gap remains (e.g. a narrow mobile line
-                    // with only 3-5 spaces), absorb it via subtle micro-tracking
-                    // (<= 0.045em per letter gap) so the right margin stays flush
-                    // without creating rivers or visibly pulling letters apart.
-                    var maxSpaceWidth = fontSize * 0.65f;
-                    var maxSpaceGain = 0f;
-                    for (var index = start; index < end; index++)
-                    {
-                        var cell = Cells[index];
-                        if (cell.IsSpace)
-                        {
-                            maxSpaceGain += Math.Max(0f, maxSpaceWidth - cell.Advance);
-                        }
-                    }
-
-                    var unabsorbed = extra - maxSpaceGain;
-                    var trackGaps = unabsorbed > 0.01f ? CountLineMicroTrackGaps(start, end) : 0;
-                    var maxTrackPerGap = fontSize * 0.045f;
-                    if (unabsorbed > 0.01f && trackGaps > 0 && unabsorbed <= trackGaps * maxTrackPerGap + 0.01f)
-                    {
-                        var spaceAdded = 0f;
-                        for (var index = start; index < end; index++)
-                        {
-                            var cell = Cells[index];
-                            if (cell.IsSpace)
-                            {
-                                var expansion = Math.Max(0f, maxSpaceWidth - cell.Advance);
-                                Cells[index] = cell with { Advance = cell.Advance + expansion };
-                                spaceAdded += expansion;
-                            }
-                        }
-
-                        var residual = Math.Max(0f, extra - spaceAdded);
-                        var perTrack = residual / trackGaps;
-                        var trackAdded = ApplyLineMicroTracking(start, end, perTrack);
-                        _advance += spaceAdded + trackAdded;
-                        return spaceAdded + trackAdded >= extra - 0.01f;
-                    }
-
-                    if (unabsorbed > fontSize * 5.0f)
-                    {
-                        return false;
-                    }
-
-                    var effectiveMaxSpace = unabsorbed > fontSize * 2.5f
-                        ? fontSize * 0.55f
-                        : maxSpaceWidth;
-                    var added = 0f;
-                    for (var index = start; index < end; index++)
-                    {
-                        var cell = Cells[index];
-                        if (cell.IsSpace)
-                        {
-                            var expansion = Math.Min(perSpace, Math.Max(0f, effectiveMaxSpace - cell.Advance));
-                            Cells[index] = cell with { Advance = cell.Advance + expansion };
-                            added += expansion;
-                        }
-                    }
-
-                    _advance += added;
-                    return added >= extra - 0.01f;
-                }
-
-                var legacyAdded = 0f;
-                for (var index = start; index < end; index++)
-                {
-                    var cell = Cells[index];
-                    if (cell.IsSpace)
-                    {
-                        Cells[index] = cell with { Advance = cell.Advance + perSpace };
-                        legacyAdded += perSpace;
-                    }
-                }
-
-                _advance += legacyAdded;
-                return legacyAdded >= extra - 0.01f;
-            }
-
-            // Never stretch the gap before a footnote marker or closing/sentence
-            // punctuation (。，、；：！？）」』》】〕), or after opening punctuation
-            // (（「『《【〔), so marks stay attached to their host characters.
-            var gaps = 0;
-            for (var index = start; index < end; index++)
-            {
-                var cell = Cells[index];
-                var glyphCount = Math.Max(1, cell.Glyphs.Length);
-                if (!cell.JustifyAsUnit && glyphCount > 1)
-                {
-                    gaps += glyphCount - 1;
-                }
-                if (index + 1 < end && CanExpandGapBetween(cell, Cells[index + 1]))
-                {
-                    gaps++;
-                }
-            }
-            if (gaps <= 0)
-            {
-                return true;
-            }
-
-            var perGap = extra / gaps;
-            if (perGap > fontSize * 0.55f)
-            {
-                return false;
-            }
-
-            for (var index = start; index < end; index++)
-            {
-                var cell = Cells[index];
-                var shiftedX = new float[cell.GlyphX.Length];
-                if (!cell.JustifyAsUnit)
-                {
-                    for (var i = 0; i < cell.GlyphX.Length; i++)
-                    {
-                        // Gaps inside a shaped cell belong in its local glyph
-                        // positions. The gap after a cell belongs in that
-                        // cell's advance, so PlaceLine does not count the same
-                        // distance twice when it advances to the next cell.
-                        shiftedX[i] = cell.GlyphX[i] + perGap * i;
-                    }
-                }
-                else
-                {
-                    // Markers and ruby bases stay intact. Justification adds
-                    // space after the unit, not between its own glyphs.
-                    Array.Copy(cell.GlyphX, shiftedX, cell.GlyphX.Length);
-                }
-
-                var glyphCount = Math.Max(1, cell.Glyphs.Length);
-                var gapsAfter = cell.JustifyAsUnit ? 0 : glyphCount - 1;
-                if (index + 1 < end && CanExpandGapBetween(cell, Cells[index + 1])) gapsAfter++;
-                Cells[index] = cell with
-                {
-                    GlyphX = shiftedX,
-                    Advance = cell.Advance + perGap * gapsAfter,
-                };
-            }
-
-            _advance += extra;
-            return true;
-        }
-
-        internal static int CountMicroTrackGaps(LayoutCell cell)
-        {
-            if (cell.IsSpace || cell.FootnoteMarker || cell.RubyAnnotation is not null || cell.ImagePath is not null)
-            {
-                return 0;
-            }
-
-            var glyphCount = cell.GlyphX.Length;
-            if (glyphCount <= 1)
-            {
-                return 0;
-            }
-
-            var gaps = 0;
-            var hasClusters = cell.Clusters.Length == glyphCount;
-            for (var i = 1; i < glyphCount; i++)
-            {
-                if (!hasClusters || cell.Clusters[i] != cell.Clusters[i - 1])
-                {
-                    gaps++;
-                }
-            }
-
-            return gaps;
-        }
-
-        private int CountLineMicroTrackGaps(int start, int end)
-        {
-            var gaps = 0;
-            for (var index = start; index < end; index++)
-            {
-                var cell = Cells[index];
-                gaps += CountMicroTrackGaps(cell);
-                if (index + 1 < end
-                    && !cell.IsSpace
-                    && !Cells[index + 1].IsSpace
-                    && CanExpandGapBetween(cell, Cells[index + 1]))
-                {
-                    gaps++;
-                }
-            }
-
-            return gaps;
-        }
-
-        private float ApplyLineMicroTracking(int start, int end, float perGap)
-        {
-            var added = 0f;
-            for (var index = start; index < end; index++)
-            {
-                var cell = Cells[index];
-                var internalGaps = CountMicroTrackGaps(cell);
-                var afterGap = index + 1 < end
-                    && !cell.IsSpace
-                    && !Cells[index + 1].IsSpace
-                    && CanExpandGapBetween(cell, Cells[index + 1])
-                    ? 1
-                    : 0;
-                if (internalGaps == 0 && afterGap == 0)
-                {
-                    continue;
-                }
-
-                var glyphCount = cell.GlyphX.Length;
-                var shiftedX = cell.GlyphX;
-                if (internalGaps > 0)
-                {
-                    shiftedX = new float[glyphCount];
-                    var hasClusters = cell.Clusters.Length == glyphCount;
-                    var cumulative = 0;
-                    shiftedX[0] = cell.GlyphX[0];
-                    for (var i = 1; i < glyphCount; i++)
-                    {
-                        if (!hasClusters || cell.Clusters[i] != cell.Clusters[i - 1])
-                        {
-                            cumulative++;
-                        }
-                        shiftedX[i] = cell.GlyphX[i] + perGap * cumulative;
-                    }
-                }
-
-                var delta = perGap * (internalGaps + afterGap);
-                Cells[index] = cell with
-                {
-                    GlyphX = shiftedX,
-                    Advance = cell.Advance + delta,
-                };
-                added += delta;
-            }
-
-            return added;
-        }
-
-        private static bool CanExpandGapBetween(LayoutCell left, LayoutCell right) =>
-            !right.FootnoteMarker
-            && !TypesetText.IsProhibitedAtLineStart(right.Text)
-            && !TypesetText.IsOpeningPunctuation(left.Text);
-    }
-
-    /// <summary>Accumulates consecutive compatible cells into one placed run.</summary>
-    private sealed class RunAccumulator
-    {
-        private readonly float _baseline;
-        private readonly List<ushort> _glyphs = new();
-        private readonly List<float> _x = new();
-        private readonly List<float> _y = new();
-        private readonly List<float> _inkShiftX = new();
-        private readonly List<int> _clusters = new();
-        private LayoutCell? _first;
-        private LayoutCell? _last;
-        private int _cellClusterBase;
-        private float _flowAdvance;
-        private float _leadingInset;
-        private bool _syntheticHyphen;
-
-        public RunAccumulator(float baseline)
-        {
-            _baseline = baseline;
-        }
-
-        public bool CanAppend(LayoutCell cell, float baseline)
-        {
-            return _first is not null
-                && _last is not null
-                && cell.FontPath == _first.FontPath
-                && Math.Abs(cell.FontSize - _first.FontSize) < 0.01f
-                && cell.Style.Equals(_last.Style)
-                && Math.Abs(baseline - _baseline) < 0.01f
-                && cell.TextStart >= 0
-                && _last.TextStart >= 0
-                && cell.TextStart == _last.TextStart + _last.TextLength;
-        }
-
-        public void BeginCell(LayoutCell cell, float leadingInset)
-        {
-            if (_first is null) _leadingInset = leadingInset;
-            _first ??= cell;
-            _last = cell;
-            _syntheticHyphen |= cell.SyntheticHyphen;
-            _cellClusterBase = _first.TextStart >= 0 && cell.TextStart >= 0
-                ? cell.TextStart - _first.TextStart
-                : 0;
-            _flowAdvance += cell.Advance;
-        }
-
-        public void AddGlyph(ushort glyph, float x, float y, int cluster, float inkShiftX = 0f)
-        {
-            _glyphs.Add(glyph);
-            _x.Add(x);
-            _y.Add(y);
-            _inkShiftX.Add(inkShiftX);
-            _clusters.Add(_cellClusterBase + cluster);
-        }
-
-        public void Flush(PageBuilder pages)
-        {
-            if (_first is null || _glyphs.Count == 0)
-            {
-                Reset();
-                return;
-            }
-
-            var originX = _x[0];
-            var glyphs = _glyphs.ToArray();
-            var x = new float[_x.Count];
-            var y = new float[_y.Count];
-            for (var i = 0; i < _x.Count; i++)
-            {
-                x[i] = _x[i] - originX;
-                // Cell glyph offsets are already relative to the baseline.
-                // Subtracting the absolute line baseline here moves every
-                // horizontal glyph far above the page.
-                y[i] = _y[i];
-            }
-
-            var textStart = _first.TextStart;
-            var textLength = _first.TextStart >= 0 && _last is not null && _last.TextStart >= 0
-                ? Math.Max(0, _last.TextStart + _last.TextLength - textStart)
-                : 0;
-
-            pages.AddRun(new PlacedRun
-            {
-                FontPath = _first.FontPath,
-                FontSize = _first.FontSize,
-                Glyphs = glyphs,
-                X = x,
-                Y = y,
-                InkShiftX = _inkShiftX.Any(shift => shift != 0f) ? _inkShiftX.ToArray() : null,
-                OriginX = originX,
-                OriginY = _baseline,
-                Ascent = _first.Ascent,
-                Descent = _first.Descent,
-                FlowAdvance = _flowAdvance - _leadingInset,
-                TextStart = textStart,
-                TextLength = textLength,
-                Clusters = _clusters.ToArray(),
-                SyntheticHyphen = _syntheticHyphen,
-                Style = _first.Style,
-            });
-
-            Reset();
-        }
-
-        private void Reset()
-        {
-            _first = null;
-            _last = null;
-            _flowAdvance = 0f;
-            _leadingInset = 0f;
-            _syntheticHyphen = false;
-            _glyphs.Clear();
-            _x.Clear();
-            _y.Clear();
-            _inkShiftX.Clear();
-            _clusters.Clear();
         }
     }
 }

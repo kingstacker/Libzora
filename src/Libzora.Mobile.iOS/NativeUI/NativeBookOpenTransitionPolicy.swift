@@ -378,6 +378,26 @@ enum NativeBookOpenTransitionPolicy {
         return !ready && (hasError || loadingChromeVisible)
     }
 
+    /// Keep the shell hidden while UIKit hands status-bar ownership between
+    /// reader modals. A pending widget book spans the old reader's dismissal,
+    /// backend teardown and the new reader's presentation; window snapshots
+    /// cannot cover the system status bar during that gap.
+    static func shouldHideShellStatusBar(
+        openingReader: Bool,
+        hasOpenTransition: Bool,
+        readerPresented: Bool,
+        hasPendingWidgetBook: Bool
+    ) -> Bool {
+        openingReader || hasOpenTransition || readerPresented || hasPendingWidgetBook
+    }
+
+    /// A cover opens only once its real reading surface is drawn at the
+    /// acknowledged viewport, never merely when the modal has appeared.
+    static func canStartReaderCoverOpen(ready: Bool, frameReady: Bool, frameRevision: Int64,
+                                       acknowledgedRevision: Int64?, hasError: Bool) -> Bool {
+        hasError || (ready && frameReady && frameRevision > 0 && acknowledgedRevision == frameRevision)
+    }
+
     /// Hide from the start of entry, not after the cover animation finishes.
     /// Ordinary reader chrome can reveal it again after the transition.
     static func shouldHideReaderStatusBar(

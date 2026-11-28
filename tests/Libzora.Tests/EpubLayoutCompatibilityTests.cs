@@ -462,6 +462,171 @@ public sealed class EpubLayoutCompatibilityTests : IDisposable
         Assert.DoesNotContain(layout.Pages.SelectMany(page => page.Runs), run => run.SyntheticHyphen);
     }
 
+    [Fact]
+    public void InterleavedRubyKeepsSourceOrderAndAnnotationRanges()
+    {
+        var content = new XhtmlChapterLoader().Load(WriteChapter(
+            "<p><ruby>汉<rt>hàn</rt><rb id='second'>字</rb><rt>zì</rt></ruby>正文</p>"));
+        Assert.Equal("汉hàn字zì正文", content.BodyText);
+        var ruby = content.Blocks.SelectMany(block => block.Items).Where(item => item.Kind == InlineKind.Ruby).ToArray();
+        Assert.Collection(ruby,
+            first => Assert.Equal(("汉", "hàn", 0), (first.Text, first.RubyText, first.TextStart)),
+            second => Assert.Equal(("字", "zì", 4), (second.Text, second.RubyText, second.TextStart)));
+        Assert.Equal(4, content.FragmentTextOffsets["second"]);
+        using var engine = CreateEngine();
+        var layout = engine.Compose(content, Options());
+        Assert.True(layout.GetCharRect(0, 4).HasValue);
+        Assert.Null(layout.GetCharRect(0, 1));
+    }
+
+    [Fact]
+    public void MultiCharacterRubyMovesTogetherAndCentersAcrossItsBase()
+    {
+        var content = new XhtmlChapterLoader(paragraphIndent: false).Load(WriteChapter(
+            "<p style='text-align:left'>甲乙丙<ruby>中文<rt>zhōngwén</rt></ruby>丁</p>"));
+        using var engine = CreateEngine();
+        var layout = engine.Compose(content, Options(viewportWidth: 132f));
+        var page = Assert.Single(layout.Pages);
+        var first = layout.GetCharRect(0, 3)!.Value;
+        var second = layout.GetCharRect(0, 4)!.Value;
+        var ruby = Assert.Single(page.Runs, run => run.TextStart < 0);
+        Assert.Equal(first.Top, second.Top, 3);
+        Assert.True(first.Top > layout.GetCharRect(0, 2)!.Value.Top);
+        Assert.InRange(ruby.OriginX + ruby.FlowAdvance / 2, first.Left + 5f, second.Right - 5f);
+    }
+
+    [Fact]
+    public void RowSpanOccupiesAColumnWithoutDiscardingTheNextRowsCells()
+    {
+        var content = new XhtmlChapterLoader().Load(WriteChapter(
+            "<table><tr><td rowspan='2'>甲</td><td>乙</td></tr><tr><td>丙</td><td>丁</td></tr></table>"));
+        using var engine = CreateEngine();
+        var layout = engine.Compose(content, Options());
+        var page = Assert.Single(layout.Pages);
+        Assert.Single(page.Tables);
+        var third = layout.GetCharRect(0, content.BodyText.IndexOf('丙'))!.Value;
+        var fourth = layout.GetCharRect(0, content.BodyText.IndexOf('丁'))!.Value;
+        Assert.Equal(third.Top, fourth.Top, 3);
+        Assert.True(fourth.Left > third.Right);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void OversizedTableRowsKeepTheirEndingTextVisible(bool continuous)
+    {
+        var content = new XhtmlChapterLoader().Load(WriteChapter(
+            "<table><tr><td>" + new string('文', 180) + "末</td><td>尾</td></tr></table>"));
+        using var engine = CreateEngine();
+        var options = Options(viewportWidth: 220f, viewportHeight: 145f, continuous: continuous);
+        var layout = engine.Compose(content, options);
+        var ending = content.BodyText.IndexOf('尾');
+        var page = layout.GetPageIndexOfOffset(ending);
+        var rect = layout.GetCharRect(page, ending)!.Value;
+        Assert.True(page > 0);
+        Assert.NotEmpty(layout.Pages[page].Tables);
+        Assert.InRange(rect.Top, 0, options.ViewportHeight);
+    }
+
+    [Fact]
+    public void NarrowContentsTableSeparatesLinksAndHonorsExplicitPageBreaks()
+    {
+        var content = new XhtmlChapterLoader(paragraphIndent: false).Load(WriteChapter(
+            "<p>前文</p><table style='break-before:page;break-after:page'>"
+            + "<tr><td><a href='a'>甲</a></td><td><a href='b'>乙</a></td></tr></table><p>后文</p>"));
+        using var engine = CreateEngine();
+        var layout = engine.Compose(content, Options(viewportWidth: 120f));
+        var first = layout.GetCharRect(1, content.BodyText.IndexOf('甲'))!.Value;
+        var second = layout.GetCharRect(1, content.BodyText.IndexOf('乙'))!.Value;
+        Assert.Equal(first.Top, second.Top, 3);
+        Assert.True(second.Left > first.Right + 1f);
+        Assert.Equal(2, layout.GetPageIndexOfOffset(content.BodyText.IndexOf('后')));
+    }
+
+    [Theory]
+    [InlineData("甲乙丙<span style='white-space:nowrap'>丁戊己庚</span>辛", "丁戊己庚")]
+    [InlineData("甲乙丙丁&#160;&#160;戊己", "丁\u00a0\u00a0戊")]
+    public void HorizontalUnbreakableTextKeepsItsSourceCharactersOnTheSameLine(string markup, string protectedText)
+    {
+        var content = new XhtmlChapterLoader(paragraphIndent: false).Load(WriteChapter(
+            "<p style='text-align:left'>" + markup + "</p>"));
+        using var engine = CreateEngine();
+        var layout = engine.Compose(content, Options(viewportWidth: 123f, hyphenateEnglish: true));
+        var start = content.BodyText.IndexOf(protectedText, StringComparison.Ordinal);
+        Assert.True(start >= 0, content.BodyText);
+        var anchors = Enumerable.Range(start, protectedText.Length)
+            .Select(offset => layout.GetCharRect(0, offset)!.Value).ToArray();
+        Assert.All(anchors, rect => Assert.Equal(anchors[0].Top, rect.Top, 3));
+        Assert.True(anchors[^1].Left - anchors[0].Right > 1f);
+    }
+
+    [Fact]
+    public void LongWordBeforeFootnoteKeepsFirstLineIndentAndFitsTheMarker()
+    {
+        const string word = "internationalization";
+        var content = new XhtmlChapterLoader().Load(WriteChapter(
+            "<p style='text-indent:1em;text-align:left'>" + word
+            + "<a href='#note' role='doc-noteref'>注</a></p>"
+            + "<aside id='note' role='doc-footnote'><p>脚注内容</p></aside>"));
+        using var engine = CreateEngine();
+        var wide = engine.Compose(content, Options());
+        var widePage = Assert.Single(wide.Pages);
+        var wideMarker = Assert.Single(widePage.HotZones, zone => zone.Kind == HotZoneKind.FootnoteMarker);
+        var wideWord = Assert.Single(widePage.Runs, run => run.TextStart == 0);
+        var width = 48f + wide.Options.BaseFontSize + wideWord.FlowAdvance + wideMarker.Rect.Width / 2f;
+        var narrow = engine.Compose(content, Options(viewportWidth: width));
+        var page = Assert.Single(narrow.Pages);
+        var first = narrow.GetCharRect(0, 0)!.Value;
+        var ending = narrow.GetCharRect(0, word.Length - 1)!.Value;
+        var marker = Assert.Single(page.HotZones, zone => zone.Kind == HotZoneKind.FootnoteMarker);
+        Assert.InRange(first.Left, narrow.Options.InsetHorizontal + narrow.Options.BaseFontSize - 0.1f,
+            narrow.Options.InsetHorizontal + narrow.Options.BaseFontSize + 0.1f);
+        Assert.True(ending.Top > first.Top);
+        Assert.True(ending.Right <= marker.Rect.Left + 0.1f);
+        Assert.True(marker.Rect.Right <= width - narrow.Options.InsetHorizontal + 0.1f);
+    }
+
+    [Theory]
+    [InlineData("<ruby>”<rt>pronunciation</rt></ruby>")]
+    [InlineData("”")]
+    public void ClosingQuoteBeforeFootnoteDoesNotResizeRubyOrExpandNarrowGlyph(string quote)
+    {
+        var loader = new XhtmlChapterLoader(paragraphIndent: false);
+        var body = "<p style='text-align:left'>甲" + quote;
+        var plain = loader.Load(WriteChapter(body + "乙</p>"));
+        var withNote = new XhtmlChapterLoader(paragraphIndent: false).Load(WriteChapter(body
+            + "<a href='#note' role='doc-noteref'>注</a>乙</p>"
+            + "<aside id='note' role='doc-footnote'><p>脚注内容</p></aside>"));
+        using var engine = CreateEngine();
+        var plainLayout = engine.Compose(plain, Options());
+        var noteLayout = engine.Compose(withNote, Options());
+        var quoteRect = noteLayout.GetCharRect(0, 1)!.Value;
+        var marker = Assert.Single(noteLayout.Pages[0].HotZones, zone => zone.Kind == HotZoneKind.FootnoteMarker);
+        Assert.True(quoteRect.Width <= plainLayout.GetCharRect(0, 1)!.Value.Width + 0.1f);
+        if (quote.Contains("<ruby>", StringComparison.Ordinal))
+        {
+            var pronunciation = Assert.Single(noteLayout.Pages[0].Runs, run => run.TextStart < 0);
+            Assert.True(pronunciation.OriginX + pronunciation.FlowAdvance <= marker.Rect.Left + 0.1f);
+        }
+    }
+
+    [Fact]
+    public void ScrollFragmentsRecordTheActualLineAndIgnorePageBreakWithoutDroppingMargin()
+    {
+        var content = new XhtmlChapterLoader(paragraphIndent: false).Load(WriteChapter(
+            "<p style='margin-bottom:2em;break-after:page'>甲</p>"
+            + "<p id='next'>乙<br/><span id='inline'>丙</span></p>"));
+        using var engine = CreateEngine();
+        var options = Options(continuous: true);
+        var layout = engine.Compose(content, options);
+        Assert.Equal(0, layout.GetPageIndexOfFragment("next"));
+        Assert.Equal(0, layout.GetPageIndexOfFragment("inline"));
+        var firstLine = layout.GetCharRect(0, content.BodyText.IndexOf('甲'))!.Value;
+        var next = layout.FragmentTops["next"];
+        Assert.True(next - firstLine.Top > options.BaseFontSize * 2f);
+        Assert.True(layout.FragmentTops["inline"] - next > options.BaseFontSize);
+    }
+
     private string WriteChapter(string body, string css = "")
     {
         var path = Path.Combine(_root, Guid.NewGuid().ToString("N") + ".xhtml");
@@ -474,14 +639,17 @@ public sealed class EpubLayoutCompatibilityTests : IDisposable
     private static TypesetLayoutOptions Options(
         TypesetWritingMode mode = TypesetWritingMode.HorizontalTb,
         float viewportWidth = 400f,
-        bool hyphenateEnglish = false) => new()
+        bool hyphenateEnglish = false,
+        float viewportHeight = 600f,
+        bool continuous = false) => new()
     {
         WritingMode = mode,
         BaseFontSize = 17f,
         LineHeight = 1.8f,
         LetterSpacingEm = 0f,
         ViewportWidth = viewportWidth,
-        ViewportHeight = 600f,
+        ViewportHeight = viewportHeight,
+        ContinuousScroll = continuous,
         InsetHorizontal = 24f,
         InsetVertical = 24f,
         ParagraphIndent = false,

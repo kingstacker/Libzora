@@ -36,6 +36,7 @@ xcrun --sdk macosx swiftc -swift-version 5 -parse-as-library \
 xcrun --sdk macosx swiftc -swift-version 5 -parse-as-library \
   "$root/src/Libzora.Mobile.iOS/NativeUI/NativeReaderPresentationPolicy.swift" \
   "$root/src/Libzora.Mobile.iOS/NativeUI/NativeWidgetNavigationPolicy.swift" \
+  "$root/src/Libzora.Mobile.iOS/NativeUI/NativeBookOpenTransitionPolicy.swift" \
   "$root/tests/Libzora.Mobile.iOS.LogicTests/NativeReaderPresentationLogicTests.swift" \
   -o "$output/native-reader-presentation-tests"
 "$output/native-reader-presentation-tests"

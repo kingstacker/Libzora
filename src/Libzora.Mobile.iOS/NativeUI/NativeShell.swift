@@ -91,7 +91,12 @@ struct NativeShell: View {
         }
         .font(NativeTheme.font()).foregroundStyle(NativeTheme.ink).tint(NativeTheme.ink)
         .environment(\.symbolVariants, .none)
-        .statusBarHidden(store.openingReader || store.openingBookTransition != nil)
+        .statusBarHidden(NativeBookOpenTransitionPolicy.shouldHideShellStatusBar(
+            openingReader: store.openingReader,
+            hasOpenTransition: store.openingBookTransition != nil,
+            readerPresented: store.readerBook != nil || store.readerPresentationActive,
+            hasPendingWidgetBook: store.pendingOpenSource == .widget && store.pendingOpenBookId != nil
+        ))
         .background(NativeAmbientBackground()).preferredColorScheme(store.preferences.colorScheme)
         .fullScreenCover(item: $store.readerPresentation, onDismiss: store.readerPresentationDismissed) { presentation in
             NativeReaderPage(store: store, session: store.session, book: presentation.book,

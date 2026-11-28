@@ -58,7 +58,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
     /// </summary>
     private (int Page, SKPoint Local)? MapPointToPage(Point position)
     {
-        if (_layout is null || _layout.Pages.Count == 0)
+        if (_layout is null || _layout.Pages.Count == 0 || _composePending || IsContinuousScrollHandoffPending)
         {
             return null;
         }
@@ -83,10 +83,21 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
             }
             case ReaderPresentation.Scroll:
             {
-                var pageHeight = Math.Max(1, Bounds.Height);
-                var contentY = Math.Max(0, _scrollOffset) + position.Y;
+                var pageHeight = ScrollPageHeight;
+                var contentY = _scrollOffset + position.Y;
+                // Neighbor previews are visual-only until their chapter owns
+                // the host. Never hit-test them as text in the current chapter.
+                if (contentY < 0 || (HasNextContinuousPreview && contentY >= ContinuousNextChapterStartY)) return null;
                 var page = Math.Clamp((int)(contentY / pageHeight), 0, _layout.Pages.Count - 1);
-                return (page, new SKPoint((float)position.X, (float)(contentY - page * pageHeight)));
+                var local = new SKPoint((float)position.X, (float)(contentY - page * pageHeight));
+                if (_layout.Options.ContinuousScroll && page > 0 && local.Y < pageHeight
+                    && !_layout.ContainsScrollContentAt(page, local))
+                {
+                    var previous = new SKPoint(local.X, local.Y + (float)pageHeight);
+                    if (_layout.ContainsScrollContentAt(page - 1, previous)) return (page - 1, previous);
+                }
+                if (local.Y >= pageHeight && !_layout.ContainsScrollContentAt(page, local)) return null;
+                return (page, local);
             }
             default:
                 return (_pageIndex, new SKPoint((float)position.X, (float)position.Y));
@@ -107,14 +118,14 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
                 return new Point(Math.Max(0, slot) * half, 0);
             }
             case ReaderPresentation.Scroll:
-                return new Point(0, page * Math.Max(1, Bounds.Height) - Math.Max(0, _scrollOffset));
+                return new Point(0, page * ScrollPageHeight - _scrollOffset);
             default:
                 return new Point(0, 0);
         }
     }
 
     private int VisibleFirstPageIndex =>
-        IsScroll ? Math.Clamp((int)(Math.Max(0, _scrollOffset) / Math.Max(1, Bounds.Height)), 0, Math.Max(0, PageCount - 1)) : _pageIndex;
+        IsScroll ? Math.Clamp((int)(Math.Max(0, _scrollOffset) / ScrollPageHeight), 0, Math.Max(0, PageCount - 1)) : _pageIndex;
 
     /// <summary>
     /// Keeps the continuous-mode scrollbar in step with the offset. Runs on

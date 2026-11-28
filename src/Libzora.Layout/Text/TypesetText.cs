@@ -292,7 +292,7 @@ public static class TypesetText
         + "﹙﹚﹛﹜﹝﹞"
         + "（）：；［］＿｛｝｜～｟｠￣");
 
-    public static bool IsSpace(char c) => c is ' ' or '\t' or '\r' or '\n' or '\f' or '\u00A0' or '\u3000';
+    public static bool IsSpace(char c) => c is ' ' or '\t' or '\r' or '\n' or '\f' or '\u3000';
 
     public static bool IsVerticalTransformed(char c) => VerticalTransformedCharacters.Contains(c);
 

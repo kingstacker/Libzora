@@ -240,10 +240,12 @@ public sealed class UpdateService : IDisposable
         if (channel == AppUpdateChannel.Development)
             return await GetLatestDevelopmentReleaseAsync(current, cancellationToken);
 
-        if (await TryGetReleaseFromManifestAsync(MirrorManifestUrl, cancellationToken) is { } mirroredRelease)
+        if (await TryGetReleaseFromManifestAsync(MirrorManifestUrl, cancellationToken) is { } mirroredRelease
+            && HasUsableStableManifestRelease(mirroredRelease, current))
             return mirroredRelease;
 
-        if (await TryGetReleaseFromManifestAsync(LatestManifestUrl, cancellationToken) is { } manifestRelease)
+        if (await TryGetReleaseFromManifestAsync(LatestManifestUrl, cancellationToken) is { } manifestRelease
+            && HasUsableStableManifestRelease(manifestRelease, current))
             return manifestRelease;
 
         try
@@ -344,13 +346,27 @@ public sealed class UpdateService : IDisposable
 
     // 自建镜像的开发版清单目前只镜像 Windows 安装包：其它平台、或清单缺件、或镜像落后于
     // 当前版本时，回退 GitHub API 列表 —— 免得一次更新检查直接报错或漏掉更新的开发版。
-    private bool HasUsableDevelopmentPackage(GitHubRelease release, SemanticVersion current)
+    private bool HasUsableDevelopmentPackage(GitHubRelease release, SemanticVersion current) =>
+        IsDevelopmentRelease(release) && HasRequiredAssetsForUpdate(release, current, requireNewer: true);
+
+    // Older release manifests only listed the Windows installer; when a manifest
+    // announces a newer stable version without the current platform package,
+    // fall back to the full GitHub release metadata instead of failing early.
+    private bool HasUsableStableManifestRelease(GitHubRelease release, SemanticVersion current) =>
+        release.Draft
+        || release.Prerelease
+        || HasRequiredAssetsForUpdate(release, current, requireNewer: false);
+
+    private bool HasRequiredAssetsForUpdate(
+        GitHubRelease release,
+        SemanticVersion current,
+        bool requireNewer)
     {
-        if (!IsDevelopmentRelease(release)) return false;
         var tagName = (release.TagName ?? string.Empty).Trim();
         try
         {
-            if (SemanticVersion.Parse(tagName, "GitHub Release 版本").CompareTo(current) <= 0) return false;
+            var latest = SemanticVersion.Parse(tagName, "GitHub Release 版本");
+            if (latest.CompareTo(current) <= 0) return !requireNewer;
             var version = tagName.TrimStart('v', 'V');
             return FindAsset(release.Assets, _installer.GetPackageAssetName(version)) is not null
                 && FindAsset(release.Assets, "SHA256SUMS.txt") is not null;

@@ -422,44 +422,152 @@ codesign --verify --deep --strict "$app_root"
 plutil -lint "$app_root/Contents/Info.plist" >/dev/null
 dotnet run --file "$repo_root/scripts/verify-third-party.cs" -- --mtp-source "$mtp_source_bundle"
 
-# Build a drag-to-Applications disk image. The Applications entry is a
-# filesystem symlink, which is what makes Finder copy the bundle on drop; the
-# Finder pass only adds the background image and icon positions. Styling is
-# best effort: a CI session without Finder automation permission still gets a
-# fully functional (if plain) DMG.
+# Build a single-icon installer DMG. The root volume contains only
+# `Install Libzora.app` centered in the window; double-clicking it installs
+# the embedded signed `Libzora.app` to `/Applications/Libzora.app` and launches
+# it. Styling writes `.DS_Store` directly via `make-dmg-dsstore.py` without
+# requiring Finder GUI automation (unless `LIBZORA_DMG_STYLE=finder` is set).
+build_installer_app() {
+  local installer_root="$1"
+  local embedded_app="$2"
+  local installer_source="$repo_root/scripts/macos/LibzoraInstaller.swift"
+  local installer_entitlements="$repo_root/scripts/macos/LibzoraInstaller.entitlements"
+  if [[ ! -f "$installer_source" || ! -f "$installer_entitlements" ]]; then
+    echo "Missing macOS installer source or entitlements." >&2
+    exit 2
+  fi
+
+  local installer_macos="$installer_root/Contents/MacOS"
+  local installer_resources="$installer_root/Contents/Resources"
+  local installer_helpers="$installer_root/Contents/Helpers"
+  mkdir -p "$installer_macos" "$installer_resources/en.lproj" "$installer_resources/zh-Hans.lproj" "$installer_helpers"
+
+  local sdk_path module_cache
+  sdk_path="$(xcrun --sdk macosx --show-sdk-path)"
+  module_cache="$work_root/installer-swift-module-cache"
+  mkdir -p "$module_cache"
+
+  local installer_binaries=()
+  for payload_rid in "${payload_rids[@]}"; do
+    local arch target out_bin
+    arch="$(payload_arch "$payload_rid")"
+    target="${arch}-apple-macos12.0"
+    out_bin="$work_root/LibzoraInstaller-$arch"
+    xcrun --sdk macosx swiftc \
+      -sdk "$sdk_path" -target "$target" -swift-version 5 \
+      -module-cache-path "$module_cache" -O \
+      -framework AppKit -framework Foundation \
+      "$installer_source" -o "$out_bin"
+    installer_binaries+=("$out_bin")
+  done
+
+  if (( ${#installer_binaries[@]} == 1 )); then
+    cp "${installer_binaries[0]}" "$installer_macos/LibzoraInstaller"
+  else
+    lipo -create -output "$installer_macos/LibzoraInstaller" "${installer_binaries[@]}"
+  fi
+  chmod 0755 "$installer_macos/LibzoraInstaller"
+
+  cp "$icon_output/Assets.car" "$installer_resources/Assets.car"
+  cp "$icon_output/Libzora.icns" "$installer_resources/Libzora.icns"
+
+  cat > "$installer_resources/en.lproj/InfoPlist.strings" <<'EOF'
+"CFBundleDisplayName" = "Install Libzora";
+"CFBundleName" = "Install Libzora";
+"NSAppleEventsUsageDescription" = "Install Libzora requests administrator permission only when /Applications is not writable by the current user.";
+EOF
+  cat > "$installer_resources/zh-Hans.lproj/InfoPlist.strings" <<'EOF'
+"CFBundleDisplayName" = "安装 Libzora";
+"CFBundleName" = "安装 Libzora";
+"NSAppleEventsUsageDescription" = "仅当当前用户对“应用程序”目录没有写入权限时，安装 Libzora 才会请求管理员授权。";
+EOF
+
+  cat > "$installer_root/Contents/Info.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDisplayName</key><string>Install Libzora</string>
+  <key>CFBundleExecutable</key><string>LibzoraInstaller</string>
+  <key>CFBundleIdentifier</key><string>io.github.kingstacker.libzora.installer</string>
+  <key>CFBundleIconFile</key><string>Libzora</string>
+  <key>CFBundleIconName</key><string>Libzora</string>
+  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+  <key>CFBundleDevelopmentRegion</key><string>en</string>
+  <key>CFBundleLocalizations</key><array><string>en</string><string>zh-Hans</string></array>
+  <key>CFBundleName</key><string>Install Libzora</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>$short_version</string>
+  <key>CFBundleVersion</key><string>$build_version</string>
+  <key>LSMinimumSystemVersion</key><string>12.0</string>
+  <key>NSHighResolutionCapable</key><true/>
+  <key>NSAppleEventsUsageDescription</key><string>Install Libzora requests administrator permission only when /Applications is not writable by the current user.</string>
+</dict>
+</plist>
+EOF
+
+  # Preserve the sealed signature and stapled ticket on Libzora.app.
+  ditto "$embedded_app" "$installer_helpers/Libzora.app"
+
+  codesign "${sign_args[@]}" \
+    --entitlements "$installer_entitlements" \
+    --sign "$signing_identity" "$installer_macos/LibzoraInstaller"
+  codesign "${sign_args[@]}" \
+    --entitlements "$installer_entitlements" \
+    --sign "$signing_identity" "$installer_root"
+  codesign --verify --deep --strict "$installer_root"
+  codesign --verify --deep --strict "$installer_helpers/Libzora.app"
+  plutil -lint "$installer_root/Contents/Info.plist" >/dev/null
+}
+
+notarize_and_staple_bundle() {
+  local bundle_path="$1"
+  local zip_name="$2"
+  local notarization_zip="$work_root/$zip_name"
+  if [[ -n "$notary_key_path" ]]; then
+    ditto -c -k --keepParent "$bundle_path" "$notarization_zip"
+    xcrun notarytool submit "$notarization_zip" \
+      --key "$notary_key_path" --key-id "$notary_key_id" --issuer "$notary_issuer" --wait
+    xcrun stapler staple "$bundle_path"
+    xcrun stapler validate "$bundle_path"
+  elif [[ -n "$notary_profile" ]]; then
+    ditto -c -k --keepParent "$bundle_path" "$notarization_zip"
+    xcrun notarytool submit "$notarization_zip" \
+      --keychain-profile "$notary_profile" --wait
+    xcrun stapler staple "$bundle_path"
+    xcrun stapler validate "$bundle_path"
+  fi
+}
+
 create_dmg() {
   local dmg_path="$1"
+  local installer_bundle="$2"
   local staging="$work_root/dmg-staging"
   local rw_image="$work_root/Libzora-rw.dmg"
-  local mountpoint volume_name attach_output background
+  local mountpoint background
   background="$repo_root/scripts/macos/dmg-background.png"
   rm -rf "$staging" "$rw_image" "$dmg_path"
   mkdir -p "$staging"
-  cp -a "$app_root" "$staging/Libzora.app"
-  ln -s /Applications "$staging/Applications"
+  ditto "$installer_bundle" "$staging/ .app"
   if [[ -f "$background" ]]; then
     mkdir -p "$staging/.background"
     cp "$background" "$staging/.background/background.png"
   fi
 
-  # CI has no Finder layout to preserve. Create the compressed image directly
-  # instead of mounting a writable image and depending on a GUI session.
+  # Allow opting out of writable DMG mounting when running in restricted environments.
   if [[ "${LIBZORA_DMG_STYLE:-1}" == "0" ]]; then
-    printf 'Creating non-interactive disk image: %s\n' "$dmg_path"
+    printf 'Creating unstyled disk image: %s\n' "$dmg_path"
     hdiutil create -volname "Libzora" -srcfolder "$staging" \
       -fs HFS+ -format UDZO -imagekey zlib-level=9 -ov "$dmg_path"
     return
   fi
 
-  printf 'Creating writable disk image for Finder layout: %s\n' "$rw_image"
+  printf 'Creating writable disk image for single-icon layout: %s\n' "$rw_image"
   hdiutil create -volname "Libzora" -srcfolder "$staging" \
     -fs HFS+ -format UDRW -ov "$rw_image"
-  # Finder addresses the volume by its displayed (mount point) name. Mounting
-  # at a custom directory makes Finder show that directory name instead of
-  # the volume label, so let hdiutil pick /Volumes/Libzora and pass the actual
-  # name to AppleScript. Finder also needs the volume to be browsable, so no
-  # -nobrowse here.
-  if ! attach_output="$(hdiutil attach -noautoopen "$rw_image" 2>&1)"; then
+
+  local attach_output volume_name
+  if ! attach_output="$(hdiutil attach -nobrowse -noautoopen "$rw_image" 2>&1)"; then
     printf '%s\n' "$attach_output" >&2
     return 1
   fi
@@ -470,9 +578,15 @@ create_dmg() {
     return 1
   fi
   volume_name="$(basename "$mountpoint")"
-  sleep 1
 
-  if [[ -f "$background" && "${LIBZORA_DMG_STYLE:-1}" != "0" ]]; then
+  python3 -I "$repo_root/scripts/macos/make-dmg-dsstore.py" "$mountpoint" \
+    --item " .app" \
+    --background ".background/background.png" \
+    --bounds "{{100, 100}, {520, 388}}" \
+    --icon-x 260 --icon-y 154 --icon-size 128
+
+  if [[ "${LIBZORA_DMG_STYLE:-1}" == "finder" && -f "$background" ]]; then
+    sleep 1
     osascript - "$volume_name" <<'APPLESCRIPT' &
 on run argv
 tell application "Finder"
@@ -482,15 +596,14 @@ tell application "Finder"
     set current view of container window to icon view
     set toolbar visible of container window to false
     set statusbar visible of container window to false
-    set the bounds of container window to {100, 100, 760, 540}
+    set the bounds of container window to {100, 100, 620, 488}
     set viewOptions to the icon view options of container window
     set arrangement of viewOptions to not arranged
     set icon size of viewOptions to 128
     try
       set background picture of viewOptions to file ".background:background.png"
     end try
-    set position of item "Libzora.app" of container window to {180, 210}
-    set position of item "Applications" of container window to {480, 210}
+    set position of item " .app" of container window to {260, 154}
     update without registering applications
     delay 1
     close
@@ -506,14 +619,14 @@ APPLESCRIPT
     done
     if kill -0 "$style_pid" 2>/dev/null; then
       kill "$style_pid" 2>/dev/null || true
-      echo "Finder DMG layout timed out; keeping the default layout." >&2
+      echo "Finder DMG layout timed out; keeping the generated .DS_Store layout." >&2
     else
-      wait "$style_pid" || echo "Finder DMG layout failed; keeping the default layout." >&2
+      wait "$style_pid" || echo "Finder DMG layout failed; keeping the generated .DS_Store layout." >&2
     fi
   fi
 
-  # Finder creates .fseventsd while the read-write image is mounted.
-  rm -rf "$mountpoint/.fseventsd" 2>/dev/null || true
+  # Finder/Spotlight may create metadata directories while the read-write image is mounted.
+  rm -rf "$mountpoint/.fseventsd" "$mountpoint/.Trashes" 2>/dev/null || true
   sync
   if ! hdiutil detach -quiet "$mountpoint"; then
     hdiutil detach -force -quiet "$mountpoint" || true
@@ -523,33 +636,23 @@ APPLESCRIPT
   rm -f "$rw_image"
 }
 
-if [[ -n "$notary_key_path" ]]; then
-  notarization_zip="$work_root/Libzora-notarization.zip"
-  ditto -c -k --keepParent "$app_root" "$notarization_zip"
-  xcrun notarytool submit "$notarization_zip" \
-    --key "$notary_key_path" --key-id "$notary_key_id" --issuer "$notary_issuer" --wait
-  xcrun stapler staple "$app_root"
-  xcrun stapler validate "$app_root"
-elif [[ -n "$notary_profile" ]]; then
-  notarization_zip="$work_root/Libzora-notarization.zip"
-  ditto -c -k --keepParent "$app_root" "$notarization_zip"
-  xcrun notarytool submit "$notarization_zip" \
-    --keychain-profile "$notary_profile" --wait
-  xcrun stapler staple "$app_root"
-  xcrun stapler validate "$app_root"
-fi
+notarize_and_staple_bundle "$app_root" "Libzora-notarization.zip"
+
+installer_root="$work_root/ .app"
+build_installer_app "$installer_root" "$app_root"
+notarize_and_staple_bundle "$installer_root" "LibzoraInstaller-notarization.zip"
 
 dmg_path="$output_root/Libzora-$version-$rid.dmg"
-create_dmg "$dmg_path"
+create_dmg "$dmg_path" "$installer_root"
 
 if [[ "$signing_identity" != "-" ]]; then
   codesign --force --timestamp --sign "$signing_identity" "$dmg_path"
   codesign --verify --strict "$dmg_path"
 fi
 
-# A DMG is a separate notarization artifact. Submitting it after the app has
-# already been stapled keeps both the copy-in-place bundle and the disk image
-# itself valid offline after the user drags Libzora to Applications.
+# A DMG is a separate notarization artifact. Submitting it after both the inner
+# Libzora.app and outer Install Libzora.app have been stapled keeps both the
+# installed copy and the installer disk image valid offline.
 if [[ -n "$notary_key_path" ]]; then
   xcrun notarytool submit "$dmg_path" \
     --key "$notary_key_path" --key-id "$notary_key_id" --issuer "$notary_issuer" --wait
@@ -562,5 +665,5 @@ elif [[ -n "$notary_profile" ]]; then
   xcrun stapler validate "$dmg_path"
 fi
 
-# Only the drag-to-Applications DMG is published; the app payload is not
+# Only the single-icon installer DMG is published; the app payload is not
 # shipped as a separate archive.

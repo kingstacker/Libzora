@@ -26,7 +26,7 @@ public partial class ReaderPage
     /// </summary>
     private string BookPagePosition(int chapterPageIndex, int chapterPages)
     {
-        if (_isPdf || _epubDocument is not { Chapters.Count: > 0 } document)
+        if (_isPdf || _epubDocument is not { Chapters.Count: > 0 } document || IsAuxiliaryChapter(_chapterIndex))
             return $"{chapterPageIndex + 1} / {chapterPages}";
 
         EnsureBookPageCountsScheduled(document);
@@ -56,8 +56,19 @@ public partial class ReaderPage
         return (0, 0);
     }
 
+    private double? PreservedBodyProgressFraction
+    {
+        get
+        {
+            if (!_footnoteProgressSuppressed && !IsAuxiliaryChapter(_chapterIndex)) return null;
+            var body = _footnoteProgressSuppressed ? _footnoteBodyProgress : _lastSavedProgress;
+            return Math.Clamp((body?.ProgressPercent ?? 0) / 100, 0, 1);
+        }
+    }
+
     private double CalculateEpubProgressFraction(int chapterPageIndex, int chapterPages)
     {
+        if (PreservedBodyProgressFraction is { } bodyProgress) return bodyProgress;
         if (_epubDocument is not { Chapters.Count: > 0 } document)
             return 0;
 
@@ -76,14 +87,16 @@ public partial class ReaderPage
 
     private double CalculateEpubProgressFraction(double chapterRatio)
     {
+        if (PreservedBodyProgressFraction is { } bodyProgress) return bodyProgress;
         if (_epubDocument is not { Chapters.Count: > 0 } document)
             return 0;
 
         EnsureBookPageCountsScheduled(document);
         if (_bookPageCounts.Length == document.Chapters.Count)
         {
-            return ReaderBookProgressPolicy.CalculateFraction(
-                _bookPageCounts, _chapterIndex, chapterRatio);
+            return IsEpubScrollMode
+                ? ReaderBookProgressPolicy.CalculateScrollFraction(_bookPageCounts, _chapterIndex, chapterRatio)
+                : ReaderBookProgressPolicy.CalculateFraction(_bookPageCounts, _chapterIndex, chapterRatio);
         }
 
         return FallbackProgressFraction(chapterRatio);

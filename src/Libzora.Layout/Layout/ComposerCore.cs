@@ -42,9 +42,12 @@ internal sealed record LayoutCell
     public LayoutCell? RubyAnnotation { get; init; }
     /// <summary>Measured base width before reserving room for its annotation.</summary>
     public float RubyBaseAdvance { get; init; }
+    public float RubyLeadingPadding { get; init; }
+    public bool ContinuesRubyBase { get; init; }
+    public bool IsNonBreakingSpace => Text is "\u00A0" or "\u202F";
     /// <summary>Latin letters are shaped as a word, never spread apart to justify a mixed line.</summary>
     public bool IsLatinWord { get; init; }
-    public bool JustifyAsUnit => FootnoteMarker || RubyAnnotation is not null || IsLatinWord;
+    public bool JustifyAsUnit => FootnoteMarker || RubyAnnotation is not null || ContinuesRubyBase || IsLatinWord;
     /// <summary>Resolved raster for an inline image; null for text cells.</summary>
     public string? ImagePath { get; init; }
     /// <summary>Physical width of the unrotated inline image.</summary>
@@ -149,19 +152,22 @@ internal sealed class PageBuilder
 
     public Dictionary<string, int> Fragments { get; } = new(StringComparer.Ordinal);
 
-    public void RecordFragment(string? elementId)
+    public Dictionary<string, float> FragmentTops { get; } = new(StringComparer.Ordinal);
+
+    public void RecordFragment(string? elementId, float? top = null)
     {
         if (!string.IsNullOrEmpty(elementId) && !Fragments.ContainsKey(elementId))
         {
             Fragments[elementId] = _current.Index;
+            if (top is { } y) FragmentTops[elementId] = y;
         }
     }
 
-    public void RecordFragments(IEnumerable<string> fragmentIds)
+    public void RecordFragments(IEnumerable<string> fragmentIds, float? top = null)
     {
         foreach (var fragmentId in fragmentIds)
         {
-            RecordFragment(fragmentId);
+            RecordFragment(fragmentId, top);
         }
     }
 

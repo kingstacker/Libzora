@@ -127,8 +127,11 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         _handoffScrollOffset = carryDownOffset;
         _handoffFromNextChapterDelta = carryUpDelta;
         _activeHandoffDirection = _handoffScrollDown ? 1 : carryUpDelta.HasValue ? -1 : 0;
-        _activeHandoffOverflowDown = 0;
-        _activeHandoffCarryUp = carryUpDelta ?? 0;
+        _activeHandoffScrollDelta = 0;
+        _activeHandoffScrollOrigin = _handoffScrollDown
+            ? (HasNextContinuousPreview ? ContinuousNextChapterStartY : MaxScrollOffset) + (carryDownOffset ?? 0)
+            : -(carryUpDelta ?? 0);
+        _partialScrollOverflow = 0;
     }
 
     private bool IsScroll => _presentation == ReaderPresentation.Scroll;
@@ -191,7 +194,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
             var pageHeight = ScrollPageHeight;
             if (!IsContinuousProseScroll)
                 return Math.Max(0, _layout.Pages.Count * pageHeight - pageHeight);
-            if (_scrollNextChapterLayout is { Pages.Count: > 0 })
+            if (HasNextContinuousPreview)
                 return Math.Max(0, ContinuousNextChapterStartY);
             return Math.Max(0, ComputeContinuousContentHeight() + 48.0 - pageHeight);
         }
@@ -207,20 +210,20 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         get
         {
             var baseMax = MaxScrollOffset;
-            if (!IsContinuousProseScroll || _scrollNextChapterLayout is not { Pages.Count: > 0 } nextLayout)
-                return baseMax;
-            var nextRunway = Math.Max(0.0, ComputeContinuousContentHeight(nextLayout) - ScrollPageHeight);
+            if (!HasNextContinuousPreview) return baseMax;
+            var nextRunway = Math.Max(0.0, ComputeContinuousContentHeight(_scrollNextChapterLayout) - ScrollPageHeight);
             return Math.Max(baseMax, ContinuousNextChapterStartY + nextRunway);
         }
     }
 
     private double ClampScrollOffset(double value) => Math.Clamp(value, 0, MaxScrollOffset);
 
-    private double ClampLiveScrollOffset(double value) => Math.Clamp(value, 0, MaxContinuousScrollOffset);
+    private double ClampLiveScrollOffset(double value) =>
+        Math.Clamp(value, ContinuousPreviousChapterStartY, MaxContinuousScrollOffset);
 
     public int PageCount => _layout?.Pages.Count ?? 0;
 
-    public int CurrentPage => _pageIndex;
+    public int CurrentPage => IsScroll ? VisibleFirstPageIndex : _pageIndex;
 
     /// <summary>True when the current chapter was reloaded to reveal a hidden footnote fragment.</summary>
     public bool HasLoadedFootnoteFragment => _loadedFootnoteFragment is not null;

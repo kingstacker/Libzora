@@ -5,6 +5,8 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.VisualTree;
 using Libzora.Core;
+using Libzora.Infrastructure;
+using Libzora.TestFixtures;
 using Xunit;
 
 namespace Libzora.Ui.Tests;
@@ -183,6 +185,7 @@ public sealed partial class SettingsTests
             .Take(1));
         var checkBox = Assert.Single(card.GetVisualDescendants().OfType<CheckBox>());
         Assert.False(checkBox.IsVisible);
+        Assert.DoesNotContain(card.GetVisualDescendants().OfType<Button>(), button => button is not CheckBox);
         Assert.False(scope.Get<Button>("DeleteReadingMaterialsButton").IsEnabled);
 
         var point = card.TranslatePoint(new Point(card.Bounds.Width / 2, card.Bounds.Height / 2), scope.Window)!.Value;
@@ -197,5 +200,39 @@ public sealed partial class SettingsTests
         scope.Get<Button>("ExportReadingMaterialsToggleButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         await Render();
         Assert.True(checkBox.IsVisible);
+    });
+
+    [Fact]
+    public Task OpeningAnnotationFromReadingMaterialsNavigatesWithoutShowingNotesPanel() => Run(async () =>
+    {
+        await using var scope = await TestWindow.Create();
+        var pdfPath = PdfFixture.Write(scope.Paths.ReaderCache, outline: true);
+        await scope.Field<SqliteBookLibraryService>("_library").ImportAsync([pdfPath]);
+        await scope.Call<Task>("RefreshLibraryAsync");
+        var book = Assert.Single(scope.Window.ViewModel.Books).Book;
+        var annotation = new ReaderAnnotation
+        {
+            BookId = book.Id,
+            BookFileId = book.Files[0].Id,
+            ChapterPath = "pdf:page:2",
+            SelectedText = "Chapter Two excerpt",
+            Note = "Remember this",
+            Color = "#FFE082",
+            StartOffset = 0,
+            EndOffset = 7
+        };
+        await scope.Field<ReaderDataService>("_readerData").SaveAnnotationAsync(annotation, CancellationToken.None);
+
+        scope.Call("ShowStage3Page", scope.Get<Grid>("ReadingMaterialsPage"), null);
+        await scope.Call<Task>("RefreshReadingMaterialsAsync");
+        var item = Assert.Single(scope.Window.ReadingMaterials, candidate => candidate.LocalAnnotation?.Id == annotation.Id);
+
+        await scope.Call<Task>("OpenReadingMaterialAsync", item);
+        await Render();
+
+        Assert.True(scope.Get<Control>("ReaderRoot").IsVisible);
+        Assert.Equal(2, scope.Field<NativePdfReaderHost>("_readerActiveHost").PageNumber);
+        Assert.False(scope.Get<Control>("ReaderAssistantPanel").IsVisible);
+        Assert.False(scope.Get<Control>("ReaderNotesView").IsVisible);
     });
 }

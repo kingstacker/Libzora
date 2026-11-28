@@ -82,6 +82,13 @@ struct NativeReaderPage: View {
         surfaceHasRenderedOnce || (reader.ready && reader.presentationFrameReady && reader.presentationFrameRevision > 0)
     }
 
+    private var readerCoverFrameReady: Bool {
+        NativeBookOpenTransitionPolicy.canStartReaderCoverOpen(
+            ready: reader.ready, frameReady: reader.presentationFrameReady,
+            frameRevision: reader.presentationFrameRevision, acknowledgedRevision: acknowledgedFrameRevision,
+            hasError: reader.error != nil)
+    }
+
     @StateObject private var openTransitionDriver = NativeBookTransitionDriver(initialProgress: 0)
     private var activeOpenTransition: NativeBookOpenTransition? {
         guard let transition = store.openingBookTransition, transition.book.id == book.id else { return nil }
@@ -287,39 +294,12 @@ struct NativeReaderPage: View {
                     ReaderSurface(controller: store.readerController)
                         .frame(width: fullSize.width, height: fullSize.height)
                         .opacity(surfaceFrameVisible ? 1 : 0)
-                        .animation(.easeOut(duration: 0.14), value: surfaceFrameVisible)
-                        .overlay {
-                            if isContinuousScrollMode && reader.ready {
-                                VStack(spacing: 0) {
-                                    LinearGradient(
-                                        stops: [
-                                            .init(color: paper, location: 0.0),
-                                            .init(color: paper.opacity(0.7), location: 0.45),
-                                            .init(color: paper.opacity(0.0), location: 1.0),
-                                        ],
-                                        startPoint: .top,
-                                        endPoint: .bottom
-                                    )
-                                    .frame(height: 18)
-                                    Spacer(minLength: 0)
-                                    LinearGradient(
-                                        stops: [
-                                            .init(color: paper.opacity(0.0), location: 0.0),
-                                            .init(color: paper.opacity(0.7), location: 0.55),
-                                            .init(color: paper, location: 1.0),
-                                        ],
-                                        startPoint: .top,
-                                        endPoint: .bottom
-                                    )
-                                    .frame(height: 22)
-                                }
-                                .padding(.top, surfaceInsets.top)
-                                .padding(.bottom, surfaceInsets.bottom)
-                                .allowsHitTesting(false)
-                            }
-                        }
-                        .overlay { ambientOverlay(size: fullSize) }
+                        .animation(openAnimation == .cover ? nil : .easeOut(duration: 0.14), value: surfaceFrameVisible)
                         .allowsHitTesting(openTransition == nil && !showingSearchResults && !jumpingToSearch)
+                    // Keep the paper tint outside the UIKit surface's opacity
+                    // group so it spans the entire turning page, even before
+                    // the first rendered frame is visible.
+                    ambientOverlay(size: fullSize)
                     readerContent()
                         .frame(width: readingWidth)
                         .frame(width: readingViewportWidth)
@@ -406,14 +386,15 @@ struct NativeReaderPage: View {
                 acknowledgedRevision: acknowledgedFrameRevision, prepared: $readerEntryPrepared))
         }
         .ignoresSafeArea()
-        .task(id: "\(activeOpenTransition?.id.uuidString ?? "")|\(store.openingBookReadyId?.uuidString ?? "")|\(store.readerPresentationActive)") {
+        .task(id: "\(activeOpenTransition?.id.uuidString ?? "")|\(store.openingBookReadyId?.uuidString ?? "")|\(store.readerPresentationActive)|\(readerCoverFrameReady)") {
             guard let transition = activeOpenTransition else {
                 openTransitionDriver.prepare(progress: 0)
                 return
             }
-            guard store.openingBookReadyId == transition.id, store.readerPresentationActive else {
-                return
-            }
+            guard store.openingBookReadyId == transition.id, store.readerPresentationActive,
+                  readerCoverFrameReady else { return }
+            await NativeDisplayFrame.waitForCommit()
+            guard !Task.isCancelled, store.openingBookTransition?.id == transition.id else { return }
             let duration = transition.isCentered
                 ? NativeBookOpenTransitionPolicy.openFromCenterDuration
                 : NativeBookOpenTransitionPolicy.openFromCoverDuration
@@ -756,8 +737,10 @@ struct NativeReaderPage: View {
         .onChange(of: assistantOpen) { _ in dismissFootnote() }
         .onChange(of: showingSearchResults) { _ in dismissFootnote() }
         .onChange(of: reader.selectedText) { _ in dismissFootnote() }
-        .onChange(of: reader.position) { _ in dismissFootnote() }
-        .onChange(of: reader.chapter) { _ in dismissFootnote() }
+        // Initial pagination and TOC resolution can update footer labels after
+        // an early marker tap. Only actual navigation should close its note;
+        // nil and the first revision (0) describe the same opening position.
+        .onChange(of: reader.navigationRevision ?? 0) { _ in dismissFootnote() }
     }
     private func dismissFootnote() {
         guard session.footnote != nil else { return }

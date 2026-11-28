@@ -168,6 +168,15 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
     {
         var viewportWidth = Math.Max(1, Bounds.Width);
         var viewportHeight = Math.Max(1, Bounds.Height);
+        if (IsContinuousProseScroll)
+        {
+            var maximum = MaxScrollOffset;
+            var ratio = maximum > 0 ? Math.Clamp(_scrollOffset / maximum, 0, 1)
+                : (_layout?.IsComplete == true ? 1d : 0d);
+            // Keep actual pixels, including a live chapter runway, instead of
+            // truncating to full-page tiles (one-tile chapters used to stay at 0).
+            return (_scrollOffset, ratio, viewportWidth, maximum + ScrollPageHeight, viewportWidth, ScrollPageHeight);
+        }
         if (IsScroll)
         {
             var total = viewportHeight * Math.Max(1, PageCount);

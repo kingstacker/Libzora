@@ -78,7 +78,18 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
                 if (first > 0) PaintPage(canvas, first - 1, 0f, -pageHeight - slice);
                 PaintPage(canvas, first, 0f, -slice);
                 PaintPage(canvas, first + 1, 0f, pageHeight - slice);
-                if (IsContinuousProseScroll && _scrollNextChapterLayout is { Pages.Count: > 0 } nextChapter)
+                if (HasPreviousContinuousPreview && _scrollPreviousChapterPreview is { } previousChapter)
+                {
+                    var previousOriginY = (float)(ContinuousPreviousChapterStartY - _scrollOffset);
+                    var firstPreviousPage = Math.Max(0, (int)Math.Floor(-previousOriginY / pageHeight) - 1);
+                    for (var p = firstPreviousPage; p < previousChapter.Layout.Pages.Count; p++)
+                    {
+                        var pageY = previousOriginY + p * pageHeight;
+                        if (pageY >= pageHeight) break;
+                        PaintLayoutPage(canvas, previousChapter.Layout.Pages[p], 0f, pageY, includeTextOverlays: false);
+                    }
+                }
+                if (HasNextContinuousPreview && _scrollNextChapterLayout is { } nextChapter)
                 {
                     var nextOriginY = (float)(ContinuousNextChapterStartY - _scrollOffset);
                     if (nextOriginY < pageHeight)

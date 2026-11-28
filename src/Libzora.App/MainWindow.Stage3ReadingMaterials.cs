@@ -547,7 +547,6 @@ public partial class MainWindow
         await OpenBookAsync(card, file);
         if (temporaryCard) card.Dispose();
         if (!ReaderRoot.IsVisible) return;
-        ShowReaderNotesTab();
         var loaded = ReaderAnnotations.FirstOrDefault(candidate => candidate.Id == annotation.Id);
         if (loaded is not null) await NavigateToReaderAnnotationAsync(loaded);
     }

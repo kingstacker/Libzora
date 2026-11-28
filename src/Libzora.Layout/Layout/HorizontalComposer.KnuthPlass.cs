@@ -51,7 +51,8 @@ internal sealed partial class HorizontalComposer
         {
             var cell = cells[i];
             if (cell.IsLineBreak
-                || cell.Style.PreserveWhitespace
+                || cell.Style.PreserveWhitespace || cell.IsNonBreakingSpace
+                || (cell.Style.NoWrap && !cell.FootnoteMarker)
                 || cell.ImagePath is not null
                 || cell.RubyAnnotation is not null
                 || _context.StartsAnchoredPage(cell))
@@ -83,7 +84,8 @@ internal sealed partial class HorizontalComposer
         float continuationIndent,
         bool preferLatinFont,
         float dropCapWidth = 0f,
-        int dropCapLines = 0)
+        int dropCapLines = 0,
+        bool justify = true)
     {
         var start = 0;
         while (start < cells.Count && cells[start].IsSpace)
@@ -102,16 +104,14 @@ internal sealed partial class HorizontalComposer
             return null;
         }
 
-        // Prefix sums of cell advances, space counts, exact stretch/shrink
+        // Prefix sums of cell advances, space counts, exact stretch
         // headroom (matching LineBox.TryJustify), and micro-tracking gaps.
         var n = cells.Count;
         var maxSpaceWidth = BaseFontSize * 0.65f;
-        var minSpaceWidth = BaseFontSize * 0.20f;
         var maxTrackPerGap = BaseFontSize * 0.045f;
         var prefixAdv = new float[n + 1];
         var prefixSpaces = new int[n + 1];
         var prefixStretchCap = new float[n + 1];
-        var prefixShrinkCap = new float[n + 1];
         var prefixTrackGaps = new int[n + 1];
         for (var i = 0; i < n; i++)
         {
@@ -120,8 +120,6 @@ internal sealed partial class HorizontalComposer
             prefixSpaces[i + 1] = prefixSpaces[i] + (c.IsSpace ? 1 : 0);
             prefixStretchCap[i + 1] = prefixStretchCap[i]
                 + (c.IsSpace ? Math.Max(0f, maxSpaceWidth - c.Advance) : 0f);
-            prefixShrinkCap[i + 1] = prefixShrinkCap[i]
-                + (c.IsSpace ? Math.Max(0f, c.Advance - minSpaceWidth) : 0f);
             prefixTrackGaps[i + 1] = prefixTrackGaps[i] + LineBox.CountMicroTrackGaps(c);
         }
 
@@ -263,7 +261,7 @@ internal sealed partial class HorizontalComposer
             var curLine = lineNum[i];
             var floatInset = curLine < dropCapLines ? dropCapWidth : 0f;
             var indent = curLine == 0 ? firstLineIndent : continuationIndent;
-            var lineTarget = Math.Max(BaseFontSize * 2f, availWidth - floatInset - indent);
+            var lineTarget = Math.Max(BaseFontSize * 2f, availWidth - floatInset) - indent;
 
             LayoutCell? startTail = null;
             if (from.SplitOffset > 0)
@@ -295,18 +293,14 @@ internal sealed partial class HorizontalComposer
                 float naturalWidth;
                 int spaces;
                 float spaceStretchCap;
-                float spaceShrinkCap;
                 int trackGaps;
-                LayoutCell lastCell;
                 if (from.SplitOffset > 0 && to.CellIndex == from.CellIndex)
                 {
                     // Only the tail of the split word sits on this line.
                     naturalWidth = startTail!.Advance - startTail.TrailingLetterSpacing;
                     spaces = 0;
                     spaceStretchCap = 0f;
-                    spaceShrinkCap = 0f;
                     trackGaps = LineBox.CountMicroTrackGaps(startTail);
-                    lastCell = startTail;
                 }
                 else
                 {
@@ -320,7 +314,6 @@ internal sealed partial class HorizontalComposer
                     naturalWidth = prefixAdv[rangeEndExclusive] - prefixAdv[rangeStart];
                     spaces = prefixSpaces[rangeEndExclusive] - prefixSpaces[rangeStart];
                     spaceStretchCap = prefixStretchCap[rangeEndExclusive] - prefixStretchCap[rangeStart];
-                    spaceShrinkCap = prefixShrinkCap[rangeEndExclusive] - prefixShrinkCap[rangeStart];
                     trackGaps = prefixTrackGaps[rangeEndExclusive] - prefixTrackGaps[rangeStart];
                     if (startTail is not null)
                     {
@@ -331,38 +324,25 @@ internal sealed partial class HorizontalComposer
                     if (to.SplitOffset > 0)
                     {
                         var head = GetSplit(to.CellIndex, to.SplitOffset).Head;
-                        naturalWidth += head.Advance;
+                        naturalWidth += head.Advance - head.TrailingLetterSpacing;
                         trackGaps += LineBox.CountMicroTrackGaps(head);
-                        lastCell = head;
                     }
                     else
                     {
-                        lastCell = cells[to.CellIndex];
-                        naturalWidth -= lastCell.TrailingLetterSpacing;
+                        naturalWidth -= cells[to.CellIndex].TrailingLetterSpacing;
                     }
                 }
 
-                var protrusion = !to.IsEnd ? ComputeOpticalTrailingProtrusion(lastCell) : 0f;
-                var effectiveTarget = lineTarget + protrusion;
-                var slack = effectiveTarget - naturalWidth;
-
-                if (slack < -0.01f)
+                // Measure every line at its natural width so the same
+                // breaks fit both ragged and justified rendering. Optical
+                // protrusion remains a painting adjustment after fitting.
+                var slack = Math.Max(0f, lineTarget - naturalWidth);
+                if (naturalWidth > lineTarget + 0.01f)
                 {
-                    // Even slight shrinking won't save if way over.
-                    if (spaces == 0 || -slack > spaceShrinkCap)
-                    {
-                        if (firstOverflowJ < 0 && !to.IsHyphen)
-                        {
-                            firstOverflowJ = j;
-                        }
-                        // Once the unbroken prefix before any syllable split exceeds
-                        // effectiveTarget, later breakpoints will only be wider.
-                        if (to.SplitOffset == 0)
-                        {
-                            break;
-                        }
-                        continue;
-                    }
+                    if (firstOverflowJ < 0 && !to.IsHyphen)
+                        firstOverflowJ = j;
+                    if (to.SplitOffset == 0) break;
+                    continue;
                 }
 
                 // Compute badness and Knuth-Plass demerit.
@@ -379,7 +359,7 @@ internal sealed partial class HorizontalComposer
                         : 0.0;
                     fitClass = 1;
                 }
-                else if (slack >= 0f)
+                else
                 {
                     var effectiveStretch = Math.Max(BaseFontSize * 0.25f, spaceStretchCap);
                     var microTrackCap = trackGaps * maxTrackPerGap;
@@ -408,14 +388,6 @@ internal sealed partial class HorizontalComposer
                         fitClass = 3;
                     }
                 }
-                else
-                {
-                    var shrinkCap = Math.Max(0.1f, spaceShrinkCap);
-                    var ratio = -slack / shrinkCap;
-                    badness = 100.0 * ratio * ratio * ratio;
-                    fitClass = 0;
-                }
-
                 var penalty = to.IsHyphen ? 50.0 : 0.0;
                 var demerit = (1.0 + badness + penalty) * (1.0 + badness + penalty);
                 if (from.IsHyphen && to.IsHyphen)
@@ -501,7 +473,7 @@ internal sealed partial class HorizontalComposer
 
             if (line.Cells.Count > 0)
             {
-                if (!isLast)
+                if (justify && !isLast)
                 {
                     line.OpticalTrailingProtrusion = ComputeOpticalTrailingProtrusion(line.Cells[^1]);
                 }

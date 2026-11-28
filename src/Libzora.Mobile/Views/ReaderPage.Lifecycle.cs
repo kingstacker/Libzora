@@ -138,6 +138,9 @@ public partial class ReaderPage
 
     private sealed record TocEntry(string Title, int ChapterIndex, string? Target, int Level)
     {
+        public string NavigationFragment { get; } = ResolveFragment(Target);
+        private static string ResolveFragment(string? target) => Uri.TryCreate(target, UriKind.Absolute, out var uri)
+            ? DecodeTocFragment(uri.Fragment) : string.Empty;
         public string? UiTextTemplate { get; init; }
         public string DisplayTitle => UiTextTemplate is null
             ? Title : UiText.Get(UiTextTemplate, ChapterIndex + 1);

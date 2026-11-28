@@ -2,17 +2,24 @@
 """Generate the Libzora DMG background (no third-party imaging modules).
 
 The image is rendered at 2x and box-filtered down so Finder's rounded
-corner strokes and the drag arrow stay smooth on Retina displays.
+corner strokes and center glow stay smooth on Retina displays, then
+optionally annotated with crisp CoreText instructions on macOS.
 """
 from __future__ import annotations
 
 import argparse
+import os
+import shutil
 import struct
+import subprocess
+import tempfile
 import zlib
 from pathlib import Path
 
-WIDTH = 660
-HEIGHT = 420
+WIDTH = 520
+HEIGHT = 360
+ICON_CENTER_X = 260.0
+ICON_CENTER_Y = 154.0
 SCALE = 2
 
 
@@ -36,29 +43,6 @@ def rounded_rect_sdf(x: float, y: float, cx: float, cy: float, hw: float, hh: fl
     return outside + min(max(qx, qy), 0.0) - r
 
 
-def segment_distance(x: float, y: float, ax: float, ay: float, bx: float, by: float) -> float:
-    vx, vy = bx - ax, by - ay
-    length2 = vx * vx + vy * vy
-    t = 0.0 if length2 == 0 else max(0.0, min(1.0, ((x - ax) * vx + (y - ay) * vy) / length2))
-    px, py = ax + vx * t, ay + vy * t
-    return ((x - px) ** 2 + (y - py) ** 2) ** 0.5
-
-
-def point_in_triangle(
-    x: float, y: float,
-    ax: float, ay: float, bx: float, by: float, cx: float, cy: float,
-) -> bool:
-    def sign(px: float, py: float, qx: float, qy: float, rx: float, ry: float) -> float:
-        return (px - rx) * (qy - ry) - (qx - rx) * (py - ry)
-
-    d1 = sign(x, y, ax, ay, bx, by)
-    d2 = sign(x, y, bx, by, cx, cy)
-    d3 = sign(x, y, cx, cy, ax, ay)
-    has_negative = d1 < 0 or d2 < 0 or d3 < 0
-    has_positive = d1 > 0 or d2 > 0 or d3 > 0
-    return not (has_negative and has_positive)
-
-
 def render() -> bytes:
     width, height = WIDTH * SCALE, HEIGHT * SCALE
     pixels: list[list[int]] = []
@@ -73,22 +57,22 @@ def render() -> bytes:
                 round(lerp(243, 236, t)),
                 round(lerp(234, 246, t)),
             ]
-            # Soft glow behind the two icon wells.
-            for cx in (180.0, 480.0):
-                distance = ((x - cx) ** 2 + (y - 210.0) ** 2) ** 0.5
-                if distance < 96:
-                    blend(color, (255, 255, 255), (1 - distance / 96) * 0.35)
+            # Soft glow behind the single centered installer icon.
+            distance = ((x - ICON_CENTER_X) ** 2 + (y - ICON_CENTER_Y) ** 2) ** 0.5
+            if distance < 116:
+                blend(color, (255, 255, 255), (1 - distance / 116) * 0.44)
 
-            # Rounded frame.
-            frame = rounded_rect_sdf(x, y, WIDTH / 2, HEIGHT / 2, WIDTH / 2 - 26, HEIGHT / 2 - 26, 26)
+            # Subtle pill backdrop for the double-click install hint below the icon.
+            pill = rounded_rect_sdf(x, y, WIDTH / 2, 286.0, 178.0, 27.0, 14.0)
+            if pill <= 0.0:
+                blend(color, (255, 255, 255), 0.52)
+            if abs(pill) <= 0.8:
+                blend(color, (186, 176, 158), 0.35)
+
+            # Rounded outer frame.
+            frame = rounded_rect_sdf(x, y, WIDTH / 2, HEIGHT / 2, WIDTH / 2 - 22, HEIGHT / 2 - 22, 24)
             if abs(frame) <= 1.1:
                 blend(color, (186, 176, 158), 0.55)
-
-            # Drag arrow between the app and Applications icons.
-            if segment_distance(x, y, 318.0, 210.0, 378.0, 210.0) <= 5.5:
-                blend(color, (150, 140, 122), 0.55)
-            if point_in_triangle(x, y, 402.0, 210.0, 376.0, 188.0, 376.0, 232.0):
-                blend(color, (150, 140, 122), 0.55)
 
             row.append(color)
         pixels.append(row)
@@ -117,6 +101,114 @@ def render() -> bytes:
     return bytes(raw)
 
 
+def overlay_prompt_macos(png_path: Path) -> None:
+    """Draw crisp Retina bilingual double-click prompt onto the PNG using AppKit."""
+    if os.uname().sysname != "Darwin" or shutil.which("swiftc") is None:
+        return
+
+    swift_source = r'''
+import AppKit
+import Foundation
+
+let path = CommandLine.arguments[1]
+guard let sourceImage = NSImage(contentsOfFile: path),
+      let tiff = sourceImage.tiffRepresentation,
+      let rep = NSBitmapImageRep(data: tiff) else {
+    exit(1)
+}
+let width = rep.pixelsWide
+let height = rep.pixelsHigh
+let scale: CGFloat = 2.0
+guard let canvas = NSBitmapImageRep(
+    bitmapDataPlanes: nil,
+    pixelsWide: width * Int(scale),
+    pixelsHigh: height * Int(scale),
+    bitsPerSample: 8,
+    samplesPerPixel: 4,
+    hasAlpha: true,
+    isPlanar: false,
+    colorSpaceName: .deviceRGB,
+    bytesPerRow: 0,
+    bitsPerPixel: 0
+) else {
+    exit(1)
+}
+canvas.size = NSSize(width: width, height: height)
+
+NSGraphicsContext.saveGraphicsState()
+NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: canvas)
+NSGraphicsContext.current?.imageInterpolation = .high
+sourceImage.draw(in: NSRect(x: 0, y: 0, width: width, height: height))
+
+let paragraph = NSMutableParagraphStyle()
+paragraph.alignment = .center
+
+let primaryAttrs: [NSAttributedString.Key: Any] = [
+    .font: NSFont.systemFont(ofSize: 13.5, weight: .medium),
+    .foregroundColor: NSColor(calibratedRed: 0.27, green: 0.24, blue: 0.20, alpha: 0.96),
+    .paragraphStyle: paragraph,
+]
+let secondaryAttrs: [NSAttributedString.Key: Any] = [
+    .font: NSFont.systemFont(ofSize: 11.0, weight: .regular),
+    .foregroundColor: NSColor(calibratedRed: 0.45, green: 0.41, blue: 0.36, alpha: 0.90),
+    .paragraphStyle: paragraph,
+]
+
+// AppKit coordinates have origin at bottom-left; image height is 360, pill center is y=286 from top -> y=74 from bottom.
+let primaryText = "双击上方图标，自动安装到“应用程序”" as NSString
+let secondaryText = "Double-click the icon above to install" as NSString
+primaryText.draw(in: NSRect(x: 40, y: 74, width: CGFloat(width) - 80, height: 22), withAttributes: primaryAttrs)
+secondaryText.draw(in: NSRect(x: 40, y: 54, width: CGFloat(width) - 80, height: 18), withAttributes: secondaryAttrs)
+
+NSGraphicsContext.restoreGraphicsState()
+
+guard let outRep = NSBitmapImageRep(
+    bitmapDataPlanes: nil,
+    pixelsWide: width,
+    pixelsHigh: height,
+    bitsPerSample: 8,
+    samplesPerPixel: 4,
+    hasAlpha: true,
+    isPlanar: false,
+    colorSpaceName: .deviceRGB,
+    bytesPerRow: 0,
+    bitsPerPixel: 0
+) else {
+    exit(1)
+}
+outRep.size = NSSize(width: width, height: height)
+NSGraphicsContext.saveGraphicsState()
+NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: outRep)
+NSGraphicsContext.current?.imageInterpolation = .high
+let hiRes = NSImage(size: NSSize(width: width, height: height))
+hiRes.addRepresentation(canvas)
+hiRes.draw(in: NSRect(x: 0, y: 0, width: width, height: height))
+NSGraphicsContext.restoreGraphicsState()
+
+guard let pngData = outRep.representation(using: .png, properties: [:]) else {
+    exit(1)
+}
+try pngData.write(to: URL(fileURLWithPath: path))
+'''
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_dir = Path(tmp)
+        swift_file = tmp_dir / "draw_prompt.swift"
+        bin_file = tmp_dir / "draw_prompt"
+        swift_file.write_text(swift_source, encoding="utf-8")
+        sdk = subprocess.check_output(["xcrun", "--sdk", "macosx", "--show-sdk-path"], text=True).strip()
+        subprocess.run(
+            [
+                "xcrun", "--sdk", "macosx", "swiftc",
+                "-sdk", sdk, "-swift-version", "5",
+                "-module-cache-path", str(tmp_dir / "mc"),
+                "-framework", "AppKit", "-framework", "Foundation",
+                str(swift_file), "-o", str(bin_file),
+            ],
+            check=True,
+        )
+        subprocess.run([str(bin_file), str(png_path)], check=True)
+
+
 def png_chunk(kind: bytes, payload: bytes) -> bytes:
     return (
         struct.pack(">I", len(payload))
@@ -139,7 +231,8 @@ def main() -> None:
         + png_chunk(b"IEND", b"")
     )
     output.write_bytes(png)
-    print(f"wrote {output} ({len(png)} bytes)")
+    overlay_prompt_macos(output)
+    print(f"wrote {output} ({output.stat().st_size} bytes)")
 
 
 if __name__ == "__main__":

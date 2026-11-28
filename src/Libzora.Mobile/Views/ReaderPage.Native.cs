@@ -357,6 +357,7 @@ public partial class ReaderPage
 
     private void MarkNativeNavigation()
     {
+        StopScrollInertia();
         BeginReaderNavigation();
         if (!_usesNativeFrontend || _disposed) return;
         CancelNativeSearchJump();

@@ -77,7 +77,9 @@ public partial class ReaderPage
         RefreshPositionUiText();
         if (_sliderActive) return;
         ProgressSlider.Value = _overallProgress * 100;
-        BookmarkIcon.Filled = FindCurrentBookmark() is not null;
+        // The native snapshot computes its bookmark state once; the hidden
+        // Avalonia icon does not need a duplicate lookup on every scroll tick.
+        if (!_usesNativeFrontend) BookmarkIcon.Filled = FindCurrentBookmark() is not null;
         NotifyNativeState();
     }
 

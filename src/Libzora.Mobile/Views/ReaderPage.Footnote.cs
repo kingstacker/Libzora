@@ -380,7 +380,7 @@ public partial class ReaderPage
     /// </summary>
     private bool DismissFootnoteReturnIfReaderMoved(double top, double left)
     {
-        if (_footnoteNavigationInFlight
+        if (_footnoteNavigationInFlight || IsAuxiliaryChapter(_chapterIndex)
             || !_footnoteReturnHasBaseline
             || _footnoteReturn.Count == 0)
         {

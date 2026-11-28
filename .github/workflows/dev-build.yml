@@ -252,7 +252,7 @@ jobs:
       DEV_VERSION: ${{ needs.prepare.outputs.version }}
       # Pin the same Xcode 26 Icon Composer toolchain on both native images.
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
-      LIBZORA_DMG_STYLE: "0"
+      LIBZORA_DMG_STYLE: "1"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v6
@@ -330,10 +330,15 @@ jobs:
           mkdir -p "$mountpoint"
           hdiutil attach -readonly -nobrowse -noautoopen -mountpoint "$mountpoint" "$dmg" >/dev/null
           trap 'hdiutil detach "$mountpoint" -force -quiet >/dev/null 2>&1 || true' EXIT
-          test -d "$mountpoint/Libzora.app"
-          test -L "$mountpoint/Applications"
-          test "$(readlink "$mountpoint/Applications")" = "/Applications"
-          ditto "$mountpoint/Libzora.app" "$work/Libzora.app"
+          test -d "$mountpoint/ .app"
+          test -x "$mountpoint/ .app/Contents/MacOS/LibzoraInstaller"
+          test -d "$mountpoint/ .app/Contents/Helpers/Libzora.app"
+          test ! -e "$mountpoint/Applications"
+          test ! -e "$mountpoint/Libzora.app"
+          test -f "$mountpoint/.DS_Store"
+          codesign --verify --deep --strict "$mountpoint/ .app"
+          "$mountpoint/ .app/Contents/MacOS/LibzoraInstaller" \
+            --install-to "$work/Libzora.app" --no-launch --no-eject
           hdiutil detach "$mountpoint" >/dev/null
           trap - EXIT
           plutil -lint "$work/Libzora.app/Contents/Info.plist"
@@ -412,21 +417,31 @@ jobs:
         run: |
           set -euo pipefail
           setup_name="Libzora-${DEV_VERSION}-win-x64-setup.exe"
+          mac_arm64_name="Libzora-${DEV_VERSION}-osx-arm64.dmg"
+          mac_x64_name="Libzora-${DEV_VERSION}-osx-x64.dmg"
           checksum_name="SHA256SUMS.txt"
           test -f "artifacts/${setup_name}"
+          test -f "artifacts/${mac_arm64_name}"
+          test -f "artifacts/${mac_x64_name}"
           test -f "artifacts/${checksum_name}"
           download_base="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}"
+          assets_json="$(
+            for file in artifacts/*; do
+              name="$(basename "$file")"
+              [[ "$name" == "update-manifest.json" ]] && continue
+              jq -n \
+                --arg name "$name" \
+                --arg url "${download_base}/${name}" \
+                --argjson size "$(stat -c%s "$file")" \
+                '{ name: $name, browser_download_url: $url, size: $size }'
+            done | jq -s '.'
+          )"
           jq -n \
             --arg tag_name "$RELEASE_TAG" \
             --arg html_url "https://github.com/${GITHUB_REPOSITORY}/releases/tag/${RELEASE_TAG}" \
             --rawfile body "$RUNNER_TEMP/libzora-development-release-notes.md" \
             --rawfile body_en "$RUNNER_TEMP/libzora-development-release-notes.md" \
-            --arg setup_name "$setup_name" \
-            --arg setup_url "${download_base}/${setup_name}" \
-            --argjson setup_size "$(stat -c%s "artifacts/${setup_name}")" \
-            --arg checksum_name "$checksum_name" \
-            --arg checksum_url "${download_base}/${checksum_name}" \
-            --argjson checksum_size "$(stat -c%s "artifacts/${checksum_name}")" \
+            --argjson assets "$assets_json" \
             '{
               tag_name: $tag_name,
               html_url: $html_url,
@@ -434,10 +449,7 @@ jobs:
               body_en: $body_en,
               draft: false,
               prerelease: true,
-              assets: [
-                { name: $setup_name, browser_download_url: $setup_url, size: $setup_size },
-                { name: $checksum_name, browser_download_url: $checksum_url, size: $checksum_size }
-              ]
+              assets: $assets
             }' > artifacts/update-manifest.json
 
       - name: Create GitHub pre-release

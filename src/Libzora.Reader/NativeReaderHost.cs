@@ -53,6 +53,10 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
     private bool _backgroundCompletionActive;
     internal Task RelayoutTask { get; private set; } = Task.CompletedTask;
     private bool _layoutCompletionScheduled;
+    private long _layoutCompletionSequence;
+    private long _layoutCompletionNavigationVersion;
+    private ChapterContent? _layoutCompletionContent;
+    private Task? _layoutCompletionTask;
     private Size? _initialViewportSize;
     private const int InitialComposeAheadCharacters = 8000;
 
@@ -96,8 +100,6 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
     private double? _handoffScrollOffset;
     private double? _handoffFromNextChapterDelta;
     private int _activeHandoffDirection;
-    private double _activeHandoffOverflowDown;
-    private double _activeHandoffCarryUp;
     private TypesetLayoutOptions? _options;
     private ReaderLayoutSettings _settings = new();
     private ReaderAppearanceSettings _appearance = new();
@@ -298,11 +300,15 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         ++_configurationVersion;
         _relayoutCts?.Cancel();
         _navigationCts?.Cancel();
+        _previousChapterPreviewCts?.Cancel();
     }
 
     public void Dispose()
     {
         _disposed = true;
+        _previousChapterPreviewCts?.Cancel();
+        _scrollPreviousChapterPreview = null;
+        _scrollNextChapterPreview = null;
         CancelPendingPageClick();
         _relayoutCts?.Cancel();
         _scrollEmitTimer?.Stop();

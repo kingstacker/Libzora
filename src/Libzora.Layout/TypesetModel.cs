@@ -463,6 +463,8 @@ public sealed class ChapterLayout
     public required int BodyTextLength { get; init; }
     /// <summary>Element id → page index for fragment navigation.</summary>
     public required IReadOnlyDictionary<string, int> FragmentPages { get; init; }
+    /// <summary>Element id → top within its composed page, in layout pixels.</summary>
+    public IReadOnlyDictionary<string, float> FragmentTops { get; init; } = new Dictionary<string, float>();
     public required TypesetLayoutOptions Options { get; init; }
     /// <summary>
     /// False when composition intentionally stopped at an early page so the

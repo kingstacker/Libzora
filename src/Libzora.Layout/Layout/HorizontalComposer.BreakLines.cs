@@ -1,4 +1,3 @@
-using System.Text;
 using SkiaSharp;
 
 namespace Libzora.Layout;
@@ -71,8 +70,35 @@ internal sealed partial class HorizontalComposer
                 indentApplied = true;
             }
 
+            var joinedToPrevious = cellIndex > 0 && KeepCellsTogether(cells[cellIndex - 1], cell);
+            var joinedToNext = cellIndex + 1 < cells.Count && KeepCellsTogether(cell, cells[cellIndex + 1]);
             var lineAvail = EffectiveAvailWidth(line);
-            var fits = line.Indent + line.WidthWith(cell) <= lineAvail + 0.01f;
+            if (joinedToNext && !joinedToPrevious)
+            {
+                var end = cellIndex;
+                var width = 0f;
+                do
+                {
+                    width += cells[++end].Advance;
+                } while (end + 1 < cells.Count && KeepCellsTogether(cells[end], cells[end + 1]));
+                width += cell.TrailingLetterSpacing - cells[end].TrailingLetterSpacing;
+
+                if (line.Cells.Count > 0 && line.Indent + line.WidthWith(cell) + width > lineAvail + 0.01f)
+                {
+                    if (line.Cells[^1].IsSpace && !line.Cells[^1].Style.PreserveWhitespace)
+                        line.RemoveLast();
+                    if (line.Cells.Count > 0)
+                    {
+                        lines.Add(line);
+                        line = MakeNextLine();
+                    }
+                }
+            }
+
+            // An explicitly unbreakable run may be wider than the viewport.
+            // Keep it intact on its own line, as CSS nowrap requires.
+            var fits = joinedToPrevious || joinedToNext
+                || line.Indent + line.WidthWith(cell) <= lineAvail + 0.01f;
             while (!fits
                 && allowHyphenation
                 && _cells.TrySplitForHyphenation(
@@ -102,7 +128,7 @@ internal sealed partial class HorizontalComposer
                     && !line.HasHangingPunctuation
                     && line.Cells.Count > 0
                     && !nextIsClosing
-                    && !cell.FootnoteMarker
+                    && !cell.FootnoteMarker && cell.RubyAnnotation is null
                     && TypesetText.IsHangablePunctuation(cell.Text)
                     && cell.Advance <= maxHang + 0.01f
                     && line.Indent + line.Used <= lineAvail + 0.01f)
@@ -187,7 +213,12 @@ internal sealed partial class HorizontalComposer
                     line.RemoveLast();
                 }
 
-                var startsAnchoredPage = line.StartsAnchoredPage && line.Cells.Count == 0;
+                while (pulled.Count > 0 && line.Cells.Count > 0 && KeepCellsTogether(line.Cells[^1], pulled[0]))
+                {
+                    pulled.Insert(0, line.Cells[^1]);
+                    line.RemoveLast();
+                }
+
                 if (line.Cells.Count > 0)
                 {
                     if (!line.HasHangingPunctuation)
@@ -195,9 +226,28 @@ internal sealed partial class HorizontalComposer
                         line.OpticalTrailingProtrusion = ComputeOpticalTrailingProtrusion(line.Cells[^1]);
                     }
                     lines.Add(line);
+                    line = MakeNextLine();
                 }
 
-                line = MakeNextLine(startsAnchoredPage);
+                // Recheck the moved word together with its following marks.
+                // The first split may have used the old line's remaining room.
+                if (pulled.Count > 0 && pulled[0].IsLatinWord
+                    && !KeepCellsTogether(pulled[0], pulled.Count > 1 ? pulled[1] : cell))
+                {
+                    var suffixWidth = pulled.Skip(1).Sum(candidate => candidate.Advance)
+                        + cell.Advance - cell.TrailingLetterSpacing;
+                    while (line.Indent + pulled[0].Advance + suffixWidth > EffectiveAvailWidth(line) + 0.01f
+                        && _cells.TrySplitWordForClosingMark(pulled[0], EffectiveAvailWidth(line) - line.Indent,
+                            allowHyphenation, preferLatinFont, out var movedHead, out var movedTail))
+                    {
+                        line.Add(movedHead);
+                        line.OpticalTrailingProtrusion = ComputeOpticalTrailingProtrusion(movedHead);
+                        lines.Add(line);
+                        line = MakeNextLine();
+                        pulled[0] = movedTail;
+                    }
+                }
+
                 foreach (var pulledCell in pulled)
                 {
                     line.Add(pulledCell);
@@ -219,6 +269,11 @@ internal sealed partial class HorizontalComposer
 
         return lines;
     }
+
+    private static bool KeepCellsTogether(LayoutCell left, LayoutCell right) =>
+        !left.IsLineBreak && !right.IsLineBreak
+        && (right.ContinuesRubyBase || left.IsNonBreakingSpace || right.IsNonBreakingSpace
+            || (left.Style.NoWrap && right.Style.NoWrap && !left.FootnoteMarker && !right.FootnoteMarker));
 
     private static bool IsClosingMark(LayoutCell cell) =>
         cell.FootnoteMarker || (cell.Character is { } c && TypesetText.IsProhibitedAtLineStart(c));

@@ -33,6 +33,10 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         {
             retained = retained.Concat(nextLayout.Pages.SelectMany(page => page.Runs).Select(run => run.FontPath));
         }
+        if (_scrollPreviousChapterPreview is { } previousChapter)
+        {
+            retained = retained.Concat(previousChapter.Layout.Pages.SelectMany(page => page.Runs).Select(run => run.FontPath));
+        }
         fonts.SetRetainedFontPaths(retained);
         fonts.ReleaseSystemFontsExcept(fonts.MainFontPath);
     }
@@ -99,6 +103,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
                 var scrollNextLayout = ComposeScrollNextChapter(
                     scrollNextPath,
                     options,
+                    settings,
                     workerEngine,
                     token);
                 return (layout, companionLayout, scrollNextLayout);
@@ -115,8 +120,13 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
                 _options = options;
                 _layout = result.layout;
                 _spreadCompanionLayout = result.companionLayout;
-                _scrollNextChapterLayout = result.scrollNextLayout;
-                _scrollNextChapterLayoutPath = result.scrollNextLayout is not null ? scrollNextPath : null;
+                _scrollNextChapterPreview = result.scrollNextLayout;
+                _scrollNextChapterLayout = result.scrollNextLayout?.Layout;
+                _scrollNextChapterLayoutPath = result.scrollNextLayout?.Path;
+                _installedLayoutSettings = settings;
+                if (_scrollPreviousChapterPreview is { } previousChapter
+                    && !previousChapter.Matches(previousChapter.Path, settings, width, height))
+                    _scrollPreviousChapterPreview = null;
                 previous?.Dispose();
                 RetainInstalledLayoutFonts();
             }
@@ -168,6 +178,13 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
             _viewportReadingAnchor = null;
             _viewportReadingState = null;
         }
+        if (completingPartialLayout && IsContinuousProseScroll && _partialScrollOverflow != 0)
+        {
+            var pendingDelta = _partialScrollOverflow;
+            _partialScrollOverflow = 0;
+            ScrollByPixel(pendingDelta);
+        }
+        PreloadPreviousContinuousChapter();
         PrefetchVisibleImages();
 
         if (!_disposed && _presentationFrameRequest is not null)
@@ -190,9 +207,16 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
     /// </summary>
     public void CompleteLayoutInBackground()
     {
-        if (_disposed || _layout is not { IsComplete: false } || _layoutCompletionScheduled) return;
+        if (_disposed || _composePending || _content is null || _layout is not { IsComplete: false }) return;
+        if (_layoutCompletionScheduled && _layoutCompletionNavigationVersion == _navigationVersion
+            && ReferenceEquals(_layoutCompletionContent, _content)
+            && ReferenceEquals(RelayoutTask, _layoutCompletionTask)) return;
         _layoutCompletionScheduled = true;
-        RelayoutTask = CompleteLayoutAfterPaintAsync();
+        _layoutCompletionContent = _content;
+        _layoutCompletionNavigationVersion = _navigationVersion;
+        var sequence = ++_layoutCompletionSequence;
+        _layoutCompletionTask = CompleteLayoutAfterPaintAsync(sequence, _content, _navigationVersion);
+        RelayoutTask = _layoutCompletionTask;
     }
 
     /// <summary>
@@ -221,11 +245,13 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         }
     }
 
-    private async Task CompleteLayoutAfterPaintAsync()
+    private async Task CompleteLayoutAfterPaintAsync(long sequence, ChapterContent content, long navigationVersion)
     {
         try
         {
             await Task.Yield();
+            if (_disposed || sequence != _layoutCompletionSequence || navigationVersion != _navigationVersion
+                || !ReferenceEquals(content, _content)) return;
             await RecomposeAsync(isBackgroundCompletion: true);
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
@@ -234,7 +260,12 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         }
         finally
         {
-            _layoutCompletionScheduled = false;
+            if (sequence == _layoutCompletionSequence)
+            {
+                _layoutCompletionScheduled = false;
+                _layoutCompletionContent = null;
+                _layoutCompletionTask = null;
+            }
         }
     }
 

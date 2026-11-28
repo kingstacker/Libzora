@@ -14,7 +14,7 @@ using Xunit;
 namespace Libzora.Mobile.Tests;
 
 [Collection("Mobile UI")]
-public sealed class ReaderPageTransitionTests(MobileUiSession session)
+public sealed partial class ReaderPageTransitionTests(MobileUiSession session)
 {
     [Fact]
     public void PageAnimationEnumUsesNewMobileDefaults()
@@ -461,6 +461,13 @@ public sealed class ReaderPageTransitionTests(MobileUiSession session)
                 // next-chapter path before the incoming chapter finishes loading.
                 var initialPreview = GetField<object?>(host, "_scrollNextChapterLayout");
                 Assert.NotNull(initialPreview);
+                var originalChapterLayout = GetField<object>(host, "_layout");
+                var promotedPreviewWithoutRecompose = false;
+                host.NavigationCompleted += (_, args) =>
+                {
+                    if (args.IsSuccess && args.Request == new Uri(ch2))
+                        promotedPreviewWithoutRecompose = ReferenceEquals(initialPreview, GetField<object>(host, "_layout"));
+                };
                 host.SetScrollNextChapterPath(ch3);
                 Assert.Same(initialPreview, GetField<object?>(host, "_scrollNextChapterLayout"));
                 host.SetScrollNextChapterPath(ch2);
@@ -488,6 +495,8 @@ public sealed class ReaderPageTransitionTests(MobileUiSession session)
                 }
 
                 Assert.Equal(1, GetField<int>(reader, "_chapterIndex"));
+                Assert.True(promotedPreviewWithoutRecompose, "The painted next-chapter preview must be promoted directly, not typeset again at the seam.");
+                Assert.NotNull(GetField<object?>(host, "_scrollPreviousChapterPreview"));
                 var postHandoffOffset = GetField<double>(host, "_scrollOffset");
                 Assert.True(postHandoffOffset > 120, $"Expected smooth coast into chapter 2, but stopped at offset {postHandoffOffset:F1}.");
                 Assert.NotNull(GetField<object?>(host, "_scrollNextChapterLayout"));
@@ -505,6 +514,21 @@ public sealed class ReaderPageTransitionTests(MobileUiSession session)
                 var jumpedScroll = GetField<double>(host, "_scrollOffset");
                 var renderedBaselineY = targetPage.Index * targetPage.Height + targetRun.OriginY - jumpedScroll;
                 Assert.InRange(renderedBaselineY, targetRun.FontSize * 1.5, targetPage.Height * 0.6);
+
+                typeof(ReaderPage).GetMethod("StopScrollInertia", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(reader, null);
+                host.SeekToPixelScroll(0);
+                // One finger movement crosses the seam, then reverses slightly
+                // before the asynchronous promotion commits. Every signed pixel
+                // must survive, without a fixed jump or the old 1.5-screen cap.
+                host.ScrollByPixel(-12);
+                Assert.Equal(-12, GetField<double>(host, "_scrollOffset"), 5);
+                host.ScrollByPixel(-1800);
+                host.ScrollByPixel(35);
+                await WaitUntil(() => GetField<int>(reader, "_chapterIndex") == 0 && !GetField<bool>(reader, "_turning"));
+                Assert.Same(originalChapterLayout, GetField<object>(host, "_layout"));
+                var previousStart = (double)typeof(NativeReaderHost)
+                    .GetProperty("ContinuousNextChapterStartY", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(host)!;
+                Assert.Equal(Math.Max(0, previousStart - 1777), GetField<double>(host, "_scrollOffset"), 4);
             }
             finally
             {

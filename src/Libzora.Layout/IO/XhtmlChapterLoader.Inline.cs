@@ -311,63 +311,65 @@ public sealed partial class XhtmlChapterLoader
 
     private void AppendRuby(XElement element, FlowContext ctx)
     {
-        // The generated pinyin EPUB uses the compact form
-        // <ruby>汉<rt>hàn</rt></ruby>. Keep the base and annotation in the
-        // original body-text coordinate space, while exposing only the base
-        // as a normal text range and carrying the pronunciation separately
-        // for the native painter.
-        foreach (var child in element.DescendantsAndSelf().Where(IsVisible))
+        // Walk in source order so interleaved base/annotation pairs keep
+        // the same coordinates as the XHTML text. Only base text gets glyphs
+        // with selectable offsets.
+        TrackId(element);
+        var baseText = new StringBuilder();
+        var rubyText = new StringBuilder();
+        var baseStart = 0;
+        var afterAnnotation = false;
+        var nodes = element.DescendantNodes()
+            .Where(node => node.Parent is { } parent && IsVisible(parent)).ToArray();
+        var hasBase = nodes.OfType<XText>().Any(text => !text.Ancestors().Any(IsRubyAnnotation));
+        foreach (var node in nodes)
         {
-            TrackId(child);
-        }
-
-        var baseText = string.Concat(element
-            .DescendantNodes()
-            .OfType<XText>()
-            .Where(text => IsVisible(text.Parent!) && !text.Ancestors().Any(IsRubyAnnotation))
-            .Select(text => text.Value));
-        var rubyText = string.Concat(element
-            .Descendants()
-            .Where(child => child.Name.LocalName.Equals("rt", StringComparison.OrdinalIgnoreCase))
-            .DescendantNodes()
-            .OfType<XText>()
-            .Where(text => IsVisible(text.Parent!))
-            .Select(text => text.Value));
-        var annotationMarkupText = string.Concat(element
-            .DescendantNodes()
-            .OfType<XText>()
-            .Where(text => IsVisible(text.Parent!) && text.Ancestors().Any(IsRubyAnnotation))
-            .Select(text => text.Value));
-
-        if (baseText.Length == 0)
-        {
-            // Malformed ruby without a base should still preserve its text
-            // for search and TTS, but must not create an empty visual item.
-            if (annotationMarkupText.Length > 0)
+            _cancellationToken.ThrowIfCancellationRequested();
+            if (node is XElement child && IsVisible(child))
             {
-                AppendBodyText(annotationMarkupText);
+                TrackId(child);
+            }
+            if (node is not XText text || text.Value.Length == 0) continue;
+
+            var annotation = text.Ancestors().FirstOrDefault(IsRubyAnnotation);
+            var start = AppendBodyText(text.Value);
+            if (annotation is not null)
+            {
+                if (hasBase) _rubyAnnotationRanges.Add((start, text.Value.Length));
+                if (annotation.Name.LocalName.Equals("rt", StringComparison.OrdinalIgnoreCase))
+                    rubyText.Append(text.Value);
+                afterAnnotation = true;
+                continue;
             }
 
-            return;
+            if (afterAnnotation) EmitBase();
+            foreach (var fragmentId in _pendingFragmentIds)
+                _fragmentTextOffsets.TryAdd(fragmentId, start);
+            if (baseText.Length == 0) baseStart = start;
+            baseText.Append(text.Value);
+            afterAnnotation = false;
         }
+        EmitBase();
 
-        var start = AppendBodyText(baseText);
-        if (annotationMarkupText.Length > 0)
+        void EmitBase()
         {
-            var annotationStart = AppendBodyText(annotationMarkupText);
-            _rubyAnnotationRanges.Add((annotationStart, annotationMarkupText.Length));
+            if (baseText.Length > 0)
+            {
+                var pronunciation = rubyText.ToString();
+                _pending.Add(new InlineItem
+                {
+                    Kind = InlineKind.Ruby,
+                    Text = baseText.ToString(),
+                    TextStart = baseStart,
+                    Style = ctx.BaseStyle,
+                    LinkHref = ctx.LinkHref,
+                    FootnoteHref = ctx.FootnoteHref,
+                    RubyText = string.IsNullOrWhiteSpace(pronunciation) ? null : pronunciation,
+                });
+            }
+            baseText.Clear();
+            rubyText.Clear();
         }
-
-        _pending.Add(new InlineItem
-        {
-            Kind = InlineKind.Ruby,
-            Text = baseText,
-            TextStart = start,
-            Style = ctx.BaseStyle,
-            LinkHref = ctx.LinkHref,
-            FootnoteHref = ctx.FootnoteHref,
-            RubyText = string.IsNullOrWhiteSpace(rubyText) ? null : rubyText,
-        });
     }
 
     private static bool IsRubyAnnotation(XElement element) =>

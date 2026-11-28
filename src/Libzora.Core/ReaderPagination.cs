@@ -250,6 +250,46 @@ public static class ReaderBookProgressPolicy
         return Math.Clamp(continuousPage / totalPages, 0, 1);
     }
 
+    /// <summary>Continuous reading is zero-based, including one-page chapters.</summary>
+    public static double CalculateScrollFraction(IReadOnlyList<int> chapterPageCounts, int chapterIndex, double chapterRatio)
+    {
+        if (chapterPageCounts.Count == 0) return 0;
+        var chapter = Math.Clamp(chapterIndex, 0, chapterPageCounts.Count - 1);
+        var ratio = double.IsFinite(chapterRatio) ? Math.Clamp(chapterRatio, 0, 1) : 0;
+        var total = 0L;
+        var prefix = 0L;
+        for (var index = 0; index < chapterPageCounts.Count; index++)
+        {
+            var count = Math.Max(0, chapterPageCounts[index]);
+            if (index < chapter) prefix += count;
+            total += count;
+        }
+        return total > 0 ? Math.Clamp((prefix + ratio * Math.Max(0, chapterPageCounts[chapter])) / total, 0, 1) : 0;
+    }
+
+    /// <summary>Inverse of CalculateScrollFraction; page-turn semantics stay unchanged.</summary>
+    public static (int ChapterIndex, double ChapterRatio) MapScrollPercentToChapterTarget(
+        IReadOnlyList<int> chapterPageCounts, double percent)
+    {
+        if (chapterPageCounts.Count == 0) return (0, 0);
+        var safePercent = double.IsFinite(percent) ? Math.Clamp(percent, 0, 100) : 0;
+        if (safePercent <= 0) return (FirstReadingChapter(chapterPageCounts), 0);
+        if (safePercent >= 100) return (LastReadingChapter(chapterPageCounts), 1);
+        var total = chapterPageCounts.Sum(count => (long)Math.Max(0, count));
+        if (total == 0) return (FirstReadingChapter(chapterPageCounts), 0);
+        var target = safePercent / 100 * total;
+        var prefix = 0L;
+        for (var chapter = 0; chapter < chapterPageCounts.Count; chapter++)
+        {
+            var count = Math.Max(0, chapterPageCounts[chapter]);
+            if (count == 0) continue;
+            if (target < prefix + count)
+                return (chapter, Math.Clamp((target - prefix) / count, 0, 1));
+            prefix += count;
+        }
+        return (LastReadingChapter(chapterPageCounts), 1);
+    }
+
     public static (int ChapterIndex, double ChapterRatio) MapPercentToChapterTarget(
         IReadOnlyList<int> chapterPageCounts,
         double percent)

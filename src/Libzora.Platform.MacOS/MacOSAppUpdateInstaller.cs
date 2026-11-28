@@ -7,12 +7,13 @@ namespace Libzora.Platform.MacOS;
 
 /// <summary>
 /// Installs a downloaded <c>.dmg</c> update without leaving Libzora.
-/// The app is distributed as a <c>Libzora.app</c> bundle inside a disk image,
-/// so the update is applied by a detached helper script: it waits for this
-/// process to exit, mounts the image, copies the bundle out, swaps it in place
-/// and reopens the app. Installation is only offered when the bundle directory
-/// is writable by the current user; otherwise the release page remains the
-/// fallback.
+/// The app is distributed inside an installer bundle
+/// (<c>Install Libzora.app/Contents/Helpers/Libzora.app</c>, or at the disk
+/// image root <c>Libzora.app</c> for older packages), so the update is applied
+/// by a detached helper script: it waits for this process to exit, mounts the
+/// image, copies the bundle out, swaps it in place and reopens the app.
+/// Installation is only offered when the bundle directory is writable by the
+/// current user; otherwise the release page remains the fallback.
 /// </summary>
 public sealed class MacOSAppUpdateInstaller : IAppUpdateInstaller
 {
@@ -166,13 +167,29 @@ public sealed class MacOSAppUpdateInstaller : IAppUpdateInstaller
           echo "failed to mount $image"
           exit 1
         fi
-        if [ ! -d "$mountpoint/Libzora.app" ] \
-          || [ ! -x "$mountpoint/Libzora.app/Contents/MacOS/Libzora" ]; then
+        if [ -d "$mountpoint/ .app/Contents/Helpers/Libzora.app" ]; then
+          source_app="$mountpoint/ .app/Contents/Helpers/Libzora.app"
+        elif [ -d "$mountpoint/Install Libzora.app/Contents/Helpers/Libzora.app" ]; then
+          source_app="$mountpoint/Install Libzora.app/Contents/Helpers/Libzora.app"
+        elif [ -d "$mountpoint/Libzora.app" ]; then
+          source_app="$mountpoint/Libzora.app"
+        else
+          source_app=""
+          for candidate in "$mountpoint"/*.app/Contents/Helpers/Libzora.app; do
+            if [ -d "$candidate" ]; then
+              source_app="$candidate"
+              break
+            fi
+          done
+        fi
+        if [ -z "$source_app" ] \
+          || [ ! -d "$source_app" ] \
+          || [ ! -x "$source_app/Contents/MacOS/Libzora" ]; then
           echo "the disk image does not contain a runnable Libzora.app"
           exit 1
         fi
         # ditto preserves the bundle's extended attributes and signature.
-        if ! /usr/bin/ditto "$mountpoint/Libzora.app" "$stage/Libzora.app"; then
+        if ! /usr/bin/ditto "$source_app" "$stage/Libzora.app"; then
           echo "failed to copy the update bundle"
           exit 1
         fi
@@ -191,7 +208,7 @@ public sealed class MacOSAppUpdateInstaller : IAppUpdateInstaller
         # pkill -f treats characters such as "." or "+" in the path as a regex.
         /bin/ps -axo pid=,command= | while read -r pid command; do
           case "$command" in
-            "$target"/Contents/mcp/Libzora.McpServer*|"$target"/Contents/*/mcp/Libzora.McpServer*)
+            "$target"/Contents/MacOS/mcp/Libzora.McpServer*|"$target"/Contents/MacOS/*/mcp/Libzora.McpServer*|"$target"/Contents/mcp/Libzora.McpServer*|"$target"/Contents/*/mcp/Libzora.McpServer*)
               kill "$pid" 2>/dev/null || true
               ;;
           esac

@@ -64,7 +64,9 @@ public partial class ReaderPage
             double chapterRatio;
             if (_bookPageCounts.Length == _epubDocument.Chapters.Count)
             {
-                (chapter, chapterRatio) = ReaderBookProgressPolicy.MapPercentToChapterTarget(_bookPageCounts, percent);
+                (chapter, chapterRatio) = IsEpubScrollMode
+                    ? ReaderBookProgressPolicy.MapScrollPercentToChapterTarget(_bookPageCounts, percent)
+                    : ReaderBookProgressPolicy.MapPercentToChapterTarget(_bookPageCounts, percent);
             }
             else
             {
@@ -138,9 +140,7 @@ public partial class ReaderPage
             {
                 var entry = _tocEntries[index];
                 if (entry.ChapterIndex != current) continue;
-                if (string.IsNullOrWhiteSpace(entry.Target)) continue;
-                if (!Uri.TryCreate(entry.Target, UriKind.Absolute, out var uri)) continue;
-                if (string.Equals(DecodeTocFragment(uri.Fragment), fragment, StringComparison.Ordinal))
+                if (string.Equals(entry.NavigationFragment, fragment, StringComparison.Ordinal))
                     return index;
             }
         }

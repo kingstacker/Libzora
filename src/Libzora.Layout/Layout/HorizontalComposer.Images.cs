@@ -78,8 +78,8 @@ internal sealed partial class HorizontalComposer
             : block.Center
                 ? InsetH + (ContentWidth - w) / 2f
                 : InsetH;
-        _pages.RecordFragment(block.ElementId);
-        _pages.RecordFragments(block.FragmentIds);
+        _pages.RecordFragment(block.ElementId, _cursorY);
+        _pages.RecordFragments(block.FragmentIds, _cursorY);
         _pages.AddImage(new PlacedImage
         {
             Path = item.ImagePath,
@@ -150,8 +150,8 @@ internal sealed partial class HorizontalComposer
                     cropTop + cropH * sliceTopFraction,
                     cropLeft + cropW,
                     cropTop + cropH * Math.Min(1f, sliceTopFraction + sliceFrac));
-                _pages.RecordFragment(block.ElementId);
-                _pages.RecordFragments(block.FragmentIds);
+                _pages.RecordFragment(block.ElementId, _cursorY);
+                _pages.RecordFragments(block.FragmentIds, _cursorY);
                 _pages.AddImage(new PlacedImage
                 {
                     Path = item.ImagePath!,
@@ -176,8 +176,8 @@ internal sealed partial class HorizontalComposer
         var ph = srcH * pageScale;
         var px = (vpW - pw) / 2f;
         var py = (vpH - ph) / 2f;
-        _pages.RecordFragment(block.ElementId);
-        _pages.RecordFragments(block.FragmentIds);
+        _pages.RecordFragment(block.ElementId, _cursorY);
+        _pages.RecordFragments(block.FragmentIds, _cursorY);
         _pages.AddImage(new PlacedImage
         {
             Path = item.ImagePath!,
@@ -207,8 +207,8 @@ internal sealed partial class HorizontalComposer
             }
         }
 
-        _pages.RecordFragment(block.ElementId);
-        _pages.RecordFragments(block.FragmentIds);
+        _pages.RecordFragment(block.ElementId, _cursorY);
+        _pages.RecordFragments(block.FragmentIds, _cursorY);
         _pages.AddDecoration(new PlacedRect
         {
             Kind = DecorationKind.Rule,

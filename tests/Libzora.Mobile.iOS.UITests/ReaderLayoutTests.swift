@@ -29,7 +29,7 @@ final class ReaderLayoutTests: XCTestCase {
 
     func testHiddenCssOverridesAndTableRowsRender() {
         openBook("隐藏样式")
-        checkpoint("排版修复-隐藏覆盖与可见表格")
+        checkpoint("横排修复-跨行表格注音与不换行")
     }
 
     func testMarkerlessItemsKeepNumbering() {

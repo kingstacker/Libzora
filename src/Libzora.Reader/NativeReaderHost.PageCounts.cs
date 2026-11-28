@@ -299,7 +299,10 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
             }
             try
             {
-                var content = new XhtmlChapterLoader(settings.ParagraphIndent).Load(chapterPaths[index], cancellationToken);
+                // Whole-book measurement can use a hot parsed chapter, but must
+                // not evict the foreground reader's cache with every spine file.
+                var content = NativeReaderChapterContentCache.Shared.Load(
+                    chapterPaths[index], settings.ParagraphIndent, null, cancellationToken, cacheResult: false);
                 counts[index] = Math.Max(1, engine.Compose(content, options, cancellationToken).Pages.Count);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -367,7 +370,8 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         }
         if (page >= 0)
         {
-            if (IsScroll) _scrollOffset = ClampScrollOffset(page * ScrollPageHeight);
+            if (IsScroll) _scrollOffset = ClampScrollOffset(ScrollOffsetForFragment(
+                page, !_pendingSeekToEnd && _pendingFragment is { } target ? NormalizeFragment(target) : null));
             else _pageIndex = IsSpread ? page - page % 2 : page;
         }
 

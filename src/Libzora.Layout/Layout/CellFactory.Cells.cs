@@ -76,7 +76,11 @@ internal sealed partial class CellFactory
             {
                 scale = Math.Min(scale, 1f);
             }
-            if (vertical)
+            if (!vertical)
+            {
+                scale = Math.Min(scale, _context.Options.ContentHeight / info.Value.Height);
+            }
+            else
             {
                 // A vertical inline image is rotated like an existing sideways
                 // Latin run. Its unrotated height becomes the cross-column
@@ -177,7 +181,7 @@ internal sealed partial class CellFactory
                     preferLatinFont,
                     item.FootnoteText);
                 var wordLimit = Math.Min(_context.Options.ContentWidth, maxWordWidth);
-                if (unit.Kind == TextUnitKind.LatinWord
+                if (unit.Kind == TextUnitKind.LatinWord && !item.Style.NoWrap && !isRuby
                     && unitText.Length > 1
                     && produced.Count == 1
                     && produced[0].Advance > wordLimit + 0.01f)
@@ -223,17 +227,25 @@ internal sealed partial class CellFactory
         {
             var baseCell = cells[0] with { RubyText = item.RubyText };
             var annotation = ShapeRubyCell(baseCell);
-            cells[0] = baseCell with
+            if (vertical)
             {
-                RubyAnnotation = annotation,
-                RubyBaseAdvance = baseCell.Advance - baseCell.TrailingLetterSpacing,
-                // Line fitting must see the full annotation width before it
-                // wraps or justifies the text. Vertical flow reserves height.
-                Advance = vertical
-                    ? baseCell.Advance
-                    : Math.Max(baseCell.Advance - baseCell.TrailingLetterSpacing, annotation.Advance + 2f * _context.RubyGap)
-                        + baseCell.TrailingLetterSpacing,
-            };
+                cells[0] = baseCell with { RubyAnnotation = annotation };
+            }
+            else
+            {
+                var baseAdvance = cells.Sum(cell => cell.Advance) - cells[^1].TrailingLetterSpacing;
+                var padding = Math.Max(0f, annotation.Advance + 2f * _context.RubyGap - baseAdvance) / 2f;
+                cells[0] = baseCell with
+                {
+                    RubyAnnotation = annotation,
+                    RubyBaseAdvance = baseAdvance,
+                    RubyLeadingPadding = padding,
+                    Advance = baseCell.Advance + padding,
+                };
+                for (var i = 1; i < cells.Count; i++)
+                    cells[i] = cells[i] with { ContinuesRubyBase = true };
+                cells[^1] = cells[^1] with { Advance = cells[^1].Advance + padding };
+            }
         }
 
         return cells;
@@ -486,6 +498,8 @@ internal sealed partial class CellFactory
         tail = cell;
         if (!_context.Options.HyphenateEnglish
             || !cell.IsLatinWord
+            || cell.Style.NoWrap
+            || cell.RubyAnnotation is not null || cell.ContinuesRubyBase
             || cell.SyntheticHyphen
             || cell.TextStart < 0
             || cell.TextLength < 5
@@ -545,6 +559,35 @@ internal sealed partial class CellFactory
             return true;
         }
 
+        return false;
+    }
+
+    public bool TrySplitWordForClosingMark(LayoutCell cell, float width, bool allowHyphenation,
+        bool preferLatinFont, out LayoutCell head, out LayoutCell tail)
+    {
+        if (allowHyphenation && TrySplitForHyphenation(cell, width, out head, out tail, preferLatinFont))
+            return true;
+
+        head = tail = cell;
+        if (cell.Style.NoWrap || cell.RubyAnnotation is not null || cell.ContinuesRubyBase
+            || cell.SyntheticHyphen || cell.TextStart < 0 || cell.Text.Length != cell.TextLength)
+            return false;
+
+        // Keep at least one source grapheme with the closing mark, even when
+        // there is no legal syllable break short enough to leave it room.
+        var boundaries = StringInfo.ParseCombiningCharacters(cell.Text);
+        for (var i = boundaries.Length - 1; i > 0; i--)
+        {
+            var split = boundaries[i];
+            var prefix = ShapeCell(cell.Text[..split], cell.TextStart, cell.Style, cell.LinkHref,
+                cell.FootnoteHref, vertical: false, footnoteText: cell.FootnoteText, preferLatinFont: preferLatinFont);
+            if (prefix.Advance - prefix.TrailingLetterSpacing > width + 0.01f) continue;
+            head = prefix with { IsLatinWord = true };
+            tail = ShapeCell(cell.Text[split..], cell.TextStart + split, cell.Style, cell.LinkHref,
+                cell.FootnoteHref, vertical: false, footnoteText: cell.FootnoteText, preferLatinFont: preferLatinFont)
+                with { IsLatinWord = true };
+            return true;
+        }
         return false;
     }
 

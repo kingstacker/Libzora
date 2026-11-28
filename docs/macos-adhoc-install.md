@@ -5,16 +5,15 @@
 
 ## 安装步骤
 
-1. 打开下载的 `Libzora-<版本>-osx-<架构>.dmg`。
-2. 把 `Libzora` 图标拖到旁边的 `Applications`（应用程序）图标上。
-3. 在“应用程序”中按住 Control 点击 `Libzora.app`，选择“打开”，然后再次确认“打开”。
-4. 如果仍被阻止，请打开“系统设置 > 隐私与安全性”，找到 Libzora 并选择“仍要打开”。
+1. 打开下载的 `Libzora-<版本>-osx-<架构>.dmg`，窗口中只有一个居中的 Libzora 安装图标。
+2. 按住 Control 点击该图标，选择“打开”，在弹窗中再次确认“打开”；安装器会自动将 `Libzora.app` 安装到“应用程序”并启动。
+3. 若安装时提示“无法打开”或仍被阻止，请在“系统设置 > 隐私与安全性”中找到对应提示并选择“仍要打开”。
 
-如果以上方法仍不可用，可在终端移除下载隔离标记：
+如果以上方法仍不可用，可在已打开 DMG 后或在安装完成后通过终端移除隔离标记：
 
 ```sh
-xattr -dr com.apple.quarantine /Applications/Libzora.app
-open /Applications/Libzora.app
+xattr -dr com.apple.quarantine "/Volumes/Libzora/ .app"
+open "/Volumes/Libzora/ .app"
 ```
 
 只应对从本项目官方 GitHub Release 页面下载的 Libzora 使用该命令。后续采用

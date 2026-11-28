@@ -740,13 +740,87 @@ public sealed class UpdateServiceTests
             Task.FromResult(responseFactory(request));
     }
 
-    private sealed class TestInstaller : IAppUpdateInstaller
+    private sealed class TestInstaller(string suffix = "win-x64-setup.exe") : IAppUpdateInstaller
     {
         public bool CanInstall => true;
         public string UnavailableReason => string.Empty;
-        public string GetPackageAssetName(string version) => $"Libzora-{version}-win-x64-setup.exe";
+        public string GetPackageAssetName(string version) => $"Libzora-{version}-{suffix}";
         public void LaunchInstaller(string packagePath)
         {
         }
+    }
+
+    [Fact]
+    public async Task StableChannelFallsBackWhenManifestLacksMacOsPackage()
+    {
+        const string windowsOnlyManifest = """
+            {"tag_name":"v1.1.6","html_url":"https://github.com/kingstacker/Libzora/releases/tag/v1.1.6",
+             "assets":[
+             {"name":"Libzora-1.1.6-win-x64-setup.exe","browser_download_url":"https://example.test/setup.exe","size":1234},
+             {"name":"SHA256SUMS.txt","browser_download_url":"https://example.test/SHA256SUMS.txt","size":128}]}
+            """;
+        var requests = new List<string>();
+        using var client = new HttpClient(new StubHandler(request =>
+        {
+            requests.Add(request.RequestUri!.AbsoluteUri);
+            if (request.RequestUri.AbsolutePath.EndsWith("update-manifest.json", StringComparison.Ordinal))
+                return JsonResponse(windowsOnlyManifest);
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                RequestMessage = new HttpRequestMessage(
+                    HttpMethod.Get,
+                    "https://github.com/kingstacker/Libzora/releases/tag/v1.1.6")
+            };
+        }));
+        using var service = new UpdateService(
+            new TestInstaller("osx-x64.dmg"),
+            client,
+            Path.GetTempPath());
+
+        var update = await service.CheckForUpdateAsync("1.1.6-dev.1");
+
+        Assert.NotNull(update);
+        Assert.Equal("1.1.6", update.Version);
+        Assert.Equal("Libzora-1.1.6-osx-x64.dmg", update.Package.Name);
+        Assert.Equal(
+            "https://github.com/kingstacker/Libzora/releases/download/v1.1.6/Libzora-1.1.6-osx-x64.dmg",
+            update.Package.DownloadUrl.AbsoluteUri);
+        Assert.Equal(
+            new[]
+            {
+                "https://libzora.stacker.beauty/update-manifest.json",
+                "https://github.com/kingstacker/Libzora/releases/latest/download/update-manifest.json",
+                "https://github.com/kingstacker/Libzora/releases/latest"
+            },
+            requests);
+    }
+
+    [Fact]
+    public async Task StableChannelUsesManifestDirectlyWhenMacOsPackageIsListed()
+    {
+        const string multiPlatformManifest = """
+            {"tag_name":"v1.2.0","html_url":"https://github.com/kingstacker/Libzora/releases/tag/v1.2.0",
+             "assets":[
+             {"name":"Libzora-1.2.0-win-x64-setup.exe","browser_download_url":"https://libzora.stacker.beauty/dl/setup.exe","size":1234},
+             {"name":"Libzora-1.2.0-osx-arm64.dmg","browser_download_url":"https://libzora.stacker.beauty/dl/arm64.dmg","size":2345},
+             {"name":"SHA256SUMS.txt","browser_download_url":"https://libzora.stacker.beauty/dl/SHA256SUMS.txt","size":128}]}
+            """;
+        var requests = new List<string>();
+        using var client = new HttpClient(new StubHandler(request =>
+        {
+            requests.Add(request.RequestUri!.AbsoluteUri);
+            return JsonResponse(multiPlatformManifest);
+        }));
+        using var service = new UpdateService(
+            new TestInstaller("osx-arm64.dmg"),
+            client,
+            Path.GetTempPath());
+
+        var update = await service.CheckForUpdateAsync("1.2.0-dev.1");
+
+        Assert.NotNull(update);
+        Assert.Equal("Libzora-1.2.0-osx-arm64.dmg", update.Package.Name);
+        Assert.Equal("https://libzora.stacker.beauty/dl/arm64.dmg", update.Package.DownloadUrl.AbsoluteUri);
+        Assert.Single(requests);
     }
 }

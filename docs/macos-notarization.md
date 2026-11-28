@@ -84,11 +84,12 @@ APPLE_REQUIRE_ICLOUD=1 \
 脚本会：
 
 1. 用 hardened runtime + entitlements 签名所有 Mach-O；
-2. 生成并签名 `.app`；
-3. 公证并 staple `.app`；
-4. 生成带 `Applications` 符号链接的 DMG；
-5. 签名、公证并 staple DMG；
-6. 对 app 执行 `codesign --verify --deep --strict`。
+2. 生成并签名 `Libzora.app`；
+3. 公证并 staple `Libzora.app`；
+4. 构建并签名内嵌 `Libzora.app` 的单图标安装器 `Install Libzora.app`，并公证、staple 它；
+5. 生成只包含居中 `Install Libzora.app` 图标的 DMG；
+6. 签名、公证并 staple DMG；
+7. 对外层与内嵌 app 执行 `codesign --verify --deep --strict`。
 
 ## 6. 验证结果
 
@@ -101,7 +102,7 @@ spctl -a -vvv -t open --context context:primary-signature Libzora-1.1.3-osx-arm6
 xcrun stapler validate Libzora-1.1.3-osx-arm64.dmg
 ```
 
-在未安装过 Libzora 的干净 Mac 上首次双击 DMG 并拖入“应用程序”，应该不再出现
+在未安装过 Libzora 的干净 Mac 上首次双击 DMG 并双击中间的安装图标自动安装到“应用程序”，应该不再出现
 “无法验证开发者”的提示。
 
 ## 7. 常见失败原因

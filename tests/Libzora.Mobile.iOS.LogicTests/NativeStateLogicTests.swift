@@ -547,6 +547,19 @@ struct NativeStateLogicTests {
                   chromeVisible: true, hasOpenTransition: false),
               "Status bar stays visible whenever reader chrome is visible")
 
+        check(!NativeBookOpenTransitionPolicy.canStartReaderCoverOpen(
+                  ready: true, frameReady: false, frameRevision: 4, acknowledgedRevision: 4, hasError: false),
+              "The 3D cover must stay closed while the first page is still drawing")
+        check(!NativeBookOpenTransitionPolicy.canStartReaderCoverOpen(
+                  ready: true, frameReady: true, frameRevision: 4, acknowledgedRevision: 3, hasError: false),
+              "A frame drawn for an earlier viewport cannot start the 3D flight")
+        check(NativeBookOpenTransitionPolicy.canStartReaderCoverOpen(
+                  ready: true, frameReady: true, frameRevision: 4, acknowledgedRevision: 4, hasError: false),
+              "The acknowledged first page can start the 3D flight")
+        check(NativeBookOpenTransitionPolicy.canStartReaderCoverOpen(
+                  ready: false, frameReady: false, frameRevision: 0, acknowledgedRevision: nil, hasError: true),
+              "Loading errors can reveal the reader error controls")
+
         // Swipe-to-delete policy for reading materials.
         let phoneWidth: CGFloat = 342
         let fullPhone = NativeSwipeDeletePolicy.fullSwipeThreshold(cardWidth: phoneWidth)

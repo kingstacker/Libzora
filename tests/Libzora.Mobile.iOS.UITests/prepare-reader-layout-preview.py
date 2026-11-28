@@ -41,9 +41,11 @@ BOOKS = (
         <tr><th>项目</th><th>结果</th></tr>
         <tr style='display:none'><td>隐藏行</td><td>不应显示</td></tr>
         <tbody style='display:none'><tr><td>隐藏分组</td><td>不应显示</td></tr></tbody>
-        <tr><td>可见行</td><td>保留正文</td></tr>
+        <tr><td rowspan='2'>跨行</td><td><ruby>排版<rt>páibǎn</rt></ruby></td></tr>
+        <tr><td>保留正文</td><td>末列保留</td></tr>
       </table>
-      <p>上面只应保留可见的表格行。</p>
+      <p>横排注音：<ruby>汉<rt>hàn</rt>字<rt>zì</rt></ruby>，<ruby>阅读<rt>yuèdú</rt></ruby>。</p>
+      <p>段内不换行：甲乙丙丁戊己庚辛<span style='white-space:nowrap'>整组文字同行</span>。数字 100&#160;km 也保持同行。</p>
     """, ".screen-only { display:none; }"),
     ("排版回归·列表计数器", """
       <h2>列表编号与缩进</h2>
@@ -170,7 +172,7 @@ def main():
             db.execute("INSERT OR REPLACE INTO BookFiles (Id,BookId,Format,RelativePath,Size,Sha256) VALUES (?,?,?,?,?,?)",
                        (file_id, book_id, "epub", str(epub.relative_to(data)), epub.stat().st_size, hashlib.sha256(epub.read_bytes()).hexdigest()))
     (app_root / "mobile-preferences.json").write_text(
-        '{"UiLanguage":"zh-CN","ThemeMode":1,"ReaderTheme":0,'
+        '{"OnboardingAccepted":true,"UiLanguage":"zh-CN","ThemeMode":1,"ReaderTheme":0,'
         '"ReaderThemeFollowsAppearance":false,"ReaderFontScale":1.35,'
         '"ReaderBodyPadding":24,"ReaderParagraphIndent":false,'
         '"ReaderVerticalWriting":false,"ReaderPageAnimation":0}', encoding="utf-8")

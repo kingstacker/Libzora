@@ -333,6 +333,9 @@ public partial class ReaderPage
             }
         }
         host.SetScrollNextChapterPath(nextPath);
+        var previousReading = _epubDocument is null ? -1 : ResolveReadingChapter(chapter - 1, -1);
+        host.SetScrollPreviousChapterPath(previousReading >= 0 && _epubDocument is not null
+            ? _epubDocument.Chapters[previousReading] : null);
     }
 
     /// <summary>
@@ -367,6 +370,10 @@ public partial class ReaderPage
             {
                 _chapterIndex = previous;
                 SyncScrollNextChapterPath(host, previous);
+                SetNavigationFragmentsFor(host, new Uri(_epubDocument!.Chapters[previous]));
+                var restored = host.GetScrollState();
+                ApplyScrollUpdate(_layout.FlowMode == 0 ? restored.Position : 0,
+                    _layout.FlowMode == 0 ? 0 : restored.Position);
             }
         }
     }
@@ -678,7 +685,9 @@ public partial class ReaderPage
         var pages = Math.Max(1, host.PageCount);
         var page = Math.Clamp(host.CurrentPage, 0, pages - 1);
         var pagePosition = BookPagePosition(page, pages);
-        _overallProgress = CalculateEpubProgressFraction(page, pages);
+        _overallProgress = IsEpubScrollMode
+            ? CalculateEpubProgressFraction(host.GetScrollState().Ratio)
+            : CalculateEpubProgressFraction(page, pages);
         PresentPosition(title, pagePosition);
     }
 
@@ -707,6 +716,7 @@ public partial class ReaderPage
         finally
         {
             _turning = false;
+            if (!_disposed && ReferenceEquals(host, _readerHost)) host.ContinueContinuousScrollAfterNavigation();
         }
     }
 }

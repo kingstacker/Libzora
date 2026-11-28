@@ -111,13 +111,11 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         else if (handoffFromNextDelta.HasValue)
         {
             _activeHandoffDirection = -1;
-            _activeHandoffCarryUp = Math.Max(_activeHandoffCarryUp, handoffFromNextDelta.Value);
         }
         else
         {
             _activeHandoffDirection = 0;
-            _activeHandoffOverflowDown = 0;
-            _activeHandoffCarryUp = 0;
+            _activeHandoffScrollDelta = 0;
         }
         _pendingScrollOffset = null;
 
@@ -125,6 +123,11 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
         // engine-owned state, and the result is applied back on the UI thread.
         var settings = _settings;
         var (width, height) = ResolveComposeViewportSize();
+        var outgoingChapter = CaptureContinuousChapter();
+        var cachedChapter = handoffDown || handoffFromNextDelta.HasValue
+            ? ResolveContinuousPreview(chapterPath, settings, width, height, handoffFromNextDelta.HasValue) : null;
+        _previousChapterPreviewCts?.Cancel();
+        _partialScrollOverflow = 0;
         var startingArgs = new ReaderNavigationStartingEventArgs(navigationSource);
         NavigationStarting?.Invoke(this, startingArgs);
         if (startingArgs.Cancel)
@@ -150,9 +153,9 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
                 var composed = await Task.Run(() =>
                 {
                     navigationToken.ThrowIfCancellationRequested();
-                    var loader = new XhtmlChapterLoader(settings.ParagraphIndent,
-                        string.IsNullOrWhiteSpace(fragment) ? null : NormalizeFragment(fragment));
-                    var content = loader.Load(chapterPath, navigationToken);
+                    var content = cachedChapter?.Content ?? NativeReaderChapterContentCache.Shared.Load(
+                        chapterPath, settings.ParagraphIndent,
+                        string.IsNullOrWhiteSpace(fragment) ? null : NormalizeFragment(fragment), navigationToken);
                     var options = BuildOptions(settings, width, height, _showVerticalDebugBoxes, navigationFragments);
                     var fonts = FontLibrary;
                     fontUse = fonts.BeginComposition();
@@ -162,7 +165,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
                     var stopAfter = allowPartialCompose
                         ? ResolveInitialComposeStop(content, fragment, readingAnchor, composeTextOffset)
                         : null;
-                    var layout = navigationEngine.Compose(content, options, navigationToken,
+                    var layout = cachedChapter?.Layout ?? navigationEngine.Compose(content, options, navigationToken,
                         anchorPageStart ? readingAnchor?.TextOffset : null, stopAfter);
                     var companionLayout = ComposeSpreadCompanion(
                         isSpread,
@@ -171,11 +174,10 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
                         layout,
                         navigationEngine,
                         navigationToken);
-                    var scrollNextLayout = ComposeScrollNextChapter(
-                        scrollNextChapterPath,
-                        options,
-                        navigationEngine,
-                        navigationToken);
+                    var scrollNextLayout = outgoingChapter?.Matches(scrollNextChapterPath ?? "", settings, width, height) == true
+                        ? outgoingChapter
+                        : ComposeScrollNextChapter(scrollNextChapterPath, options, settings,
+                            navigationEngine, navigationToken);
                     return (content, options, layout, companionLayout, scrollNextLayout);
                 }, navigationToken);
 
@@ -193,20 +195,23 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
                 double? resolvedCarryUp = null;
                 if (handoffDown && IsContinuousProseScroll)
                 {
-                    // Measure live overshoot into the pre-composed next chapter
-                    // right at commit time so drags and inertia during load stay
-                    // pixel-locked across the swap.
-                    resolvedCarryDown = _scrollNextChapterLayout is { Pages.Count: > 0 }
-                        ? Math.Max(0.0, _scrollOffset - ContinuousNextChapterStartY) + _activeHandoffOverflowDown
-                        : Math.Max(0.0, (handoffScrollOffset ?? 0.0) + _activeHandoffOverflowDown);
+                    // Include every signed finger/inertia delta while loading,
+                    // including direction reversals and motion beyond the runway.
+                    resolvedCarryDown = (handoffScrollOffset ?? 0.0) + _activeHandoffScrollDelta;
                 }
                 else if (handoffFromNextDelta.HasValue && IsContinuousProseScroll)
                 {
-                    resolvedCarryUp = Math.Max(4.0, _activeHandoffCarryUp);
+                    resolvedCarryUp = handoffFromNextDelta.Value - _activeHandoffScrollDelta;
+                }
+                if (CancelReversedContinuousHandoff(resolvedCarryDown, resolvedCarryUp))
+                {
+                    NavigationCompleted?.Invoke(this, new ReaderNavigationCompletedEventArgs(navigationSource, false));
+                    completion.TrySetResult(false);
+                    return;
                 }
                 _activeHandoffDirection = 0;
-                _activeHandoffOverflowDown = 0;
-                _activeHandoffCarryUp = 0;
+                _activeHandoffScrollDelta = 0;
+                _activeHandoffScrollOrigin = 0;
 
                 lock (_engineGate)
                 {
@@ -216,13 +221,19 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
                     previous?.Dispose();
                 }
                 _content = composed.content;
+                _loadedChapterSource = navigationSource;
                 BuildTableTextRanges(composed.content);
                 _loadedFootnoteFragment = string.IsNullOrWhiteSpace(fragment) ? null : NormalizeFragment(fragment);
                 _options = composed.options;
                 _layout = composed.layout;
                 _spreadCompanionLayout = composed.companionLayout;
-                _scrollNextChapterLayout = composed.scrollNextLayout;
-                _scrollNextChapterLayoutPath = composed.scrollNextLayout is not null ? scrollNextChapterPath : null;
+                _scrollNextChapterPreview = composed.scrollNextLayout;
+                _scrollNextChapterLayout = composed.scrollNextLayout?.Layout;
+                _scrollNextChapterLayoutPath = composed.scrollNextLayout?.Path;
+                _scrollPreviousChapterPreview = handoffDown
+                    && outgoingChapter?.Matches(_scrollPreviousChapterPath ?? "", settings, width, height) == true
+                    ? outgoingChapter : null;
+                _installedLayoutSettings = settings;
                 RetainInstalledLayoutFonts();
                 InvalidateSpeechTextSnapshot();
                 _loadedParagraphIndent = settings.ParagraphIndent;
@@ -231,14 +242,12 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
                 _pageIndex = 0;
                 if (resolvedCarryDown is { } carryDown)
                 {
-                    _scrollOffset = ClampLiveScrollOffset(carryDown);
+                    InstallContinuousScrollOffset(carryDown);
                 }
                 else if (resolvedCarryUp is { } carryUp && IsContinuousProseScroll)
                 {
-                    var targetOffset = _scrollNextChapterLayout is { Pages.Count: > 0 }
-                        ? Math.Max(0.0, ContinuousNextChapterStartY - carryUp)
-                        : Math.Max(0.0, ComputeContinuousContentHeight() + 48.0 - ScrollPageHeight);
-                    _scrollOffset = ClampScrollOffset(targetOffset);
+                    var targetOffset = ContinuousNextChapterStartY - carryUp;
+                    InstallContinuousScrollOffset(targetOffset);
                 }
                 else if (readingAnchor is null)
                 {
@@ -267,6 +276,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
                 EmitScroll();
                 NavigationCompleted?.Invoke(this, new ReaderNavigationCompletedEventArgs(navigationSource, true));
                 completion.TrySetResult(true);
+                PreloadPreviousContinuousChapter();
             }
             catch (OperationCanceledException) when (navigationToken.IsCancellationRequested)
             {
@@ -289,8 +299,7 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
                 if (version == Volatile.Read(ref _navigationVersion))
                 {
                     _activeHandoffDirection = 0;
-                    _activeHandoffOverflowDown = 0;
-                    _activeHandoffCarryUp = 0;
+                    _activeHandoffScrollDelta = 0;
                 }
                 navigationEngine?.Dispose();
                 fontUse?.Dispose();
@@ -344,13 +353,14 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
             return null;
         }
 
-        var content = new XhtmlChapterLoader(options.ParagraphIndent).Load(companionPath, cancellationToken);
+        var content = NativeReaderChapterContentCache.Shared.Load(companionPath, options.ParagraphIndent, null, cancellationToken);
         return engine.Compose(content, options, cancellationToken);
     }
 
-    private static ChapterLayout? ComposeScrollNextChapter(
+    private static ContinuousChapterPreview? ComposeScrollNextChapter(
         string? nextChapterPath,
         TypesetLayoutOptions options,
+        ReaderLayoutSettings settings,
         TypesetEngine engine,
         CancellationToken cancellationToken)
     {
@@ -363,8 +373,9 @@ public sealed partial class NativeReaderHost : Control, IReaderHost, IReaderPage
 
         try
         {
-            var content = new XhtmlChapterLoader(options.ParagraphIndent).Load(nextChapterPath, cancellationToken);
-            return engine.Compose(content, options, cancellationToken, stopAfterTextOffset: 6000);
+            var content = NativeReaderChapterContentCache.Shared.Load(nextChapterPath, options.ParagraphIndent, null, cancellationToken);
+            return new ContinuousChapterPreview(nextChapterPath, content,
+                engine.Compose(content, options, cancellationToken, stopAfterTextOffset: 6000), settings);
         }
         catch (OperationCanceledException)
         {

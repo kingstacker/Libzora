@@ -85,6 +85,7 @@ public sealed class TypesetEngine : IDisposable
             Pages = pages.Pages,
             BodyTextLength = content.BodyText.Length,
             FragmentPages = pages.Fragments,
+            FragmentTops = pages.FragmentTops,
             Options = options,
             IsComplete = !truncated,
         };
@@ -107,6 +108,14 @@ public sealed class TypesetEngine : IDisposable
             var fragmentPage = layout.GetPageIndexOfOffset(offset);
             if (fragmentPage >= 0)
             {
+                if (options.ContinuousScroll)
+                {
+                    // Text anchors can land inside a block. Keep the recorded
+                    // geometry for structural anchors without an exact glyph.
+                    if (layout.GetCharRect(fragmentPage, offset) is { } rect)
+                        pages.FragmentTops[fragmentId] = rect.Top;
+                    else if (pages.Fragments.ContainsKey(fragmentId)) continue;
+                }
                 pages.Fragments[fragmentId] = fragmentPage;
             }
         }
@@ -263,6 +272,22 @@ public static class ChapterLayoutInteraction
                 return run;
         }
         return null;
+    }
+
+    /// <summary>Whether a scroll slice paints interactive content at this exact point.</summary>
+    public static bool ContainsScrollContentAt(this ChapterLayout layout, int pageIndex, SKPoint point)
+    {
+        var page = layout.Pages[pageIndex];
+        if (page.HotZones.Any(zone => zone.Rect.Contains(point.X, point.Y))
+            || layout.GetBlockImageAt(pageIndex, point) is not null
+            || layout.GetTableAt(pageIndex, point) is not null) return true;
+
+        var index = HitIndexes.GetValue(page, static candidate => new PageHitIndex(candidate));
+        foreach (var (_, _, rect) in index.Near(point, 0f))
+        {
+            if (rect.Contains(point.X, point.Y)) return true;
+        }
+        return false;
     }
 
     /// <summary>Returns the interactive zone under a page point, if any.</summary>

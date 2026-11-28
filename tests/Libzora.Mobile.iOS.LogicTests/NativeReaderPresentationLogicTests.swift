@@ -84,6 +84,26 @@ struct NativeReaderPresentationLogicTests {
         check(!NativeWidgetNavigationPolicy.canPresentTab(libraryPreparing: true, readerVisible: false)
                 && !NativeWidgetNavigationPolicy.canPresentTab(libraryPreparing: false, readerVisible: true),
               "Neither an unprepared shell nor a live modal can be exposed prematurely")
+        for opening in [false, true] {
+            for transition in [false, true] {
+                for presented in [false, true] {
+                    for pendingWidgetBook in [false, true] {
+                        check(NativeBookOpenTransitionPolicy.shouldHideShellStatusBar(
+                            openingReader: opening, hasOpenTransition: transition,
+                            readerPresented: presented, hasPendingWidgetBook: pendingWidgetBook
+                        ) == (opening || transition || presented || pendingWidgetBook),
+                        "Shell status bar stays hidden across widget reader dismissal and replacement, but returns after cancellation or normal close")
+                    }
+                }
+            }
+        }
+        check(NativeBookOpenTransitionPolicy.shouldHideShellStatusBar(
+            openingReader: false, hasOpenTransition: false,
+            readerPresented: false, hasPendingWidgetBook: true),
+            "The widget replacement gap must not expose the battery/status bar")
+        check(!NativeBookOpenTransitionPolicy.shouldHideReaderStatusBar(
+            chromeVisible: true, hasOpenTransition: false),
+            "Visible reader chrome still owns and can reveal its status bar above the hidden shell")
         print("Passed \(assertions) reader presentation and widget navigation assertions.")
     }
 }

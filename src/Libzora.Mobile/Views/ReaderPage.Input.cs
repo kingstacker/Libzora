@@ -38,6 +38,9 @@ public partial class ReaderPage
     private async Task<bool> SaveProgressLockedAsync(bool force)
     {
         if (!_ready || _bookFile is null || _readerHost is null) return true;
+        // Chapter identity may be published before its layout commits. Never
+        // persist a new chapter with coordinates still owned by the old one.
+        if (!_footnoteProgressSuppressed && (!CanUseCommittedEpubPosition() || IsAuxiliaryChapter(_chapterIndex))) return false;
         var now = DateTimeOffset.UtcNow;
         CountReadingTime(now);
         var minSaveInterval = IsPowerSavingActive ? TimeSpan.FromSeconds(25) : TimeSpan.FromSeconds(1.2);
@@ -150,8 +153,6 @@ public partial class ReaderPage
     private long _lastDragTicks;
     private double _dragVelocityX;
     private double _dragVelocityY;
-    private DispatcherTimer? _scrollInertiaTimer;
-    private double _scrollInertiaVelocityY;
     private bool _suppressScrollUpdatesDuringDrag;
     private (double Top, double Left)? _pendingDragScroll;
 
@@ -172,38 +173,6 @@ public partial class ReaderPage
         _ => ReaderTransitionPlayer.AnimationPush
     };
 
-    private void StopScrollInertia()
-    {
-        _scrollInertiaTimer?.Stop();
-        _scrollInertiaVelocityY = 0;
-    }
-
-    private void StartScrollInertia(NativeReaderHost host)
-    {
-        var initialVelocity = Math.Clamp(-_dragVelocityY, -3600d, 3600d);
-        if (Math.Abs(initialVelocity) < 120) return;
-        _scrollInertiaVelocityY = initialVelocity;
-        _scrollInertiaTimer ??= new DispatcherTimer(TimeSpan.FromMilliseconds(16), DispatcherPriority.Render, (_, _) =>
-        {
-            if (_disposed || (_turning && !IsEpubScrollMode) || !IsContinuousVerticalScroll || IsMangaZoomed
-                || _readerHost is not NativeReaderHost scrollHost)
-            {
-                StopScrollInertia();
-                return;
-            }
-            var step = _scrollInertiaVelocityY * 0.016;
-            _scrollInertiaVelocityY *= 0.92;
-            if (Math.Abs(_scrollInertiaVelocityY) < 25)
-            {
-                StopScrollInertia();
-                return;
-            }
-            scrollHost.ScrollByPixel(step);
-        });
-        _scrollInertiaTimer.Stop();
-        _scrollInertiaTimer.Start();
-    }
-
     private Point TranslateToHost(Point pointInPaper)
     {
         if (_readerHost?.View is Visual hostVisual
@@ -214,8 +183,18 @@ public partial class ReaderPage
         return pointInPaper;
     }
 
+    private bool CanUseCommittedEpubPosition()
+    {
+        if (_isPdf || _readerHost is not NativeReaderHost host || _epubDocument is null) return true;
+        return !host.IsNavigationPending && !host.IsContinuousScrollHandoffPending
+            && host.IsReadingPositionInLoadedChapter && _chapterIndex >= 0
+            && _chapterIndex < _epubDocument.Chapters.Count
+            && host.LoadedChapterPath is { } path && FindEpubChapter(_epubDocument, path) == _chapterIndex;
+    }
+
     private void ApplyScrollUpdate(double top, double left)
     {
+        if (!CanUseCommittedEpubPosition()) return;
         _lastScrollTop = top;
         _lastScrollLeft = left;
         _epubPosition = _layout.FlowMode == 0 ? Math.Max(0, top) : Math.Max(0, left);
@@ -335,7 +314,8 @@ public partial class ReaderPage
         _selectionArmed = false;
         _expectSelection = false;
         _tapConsumed = false;
-        if (MobileReaderPagingPolicy.AllowsSurfaceSelection(IsChromeVisible, IsMangaPannable))
+        if (MobileReaderPagingPolicy.AllowsSurfaceSelection(IsChromeVisible, IsMangaPannable)
+            && CanUseCommittedEpubPosition())
         {
             _longPress.Start();
         }
@@ -439,6 +419,7 @@ public partial class ReaderPage
         }
         if ((IsMangaPannable || IsEpubScrollMode) && _pressMoved && _readerHost is NativeReaderHost mangaHost)
         {
+            var wasPanning = _panning;
             _panning = true;
             if (IsMangaZoomed)
             {
@@ -446,7 +427,8 @@ public partial class ReaderPage
             }
             else if (IsContinuousVerticalScroll)
             {
-                mangaHost.ScrollByPixel(-delta.Y);
+                var dragDelta = wasPanning ? -delta.Y : start.Y - current.Y;
+                mangaHost.ScrollByPixel(IsEpubScrollMode ? MobileReaderScrollPhysics.ScaleDragDelta(dragDelta) : dragDelta);
             }
             e.Handled = true;
             return;
@@ -565,8 +547,20 @@ public partial class ReaderPage
         if ((IsMangaPannable || IsEpubScrollMode) && (_panning || _pressMoved))
         {
             ConsumeSurfaceRelease(e);
-            if (IsContinuousVerticalScroll && !IsMangaZoomed && _readerHost is NativeReaderHost scrollHost)
+            if (!IsChromeVisible && IsContinuousVerticalScroll && !IsMangaZoomed && _readerHost is NativeReaderHost scrollHost)
             {
+                // Some platforms deliver the last displacement only on release.
+                // Preserve it instead of snapping every gesture to the last move.
+                var finalDelta = end.Y - _lastPanPoint.Y;
+                if (Math.Abs(finalDelta) > 0.01)
+                {
+                    scrollHost.ScrollByPixel(IsEpubScrollMode ? MobileReaderScrollPhysics.ScaleDragDelta(-finalDelta) : -finalDelta);
+                    var now = Stopwatch.GetTimestamp();
+                    var elapsed = (now - _lastDragTicks) / (double)Stopwatch.Frequency;
+                    if (elapsed > 0.002)
+                        _dragVelocityY = _dragVelocityY * 0.4 + finalDelta / elapsed * 0.6;
+                    _lastDragTicks = now;
+                }
                 StartScrollInertia(scrollHost);
             }
             return;
@@ -759,156 +753,4 @@ public partial class ReaderPage
         }
     }
 
-    /// <summary>Turns one page, crossing into the neighboring chapter at its edge.</summary>
-    public async Task TurnAsync(int direction)
-    {
-        HideSelectionBar();
-        if (_turning) return;
-        var turnId = ++_activeTurnId;
-        _turning = true;
-        CancellationTokenSource? transitionCts = null;
-        Task? transitionTask = null;
-        try
-        {
-            CancelInteractiveDragImmediate();
-            await CancelAndAwaitActiveTransitionAsync();
-            MarkNativeNavigation();
-            _tts?.NotifyManualNavigation();
-            await EnsureLayoutCompleteAsync();
-            if (_isPdf && (_pdfPage + direction < 1 || _pdfPage + direction > _pdfPageCount))
-            {
-                ShowEdgeNotice(direction);
-                return;
-            }
-            if (!_isPdf && _readerHost is NativeReaderHost current && !current.CanTurn(direction))
-            {
-                // The next spine file may be a footnote container; report the
-                // edge instead of animating toward a page that never opens.
-                var target = _epubDocument is null
-                    ? -1
-                    : ResolveReadingChapter(_chapterIndex + direction, direction);
-                if (_epubDocument is null || target < 0 || target >= _epubDocument.Chapters.Count)
-                {
-                    ShowEdgeNotice(direction);
-                    return;
-                }
-            }
-
-            var surface = CreateTransitionSurface();
-            var animation = IsPowerSavingActive
-                ? ReaderTransitionPlayer.AnimationNone
-                : ResolveTransitionAnimation(_shell.Preferences.Current.ReaderPageAnimation);
-            var visualDirection = MobileReaderPagingPolicy.VisualDirection(
-                direction, _layout.VerticalWriting, _isPdf, IsRightToLeftPaging);
-            transitionCts = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
-            var transitionToken = transitionCts.Token;
-            _transitionCts = transitionCts;
-            var contentSwitched = false;
-            transitionTask = ReaderTransitionPlayer.RunAsync(surface, animation, visualDirection, async () =>
-            {
-                ClearActiveSyncedMarker();
-                if (_isPdf)
-                {
-                    await GoToPdfPageAsync(_pdfPage + direction, cancellationToken: transitionToken);
-                    contentSwitched = true;
-                    return true;
-                }
-
-                if (_readerHost is not NativeReaderHost host) return false;
-                if (!host.TurnPage(direction))
-                    await GoToChapterAsync(host, _chapterIndex + direction, fromEnd: direction < 0, direction);
-                contentSwitched = true;
-                return true;
-            }, transitionToken);
-            _activeTransitionTask = transitionTask;
-            // Unlock rapid consecutive page turns once the page flip has switched
-            // content and entered its visual animation phase; the next turn will
-            // cleanly settle the previous animation first.
-            while (!transitionTask.IsCompleted && !contentSwitched)
-            {
-                await Task.WhenAny(transitionTask, Task.Delay(8, transitionToken));
-            }
-            if (contentSwitched && turnId == _activeTurnId) _turning = false;
-            await transitionTask;
-        }
-        catch (OperationCanceledException)
-        {
-        }
-        catch (Exception exception)
-        {
-            _shell.ShowToast(UiText.Localize(exception.Message));
-        }
-        finally
-        {
-            if (transitionTask is not null && ReferenceEquals(_activeTransitionTask, transitionTask))
-                _activeTransitionTask = null;
-            if (ReferenceEquals(_transitionCts, transitionCts))
-                _transitionCts = null;
-            transitionCts?.Dispose();
-            if (turnId == _activeTurnId)
-                _turning = false;
-        }
-    }
-
-    private async Task GoToChapterAsync(NativeReaderHost host, int chapter, bool fromEnd, int direction, double carryOffset = 0, double carryUpDelta = 0)
-    {
-        ClearActiveSyncedMarker();
-        HideSelectionBar();
-        if (_epubDocument is null) return;
-        // Footnote containers are not reading content: stepping past the last
-        // real chapter reports the edge instead of opening a blank notes page.
-        chapter = ResolveReadingChapter(chapter, direction < 0 ? -1 : 1);
-        if (chapter < 0 || chapter >= _epubDocument.Chapters.Count)
-        {
-            StopScrollInertia();
-            ShowEdgeNotice(direction);
-            return;
-        }
-
-        var continuousHandoffDown = IsContinuousVerticalScroll && !fromEnd && direction > 0;
-        var continuousHandoffUp = IsContinuousVerticalScroll && fromEnd && direction < 0 && carryUpDelta > 0;
-        if (continuousHandoffDown)
-        {
-            host.PrepareContinuousScrollHandoff(handoffDown: true, carryDownOffset: carryOffset);
-        }
-        else if (continuousHandoffUp)
-        {
-            host.PrepareContinuousScrollHandoff(carryUpDelta: carryUpDelta);
-        }
-
-        if (!await NavigateToChapterAsync(
-                host,
-                chapter,
-                new Uri(_epubDocument.Chapters[chapter]),
-                allowPartialCompose: !(continuousHandoffDown || continuousHandoffUp)))
-            return;
-        if (fromEnd && !continuousHandoffUp)
-        {
-            await EnsureLayoutCompleteAsync();
-            host.SeekToBoundary(toEnd: true);
-        }
-        UpdateEpubLabels();
-        _ = SaveProgressSoonAsync(force: true);
-    }
-
-    private void ShowEdgeNotice(int direction) =>
-        _shell.ShowToast(direction < 0 ? UiText.Get("已经是第一页") : UiText.Get("已经是最后一页"));
-
-    private async Task MoveChapterAsync(int direction)
-    {
-        _tts?.NotifyManualNavigation();
-        try
-        {
-            if (_isPdf) await GoToPdfPageAsync(_pdfPage + direction);
-            else if (_readerHost is NativeReaderHost host)
-                await GoToChapterAsync(host, _chapterIndex + direction, fromEnd: false, direction);
-        }
-        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
-        {
-        }
-        catch (Exception exception)
-        {
-            _shell.ShowToast(UiText.Localize(exception.Message));
-        }
-    }
 }

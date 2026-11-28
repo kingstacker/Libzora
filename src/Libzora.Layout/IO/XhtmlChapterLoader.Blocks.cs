@@ -157,6 +157,8 @@ public sealed partial class XhtmlChapterLoader
     private void AddTableBlock(XElement table, FlowContext ctx)
     {
         var tableStart = _blocks.Count;
+        var hints = ResolveHints(table);
+        var tableContext = ctx.ForBlock(BlockKind.Table, hints, Id(table));
         var tableFragmentIds = TakePendingFragmentIds();
         foreach (var caption in table.Elements()
                      .Where(child => child.Name.LocalName.Equals("caption", StringComparison.OrdinalIgnoreCase)
@@ -186,26 +188,26 @@ public sealed partial class XhtmlChapterLoader
                 foreach (var cellElement in cellElements)
                 {
                     var isHeader = cellElement.Name.LocalName == "th";
-                    var hints = ResolveHints(cellElement);
-                    var cellContext = ctx.ForTableCell(hints, isHeader);
+                    var cellHints = ResolveHints(cellElement);
+                    var cellContext = tableContext.ForTableCell(cellHints, isHeader);
                     TrackId(cellElement);
                     WalkInlineContent(cellElement, cellContext);
                     var items = _pending.ToList();
                     _pending.Clear();
-                    var anyDeclaredBorder = !float.IsNaN(hints.BorderTopEm)
-                        || !float.IsNaN(hints.BorderRightEm)
-                        || !float.IsNaN(hints.BorderBottomEm)
-                        || !float.IsNaN(hints.BorderLeftEm);
+                    var anyDeclaredBorder = !float.IsNaN(cellHints.BorderTopEm)
+                        || !float.IsNaN(cellHints.BorderRightEm)
+                        || !float.IsNaN(cellHints.BorderBottomEm)
+                        || !float.IsNaN(cellHints.BorderLeftEm);
                     cells.Add(new ContentTableCell
                     {
                         Items = items,
                         ColSpan = ParseColumnSpan(cellElement),
                         RowSpan = ParseRowSpan(cellElement),
                         Header = isHeader,
-                        BorderTopEm = CellBorder(hints.BorderTopEm, anyDeclaredBorder, defaultBorder),
-                        BorderRightEm = CellBorder(hints.BorderRightEm, anyDeclaredBorder, defaultBorder),
-                        BorderBottomEm = CellBorder(hints.BorderBottomEm, anyDeclaredBorder, defaultBorder),
-                        BorderLeftEm = CellBorder(hints.BorderLeftEm, anyDeclaredBorder, defaultBorder),
+                        BorderTopEm = CellBorder(cellHints.BorderTopEm, anyDeclaredBorder, defaultBorder),
+                        BorderRightEm = CellBorder(cellHints.BorderRightEm, anyDeclaredBorder, defaultBorder),
+                        BorderBottomEm = CellBorder(cellHints.BorderBottomEm, anyDeclaredBorder, defaultBorder),
+                        BorderLeftEm = CellBorder(cellHints.BorderLeftEm, anyDeclaredBorder, defaultBorder),
                     });
                 }
 
@@ -267,10 +269,22 @@ public sealed partial class XhtmlChapterLoader
         {
             Kind = BlockKind.Table,
             ElementId = Id(table),
-            Style = ctx.BaseStyle,
-            Justify = ctx.Justify,
-            SpaceBeforeLines = 0.5f,
-            SpaceAfterLines = 0.5f,
+            Style = tableContext.BaseStyle,
+            Justify = tableContext.Justify,
+            Center = tableContext.Center,
+            AlignRight = tableContext.AlignRight,
+            PageBreakBefore = tableContext.PageBreakBefore,
+            PageBreakAfter = tableContext.PageBreakAfter,
+            KeepWithNext = tableContext.KeepWithNext,
+            LineHeightFactor = tableContext.LineHeightFactor,
+            MarginTopEm = tableContext.MarginTopEm,
+            MarginBottomEm = tableContext.MarginBottomEm,
+            MarginLeftEm = tableContext.MarginLeftEm,
+            MarginRightEm = tableContext.MarginRightEm,
+            PaddingLeftEm = tableContext.PaddingLeftEm,
+            PaddingRightEm = tableContext.PaddingRightEm,
+            SpaceBeforeLines = float.IsNaN(hints.MarginTopEm) ? 0.5f : 0f,
+            SpaceAfterLines = float.IsNaN(hints.MarginBottomEm) ? 0.5f : 0f,
             Table = new ContentTable { Rows = rows },
             Items = fallback,
             FragmentIds = tableFragmentIds

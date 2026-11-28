@@ -64,6 +64,8 @@ def main() -> int:
         command.append("-skip-testing:NativeFrontendUITests/ReaderMediaTests")
         # Footnote compatibility also uses a separate, explicitly prepared bundle.
         command.append("-skip-testing:NativeFrontendUITests/ReaderFootnoteTests")
+        # User-provided book animation checks need their independent fixture.
+        command.append("-skip-testing:NativeFrontendUITests/ActualBookOpenTests")
         # Layout compatibility uses its own isolated bundle as well.
         command.append("-skip-testing:NativeFrontendUITests/ReaderLayoutTests")
         # Review regressions need the fictional AI/dictionary/PDF-zoom fixture

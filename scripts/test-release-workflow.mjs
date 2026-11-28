@@ -185,3 +185,12 @@ test('all platforms and changelog use the prepared SHA and tag creation stays be
   assert(publishJob.indexOf('Create update manifest') < publishJob.indexOf('Create or verify release tag'));
   assert(publishJob.indexOf('Create or verify release tag') < publishJob.indexOf('Create or update GitHub Release'));
 });
+
+for (const [name, source] of [['Release', workflow], ['Development Build', developmentWorkflow]]) {
+  test(`${name} update-manifest includes macOS DMG packages`, () => {
+    const manifestStep = source.match(/- name: Create update manifest[\s\S]*?(?=\n      - name: )/)?.[0];
+    assert(manifestStep, `${name} must retain its update manifest step`);
+    assert.match(manifestStep, /-osx-arm64\.dmg/);
+    assert.match(manifestStep, /-osx-x64\.dmg/);
+  });
+}

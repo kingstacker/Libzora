@@ -443,20 +443,8 @@ extension NativeStore {
                 return
             }
             openingBookReadyId = transition.id
-            let transitionId = transition.id
-            let fallbackTimeout = (target.isCentered
-                ? NativeBookOpenTransitionPolicy.openFromCenterDuration
-                : NativeBookOpenTransitionPolicy.openFromCoverDuration) + 0.55
-            DispatchQueue.main.asyncAfter(deadline: .now() + fallbackTimeout) { [weak self] in
-                guard let self else { return }
-                if self.openingBookTransition?.id == transitionId {
-                    self.openingBookTransition = nil
-                }
-                if self.openingBookReadyId == transitionId {
-                    self.openingBookReadyId = nil
-                }
-                self.restoringReader = false
-            }
+            // The reader starts the flight after its acknowledged first frame.
+            // A timeout measured from modal mount could uncover an empty page.
         } else {
             openingBookReadyId = nil
             openingBookTransition = nil

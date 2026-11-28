@@ -36,6 +36,33 @@ final class ReaderFootnoteTests: XCTestCase {
         XCTAssertEqual(position.label, original)
     }
 
+    func testEarlyFootnoteSurvivesLateReaderLabelRefresh() {
+        app.terminate()
+        app.launchArguments = ["--libzora-disable-restore", "--libzora-test-late-footnote-labels"]
+        app.launch()
+        let book = libraryBook("旧式锚点")
+        XCTAssertTrue(book.waitForExistence(timeout: 40))
+        book.tap()
+        // Tap as soon as the first native page position exists, without the
+        // normal extra settling wait before a footnote interaction.
+        XCTAssertTrue(position.waitForExistence(timeout: 40))
+        let originalPosition = position.label
+        showFirstFootnote(x: 36)
+        let close = app.buttons["reader.footnote.close"]
+        let deadline = Date().addingTimeInterval(3)
+        var sawLabelRefresh = false
+        repeat {
+            sawLabelRefresh = sawLabelRefresh || position.label != originalPosition
+            XCTAssertTrue(close.exists, "A late page-count/chapter-label refresh must not dismiss the newly opened note")
+            XCTAssertTrue(noteText("旧式锚点的完整注释。").exists)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        } while Date() < deadline
+        XCTAssertTrue(sawLabelRefresh, "The fixture must actually deliver the deferred reader label update")
+        checkpoint("脚注回归-刚开书点击注-标签刷新后浮窗仍在")
+        close.tap()
+        XCTAssertTrue(waitUntil { !self.app.otherElements["reader.footnote.card"].exists })
+    }
+
     func testCrossFileNoteKeepsAllParagraphsAndReturnsToSource() {
         let original = openBook("跨文件多段")
         showFirstFootnote()
@@ -439,5 +466,52 @@ final class ReaderFootnoteTests: XCTestCase {
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+}
+
+/// Explicitly selected after preparing a user-provided book in bookopencheck.
+/// No source-book title, path or contents are embedded in the test bundle.
+final class ActualBookOpenTests: XCTestCase {
+    func testProvidedBookRepeated3DOpenHasStableFirstPage() {
+        continueAfterFailure = false
+        let app = XCUIApplication(bundleIdentifier: "com.kingstacker.libzora.bookopencheck")
+        app.launchArguments = ["--libzora-disable-restore"]
+        app.launch()
+        defer { app.terminate() }
+        XCTAssertTrue(app.buttons["library.display"].waitForExistence(timeout: 40))
+        let book = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'book.' AND NOT (label BEGINSWITH '脚注回归·')")).firstMatch
+        XCTAssertTrue(book.waitForExistence(timeout: 15), app.debugDescription)
+        checkpoint("实书3D-真实多书封面")
+        for index in 0..<3 {
+            XCTAssertTrue(book.isHittable)
+            checkpoint("实书3D-打开前-\(index)")
+            book.tap()
+            XCTAssertTrue(app.staticTexts["reader.position"].waitForExistence(timeout: 60))
+            let deadline = Date().addingTimeInterval(20)
+            while app.descendants(matching: .any)["reader.loading"].exists && Date() < deadline {
+                RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+            }
+            XCTAssertFalse(app.descendants(matching: .any)["reader.loading"].exists)
+            checkpoint("实书3D-正文就绪-\(index)")
+            let close = app.buttons["reader.close"]
+            if !close.exists {
+                app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+            }
+            XCTAssertTrue(close.waitForExistence(timeout: 10))
+            close.tap()
+            let end = Date().addingTimeInterval(15)
+            while !book.isHittable && Date() < end { RunLoop.current.run(until: Date().addingTimeInterval(0.1)) }
+            XCTAssertTrue(book.isHittable)
+            checkpoint("实书3D-关闭返回-\(index)")
+        }
+    }
+
+    private func checkpoint(_ name: String) {
+        print("LIBZORA_VISUAL_CHECKPOINT:\(name)")
+        RunLoop.current.run(until: Date().addingTimeInterval(1.2))
+        let image = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        image.name = name
+        image.lifetime = .keepAlways
+        add(image)
     }
 }

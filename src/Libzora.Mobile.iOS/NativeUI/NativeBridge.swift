@@ -359,7 +359,7 @@ final class NativeStore: ObservableObject {
     @Published var requestedTab: Int?
     static let lastReaderKey = "libzora.reader.lastBookId"
     var pendingReaderRestore: String?
-    var pendingOpenBookId: String?
+    @Published var pendingOpenBookId: String?
     /// Bumped whenever a widget link supersedes the reader that is opening.
     var readerOpenGeneration = 0
 #if DEBUG
@@ -492,7 +492,7 @@ final class NativeStore: ObservableObject {
         case "readerDialog": session.dialog = event.dialog
         case "readerMedia": session.media = event.media
         case "readerFootnote":
-            session.footnote = event.footnote?.visible == true ? event.footnote : nil
+            receiveFootnote(event.footnote)
         case "readerSearch":
             if let search = event.search {
                 session.searchBatch = search

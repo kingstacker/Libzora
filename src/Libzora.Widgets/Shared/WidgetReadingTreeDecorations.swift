@@ -486,7 +486,7 @@ extension KkReadingTreeCanvas {
         var path = Path()
         let inner = radius * 0.44
         for idx in 0..<10 {
-            let angle = -.pi * 0.5 + CGFloat(idx) * (.pi / 5.0)
+            let angle: CGFloat = -.pi * 0.5 + CGFloat(idx) * (.pi / 5.0)
             let r = idx % 2 == 0 ? radius : inner
             let pt = CGPoint(x: center.x + cos(angle) * r, y: center.y + sin(angle) * r)
             if idx == 0 {
@@ -503,7 +503,7 @@ extension KkReadingTreeCanvas {
         var path = Path()
         let inner = radius * 0.28
         for idx in 0..<8 {
-            let angle = -.pi * 0.5 + CGFloat(idx) * (.pi / 4.0)
+            let angle: CGFloat = -.pi * 0.5 + CGFloat(idx) * (.pi / 4.0)
             let r = idx % 2 == 0 ? radius : inner
             let pt = CGPoint(x: center.x + cos(angle) * r, y: center.y + sin(angle) * r)
             if idx == 0 {
@@ -700,7 +700,7 @@ extension KkReadingTreeCanvas {
         let base = CGPoint(x: skeleton.rootPoint.x + max(9, skeleton.baseThickness * 1.9), y: skeleton.rootPoint.y)
         let len = max(6.0, unit * 0.095)
         for idx in -1...1 {
-            let angle = -.pi * 0.5 + CGFloat(idx) * 0.26
+            let angle: CGFloat = -.pi * 0.5 + CGFloat(idx) * 0.26
             let tip = CGPoint(x: base.x + cos(angle) * len, y: base.y + sin(angle) * len)
             var stalk = Path()
             stalk.move(to: base)
